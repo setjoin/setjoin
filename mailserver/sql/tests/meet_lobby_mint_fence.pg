@@ -1,0 +1,184 @@
+-- meet_lobby_mint_fence.pg — V270: the DURABLE admitted re-mint fence
+-- (occ_bcdf321b15332f109a69e653's reducer half). lobby.go's admittedMintFence
+-- bounded the public poll's admitted-leg mint to 15 minutes past the FIRST
+-- mint — but per-process (a restart/second replica reopens the window). V270
+-- moves the truth into the reducer: meeting_lobby_mint_fences (one immutable
+-- first-mint anchor per join request, the V125 15-minute horizon) +
+-- meeting_lobby_mint_fence (the identity_media_mint_fence genre, BZ329 fail
+-- closed), consulted by meeting_join_request_poll's BOTH admitted arms, which
+-- map a closed window to the reducer's own bare {"state":"expired"} shape.
+-- Pinned here: first mint opens; within-window re-mint allowed and never
+-- extends; past-window refusal (exact wire shape + the direct-call BZ329);
+-- poll-row expiry vs fence coherence (pending never fences, denied/kick beats
+-- the fence, meeting-end arm wins with the row untouched, a closed window
+-- never reopens); the horizon is a CHECK pin, not a tunable; cascade cleanup.
+-- The FORCE-RLS denial proof lives in meet_lobby_mint_fence_rls.pg.
+BEGIN;
+SELECT plan(32);
+
+SELECT mk_auth_user('fence-host@meet-lobby.test') AS host_id \gset
+SELECT mk_auth_user('fence-knocker@meet-lobby.test') AS knocker_id \gset
+SELECT mk_auth_user('fence-prio@meet-lobby.test') AS prio_user_id \gset
+
+-- ── the DEFINER pin (the create/poll posture this fence shares) ──────────
+SELECT ok((SELECT proconfig::text FROM pg_proc WHERE proname = 'meeting_lobby_mint_fence')
+          LIKE '%search_path%', 'meeting_lobby_mint_fence pins search_path');
+
+-- ── fixture: a guest-enabled meeting with a guest request ────────────────
+SELECT (meeting_create(:host_id, 'Mint fence meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'slug') AS slug \gset
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+SELECT (meeting_join_request_create(:'slug', 'Fence Guest')) AS req \gset
+SELECT (:'req'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT (:'req'::jsonb ->> 'secret') AS guest_secret \gset
+
+-- ── 1. a PENDING poll records no window (the fence is admitted-mint only) ─
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS pend \gset
+SELECT is(:'pend'::jsonb ->> 'state', 'pending', 'setup: the request polls pending');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 0::bigint,
+  'a pending poll records no fence window');
+
+-- a clock-expired pending poll settles expired and still records nothing
+-- (poll-row expiry vs fence coherence: only an ADMITTED mint opens a window).
+UPDATE meeting_join_requests SET expires_at = now() - interval '1 second'
+ WHERE id = :guest_req_id AND state = 'pending';
+SELECT (meeting_join_request_create(:'slug', 'Still Pending Two')) AS req1b \gset
+UPDATE meeting_join_requests SET expires_at = now() - interval '1 second'
+ WHERE id = (:'req1b'::jsonb ->> 'requestId')::bigint;
+SELECT (meeting_join_request_poll(:'slug', (:'req1b'::jsonb ->> 'requestId')::bigint,
+       (:'req1b'::jsonb ->> 'secret'))) AS pend_expired \gset
+SELECT is(:'pend_expired'::jsonb ->> 'state', 'expired',
+  'a clock-expired pending row settles expired on poll');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 0::bigint,
+  'an expired-pending poll records no fence window either');
+
+-- ── 2. admit → the FIRST mint opens the window ───────────────────────────
+-- (the expired first request is discarded; use a fresh one for the mint arc.)
+SELECT (meeting_join_request_create(:'slug', 'Fence Guest Two')) AS req2 \gset
+SELECT (:'req2'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT (:'req2'::jsonb ->> 'secret') AS guest_secret \gset
+SELECT meeting_admit(:host_id, :guest_req_id);
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS p1 \gset
+SELECT is(:'p1'::jsonb ->> 'state', 'admitted', 'the first admitted poll mints');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 1::bigint,
+  'the first admitted mint opens exactly one window row');
+SELECT is((SELECT meeting_id FROM meeting_lobby_mint_fences WHERE join_request_id = :guest_req_id),
+  :meeting_id::bigint, 'the window row is bound to the minted request''s meeting');
+SELECT is((SELECT identity FROM meeting_lobby_mint_fences WHERE join_request_id = :guest_req_id),
+  'g:' || :guest_req_id, 'the guest arm anchors the g:-genre window');
+SELECT is((SELECT expires_at - first_mint_at FROM meeting_lobby_mint_fences
+            WHERE join_request_id = :guest_req_id),
+  interval '15 minutes',
+  'the window horizon is exactly 15 minutes (admittedReMintWindow, the V125 pending-expiry interval)');
+
+-- ── 3. within-window re-mint: allowed, anchor NEVER moves ────────────────
+SELECT (SELECT first_mint_at FROM meeting_lobby_mint_fences
+         WHERE join_request_id = :guest_req_id) AS anchor \gset
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS p2 \gset
+SELECT is(:'p2'::jsonb ->> 'state', 'admitted', 'a within-window re-mint is allowed');
+SELECT is((SELECT first_mint_at FROM meeting_lobby_mint_fences
+            WHERE join_request_id = :guest_req_id),
+  :'anchor'::timestamptz, 'a re-mint never extends the window anchor');
+SELECT is((SELECT expires_at FROM meeting_lobby_mint_fences
+            WHERE join_request_id = :guest_req_id),
+  :'anchor'::timestamptz + interval '15 minutes',
+  'the horizon still reads off the FIRST mint');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 1::bigint,
+  'still exactly one window row after the re-mint');
+SELECT is(meeting_lobby_mint_fence(:guest_req_id),
+  :'anchor'::timestamptz + interval '15 minutes',
+  'a direct within-window fence call returns the window close');
+
+-- ── 4. the member-knock arm fences the same way (u:-genre) ───────────────
+SELECT (meeting_join_request_create(:'slug', 'Fence Knocker', :knocker_id)) AS knock \gset
+SELECT (:'knock'::jsonb ->> 'requestId')::bigint AS knock_req_id \gset
+SELECT (:'knock'::jsonb ->> 'secret') AS knock_secret \gset
+SELECT meeting_admit(:host_id, :knock_req_id);
+SELECT (meeting_join_request_poll(:'slug', :knock_req_id, :'knock_secret')) AS kp1 \gset
+SELECT is(:'kp1'::jsonb ->> 'state', 'admitted', 'the member-knock arm mints');
+SELECT is((SELECT identity FROM meeting_lobby_mint_fences WHERE join_request_id = :knock_req_id),
+  'u:' || :knocker_id, 'the member-knock arm anchors the u:-genre window');
+
+-- ── 5. past-window refusal: exact wire shape, row untouched, BZ329 direct ─
+UPDATE meeting_lobby_mint_fences
+   SET first_mint_at = statement_timestamp() - interval '16 minutes',
+       expires_at     = statement_timestamp() - interval '1 minute'
+ WHERE join_request_id = :guest_req_id;
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS fenced \gset
+SELECT is(:'fenced'::jsonb, '{"state":"expired"}'::jsonb,
+  'a past-window poll answers the EXACT bare expired shape — no grant, no riders');
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :guest_req_id), 'admitted',
+  'the persisted row stays admitted — the fence rewrites history on the wire only');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences WHERE join_request_id = :guest_req_id), 1::bigint,
+  'the closed window row is kept — the durable CLOSED marker is never swept');
+SELECT ok((SELECT expires_at <= statement_timestamp()
+            FROM meeting_lobby_mint_fences WHERE join_request_id = :guest_req_id),
+  'the kept marker is the genuinely CLOSED window, never re-anchored');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_lobby_mint_fence(%s) $$, :guest_req_id),
+  'BZ329', NULL, 'a direct fence call past the window fails closed with BZ329');
+SELECT throws_ok(
+  $$ SELECT meeting_lobby_mint_fence(999999) $$,
+  'BZ329', NULL, 'a direct fence call for a nonexistent request fails closed with BZ329 (no window to open)');
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS fenced2 \gset
+SELECT is(:'fenced2'::jsonb, '{"state":"expired"}'::jsonb,
+  'a further poll stays expired — a closed window never reopens');
+
+-- ── 6. the member-knock arm fences past-window identically ───────────────
+UPDATE meeting_lobby_mint_fences
+   SET first_mint_at = statement_timestamp() - interval '16 minutes',
+       expires_at     = statement_timestamp() - interval '1 minute'
+ WHERE join_request_id = :knock_req_id;
+SELECT (meeting_join_request_poll(:'slug', :knock_req_id, :'knock_secret')) AS kfenced \gset
+SELECT is(:'kfenced'::jsonb, '{"state":"expired"}'::jsonb,
+  'the member-knock arm answers the same exact expired shape past the window');
+
+-- ── 7. shape priority: the state machine decides BEFORE the fence ────────
+-- a banned (kicked) member's poll reports denied even with a FRESH window —
+-- the banned arm sits before the fence consult (lobby.go's fence only ever
+-- saw envelopes that carried a grant, so denied must still win).
+SELECT (meeting_join_request_create(:'slug', 'Priority Knocker', :prio_user_id)) AS prio \gset
+SELECT (:'prio'::jsonb ->> 'requestId')::bigint AS prio_req_id \gset
+SELECT (:'prio'::jsonb ->> 'secret') AS prio_secret \gset
+SELECT meeting_admit(:host_id, :prio_req_id);
+SELECT (meeting_join_request_poll(:'slug', :prio_req_id, :'prio_secret')) AS prio_poll \gset
+SELECT is(:'prio_poll'::jsonb ->> 'state', 'admitted', 'setup: the priority knocker mints once');
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :prio_user_id);
+SELECT (meeting_join_request_poll(:'slug', :prio_req_id, :'prio_secret')) AS banned_poll \gset
+SELECT is(:'banned_poll'::jsonb ->> 'state', 'denied',
+  'a banned member''s poll reports denied — the kick kill wins over a live window');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences WHERE join_request_id = :prio_req_id), 1::bigint,
+  'the banned poll neither swept nor re-anchored its window row');
+
+-- the DES-011 meeting-ended arm wins the same way (and the fence row is
+-- untouched history): a fresh meeting, admitted + minted, then ended.
+SELECT (meeting_create(:host_id, 'Mint fence end-after-admit')) AS m2 \gset
+SELECT (:'m2'::jsonb ->> 'meetingId')::bigint AS eoa_meeting_id \gset
+SELECT (:'m2'::jsonb ->> 'slug') AS eoa_slug \gset
+SELECT meeting_set_guest_allowed(:host_id, :eoa_meeting_id, true);
+SELECT (meeting_join_request_create(:'eoa_slug', 'End After Admit')) AS eoa \gset
+SELECT (:'eoa'::jsonb ->> 'requestId')::bigint AS eoa_req_id \gset
+SELECT (:'eoa'::jsonb ->> 'secret') AS eoa_secret \gset
+SELECT meeting_admit(:host_id, :eoa_req_id);
+SELECT (meeting_join_request_poll(:'eoa_slug', :eoa_req_id, :'eoa_secret')) AS eoa_p1 \gset
+SELECT is(:'eoa_p1'::jsonb ->> 'state', 'admitted', 'setup: the end-after-admit request mints');
+SELECT meeting_end(:host_id, :eoa_meeting_id);
+SELECT (meeting_join_request_poll(:'eoa_slug', :eoa_req_id, :'eoa_secret')) AS eoa_end \gset
+SELECT is(:'eoa_end'::jsonb, '{"state":"expired"}'::jsonb,
+  'the meeting-ended arm answers the same bare expired shape (fence row still live, arm decided first)');
+
+-- ── 8. the horizon is a CHECK pin, not a tunable ─────────────────────────
+SELECT throws_ok(
+  format($$ UPDATE meeting_lobby_mint_fences SET expires_at = expires_at + interval '1 hour'
+            WHERE join_request_id = %s $$, :eoa_req_id),
+  '23514', NULL, 'widening the window horizon violates the CHECK pin (the fence is not tunable)');
+
+-- ── 9. cascade: the window never outlives its join request ───────────────
+DELETE FROM meeting_join_requests WHERE id = :eoa_req_id;
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences WHERE join_request_id = :eoa_req_id), 0::bigint,
+  'deleting the join request cascades its window row away');
+
+SELECT * FROM finish();
+ROLLBACK;

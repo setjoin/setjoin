@@ -1,0 +1,49 @@
+-- reminders_scan.pg — pgTAP: scan_due_reminders() does NOT re-enqueue a `remind`
+-- action for a source that has already fired.
+--
+-- Regression for the unbounded-queue bug: dispatch sets a fired action to
+-- status='done', and the only scan guard suppressed pending/processing actions —
+-- so once an overdue task/event had fired, scan_due_reminders re-enqueued a fresh
+-- `remind` every minute forever (one dead scheduled_actions row per overdue
+-- source per run). The fix adds a ledger-existence guard: a reminders row for
+-- (mailbox_id, source_type, source_id, fire_at) means it already fired → skip.
+BEGIN;
+SELECT plan(3);
+
+INSERT INTO domains (id, name, is_local) VALUES (5888, 'remind.scan.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7888, 'remindscan', 5888, 'r@remind.scan.test', 'Remind Scan');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9888, 7888, 5888, 'r@remind.scan.test', 'Remind Scan', 'personal', TRUE);
+
+-- An overdue, non-completed task with a fixed reminder instant.
+INSERT INTO tasks (id, mailbox_id, title, status, reminder_at)
+  VALUES (4242, 9888, 'overdue task', 'needs-action', TIMESTAMPTZ '2020-01-01 00:00:00+00');
+
+-- First scan enqueues exactly one remind action for this mailbox.
+SELECT count(*) FROM scan_due_reminders();
+SELECT is(
+  (SELECT count(*)::int FROM scheduled_actions WHERE mailbox_id = 9888 AND action_kind = 'remind'),
+  1, 'first scan enqueues one remind action');
+
+-- Simulate the action firing: dispatch marks it done, and the remind handler wrote
+-- the fire-once ledger row.
+UPDATE scheduled_actions SET status = 'done' WHERE mailbox_id = 9888 AND action_kind = 'remind';
+INSERT INTO reminders (mailbox_id, source_type, source_id, fire_at, fired_at, title)
+  VALUES (9888, 'task', 4242, TIMESTAMPTZ '2020-01-01 00:00:00+00', now(), 'overdue task');
+
+-- Second scan must NOT re-enqueue (ledger row blocks it). Pre-fix this re-enqueued.
+SELECT count(*) FROM scan_due_reminders();
+SELECT is(
+  (SELECT count(*)::int FROM scheduled_actions WHERE mailbox_id = 9888 AND action_kind = 'remind'),
+  1, 'second scan does not re-enqueue a fired source (no queue growth)');
+
+-- A still-pending action (not yet fired, no ledger row) is likewise not duplicated
+-- by the existing pending/processing guard — sanity that the new guard is additive.
+SELECT count(*) FROM scan_due_reminders();
+SELECT is(
+  (SELECT count(*)::int FROM scheduled_actions WHERE mailbox_id = 9888 AND action_kind = 'remind'),
+  1, 'further scans remain idempotent');
+
+SELECT finish();
+ROLLBACK;

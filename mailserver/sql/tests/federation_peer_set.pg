@@ -1,0 +1,139 @@
+-- federation_peer_set.pg — Pillar C1 Task 8: the admin allow-list/anchor
+-- console's writer + delete lifecycle. Requires: federation_peer_set.sql,
+-- federation_peer_delete.sql (both new), V139 (federation.manage perm),
+-- V138 (federation_allowlist/federation_outbox).
+--
+-- Authorization (federation.manage) is enforced Go-side (admin_federation.go
+-- requireManageClaims) — both reducers are SECURITY DEFINER/worker-owned, so
+-- this test exercises their OWN validation/lifecycle/audit/NOTIFY contract,
+-- not a caller-permission check (the reducer layer has no concept of a
+-- caller's held permissions, same posture as every other admin-console
+-- reducer in this codebase).
+BEGIN;
+SELECT plan(24);
+
+-- a fake admin actor id — admin_audit_log.user_id carries no FK, so any
+-- bigint is a valid p_actor for this reducer-level test.
+\set actor 90101
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_peer_set's own shallow validation (BZ207)
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT throws_ok(
+  $$ SELECT federation_peer_set(90101, '', 'anything', 'dm', true) $$,
+  'BZ207', NULL, 'an empty peer domain raises BZ207'
+);
+SELECT throws_ok(
+  $$ SELECT federation_peer_set(90101, '   ', 'anything', 'dm', true) $$,
+  'BZ207', NULL, 'a whitespace-only peer domain raises BZ207'
+);
+SELECT throws_ok(
+  $$ SELECT federation_peer_set(90101, 'bravo.test', '-----BEGIN CERTIFICATE-----MIIB', 'room-service', true) $$,
+  'BZ207', NULL, 'an invalid scope raises BZ207'
+);
+SELECT throws_ok(
+  $$ SELECT federation_peer_set(90101, 'bravo.test', 'not a pem at all', 'dm', true) $$,
+  'BZ207', NULL, 'an anchor with no PEM certificate marker raises BZ207'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 a valid upsert: creates the row, writes a fingerprint-only audit act,
+--    and notifies federation_allowlist_changed
+-- ══════════════════════════════════════════════════════════════════════
+
+SET LOCAL app.capture_notify = 'on';
+
+SELECT lives_ok(
+  $$ SELECT federation_peer_set(90101, 'Bravo.Test', '-----BEGIN CERTIFICATE-----
+MIIBfake
+-----END CERTIFICATE-----', 'dm', true) $$,
+  'a valid federation_peer_set call succeeds (domain is upper-cased on input, lower-cased on write)'
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM federation_allowlist WHERE peer_domain = 'bravo.test'),
+  1, 'the peer_domain is stored lower-cased regardless of input casing'
+);
+SELECT is((SELECT scope FROM federation_allowlist WHERE peer_domain = 'bravo.test'), 'dm',
+  'scope is stored as given');
+SELECT is((SELECT enabled FROM federation_allowlist WHERE peer_domain = 'bravo.test'), true,
+  'enabled is stored as given');
+
+SELECT is(
+  (SELECT action FROM admin_audit_log WHERE target_type = 'federation_peer' AND notes = 'bravo.test' ORDER BY id DESC LIMIT 1),
+  'federation.peer_set', 'an admin_audit_log act is written with action federation.peer_set'
+);
+SELECT is(
+  (SELECT (after_state ->> 'anchorFingerprint') IS NOT NULL
+     FROM admin_audit_log WHERE action = 'federation.peer_set' AND notes = 'bravo.test' ORDER BY id DESC LIMIT 1),
+  true, 'the audit act carries an anchorFingerprint'
+);
+SELECT is(
+  (SELECT after_state::text ~ 'MIIBfake' FROM admin_audit_log WHERE action = 'federation.peer_set' AND notes = 'bravo.test' ORDER BY id DESC LIMIT 1),
+  false, 'the audit act after_state NEVER contains the raw anchor PEM material'
+);
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'federation_allowlist_changed' AND payload::jsonb ->> 'peerDomain' = 'bravo.test'),
+  'federation_peer_set emits an app_notify(federation_allowlist_changed, …) for the Task 5 Service reconcile'
+);
+
+-- ── upsert (re-call with different fields updates, does not duplicate) ──
+SELECT federation_peer_set(90101, 'bravo.test', '-----BEGIN CERTIFICATE-----
+MIIBupdated
+-----END CERTIFICATE-----', 'room', false);
+
+SELECT is((SELECT count(*)::int FROM federation_allowlist WHERE peer_domain = 'bravo.test'), 1,
+  'a second call for the same domain UPDATES the existing row, never inserts a duplicate');
+SELECT is((SELECT scope FROM federation_allowlist WHERE peer_domain = 'bravo.test'), 'room',
+  'the upsert overwrote scope');
+SELECT is((SELECT enabled FROM federation_allowlist WHERE peer_domain = 'bravo.test'), false,
+  'the upsert overwrote enabled');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 delete lifecycle: disabled-first, orphan reap, audit act, NOTIFY
+-- ══════════════════════════════════════════════════════════════════════
+
+-- re-enable it so §3 can prove the disable-before-delete guard fires.
+UPDATE federation_allowlist SET enabled = true WHERE peer_domain = 'bravo.test';
+
+SELECT throws_ok(
+  $$ SELECT federation_peer_delete(90101, 'bravo.test') $$,
+  'BZ208', NULL, 'deleting an ENABLED peer raises BZ208 (disable-before-delete)'
+);
+SELECT is((SELECT count(*)::int FROM federation_allowlist WHERE peer_domain = 'bravo.test'), 1,
+  'the row survives a refused delete attempt');
+
+-- disable it, seed acked + unacked outbox rows, a peers seq row, and inbound
+-- inbox/cursor state — delete must FULL-REAP all of it (the C2-planning fix:
+-- the old unacked-only reap left last_seq high, so a bilateral delete →
+-- re-add livelocked on a permanent BZ202 gap into deleted rows).
+UPDATE federation_allowlist SET enabled = false WHERE peer_domain = 'bravo.test';
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('bravo.test', 2, 1)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, acked_at)
+  VALUES ('bravo.test', 1, 's-acked', 'application/x-setjoin-chat', '{}', now());
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('bravo.test', 2, 's-unacked', 'application/x-setjoin-chat', '{}');
+INSERT INTO federation_inbox_cursor (peer_domain, last_applied_seq) VALUES ('bravo.test', 7)
+  ON CONFLICT (peer_domain) DO UPDATE SET last_applied_seq = 7;
+INSERT INTO federation_inbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('bravo.test', 7, 's-inbound', 'application/x-setjoin-chat', '{}');
+
+SELECT is(federation_peer_delete(90101, 'bravo.test'), true,
+  'deleting a DISABLED peer succeeds and returns true');
+SELECT is((SELECT count(*)::int FROM federation_allowlist WHERE peer_domain = 'bravo.test'), 0,
+  'the federation_allowlist row is gone');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 0,
+  'ALL outbox rows reaped (acked and unacked — full transport-state reap)');
+SELECT is((SELECT count(*)::int FROM federation_peers WHERE peer_domain = 'bravo.test'), 0,
+  'the federation_peers seq row is gone (re-add restarts at seq 0 via federation_enqueue lazy-create)');
+SELECT is((SELECT count(*)::int FROM federation_inbox WHERE peer_domain = 'bravo.test'), 0,
+  'inbound federation_inbox rows reaped');
+SELECT is((SELECT count(*)::int FROM federation_inbox_cursor WHERE peer_domain = 'bravo.test'), 0,
+  'the federation_inbox_cursor row is gone (re-added peer applies from a clean cursor)');
+
+SELECT is(federation_peer_delete(90101, 'never-existed.test'), false,
+  'deleting an unknown domain is an idempotent no-op (returns false, never raises)');
+
+SELECT * FROM finish(); ROLLBACK;

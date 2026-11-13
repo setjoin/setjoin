@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/features",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"key\": \"feature.demo\",\n  \"enabled\": true,\n  \"description\": \"Demo\",\n  \"changeMode\": \"\",\n  \"disableBehavior\": \"\",\n  \"dependencies\": null,\n  \"confirmationRequired\": false\n}\n",
+  "stderr": "",
+  "exit": 0
+}

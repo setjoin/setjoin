@@ -1,0 +1,141 @@
+{
+  "case": "flag-on-stale-row-effects",
+  "effects": [
+    {
+      "after": {
+        "control_operations": [],
+        "external": [
+          {
+            "user_id": "<actor>",
+            "warning": true
+          },
+          {
+            "user_id": "<other>",
+            "warning": true
+          }
+        ],
+        "list_operations": [],
+        "models": [],
+        "outbox": [],
+        "personal": [],
+        "senders": [
+          {
+            "list": "blocked",
+            "sender": "bad@bad.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "safe",
+            "sender": "x@ok.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "safe",
+            "sender": "y@ok.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "blocked",
+            "sender": "b-bad@bad.test",
+            "user_id": "<other>"
+          },
+          {
+            "list": "safe",
+            "sender": "b-only@ok.test",
+            "user_id": "<other>"
+          }
+        ],
+        "state": [
+          {
+            "generation": 1,
+            "user_id": "<actor>"
+          },
+          {
+            "generation": 1,
+            "user_id": "<other>"
+          }
+        ],
+        "tags": [
+          {
+            "message_id": "<msg-actor>",
+            "tag": "Inbox"
+          },
+          {
+            "message_id": "<msg-other>",
+            "tag": "Inbox"
+          }
+        ],
+        "trusted": []
+      },
+      "before": {
+        "control_operations": [],
+        "external": [
+          {
+            "user_id": "<actor>",
+            "warning": true
+          },
+          {
+            "user_id": "<other>",
+            "warning": true
+          }
+        ],
+        "list_operations": [],
+        "models": [],
+        "outbox": [],
+        "personal": [],
+        "senders": [
+          {
+            "list": "blocked",
+            "sender": "bad@bad.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "safe",
+            "sender": "x@ok.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "safe",
+            "sender": "y@ok.test",
+            "user_id": "<actor>"
+          },
+          {
+            "list": "blocked",
+            "sender": "b-bad@bad.test",
+            "user_id": "<other>"
+          },
+          {
+            "list": "safe",
+            "sender": "b-only@ok.test",
+            "user_id": "<other>"
+          }
+        ],
+        "state": [
+          {
+            "generation": 1,
+            "user_id": "<actor>"
+          },
+          {
+            "generation": 1,
+            "user_id": "<other>"
+          }
+        ],
+        "tags": [
+          {
+            "message_id": "<msg-actor>",
+            "tag": "Inbox"
+          },
+          {
+            "message_id": "<msg-other>",
+            "tag": "Inbox"
+          }
+        ],
+        "trusted": []
+      },
+      "table": "spam"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /settings/senders"
+}

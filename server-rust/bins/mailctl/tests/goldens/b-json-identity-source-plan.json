@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/sources/plan",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"apiVersion\":\"setjoin.io/v1\",\"kind\":\"IdentitySource\",\"metadata\":{\"sourceKey\":\"directory\",\"displayName\":\"Directory\"},\"spec\":{\"type\":\"ldap\",\"baseDN\":\"dc=example,dc=test\",\"subjectAttribute\":\"entryUUID\",\"endpoint\":{\"host\":\"directory.example.test\",\"port\":636,\"tls\":\"ldaps\"}}}"
+    }
+  ],
+  "stdout": "{\n  \"sourceKey\": \"directory\",\n  \"create\": false,\n  \"changed\": true,\n  \"currentGeneration\": \"3\",\n  \"desired\": {\n    \"apiVersion\": \"setjoin.io/v1\",\n    \"kind\": \"IdentitySource\",\n    \"metadata\": {\n      \"sourceKey\": \"directory\",\n      \"displayName\": \"Directory\"\n    },\n    \"spec\": {\n      \"type\": \"ldap\",\n      \"baseDN\": \"dc=example,dc=test\",\n      \"subjectAttribute\": \"entryUUID\",\n      \"endpoint\": {\n        \"host\": \"directory.example.test\",\n        \"port\": 636,\n        \"tls\": \"ldaps\"\n      }\n    }\n  },\n  \"operations\": [\n    \"update_draft_config\",\n    \"increment_generation\"\n  ]\n}\n",
+  "stderr": "Error: identity source plan contains changes\n",
+  "exit": 2
+}

@@ -1,0 +1,36 @@
+-- queue_contract.pg: pgTAP schema guard for the F1 failure contract.
+-- The converged queues must carry the contract columns on the loaded schema
+-- (complements the greppy scripts/check-queue-contract.sh: this proves the
+-- columns are really IN the database, not just textually present in a V-file).
+BEGIN;
+SELECT plan(11);
+
+-- journal_queue (converged in V033) carries the full contract.
+SELECT has_column('journal_queue', 'attempt_count',   'journal_queue.attempt_count');
+SELECT has_column('journal_queue', 'next_attempt_at', 'journal_queue.next_attempt_at');
+SELECT has_column('journal_queue', 'last_error',      'journal_queue.last_error');
+SELECT has_column('journal_queue', 'status',          'journal_queue.status');
+
+-- journal_queue status CHECK includes the terminal-failed value 'dead' and 'deferred'.
+SELECT ok(
+  (SELECT count(*) FROM pg_constraint
+    WHERE conname = 'journal_queue_status_check'
+      AND pg_get_constraintdef(oid) ILIKE '%dead%') = 1,
+  'journal_queue status CHECK includes terminal "dead"');
+SELECT ok(
+  (SELECT count(*) FROM pg_constraint
+    WHERE conname = 'journal_queue_status_check'
+      AND pg_get_constraintdef(oid) ILIKE '%deferred%') = 1,
+  'journal_queue status CHECK includes "deferred"');
+
+-- outbound_queue (read-contract waiver) already carries the columns.
+SELECT has_column('outbound_queue', 'attempt_count',   'outbound_queue.attempt_count');
+SELECT has_column('outbound_queue', 'next_attempt_at', 'outbound_queue.next_attempt_at');
+SELECT has_column('outbound_queue', 'last_error',      'outbound_queue.last_error');
+SELECT has_column('outbound_queue', 'status',          'outbound_queue.status');
+
+-- the shared retry reducer exists.
+SELECT has_function('settle_job', 'settle_job reducer exists');
+
+SELECT * FROM finish();
+ROLLBACK;

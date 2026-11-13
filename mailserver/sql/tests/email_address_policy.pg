@@ -1,0 +1,133 @@
+-- pgTAP: Email Address Policy engine.
+BEGIN;
+SELECT plan(20);
+
+INSERT INTO domains (name, is_local) VALUES ('corp.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name)
+  VALUES (70001, 'shanwei', (SELECT id FROM domains WHERE name='corp.test'),
+          'shanwei@corp.test', '单伟', '伟', '单');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (90001, 70001, (SELECT id FROM domains WHERE name='corp.test'),
+          'shanwei@corp.test', '单伟', 'personal', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou)
+  VALUES (5001, 'Sales', '/Sales', 'OU=Sales,DC=corp,DC=test');
+UPDATE users SET department_id = 5001 WHERE id = 70001;
+INSERT INTO email_address_policies (priority, name, primary_template, additional_templates, cond_department)
+  VALUES (10, 'Sales', '{first_initial}{surname}@{domain}', ARRAY['{surname}.{given_name}@{domain}'], ARRAY['Sales']);
+
+SELECT is( (email_address_policy_render((SELECT id FROM email_address_policies WHERE name='Sales'), 70001, 90001) ->> 'primary'),
+  'wshan@corp.test', '{first_initial}{surname} on given 伟 / surname 单 -> wshan' );
+SELECT is( (email_address_policy_render((SELECT id FROM email_address_policies WHERE name='Sales'), 70001, 90001) -> 'additionals' ->> 0),
+  'shan.wei@corp.test', 'additional {surname}.{given_name} -> shan.wei' );
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (70002, 'other', (SELECT id FROM domains WHERE name='corp.test'), 'other@corp.test', 'Other');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (90002, 70002, (SELECT id FROM domains WHERE name='corp.test'), 'wshan@corp.test', 'Other', 'personal', TRUE);
+SELECT is( (email_address_policy_render((SELECT id FROM email_address_policies WHERE name='Sales'), 70001, 90001) ->> 'primary'),
+  'wshan2@corp.test', 'collision with another mailbox bumps numeric suffix' );
+SELECT is( (SELECT email FROM mailboxes WHERE id = 90001), 'shanwei@corp.test', 'render does not mutate the mailbox' );
+
+-- opted-out recipient: no change, returns NULL
+UPDATE users SET address_policy_enabled = FALSE WHERE id = 70001;
+SELECT is( email_address_policy_apply(90001, 70001), NULL, 'opted-out recipient is skipped' );
+SELECT is( (SELECT email FROM mailboxes WHERE id=90001), 'shanwei@corp.test', 'opted-out mailbox unchanged' );
+UPDATE users SET address_policy_enabled = TRUE WHERE id = 70001;
+-- clear the render-test collision fixtures so the winning address is wshan@
+-- V085 moved the primary-enforce DELETE check to a DEFERRED constraint
+-- trigger, so deleting the mailbox AND its user in one tx passes the
+-- commit-time check naturally — the old DISABLE/ENABLE bypass is unnecessary
+-- (and now errors: ALTER TABLE can't run with pending deferred events).
+DELETE FROM mailboxes WHERE id = 90002; DELETE FROM users WHERE id = 70002;
+SELECT is( email_address_policy_apply(90001, 70001), 'wshan@corp.test', 'apply returns new primary' );
+SELECT is( (SELECT email FROM mailboxes WHERE id=90001), 'wshan@corp.test', 'primary email updated' );
+SELECT ok( EXISTS(SELECT 1 FROM aliases WHERE mailbox_id=90001 AND lower(email)='shanwei@corp.test'), 'old primary retained as alias' );
+SELECT ok( EXISTS(SELECT 1 FROM field_policy WHERE user_id=70001 AND field='email' AND policy='local_only'), 'email locked against resync' );
+
+-- bulk apply: a fresh user the Sales policy matches (department_id = 5001 from the Task 6 fixture)
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name, department_id)
+  VALUES (70003, 'lwei', (SELECT id FROM domains WHERE name='corp.test'), 'lwei@corp.test', '李伟','伟','李', 5001);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (90003, 70003, (SELECT id FROM domains WHERE name='corp.test'), 'lwei@corp.test','李伟','personal',TRUE);
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.email_address_policy';
+SELECT is( email_address_policy_apply_bulk(NULL), 0, 'toggle OFF: bulk apply is a no-op' );
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.email_address_policy';
+SELECT ok( email_address_policy_apply_bulk((SELECT id FROM email_address_policies WHERE name='Sales')) >= 1,
+           'bulk apply touches at least the new matching recipient' );
+
+-- ── provision_account governance wiring ───────────────────────────────────
+-- toggle OFF: local provision keeps the typed address (no apply)
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.email_address_policy';
+SELECT provision_account(p_email => 'plainoff@corp.test', p_sync_source => 'local',
+                         p_first_name => '伟', p_last_name => '张', p_department_id => 5001);
+SELECT is( (SELECT email FROM mailboxes WHERE email='plainoff@corp.test'), 'plainoff@corp.test',
+           'toggle OFF: local provision keeps the typed address' );
+
+-- toggle ON + local + matching policy: address is auto-applied (overrides the typed one)
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.email_address_policy';
+-- V249 admission: a SAME-NAMED person renders the same additional template
+-- ('shan.wei@corp.test' is already claimed by 70001), and the write is now
+-- REFUSED (BZ328) instead of silently double-claiming the address across two
+-- enabled persons. A cross-person address claim fails rather than resolves.
+SELECT throws_ok(
+  $$SELECT provision_account(p_email => 'raw@corp.test', p_sync_source => 'local',
+       p_first_name => '伟', p_last_name => '单', p_department_id => 5001)$$,
+  'BZ328', NULL,
+  'V249 admission: a policy render already claimed by another person is refused (BZ328)');
+-- A distinct-named person still gets the policy address (the original intent).
+SELECT provision_account(p_email => 'raw@corp.test', p_sync_source => 'local',
+                         p_first_name => '伟', p_last_name => '王', p_department_id => 5001);
+SELECT isnt( (SELECT email FROM mailboxes WHERE id = (SELECT id FROM mailboxes WHERE user_id =
+               (SELECT id FROM users WHERE username='raw') AND is_primary)), 'raw@corp.test',
+           'toggle ON local: policy overrides the typed address on create' );
+
+-- ad + override ON: policy overrides the directory address on create
+-- (distinct surname from the 70001/raw fixtures: V249 admission refuses a
+-- policy render that another enabled person already claims)
+UPDATE email_address_policies SET overwrite_directory_address = TRUE WHERE name = 'Sales';
+SELECT provision_account(p_email => 'addur@corp.test', p_sync_source => 'ad', p_first_name => '伟',
+                         p_last_name => '张', p_department_id => 5001,
+                         p_ad_object_guid => '22222222-2222-2222-2222-222222222222'::uuid,
+                         p_ad_usn_changed => 1, p_ad_upn => 'addur@corp.test');
+SELECT isnt( (SELECT m.email FROM mailboxes m JOIN users u ON u.id=m.user_id
+              WHERE u.ad_object_guid='22222222-2222-2222-2222-222222222222' AND m.is_primary),
+             'addur@corp.test', 'ad+override: policy overrides directory address on create' );
+
+-- R7: re-provision (resync) the SAME guid with the directory email → MUST NOT clobber the policy address
+SELECT provision_account(p_email => 'addur@corp.test', p_sync_source => 'ad', p_first_name => '伟',
+                         p_last_name => '张', p_department_id => 5001,
+                         p_ad_object_guid => '22222222-2222-2222-2222-222222222222'::uuid,
+                         p_ad_usn_changed => 2, p_ad_upn => 'addur@corp.test');
+SELECT isnt( (SELECT m.email FROM mailboxes m JOIN users u ON u.id=m.user_id
+              WHERE u.ad_object_guid='22222222-2222-2222-2222-222222222222' AND m.is_primary),
+             'addur@corp.test', 'ad resync does NOT clobber the policy override (R7 durable)' );
+
+-- ad WITHOUT override: directory address is kept
+UPDATE email_address_policies SET overwrite_directory_address = FALSE WHERE name = 'Sales';
+SELECT provision_account(p_email => 'addir@corp.test', p_sync_source => 'ad', p_first_name => '伟',
+                         p_last_name => '刘', p_department_id => 5001,
+                         p_ad_object_guid => '33333333-3333-3333-3333-333333333333'::uuid,
+                         p_ad_usn_changed => 1, p_ad_upn => 'addir@corp.test');
+SELECT is( (SELECT m.email FROM mailboxes m JOIN users u ON u.id=m.user_id
+            WHERE u.ad_object_guid='33333333-3333-3333-3333-333333333333' AND m.is_primary),
+           'addir@corp.test', 'ad sync without override keeps the directory address' );
+
+-- ── SECURITY: an '@' in a directory name must NOT hijack the rendered domain ──
+-- last_name = 'evil@attacker.com' would, without the render_one fix, shift the
+-- '@'-split so the domain becomes attacker.com. After the fix the '@' is stripped
+-- from the value, so the domain stays the recipient's own local domain.
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name, department_id)
+  VALUES (70009, 'eviluser', (SELECT id FROM domains WHERE name='corp.test'),
+          'eviluser@corp.test', 'Evil', '伟', 'evil@attacker.com', 5001);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (90009, 70009, (SELECT id FROM domains WHERE name='corp.test'),
+          'eviluser@corp.test', 'Evil', 'personal', TRUE);
+SELECT is(
+  split_part( email_address_policy_render((SELECT id FROM email_address_policies WHERE name='Sales'), 70009, 90009) ->> 'primary', '@', 2),
+  'corp.test', 'security: @ in surname cannot hijack the rendered domain' );
+SELECT is(
+  split_part( email_address_policy_apply(90009, 70009), '@', 2),
+  'corp.test', 'security: apply writes a local-domain address even when surname contains @' );
+
+SELECT * FROM finish();
+ROLLBACK;

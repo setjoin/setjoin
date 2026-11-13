@@ -1,0 +1,1132 @@
+{
+  "schemaVersion": 1,
+  "rollout": "enforced",
+  "contracts": [
+    {
+      "id": "future-code-test-gates",
+      "authority": "docs/standards/AI_ASSISTED_TESTING.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "webmail-coverage-is-a-local-and-remote-gate",
+          "risk": "high",
+          "obligations": [
+            "local_execution",
+            "remote_execution",
+            "fail_closed",
+            "drift_detection"
+          ],
+          "evidence": [
+            {
+              "id": "coverage-wiring-guard",
+              "kind": "guard",
+              "path": "scripts/check-test-gate-wiring.sh",
+              "selector": "CONTRACT: future-code-test-gates",
+              "gate": "scripts/check-test-gate-wiring.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "local_execution",
+                "remote_execution",
+                "fail_closed",
+                "drift_detection"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "feature-test-registry-fails-on-false-claims",
+          "risk": "high",
+          "obligations": [
+            "manifest_validation",
+            "selector_validation",
+            "exception_expiry",
+            "drift_detection"
+          ],
+          "evidence": [
+            {
+              "id": "registry-validator-self-test",
+              "kind": "guard",
+              "path": "scripts/check-feature-test-contracts.sh",
+              "selector": "CONTRACT: future-code-test-gates",
+              "gate": "scripts/check-feature-test-contracts.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "manifest_validation",
+                "selector_validation",
+                "exception_expiry",
+                "drift_detection"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "result-adapter-pilot",
+      "authority": "docs/standards/AI_ASSISTED_TESTING.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "manageable-role-member-evidence-executed",
+          "risk": "high",
+          "obligations": [
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "role-member-vitest-result",
+              "kind": "vitest",
+              "path": "mailserver/webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
+              "selector": "shows remove button enabled for a manageable member",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "vitest-json",
+                "gateClass": "merge",
+                "report": "mailserver/webmail/test-results/vitest.json",
+                "suite": "mailserver/webmail/src/lib/components/admin/RoleMembersPanel.test.ts",
+                "testId": "RoleMembersPanel — admin-protection shows remove button enabled for a manageable member"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "multi-runtime-result-evidence",
+      "authority": "docs/standards/AI_ASSISTED_TESTING.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "conditional-access-load-failure-blocks",
+          "risk": "critical",
+          "obligations": [
+            "fail_closed",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "go-fail-closed-result",
+              "kind": "go",
+              "path": "shared/threat/policy_failmode_test.go",
+              "selector": "TestPolicyEngine_FailClosed_NeverLoaded_BlocksOnLoadError",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "fail_closed",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "go-json",
+                "gateClass": "merge",
+                "report": "test-results/go/shared.json",
+                "suite": "setjoin.com/shared/threat",
+                "testId": "TestPolicyEngine_FailClosed_NeverLoaded_BlocksOnLoadError"
+              }
+            }
+          ]
+        },
+        {
+          "id": "guest-row-force-rls-isolation",
+          "risk": "critical",
+          "obligations": [
+            "cross_tenant_denial",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "pgtap-force-rls-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/guest_app_entitlements.pg",
+              "selector": "setjoin_app cannot read another principal''s guest row through FORCE RLS",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "cross_tenant_denial",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/guest_app_entitlements.pg",
+                "testId": "setjoin_app cannot read another principal's guest row through FORCE RLS"
+              }
+            }
+          ]
+        },
+        {
+          "id": "guest-invite-terminal-browser-journey",
+          "risk": "critical",
+          "obligations": [
+            "terminal_state_visibility",
+            "audit_visibility",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "playwright-guest-terminal-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/guest-invite-lifecycle.spec.ts",
+              "selector": "pending → superseded replacement → exact revoke is visible and audited",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "terminal_state_visibility",
+                "audit_visibility",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/guest-invite-lifecycle.spec.ts#admin-chromium",
+                "testId": "Guest invitation terminal lifecycle @admin pending → superseded replacement → exact revoke is visible and audited"
+              }
+            }
+          ]
+        },
+        {
+          "id": "guest-invite-mobile-visual-and-interaction-contract",
+          "risk": "high",
+          "obligations": [
+            "visual_layout_stability",
+            "localized_policy_visibility",
+            "activation_click_path",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "playwright-guest-accept-visual-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/guest-invite-accept-ui.spec.ts",
+              "selector": "renders a stable mobile disclosure and exposes a complete activation path",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "visual_layout_stability",
+                "localized_policy_visibility",
+                "activation_click_path",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/guest-invite-accept-ui.spec.ts#chromium",
+                "testId": "Guest invitation acceptance UI @user renders a stable mobile disclosure and exposes a complete activation path"
+              }
+            }
+          ]
+        },
+        {
+          "id": "strict-csp-browser-boot",
+          "risk": "high",
+          "obligations": [
+            "csp_lockdown",
+            "application_boot",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "playwright-csp-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/csp.spec.ts",
+              "selector": "meta locks script-src to hashes and the app still boots",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "csp_lockdown",
+                "application_boot",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright-csp.json",
+                "suite": "mailserver/webmail/e2e/csp.spec.ts#chromium",
+                "testId": "CSP — script-src hash lockdown (M9) meta locks script-src to hashes and the app still boots"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "critical-security-data-boundaries",
+      "authority": "docs/standards/AI_ASSISTED_TESTING.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "refresh-token-reuse-revokes-login-family",
+          "risk": "critical",
+          "obligations": ["replay_denial", "family_revocation", "exact_case_execution", "result_retention"],
+          "evidence": [{
+            "id": "refresh-reuse-go-result",
+            "kind": "go",
+            "path": "authserver/internal/token/service_issue_test.go",
+            "selector": "TestIssueThenRotate_ReuseRevokesLoginFamily",
+            "gate": "scripts/check-test-evidence-results.sh",
+            "skipPolicy": "forbid",
+            "covers": ["replay_denial", "family_revocation", "exact_case_execution", "result_retention"],
+            "result": {
+              "format": "go-json",
+              "gateClass": "merge",
+              "report": "test-results/go/authserver.json",
+              "suite": "setjoin.com/authserver/internal/token",
+              "testId": "TestIssueThenRotate_ReuseRevokesLoginFamily"
+            }
+          }]
+        },
+        {
+          "id": "guest-disable-revokes-credentials",
+          "risk": "critical",
+          "obligations": ["credential_revocation", "lifecycle_coupling", "exact_case_execution", "result_retention"],
+          "evidence": [
+            {
+              "id": "guest-refresh-revocation-go-result",
+              "kind": "go",
+              "path": "authserver/internal/token/guest_refresh_test.go",
+              "selector": "TestGuestRefresh_DisableKillsFamily",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": ["credential_revocation", "exact_case_execution", "result_retention"],
+              "result": {
+                "format": "go-json",
+                "gateClass": "merge",
+                "report": "test-results/go/authserver.json",
+                "suite": "setjoin.com/authserver/internal/token",
+                "testId": "TestGuestRefresh_DisableKillsFamily"
+              }
+            },
+            {
+              "id": "guest-status-atomic-revocation-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/guest_set_status.pg",
+              "selector": "disable: refresh family revoked in the same act (C-7)",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": ["credential_revocation", "lifecycle_coupling", "exact_case_execution", "result_retention"],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/guest_set_status.pg",
+                "testId": "disable: refresh family revoked in the same act (C-7)"
+              }
+            }
+          ]
+        },
+        {
+          "id": "stale-admin-claim-cannot-authorize",
+          "risk": "critical",
+          "obligations": ["authorization_denial", "live_authority_check", "exact_case_execution", "result_retention"],
+          "evidence": [{
+            "id": "impersonation-denial-go-result",
+            "kind": "go",
+            "path": "authserver/internal/handlers/impersonation_db_test.go",
+            "selector": "stale claims say admin but DB has no admin authority",
+            "gate": "scripts/check-test-evidence-results.sh",
+            "skipPolicy": "forbid",
+            "covers": ["authorization_denial", "live_authority_check", "exact_case_execution", "result_retention"],
+            "result": {
+              "format": "go-json",
+              "gateClass": "merge",
+              "report": "test-results/go/authserver.json",
+              "suite": "setjoin.com/authserver/internal/handlers",
+              "testId": "TestAdminImpersonate_NonAdmin_Forbidden/stale_claims_say_admin_but_DB_has_no_admin_authority"
+            }
+          }]
+        },
+        {
+          "id": "delegated-account-revocation-is-live",
+          "risk": "critical",
+          "obligations": ["cross_account_denial", "mid_session_revocation", "exact_case_execution", "result_retention"],
+          "evidence": [{
+            "id": "delegate-revoked-go-result",
+            "kind": "go",
+            "path": "mailserver/internal/jmap/handler_delegate_test.go",
+            "selector": "TestParseAccountID_DelegateRevokedMidSession",
+            "gate": "scripts/check-test-evidence-results.sh",
+            "skipPolicy": "forbid",
+            "covers": ["cross_account_denial", "mid_session_revocation", "exact_case_execution", "result_retention"],
+            "result": {
+              "format": "go-json",
+              "gateClass": "merge",
+              "report": "test-results/go/mailserver.json",
+              "suite": "setjoin.com/mailserver/internal/jmap",
+              "testId": "TestParseAccountID_DelegateRevokedMidSession"
+            }
+          }]
+        },
+        {
+          "id": "secure-account-operation-rolls-back-atomically",
+          "risk": "critical",
+          "obligations": ["atomicity", "rollback", "no_partial_success", "exact_case_execution", "result_retention"],
+          "evidence": [{
+            "id": "secure-account-rollback-go-result",
+            "kind": "go",
+            "path": "mailserver/internal/user/secure_account_test.go",
+            "selector": "TestSecureAccount_AtomicRollbackOnFailure",
+            "gate": "scripts/check-test-evidence-results.sh",
+            "skipPolicy": "forbid",
+            "covers": ["atomicity", "rollback", "no_partial_success", "exact_case_execution", "result_retention"],
+            "result": {
+              "format": "go-json",
+              "gateClass": "merge",
+              "report": "test-results/go/mailserver.json",
+              "suite": "setjoin.com/mailserver/internal/user",
+              "testId": "TestSecureAccount_AtomicRollbackOnFailure"
+            }
+          }]
+        },
+        {
+          "id": "tenant-scope-and-rls-are-load-bearing",
+          "risk": "critical",
+          "obligations": ["tenant_context", "cross_tenant_denial", "non_vacuity", "exact_case_execution", "result_retention"],
+          "evidence": [
+            {
+              "id": "dbscope-rls-leak-proof-go-result",
+              "kind": "go",
+              "path": "shared/dbscope/dbscope_test.go",
+              "selector": "TestRunUserScoped_RLSLeakProof",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": ["tenant_context", "cross_tenant_denial", "exact_case_execution", "result_retention"],
+              "result": {
+                "format": "go-json",
+                "gateClass": "merge",
+                "report": "test-results/go/shared.json",
+                "suite": "setjoin.com/shared/dbscope",
+                "testId": "TestRunUserScoped_RLSLeakProof"
+              }
+            },
+            {
+              "id": "jmap-load-bearing-rls-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/rls_jmap_reducers.pg",
+              "selector": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": ["tenant_context", "cross_tenant_denial", "non_vacuity", "exact_case_execution", "result_retention"],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/rls_jmap_reducers.pg",
+                "testId": "RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "identity-model-modernization-critical-evidence",
+      "authority": "docs/standards/IDENTITY_ACCOUNT_CLASSES.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "identity-linking-never-trusts-soft-evidence-or-crosses-person-scope",
+          "risk": "critical",
+          "obligations": [
+            "soft_evidence_never_links",
+            "wrong_person_takeover_denied",
+            "cross_tenant_denial",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "identity-ldap-ambiguity-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "selector": "LDAP without a proven immutable anchor is an explicit ambiguity",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "soft_evidence_never_links",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "testId": "LDAP without a proven immutable anchor is an explicit ambiguity"
+              }
+            },
+            {
+              "id": "identity-subject-takeover-denial-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "selector": "source subject cannot move to another person even when retained",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "wrong_person_takeover_denied",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "testId": "source subject cannot move to another person even when retained"
+              }
+            },
+            {
+              "id": "identity-link-force-rls-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_source_link_behavior.pg",
+              "selector": "setjoin_app direct link read is denied by FORCE RLS",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "cross_tenant_denial",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_source_link_behavior.pg",
+                "testId": "setjoin_app direct link read is denied by FORCE RLS"
+              }
+            }
+          ]
+        },
+        {
+          "id": "identity-federated-link-and-access-effects-rollback-atomically",
+          "risk": "critical",
+          "obligations": [
+            "atomicity",
+            "rollback",
+            "no_partial_access",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "identity-federated-link-rollback-go-result",
+              "kind": "go",
+              "path": "authserver/internal/handlers/identity_links_finalize_test.go",
+              "selector": "TestFinalizeFederatedIdentityLinkRollsBackOnMappingFailure",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "atomicity",
+                "rollback",
+                "no_partial_access",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "go-json",
+                "gateClass": "merge",
+                "report": "test-results/go/authserver.json",
+                "suite": "setjoin.com/authserver/internal/handlers",
+                "testId": "TestFinalizeFederatedIdentityLinkRollsBackOnMappingFailure"
+              }
+            }
+          ]
+        },
+        {
+          "id": "identity-transition-rechecks-safety-and-revokes-live-sessions",
+          "risk": "critical",
+          "obligations": [
+            "one_use_elevation",
+            "recovery_recheck",
+            "generation_fence",
+            "session_revocation",
+            "runtime_revocation_enforcement",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "identity-transition-one-use-elevation-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "selector": "consumed request elevation cannot authorize execution in a later generation",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "one_use_elevation",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "testId": "consumed request elevation cannot authorize execution in a later generation"
+              }
+            },
+            {
+              "id": "identity-transition-recovery-recheck-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "selector": "execute rechecks recovery instead of trusting the preview snapshot",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "recovery_recheck",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "testId": "execute rechecks recovery instead of trusting the preview snapshot"
+              }
+            },
+            {
+              "id": "identity-transition-generation-fence-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "selector": "execute rejects a changed link generation",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "generation_fence",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "testId": "execute rejects a changed link generation"
+              }
+            },
+            {
+              "id": "identity-transition-session-revocation-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_auth_transition.pg",
+              "selector": "transition writes one durable all-session JWT denylist fence",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "session_revocation",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_auth_transition.pg",
+                "testId": "transition writes one durable all-session JWT denylist fence"
+              }
+            },
+            {
+              "id": "identity-known-revocation-enforced-go-result",
+              "kind": "go",
+              "path": "shared/middleware/runtime_access_test.go",
+              "selector": "TestRuntimeFeatureOffStillDeniesKnownRevocation",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "runtime_revocation_enforcement",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "go-json",
+                "gateClass": "merge",
+                "report": "test-results/go/shared.json",
+                "suite": "setjoin.com/shared/middleware",
+                "testId": "TestRuntimeFeatureOffStillDeniesKnownRevocation"
+              }
+            }
+          ]
+        },
+        {
+          "id": "identity-rollout-and-transition-preview-fail-closed",
+          "risk": "critical",
+          "obligations": [
+            "flags_off_by_default",
+            "operator_visibility",
+            "preview_denial",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "identity-off-rail-browser-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/identity-model.spec.ts",
+              "selector": "renders normalized evidence responsively while all behavior flags remain off",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "flags_off_by_default",
+                "operator_visibility",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/identity-model.spec.ts#admin-chromium",
+                "testId": "Identity model modernization @admin renders normalized evidence responsively while all behavior flags remain off"
+              }
+            },
+            {
+              "id": "identity-preview-off-denial-browser-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/identity-model.spec.ts",
+              "selector": "transition preview is fail-closed while admission is off",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "preview_denial",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/identity-model.spec.ts#admin-chromium",
+                "testId": "Identity model modernization @admin transition preview is fail-closed while admission is off"
+              }
+            }
+          ]
+        },
+        {
+          "id": "identity-operator-jobs-and-retirement-are-bounded-and-fail-closed",
+          "risk": "critical",
+          "obligations": [
+            "atomic_job_settlement",
+            "exact_person_results",
+            "artifact_lifecycle",
+            "shadow_admission_gate",
+            "destructive_retirement_denial",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "identity-job-batch-settlement-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_operations.pg",
+              "selector": "atomic batch settlement completes the backfill job",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "atomic_job_settlement",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "testId": "atomic batch settlement completes the backfill job"
+              }
+            },
+            {
+              "id": "identity-job-person-result-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_operations.pg",
+              "selector": "backfill exposes the exact per-person result",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "exact_person_results",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "testId": "backfill exposes the exact per-person result"
+              }
+            },
+            {
+              "id": "identity-diagnostic-expiry-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_operations.pg",
+              "selector": "deleted diagnostic cannot be downloaded",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "artifact_lifecycle",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "testId": "deleted diagnostic cannot be downloaded"
+              }
+            },
+            {
+              "id": "identity-shadow-admission-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_operations.pg",
+              "selector": "a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "shadow_admission_gate",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "testId": "a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate"
+              }
+            },
+            {
+              "id": "identity-retirement-denial-pgtap-result",
+              "kind": "pgtap",
+              "path": "mailserver/sql/tests/identity_operations.pg",
+              "selector": "retirement check never performs destructive migration",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "destructive_retirement_denial",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "tap",
+                "gateClass": "merge",
+                "report": "test-results/pgtap/mailserver.tap",
+                "suite": "mailserver/sql/tests/identity_operations.pg",
+                "testId": "retirement check never performs destructive migration"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "welcome-tour-coachmark-evidence",
+      "authority": "docs/features.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "welcome-tour-is-non-modal-and-deterministic",
+          "risk": "high",
+          "obligations": [
+            "non_modal_semantics",
+            "fixed_step_denominator",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "welcome-tour-nonmodal-vitest-result",
+              "kind": "vitest",
+              "path": "mailserver/webmail/src/lib/components/WelcomeTour.test.ts",
+              "selector": "renders four anchored non-modal steps without a blocker, scrim, cutout, or dialog",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "non_modal_semantics",
+                "fixed_step_denominator",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "vitest-json",
+                "gateClass": "merge",
+                "report": "mailserver/webmail/test-results/vitest.json",
+                "suite": "mailserver/webmail/src/lib/components/WelcomeTour.test.ts",
+                "testId": "WelcomeTour renders four anchored non-modal steps without a blocker, scrim, cutout, or dialog"
+              }
+            }
+          ]
+        },
+        {
+          "id": "welcome-tour-real-interactions-preserve-application-control",
+          "risk": "high",
+          "obligations": [
+            "persistence",
+            "focus_preservation",
+            "surface_suspension",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "welcome-tour-first-run-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "selector": "first populated inbox visit shows exact four-step non-modal tour and Skip persists",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "persistence",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "testId": "@user Welcome tour first populated inbox visit shows exact four-step non-modal tour and Skip persists"
+              }
+            },
+            {
+              "id": "welcome-tour-focus-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "selector": "automatic start preserves focus and the highlighted Search remains usable",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "focus_preservation",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "testId": "@user Welcome tour automatic start preserves focus and the highlighted Search remains usable"
+              }
+            },
+            {
+              "id": "welcome-tour-suspension-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.spec.ts",
+              "selector": "Compose interaction suspends the tour and resumes on the next logical step",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "surface_suspension",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.spec.ts#chromium",
+                "testId": "@user Welcome tour Compose interaction suspends the tour and resumes on the next logical step"
+              }
+            }
+          ]
+        },
+        {
+          "id": "welcome-tour-visual-matrix-is-pixel-gated",
+          "risk": "high",
+          "obligations": [
+            "responsive_geometry",
+            "locale_and_theme_matrix",
+            "sixteen_pixel_baselines",
+            "exact_case_execution",
+            "skip_rejection",
+            "result_retention"
+          ],
+          "evidence": [
+            {
+              "id": "welcome-tour-visual-360-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "selector": "matrix 360 zh light validates four steps and canonical screenshots",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "responsive_geometry",
+                "locale_and_theme_matrix",
+                "sixteen_pixel_baselines",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "testId": "@user Welcome tour responsive visual matrix matrix 360 zh light validates four steps and canonical screenshots"
+              }
+            },
+            {
+              "id": "welcome-tour-visual-768-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "selector": "matrix 768 en dark validates four steps and canonical screenshots",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "responsive_geometry",
+                "locale_and_theme_matrix",
+                "sixteen_pixel_baselines",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "testId": "@user Welcome tour responsive visual matrix matrix 768 en dark validates four steps and canonical screenshots"
+              }
+            },
+            {
+              "id": "welcome-tour-visual-1024-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "selector": "matrix 1024 zh dark validates four steps and canonical screenshots",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "responsive_geometry",
+                "locale_and_theme_matrix",
+                "sixteen_pixel_baselines",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "testId": "@user Welcome tour responsive visual matrix matrix 1024 zh dark validates four steps and canonical screenshots"
+              }
+            },
+            {
+              "id": "welcome-tour-visual-1440-playwright-result",
+              "kind": "playwright",
+              "path": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts",
+              "selector": "matrix 1440 en light validates four steps and canonical screenshots",
+              "gate": "scripts/check-test-evidence-results.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "responsive_geometry",
+                "locale_and_theme_matrix",
+                "sixteen_pixel_baselines",
+                "exact_case_execution",
+                "skip_rejection",
+                "result_retention"
+              ],
+              "result": {
+                "format": "playwright-json",
+                "gateClass": "release",
+                "report": "mailserver/webmail/test-results/playwright.json",
+                "suite": "mailserver/webmail/e2e/welcome-tour.visual.spec.ts#chromium",
+                "testId": "@user Welcome tour responsive visual matrix matrix 1440 en light validates four steps and canonical screenshots"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "connectivity-aware-sync-e0-contracts",
+      "authority": "docs/adr/ARCH-023-connectivity-aware-optional-work-boundary.md",
+      "status": "enforced",
+      "requirements": [
+        {
+          "id": "connectivity-aware-sync-evidence-contracts-fail-closed",
+          "risk": "high",
+          "obligations": [
+            "manifest_validation",
+            "exact_case_selection",
+            "skip_rejection",
+            "privacy_allowlist",
+            "idempotent_cleanup_evidence"
+          ],
+          "evidence": [
+            {
+              "id": "connectivity-aware-sync-e0-contract-guard",
+              "kind": "guard",
+              "path": "scripts/check-connectivity-aware-sync-cases.sh",
+              "selector": "CONTRACT: connectivity-aware-sync-e0-contracts",
+              "gate": "scripts/check-connectivity-aware-sync-cases.sh",
+              "skipPolicy": "forbid",
+              "covers": [
+                "manifest_validation",
+                "exact_case_selection",
+                "skip_rejection",
+                "privacy_allowlist",
+                "idempotent_cleanup_evidence"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

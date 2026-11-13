@@ -1,0 +1,19 @@
+# setjoin Meet Egress config — rendered by lib-livekit.sh (render_egress_yaml,
+# called from install.sh) into /etc/setjoin/egress.yaml (0600).
+# Law 3: api_secret and the Valkey password are the SAME values install.sh
+# writes into config.env / livekit.yaml / valkey.conf in the same run.
+redis:
+  address: 127.0.0.1:6390          # setjoin's OWN loopback Valkey (plan delta 6)
+  password: {{VALKEY_PASSWORD}}
+api_key: setjoin
+api_secret: {{LIVEKIT_API_SECRET}}
+ws_url: ws://127.0.0.1:7880        # host network: the SFU's loopback signal port
+insecure: true                     # loopback ws://, not wss:// — same box by definition
+# Concurrency cap (plan delta 4): egress has NO max_concurrent knob; its
+# admission control is CPU-cost based. room_composite_cpu_cost=3 under the
+# unit's CPUQuota (default 400% = 4 CPUs) means a SECOND concurrent composite
+# is refused (twirp resource-exhausted) — which the gateway surfaces as the
+# distinguishable egressBusy 503. Raise BOTH knobs together, only with
+# dedicated cores (SINGLE_NODE_SETUP.md sizing).
+cpu_cost:
+  room_composite_cpu_cost: {{EGRESS_ROOM_COMPOSITE_CPU_COST|3}}

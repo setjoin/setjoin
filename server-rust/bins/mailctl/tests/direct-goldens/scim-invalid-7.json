@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: flag: help requested\n",
+  "exit": 1,
+  "database_effects": {
+    "tokens": [],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

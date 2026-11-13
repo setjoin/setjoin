@@ -1,0 +1,157 @@
+-- pgTAP: sso_sweep_last_sa.pg
+--
+-- Tests the SQL sweep predicate used by applyGroupMappings to coexist with
+-- trg_protect_last_super_admin (V032).
+--
+-- The Go sweep DELETE is:
+--   DELETE FROM admin_role_assignments
+--    WHERE user_id = $1 AND granted_by IS NULL
+--      AND NOT (role_group_id = 1 AND $excludeSuper)
+--
+-- This test verifies the SQL predicate behaves correctly at the DB layer:
+--   1. With excludeSuper=TRUE and a sole Super Admin → DELETE skips role 1
+--      (no BZ064, row remains).
+--   2. With excludeSuper=FALSE and a second SA present → DELETE removes role 1
+--      (demotion works, trigger allows it because the second SA remains).
+--   3. With excludeSuper=FALSE and a sole SA → DELETE of role 1 raises BZ064
+--      (trigger backstop fires; last-Super-Admin invariant wins).
+--
+-- The BZ064-raising DELETE (Test 3) is wrapped in throws_ok() so it runs in
+-- its own subtransaction; the bare DELETEs in Tests 1–2 do not raise and are
+-- safe in the outer transaction.  The "swallow" behaviour (Go autocommit +
+-- warn-only) is the Go DB-backed test's responsibility, not pgTAP's.
+--
+-- The V032 trigger is a hard precondition (D-AUTHSERVER-SQL-TESTS-010): its
+-- absence is a first-class FAILED assertion below, never a NOTICE/skip — a
+-- missing trigger must turn the suite red, not vacuously green. Uses
+-- high-range IDs (96xxx) to avoid colliding with other test suites.
+
+BEGIN;
+SELECT plan(7);
+
+-- ── Probe: the V032 trigger is a fail-closed precondition ─────────────────────
+SELECT has_trigger(
+    'admin_role_assignments', 'trg_protect_last_super_admin',
+    'V032 trg_protect_last_super_admin is loaded (fail-closed precondition)'
+);
+
+-- ── Seed ──────────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (96001, 'sso-sweep.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (96001, 'sweep_sa',   96001, 'sa@sso-sweep.test',   'SA1', TRUE),  -- sole SA under test
+  (96002, 'sweep_sa2',  96001, 'sa2@sso-sweep.test',  'SA2', TRUE),  -- second SA for demotion test
+  (96003, 'sweep_user', 96001, 'user@sso-sweep.test', 'USR', TRUE)   -- non-admin user (reserved)
+  ON CONFLICT (id) DO NOTHING;
+
+-- seed mailboxes (needed for applyGroupMappings to find a primary mailbox)
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+  SELECT id, domain_id, email, display_name, 'personal', TRUE FROM users WHERE id IN (96001, 96002, 96003)
+  ON CONFLICT DO NOTHING;
+
+-- ── Test 1: excludeSuper=TRUE with sole SA → role-1 row NOT deleted ──────────
+
+-- Seed: 96001 as sole SSO-provisioned Super Admin.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (96001, 1, NULL)
+  ON CONFLICT DO NOTHING;
+
+-- Run the sweep with excludeSuper=TRUE (mirrors knob ON + still-mapped).
+-- The predicate NOT (role_group_id = 1 AND TRUE) = FALSE for role 1
+-- → role 1 is excluded from deletion.  This DELETE does NOT raise; no subtxn needed.
+SELECT lives_ok(
+    $$DELETE FROM admin_role_assignments
+        WHERE user_id = 96001 AND granted_by IS NULL
+          AND NOT (role_group_id = 1 AND TRUE)$$,
+    'excludeSuper=TRUE: sweep DELETE does not raise (role-1 predicate excludes it)'
+);
+
+SELECT is(
+    (SELECT count(*) FROM admin_role_assignments WHERE user_id = 96001 AND role_group_id = 1)::int,
+    1,
+    'excludeSuper=TRUE: sole SA role-1 row is preserved (sweep skipped it)'
+);
+
+-- ── Test 2: excludeSuper=FALSE with second SA → role-1 row IS deleted ────────
+
+-- Seed: 96002 as the second Super Admin (so trigger allows deleting 96001's row).
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (96002, 1, NULL)
+  ON CONFLICT DO NOTHING;
+
+-- Now sweep 96001 with excludeSuper=FALSE — trigger allows it (96002 remains).
+-- This DELETE does NOT raise (96002 is still a SA); no subtxn needed.
+DELETE FROM admin_role_assignments
+ WHERE user_id = 96001 AND granted_by IS NULL
+   AND NOT (role_group_id = 1 AND FALSE);
+
+SELECT is(
+    (SELECT count(*) FROM admin_role_assignments WHERE user_id = 96001 AND role_group_id = 1)::int,
+    0,
+    'excludeSuper=FALSE with second SA: role-1 row is swept (demotion works)'
+);
+
+-- After Test 2: 96001's role-1 is gone; 96002 still has role-1 (sole SA now).
+
+-- ── Test 3: excludeSuper=FALSE with sole SA → DELETE raises BZ064 ─────────────
+--
+-- 96002 is now the sole Super Admin (96001 was swept in Test 2).
+-- Attempting to sweep 96002 with excludeSuper=FALSE must raise BZ064.
+-- throws_ok() runs the statement in its own subtransaction so the raise does
+-- NOT abort the outer shared transaction (the pgTAP file-level BEGIN…ROLLBACK).
+
+SELECT throws_ok(
+    $$DELETE FROM admin_role_assignments
+        WHERE user_id = 96002 AND granted_by IS NULL
+          AND NOT (role_group_id = 1 AND FALSE)$$,
+    'BZ064',
+    NULL,
+    'excludeSuper=FALSE with sole SA: DELETE raises BZ064 (last-SA invariant wins)'
+);
+
+-- ── Test 4: granted_by IS NULL is the DECIDING sweep predicate ────────────────
+--
+-- (D-AUTHSERVER-SQL-TESTS-011): the granted_by clause must never be decorative.
+-- Two otherwise-identical rows for the reserved user 96003 — one ADMIN-granted
+-- (granted_by NOT NULL) and one SSO-provisioned (granted_by IS NULL) — face the
+-- exact sweep DELETE; the admin-granted row must survive and the SSO row must
+-- be swept, proving granted_by IS NULL alone decided the outcome.
+
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (96003, 5, 96001)
+  ON CONFLICT DO NOTHING;
+
+-- Mirror row: identical shape but SSO-provisioned (granted_by IS NULL).
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (96003, 6, NULL)
+  ON CONFLICT DO NOTHING;
+
+-- Run the same sweep DELETE the Go code issues (non-SA rows never raise).
+DELETE FROM admin_role_assignments
+ WHERE user_id = 96003 AND granted_by IS NULL
+   AND NOT (role_group_id = 1 AND FALSE);
+
+SELECT is(
+    (SELECT count(*) FROM admin_role_assignments
+      WHERE user_id = 96003 AND role_group_id = 5)::int,
+    1,
+    'admin-granted row (granted_by NOT NULL) survives the sweep — granted_by decides'
+);
+SELECT is(
+    (SELECT count(*) FROM admin_role_assignments
+      WHERE user_id = 96003 AND role_group_id = 6)::int,
+    0,
+    'identical SSO-provisioned row (granted_by IS NULL) is swept — granted_by decides'
+);
+
+-- ── Teardown ──────────────────────────────────────────────────────────────────
+-- 96002 still holds role-1 (throws_ok rolled back its subtxn; the trigger
+-- prevented the delete, so the row was never removed in the outer txn either).
+-- Deleting 96002's role-1 here would raise BZ064 again — but this is inside
+-- the outer ROLLBACK block so all rows vanish with the transaction.
+-- No explicit DELETE needed; the ROLLBACK below cleans everything.
+
+SELECT * FROM finish();
+ROLLBACK;

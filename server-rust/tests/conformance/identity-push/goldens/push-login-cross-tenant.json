@@ -1,0 +1,108 @@
+{
+  "case": "push-login-cross-tenant",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "audit": [],
+      "challenges": [],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "idmfa3-actor",
+          "live": true,
+          "method": "password",
+          "operation": "recovery.regenerate",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        },
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "token_stores": {
+        "auth_event_log": [
+          {
+            "details": null,
+            "email": "foreign@idmfa3.test",
+            "event": "login_failed",
+            "id": "<auth_event_log-1>",
+            "ip_address": "127.0.0.1",
+            "occurred_at": "<time>",
+            "provider": "bcrypt",
+            "user_id": null
+          }
+        ],
+        "login_events": [
+          {
+            "auth_method": "password",
+            "client": "web",
+            "correlation_id": null,
+            "device_fingerprint": null,
+            "device_name": null,
+            "fail_reason": "invalid_credentials",
+            "id": "<login_events-1>",
+            "location": null,
+            "occurred_at": "<time>",
+            "platform": null,
+            "protocol": "http",
+            "session_id": null,
+            "source_ip": "127.0.0.1",
+            "success": false,
+            "user_id": "foreign"
+          }
+        ],
+        "oauth_tokens": [],
+        "sessions": []
+      },
+      "users": [
+        {
+          "generation": 2,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"foreign@idmfa3.test\",\"password\":\"Password1!\",\"user_id\":<foreign>}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"invalid credentials\",\"instance\":\"/auth/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 401
+    }
+  },
+  "route": "POST /auth/login"
+}

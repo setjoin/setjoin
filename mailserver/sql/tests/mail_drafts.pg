@@ -1,0 +1,128 @@
+BEGIN;
+SELECT plan(27);
+
+SELECT mk_shared_mailbox('draft-shared') AS shared_mb \gset
+SELECT mk_account('draft-full') AS full_mb \gset
+SELECT mk_account('draft-send') AS send_mb \gset
+SELECT mk_account('draft-read') AS read_mb \gset
+SELECT user_id AS full_user FROM mailboxes WHERE id=:full_mb \gset
+SELECT user_id AS send_user FROM mailboxes WHERE id=:send_mb \gset
+SELECT user_id AS read_user FROM mailboxes WHERE id=:read_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by) VALUES
+  (:shared_mb,:full_user,'full_access',:full_user),
+  (:shared_mb,:send_user,'send_as',:full_user),
+  (:shared_mb,:read_user,'read',:full_user);
+SELECT statement_timestamp() AS draft_received \gset
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,body_text,size_bytes,
+  thread_id,raw_ref,received_at,is_read,is_draft)
+SELECT 898201,:shared_mb,get_tag_id('Drafts',:shared_mb),'<draft-1@mk.test>',
+  'Shared draft',email,'draft body',100,'draft-thread-1','s3://draft-1',:'draft_received',false,true
+FROM mailboxes WHERE id=:shared_mb;
+
+SELECT throws_ok(format($q$SELECT mail_draft_get(%s,%s,NULL)$q$,:shared_mb,:full_user),
+  'BZ300',NULL,'shared drafts fail closed while OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_drafts';
+SELECT throws_ok(format($q$SELECT mail_draft_session_open(%s,%s,%L,898201,%L,
+  (SELECT email FROM mailboxes WHERE id=%s),%L)$q$,:shared_mb,:read_user,gen_random_uuid(),
+  :'draft_received',:shared_mb,repeat('a',64)),'BZ005',NULL,'read-only delegate cannot open an edit lease');
+
+SELECT gen_random_uuid() AS open_op \gset
+SELECT mail_draft_session_open(:shared_mb,:send_user,:'open_op',898201,:'draft_received',
+  (SELECT email FROM mailboxes WHERE id=:shared_mb),repeat('b',64)) AS open_result \gset
+SELECT is(:'open_result'::jsonb->>'contentRevision','1','opening creates immutable revision one');
+SELECT is(:'open_result'::jsonb->>'leaseEpoch','1','opening creates lease epoch one');
+SELECT is((SELECT count(*) FROM mail_draft_revisions WHERE draft_session_id=(:'open_result'::jsonb->>'id')::uuid)::integer,
+  1,'opening records one content and attachment digest');
+SELECT is((mail_draft_session_open(:shared_mb,:send_user,:'open_op',898201,:'draft_received',
+  (SELECT email FROM mailboxes WHERE id=:shared_mb),repeat('b',64))->>'replayed')::boolean,true,
+  'exact open replay returns the accepted session');
+SELECT throws_ok(format($q$SELECT mail_draft_session_open(%s,%s,%L,898201,%L,
+  (SELECT email FROM mailboxes WHERE id=%s),%L)$q$,:shared_mb,:full_user,gen_random_uuid(),
+  :'draft_received',:shared_mb,repeat('c',64)),'BZ304',NULL,'another editor cannot steal a live lease');
+
+SELECT gen_random_uuid() AS save_op \gset
+SELECT mail_draft_revision_accept(:shared_mb,:send_user,:'save_op',(:'open_result'::jsonb->>'id')::uuid,
+  1,1,898201,:'draft_received',repeat('1',64),repeat('2',64),repeat('d',64)) AS save_result \gset
+SELECT is(:'save_result'::jsonb->>'contentRevision','2','lease holder advances one immutable revision');
+SELECT is((SELECT count(*) FROM mail_draft_revisions WHERE draft_session_id=(:'open_result'::jsonb->>'id')::uuid)::integer,
+  2,'save appends rather than rewrites revision evidence');
+SELECT throws_ok(format($q$SELECT mail_draft_revision_accept(%s,%s,%L,%L,1,1,898201,%L,%L,%L,%L)$q$,
+  :shared_mb,:send_user,gen_random_uuid(),(:'open_result'::jsonb->>'id')::uuid,:'draft_received',
+  repeat('3',64),repeat('4',64),repeat('e',64)),'BZ304',NULL,'stale base revision cannot overwrite a newer save');
+
+SELECT gen_random_uuid() AS handoff_op \gset
+SELECT mail_draft_lease_action(:shared_mb,:send_user,:'handoff_op',(:'open_result'::jsonb->>'id')::uuid,
+  'handoff',1,:full_user,'handoff to reviewer',repeat('f',64)) AS handoff_result \gset
+SELECT is(:'handoff_result'::jsonb->>'leaseEpoch','2','handoff fences the prior holder with a new epoch');
+SELECT is(:'handoff_result'::jsonb->>'leaseHolderUserId',:full_user::text,'handoff transfers the lease to an eligible delegate');
+SELECT throws_ok(format($q$SELECT mail_draft_revision_accept(%s,%s,%L,%L,1,2,898201,%L,%L,%L,%L)$q$,
+  :shared_mb,:send_user,gen_random_uuid(),(:'open_result'::jsonb->>'id')::uuid,:'draft_received',
+  repeat('5',64),repeat('6',64),repeat('7',64)),'BZ304',NULL,'prior holder cannot save after handoff');
+
+SELECT gen_random_uuid() AS full_save_op \gset
+SELECT mail_draft_revision_accept(:shared_mb,:full_user,:'full_save_op',(:'open_result'::jsonb->>'id')::uuid,
+  2,2,898201,:'draft_received',repeat('8',64),repeat('9',64),repeat('0',64));
+SELECT throws_ok(format($q$SELECT mail_draft_submission_authorize(%s,%s,%L,2,2,898201,%L)$q$,
+  :shared_mb,:full_user,(:'open_result'::jsonb->>'id')::uuid,:'draft_received'),
+  'BZ304',NULL,'submission rejects a stale revision');
+DELETE FROM mailbox_delegates WHERE mailbox_id=:shared_mb AND user_id=:full_user AND permission='full_access';
+SELECT throws_ok(format($q$SELECT mail_draft_submission_authorize(%s,%s,%L,2,3,898201,%L)$q$,
+  :shared_mb,:full_user,(:'open_result'::jsonb->>'id')::uuid,:'draft_received'),
+  'BZ005',NULL,'submission revalidates current send permission');
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by)
+  VALUES(:shared_mb,:full_user,'full_access',:full_user);
+SELECT ok(mail_draft_submission_authorize(:shared_mb,:full_user,(:'open_result'::jsonb->>'id')::uuid,
+  2,3,898201,:'draft_received'),'current holder with exact revision may submit');
+SELECT is((SELECT state FROM mail_draft_collaboration WHERE draft_session_id=(:'open_result'::jsonb->>'id')::uuid),
+  'submitted','accepted submission terminalizes collaboration exactly once');
+SELECT is(mail_draft_get(:shared_mb,:read_user,ARRAY[(:'open_result'::jsonb->>'id')::uuid])->'list'->0->>'state',
+  'submitted','authorized readers see the terminal collaboration projection');
+SELECT is((SELECT body_text FROM messages WHERE mailbox_id=:shared_mb AND id=898201),'draft body',
+  'lease metadata never becomes a parallel message-content authority');
+
+SELECT statement_timestamp() AS replace_received \gset
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,body_text,size_bytes,
+  thread_id,raw_ref,received_at,is_read,is_draft)
+SELECT 898202,:shared_mb,get_tag_id('Drafts',:shared_mb),'<draft-2@mk.test>',
+  'Before replace',email,'before body',100,'draft-thread-2','s3://draft-2',:'replace_received',false,true
+FROM mailboxes WHERE id=:shared_mb;
+SELECT gen_random_uuid() AS replace_open_op \gset
+SELECT mail_draft_session_open(:shared_mb,:send_user,:'replace_open_op',898202,:'replace_received',
+  (SELECT email FROM mailboxes WHERE id=:shared_mb),repeat('a',64)) AS replace_open \gset
+SELECT gen_random_uuid() AS replace_op \gset
+SELECT mail_draft_replace(:shared_mb,:send_user,:'replace_op',(:'replace_open'::jsonb->>'id')::uuid,1,1,
+  jsonb_build_object(
+    'from',jsonb_build_array(jsonb_build_object('email',(SELECT email FROM mailboxes WHERE id=:shared_mb))),
+    'to','[]'::jsonb,'subject','After replace',
+    'bodyValues',jsonb_build_object('text',jsonb_build_object('value','after body','partId','text')),
+    'textBody',jsonb_build_array(jsonb_build_object('partId','text','type','text/plain')),
+    'mailboxIds',jsonb_build_object(get_tag_id('Drafts',:shared_mb)::text,true)),repeat('b',64)) AS replaced \gset
+SELECT isnt(:'replaced'::jsonb->>'messageId','898202','atomic replacement retargets the stable session to a new message tuple');
+SELECT is(:'replaced'::jsonb->>'contentRevision','2','atomic replacement advances exactly one content revision');
+SELECT ok(NOT EXISTS(SELECT 1 FROM messages WHERE mailbox_id=:shared_mb AND id=898202),
+  'atomic replacement removes the old draft in the same transaction');
+SELECT is((SELECT subject FROM messages WHERE mailbox_id=:shared_mb AND id=(:'replaced'::jsonb->>'messageId')::bigint),
+  'After replace','replacement content is stored in the existing Email authority');
+SELECT is((SELECT message_id::text FROM mail_draft_collaboration WHERE draft_session_id=(:'replace_open'::jsonb->>'id')::uuid),
+  :'replaced'::jsonb->>'messageId','stable collaboration session points at the accepted replacement tuple');
+SELECT is((SELECT count(*) FROM mail_draft_revisions WHERE draft_session_id=(:'replace_open'::jsonb->>'id')::uuid)::integer,
+  2,'replacement appends immutable revision evidence');
+SELECT is((mail_draft_replace(:shared_mb,:send_user,:'replace_op',(:'replace_open'::jsonb->>'id')::uuid,1,1,
+  jsonb_build_object(
+    'from',jsonb_build_array(jsonb_build_object('email',(SELECT email FROM mailboxes WHERE id=:shared_mb))),
+    'to','[]'::jsonb,'subject','After replace',
+    'bodyValues',jsonb_build_object('text',jsonb_build_object('value','after body','partId','text')),
+    'textBody',jsonb_build_array(jsonb_build_object('partId','text','type','text/plain')),
+    'mailboxIds',jsonb_build_object(get_tag_id('Drafts',:shared_mb)::text,true)),repeat('b',64))->>'replayed')::boolean,
+  true,'replacement replay returns the immutable accepted receipt');
+SELECT is((mail_draft_replace(:shared_mb,:send_user,:'replace_op',(:'replace_open'::jsonb->>'id')::uuid,1,1,
+  jsonb_build_object(
+    'from',jsonb_build_array(jsonb_build_object('email',(SELECT email FROM mailboxes WHERE id=:shared_mb))),
+    'to','[]'::jsonb,'subject','After replace',
+    'bodyValues',jsonb_build_object('text',jsonb_build_object('value','after body','partId','text')),
+    'textBody',jsonb_build_array(jsonb_build_object('partId','text','type','text/plain')),
+    'mailboxIds',jsonb_build_object(get_tag_id('Drafts',:shared_mb)::text,true)),repeat('b',64))->'current'->>'contentRevision'),
+  '2','old replay includes the current safe projection without rewinding content');
+
+SELECT * FROM finish();
+ROLLBACK;

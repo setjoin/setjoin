@@ -1,0 +1,22 @@
+BEGIN;
+SELECT plan(4);
+SELECT ok(
+  EXISTS (SELECT 1 FROM feature_toggles WHERE key = 'feature.biometric_unlock'),
+  'feature.biometric_unlock seeded'
+);
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.biometric_unlock'),
+  false,
+  'feature.biometric_unlock default OFF'
+);
+SELECT ok(
+  EXISTS (SELECT 1 FROM feature_toggles WHERE key = 'feature.windows_sso_unlock'),
+  'feature.windows_sso_unlock seeded'
+);
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.windows_sso_unlock'),
+  false,
+  'feature.windows_sso_unlock default OFF'
+);
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,51 @@
+-- pgTAP: the scheduled anti-phishing contact-graph refresh remains valid when
+-- one sender address has used multiple display names, and the Basic-auth toggle
+-- consumed by the gateway is a real operator-visible row.
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (name, is_local) VALUES ('contact-graph.test', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+VALUES ('contact-graph-user',
+        (SELECT id FROM domains WHERE name = 'contact-graph.test'),
+        'user@contact-graph.test', 'Contact Graph User');
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+VALUES ((SELECT id FROM users WHERE email = 'user@contact-graph.test'),
+        (SELECT id FROM domains WHERE name = 'contact-graph.test'),
+        'user@contact-graph.test', 'Contact Graph User', 'personal', TRUE);
+
+SELECT deliver('contact-graph-ref-1', '<contact-graph-1>', 'sender@external.test', 'First Name',
+  'user@contact-graph.test', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+  'First identity', NULL, NULL, 'body', NULL, 100, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL);
+SELECT deliver('contact-graph-ref-2', '<contact-graph-2>', 'sender@external.test', 'Second Name',
+  'user@contact-graph.test', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+  'Second identity', NULL, NULL, 'body', NULL, 100, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL);
+
+SELECT lives_ok(
+  $$ REFRESH MATERIALIZED VIEW antiphish_contact_graph $$,
+  'contact graph refresh accepts one sender address with multiple historical names'
+);
+SELECT is(
+  (SELECT count(*)::integer FROM antiphish_contact_graph
+    WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'user@contact-graph.test')
+      AND sender_email = 'sender@external.test'),
+  2,
+  'contact graph retains both historical display-name identities'
+);
+SELECT is(
+  (SELECT count(DISTINCT sender_name)::integer FROM antiphish_contact_graph
+    WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'user@contact-graph.test')
+      AND sender_email = 'sender@external.test'),
+  2,
+  'the retained identities remain distinguishable by display name'
+);
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.disable_basic_auth'),
+  FALSE,
+  'disable_basic_auth is seeded OFF as an operator-visible toggle'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

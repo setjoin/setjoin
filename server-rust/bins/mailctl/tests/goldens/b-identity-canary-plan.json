@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/upgrade/shadow?sourceKey=directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity shadow directory: eligible=true syncs=7/7 window=25.00/24h\nDivergences: critical=0 missing=0 ambiguity=0\nNext: enable canary\n",
+  "stderr": "Error: identity canary plan is eligible and contains a read-path change\n",
+  "exit": 2
+}

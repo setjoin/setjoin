@@ -1,0 +1,77 @@
+{
+  "case": "drive-maint-reap",
+  "format": 1,
+  "go_source": "2683b6ce8cd0a3eb88888117042a387ccdc25658",
+  "observation": {
+    "chunks": [
+      "g|<registered>|rc=1|applied=-|ref=drive/g/<registered>"
+    ],
+    "claims": [],
+    "journal": [],
+    "queue": [],
+    "s3": {
+      "keys": [
+        "drive/g/<deep>/extra",
+        "drive/g/NOTHEX",
+        "drive/g/<registered>",
+        "drive/g/<fresh>",
+        "drive/s0/<zero>",
+        "drive/s09/<leading>",
+        "drive/s9400002/<locked>",
+        "drive/top-level",
+        "drive/x/<badscope>",
+        "other/g/<elsewhere>",
+        "tmp/other/old",
+        "tmp/upload/fresh",
+        "tmp/upload/old-fail"
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<orphan>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/s+9400002/<signed>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/s9400002/<locked>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/s9400002/<orphan2>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/tmp/upload/nested/old2"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/tmp/upload/old-fail"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/tmp/upload/old1"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,84 @@
+schema=1
+named|config-reload|func(context.Context) { for range reloadCh { logger.Info("SIGHUP received, reloading config") newCfg, err := config.LoadWithKoanf(os.Getenv("SETJOIN_CONFIG")) if err != nil { logger.Error("config reload failed, keeping old config", "error", err) continue } cfgPtr.Store(newCfg) middleware.LoadTrustedProxies(context.Background(), pool) if err := smime.SetDefaultEncryptAlgorithm(smime.EncryptAlgorithm(newCfg.SMIMEEncryptAlgorithm)); err != nil { logger.Error("config reload: invalid smime.encrypt_algorithm, keeping previous", "error", err) } else { logger.Info("outbound S/MIME content encryption", "algorithm", string(smime.DefaultEncryptAlgorithm())) } logger.Info("config reloaded successfully") } }
+named|db-listener|listener.Run
+named|approval-notify|func(ctx context.Context) { approval.HandleApprovalCreatedNotify(ctx, workerPool.Pool, []byte(msg.Payload), []byte(cfg.JWTSecret), approvalNotifyBaseURL, logger) }
+managed|webhook-retry|webhookDispatcher.StartRetryWorker
+named|session-denylist-refresh|func(context.Context) { tick := time.NewTicker(30 * time.Second) defer tick.Stop() for { select { case <-lifecycleCtx.Done(): return case <-tick.C: if err := sessionDenylist.Refresh(lifecycleCtx); err != nil { logger.Warn("session denylist: reconcile failed (fail-closed active)", "error", err) } } } }
+named|spam-trainer|spamTrainer.Start
+named|mdm-notify|func(context.Context) { for payload := range devicePolicyCh { n, err := mdm.ParseNotifyPayload(payload) if err != nil { logger.Warn("mam: malformed device_policy notification", "error", err, "payload", payload) continue } logger.Debug("mam: device_policy change (no WS push wired; clients refresh on next check-in)", "device_id", n.DeviceID, "version", n.Version, "action", n.Action) } }
+named|auth-chain-reload|func(ctx context.Context) { chain.ListenForChanges(ctx, listener) }
+named|mail-recovery-cleanup|mailRecoveryH.RunCleanup
+named|drive-watch|func(ctx context.Context) { driveWatchNotifier.Handle(ctx, msg.Payload) }
+managed|blob-cleanup|blobH.StartCleanup
+named|ad-toggle-observer|func(ctx context.Context) { runADToggleObserver(ctx, toggleObserver, adminADH.ReloadConfig, logger) }
+gated|identity-source-runtime
+named|identity-toggle-observer|func(ctx context.Context) { runIdentityToggleObserver(ctx, toggleObserver, identitySourceRuntime) }
+managed|ldap-sync|adminLDAPH.StartSync
+named|identity-metrics|func(ctx context.Context) { metricsH.RunIdentityCollector(ctx, workerPool.Pool, logger) }
+named|backup-engine|func(ctx context.Context) { backupEngine.Worker(ctx, backupCh) }
+named|exchange-assessment-deletion|adminExchangeAssessmentH.RunDeletionWorker
+gated|setup-control
+managed|acme-renewal|mgr.Start
+named|cert-monitor|func(ctx context.Context) { certMon.Run(ctx, 24*time.Hour) }
+named|http-port80|func(context.Context) { logger.Info("HTTP redirect server starting", "addr", ":80") if err := http80Server.ListenAndServe(); err != nil && err != http.ErrServerClosed { logger.Error("HTTP server error", "error", err) } }
+named|http-tls|func(context.Context) { logger.Info("gateway starting (TLS + HTTP/2)", "addr", state.Address) if err := httpServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed { logger.Error("TLS server error", "error", err) stop() } }
+named|http-h2c|func(context.Context) { logger.Info("gateway starting (h2c dev mode)", "addr", state.Address) if err := httpServer.Serve(state.Listener); err != nil && err != http.ErrServerClosed { logger.Error("server error", "error", err) stop() } }
+gated|smime-trust-listener
+named|outbound-mail|outboundWorker.Run
+named|dmarc-report|dmarcReportWorker.Run
+named|tls-rpt-report|tlsRPTWorker.Run
+managed|ad-sync|adminADH.StartSync
+named|tls-ticket-keys|ticketKeyMgr.Start
+named|cron|cronWorker.Run
+named|security-event-delivery|seceventsWorker.Run
+named|email-address-policy-jobs|eapjobs.NewWorker(workerPool, logger).Run
+named|user-risk|func(ctx context.Context) { cron.RunUserRiskCron(ctx, workerPool, featureToggles, logger) }
+named|bulk-role-jobs|bulkroles.NewWorker(workerPool, logger).Run
+named|booking-expiry|booking.NewSweeper(workerPool, logger).Run
+named|calendar-subscription-sync|calendarSyncWorker.Run
+named|notify-intent-drain|notifyjobs.NewWorker(workerPool, logger).Run
+named|push-intent-drain|pushWorker.Run
+named|drive-maintenance|driveWorker.Run
+named|drive-preview|drive.NewPreviewWorker( workerPool, drive.MinioStore{Client: minioClient}, cfg.S3Bucket, os.Getenv("DRIVE_PREVIEW_CMD"), logger, ).Run
+named|chat-unfurl-reap|chat.NewWorker(workerPool, logger).Run
+named|meet-reconcile|meet.NewWorker( workerPool, featureToggles, meetCfg, meetRooms, meetEgress, drive.MinioStore{Client: minioClient}, cfg.S3Bucket, meetCaptions, logger, ).Run
+named|guest-lifecycle|guestLifecycleWorker.Run
+named|identity-transitions|identitytransition.NewWorker(workerPool, meetRooms, logger).Run
+named|mailbox-lifecycle|mailboxlifecycle.NewWorker( workerPool, meetRooms, webhookDispatcher, logger, ).Run
+named|mail-work|mailwork.NewWorker(workerPool, logger, webhookDispatcher).Run
+named|webhook-publications|webhook.NewPublicationWorker( workerPool, webhookDispatcher, logger, ).Run
+named|identity-operations|identityops.NewWorker(workerPool, logger).Run
+named|federation-service|fedSvc.Run
+named|federation-residue-reap|federation.NewReapWorker(workerPool, logger).Run
+teardown|http-shutdown|func{httpServer.Shutdown,logger.Error,logger.Info,close}
+cron-task|cron:drain-outbound-hot
+cron-task|cron:dispatch-scheduled-actions
+cron-task|cron:scan-due-reminders
+cron-task|cron:retry-outbound-queue
+cron-task|cron:drain-journal-queue
+cron-task|cron:retry-journal-queue
+cron-task|cron:prune-ws-subscriptions
+cron-task|cron:prune-used-password-reset-tokens
+cron-task|cron:approval-expire-due
+cron-task|cron:health-check
+cron-task|cron:refresh-antiphish-contact-graph
+cron-task|cron:reset-sending-quotas
+cron-task|cron:prune-auth-lockouts
+cron-task|cron:enforce-retention
+cron-task|cron:purge-deleted-messages
+cron-task|cron:chat-chain-anchor
+cron-task|cron:chat-purge-expired
+cron-task|cron:prune-dmarc-reports
+cron-task|cron:prune-spam
+cron-task|cron:prune-log-tables
+cron-task|cron:prune-ca-signin-log
+cron-task|cron:prune-login-events
+cron-task|cron:prune-session-runtime
+cron-task|cron:prune-changes-journal
+cron-task|cron:prune-bulk-role-jobs
+cron-task|cron:prune-greylist
+cron-task|cron:prune-health-history
+cron-task|cron:prune-vacation-replies
+cron-task|cron:purge-expired-tokens
+cron-task|cron:purge-saml-assertions
+cron-task|cron:create-monthly-partitions

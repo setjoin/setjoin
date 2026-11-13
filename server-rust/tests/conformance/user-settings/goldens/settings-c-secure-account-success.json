@@ -1,0 +1,258 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "secure_account",
+        "after_state": null,
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "user_self_report",
+        "occurred_at": "<timestamp>",
+        "target_id": "<actor>",
+        "target_type": "user",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "oauth_tokens": [
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<other-token>",
+              "who": "other"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<ta>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<ta2>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<tb>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<tc>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<td>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": null,
+              "token": "<te>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<tf>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<tg>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "actor",
+              "token": "<th>",
+              "who": "actor"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "id": "settings3-other-web",
+              "who": "other"
+            }
+          ],
+          "users": [
+            {
+              "must_change_password": true,
+              "who": "actor"
+            },
+            {
+              "must_change_password": false,
+              "who": "other"
+            }
+          ]
+        },
+        "before": {
+          "oauth_tokens": [
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<other-token>",
+              "who": "other"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<ta>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<ta2>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<tb>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<tc>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<td>",
+              "who": "actor"
+            },
+            {
+              "revoked": true,
+              "revoked_by": null,
+              "token": "<te>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<tf>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<tg>",
+              "who": "actor"
+            },
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "token": "<th>",
+              "who": "actor"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "id": "settings3-current",
+              "who": "actor"
+            },
+            {
+              "id": "settings3-expired",
+              "who": "actor"
+            },
+            {
+              "id": "settings3-other-web",
+              "who": "other"
+            },
+            {
+              "id": "settings3-web2",
+              "who": "actor"
+            }
+          ],
+          "users": [
+            {
+              "must_change_password": false,
+              "who": "actor"
+            },
+            {
+              "must_change_password": false,
+              "who": "other"
+            }
+          ]
+        },
+        "table": "user_settings"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "admin:alert",
+        "payload": {
+          "actor": "<actor>",
+          "at": "<timestamp>",
+          "kind": "secure_account",
+          "reason": "user_self_report",
+          "user_id": "<actor>"
+        }
+      }
+    ],
+    "request": {
+      "external_path": "/api/user/sign-ins/secure-account",
+      "method": "POST",
+      "path": "/user/sign-ins/secure-account"
+    },
+    "response": {
+      "body": "{\"status\":\"secured\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "21"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-settings1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /user/sign-ins/secure-account"
+}

@@ -1,0 +1,34 @@
+-- The Rust wrapper keeps frozen Go's unscoped request-pool behavior (#310).
+BEGIN;
+SELECT plan(9);
+CREATE TEMP TABLE rust_enroll_fixture AS SELECT mk_account('rust-enroll') AS mailbox;
+SELECT set_config('app.current_user_id',
+    (SELECT user_id::text FROM account_scope((SELECT mailbox FROM rust_enroll_fixture))), true);
+INSERT INTO admin_role_groups(name, permissions) VALUES ('rust-enroll-admin', ARRAY['mam.write']);
+INSERT INTO admin_role_assignments(user_id, role_group_id, granted_by)
+SELECT current_setting('app.current_user_id')::bigint, id, current_setting('app.current_user_id')::bigint
+FROM admin_role_groups WHERE name = 'rust-enroll-admin';
+INSERT INTO devices(id, user_id, fingerprint, hmac_secret, enroll_state)
+VALUES (980001, current_setting('app.current_user_id')::bigint, 'rust-enroll', 'seed-secret', 'enrolled');
+SELECT is(rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'approved', 'owner pool', true)->>'to_state',
+    'approved', 'BYPASSRLS request credential transitions through the existing reducer');
+SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'enrolled', '', true)$$,
+    'BZ095', NULL, 'the existing illegal-transition refusal is preserved');
+UPDATE devices SET enroll_state = 'enrolled', approved_by = NULL, approved_at = NULL WHERE id = 980001;
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'approved', 'app pool', true)$$,
+    '42501', NULL, 'even the admin own-device transition fails without Go user scope');
+SELECT is((SELECT enroll_state FROM devices WHERE id = 980001), 'enrolled', 'the rejected transition leaves the device unchanged');
+SELECT lives_ok($$SELECT device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'approved', 'scoped call')$$,
+    'the caller can still make its scoped call after the wrapper refusal');
+SELECT is((SELECT enroll_state FROM devices WHERE id = 980001), 'approved', 'the subsequent scoped call commits its transition');
+RESET ROLE;
+-- #435: p_in_scope is computed by the mutating statement; a device outside the reach answers
+-- exactly like a missing one and nothing changes.
+SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'revoked', 'foreign', false)$$,
+    'BZ095', 'Device 980001 not found', 'out-of-reach device answers like a missing one');
+SELECT throws_ok($$SELECT rust_device_enroll_transition(current_setting('app.current_user_id')::bigint, 980001, 'revoked', 'unknown', NULL)$$,
+    'BZ095', 'Device 980001 not found', 'an unknown reach fails closed');
+SELECT is((SELECT enroll_state FROM devices WHERE id = 980001), 'approved', 'the refused transitions leave the device unchanged');
+SELECT * FROM finish();
+ROLLBACK;

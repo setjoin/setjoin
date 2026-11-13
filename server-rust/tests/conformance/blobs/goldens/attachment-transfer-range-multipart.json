@@ -1,0 +1,66 @@
+{
+  "case": "range-multipart",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "headers": {
+        "range": "bytes=0-1,14-16"
+      },
+      "method": "GET",
+      "path": "/mail-attachment/{sha256}"
+    },
+    "response": {
+      "body": "--<boundary>\r\nContent-Range: bytes 0-1/17\r\nContent-Type: text/plain\r\n\r\nsc\r\n--<boundary>\r\nContent-Range: bytes 14-16/17\r\nContent-Type: text/plain\r\n\r\nent\r\n--<boundary>--\r\n",
+      "headers": {
+        "accept-ranges": [
+          "bytes"
+        ],
+        "cache-control": [
+          "private, max-age=31536000, immutable, no-transform"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"<hash>\""
+        ],
+        "content-length": [
+          "319"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "multipart/byteranges; boundary=<boundary>"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "\"<hash>\""
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-attachment-oracle"
+        ]
+      },
+      "status": 206
+    }
+  },
+  "route": "GET /mail-attachment/{sha256}"
+}

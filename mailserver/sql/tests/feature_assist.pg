@@ -1,0 +1,16 @@
+-- feature_assist.pg: the feature.assist toggle is seeded, default off.
+BEGIN;
+SELECT plan(2);
+
+SELECT is(
+  (SELECT count(*) FROM feature_toggles WHERE key = 'feature.assist'),
+  1::BIGINT,
+  'feature.assist row exists');
+
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.assist'),
+  FALSE,
+  'feature.assist is disabled by default');
+
+SELECT * FROM finish();
+ROLLBACK;

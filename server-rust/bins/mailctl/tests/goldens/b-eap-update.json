@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/email-address-policies/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"additionalTemplates\":[],\"enabled\":false,\"overwriteDirectoryAddress\":false}"
+    }
+  ],
+  "stdout": "Email address policy 7 updated.\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,1424 @@
+{
+  "case": "send-url_budget-row-effects",
+  "effects": [
+    {
+      "after": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          },
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "member",
+            "user_id": "<foreign>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 32,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-1>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 1,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-2>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 2,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-3>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 3,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-4>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 4,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-5>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 5,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-6>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 6,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-7>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 7,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-8>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 8,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-9>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 9,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-10>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 10,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-11>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 11,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-12>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 12,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-13>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 13,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-14>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 14,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-15>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 15,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-16>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 16,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-17>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 17,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-18>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 18,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-19>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 19,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-20>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 20,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-21>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 21,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-22>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 22,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-23>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 23,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-24>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 24,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-25>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 25,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-26>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 26,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-27>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 27,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-28>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 28,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-29>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 29,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "budget primer",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-30>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'budget':1 'primer':2",
+            "seq": 30,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "https://example.test/path",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-31>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'/path':3 'example.test':2 'example.test/path':1",
+            "seq": 31,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<foreign>",
+            "body": "https://example.test/path",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-32>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": {
+              "preview": {
+                "appliedBy": "chat_message_unfurl_apply",
+                "description": "Cached URL description",
+                "imageSha256": null,
+                "title": "Cached URL title",
+                "url": "https://example.test/path"
+              }
+            },
+            "search_tsv": "'/path':3 'example.test':2 'example.test/path':1",
+            "seq": 32,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "chat_polls": [],
+        "chat_push_intents": [],
+        "chat_send_counters": [
+          {
+            "sent_count": 31,
+            "user_id": "<actor>",
+            "window_start": "<timestamp>"
+          },
+          {
+            "sent_count": 1,
+            "user_id": "<foreign>",
+            "window_start": "<timestamp>"
+          }
+        ],
+        "message_details": {
+          "chat_mentions": [],
+          "chat_message_attachments": [],
+          "chat_poll_options": [],
+          "chat_poll_votes": []
+        }
+      },
+      "before": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          },
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "member",
+            "user_id": "<foreign>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [],
+        "chat_polls": [],
+        "chat_push_intents": [],
+        "chat_send_counters": [],
+        "message_details": {
+          "chat_mentions": [],
+          "chat_message_attachments": [],
+          "chat_poll_options": [],
+          "chat_poll_votes": []
+        }
+      },
+      "chainValid": true
+    },
+    [],
+    [
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-1>",
+          "seq": 1
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-2>",
+          "seq": 2
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-3>",
+          "seq": 3
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-4>",
+          "seq": 4
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-5>",
+          "seq": 5
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-6>",
+          "seq": 6
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-7>",
+          "seq": 7
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-8>",
+          "seq": 8
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-9>",
+          "seq": 9
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-10>",
+          "seq": 10
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-11>",
+          "seq": 11
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-12>",
+          "seq": 12
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-13>",
+          "seq": 13
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-14>",
+          "seq": 14
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-15>",
+          "seq": 15
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-16>",
+          "seq": 16
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-17>",
+          "seq": 17
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-18>",
+          "seq": 18
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-19>",
+          "seq": 19
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-20>",
+          "seq": 20
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-21>",
+          "seq": 21
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-22>",
+          "seq": 22
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-23>",
+          "seq": 23
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-24>",
+          "seq": 24
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-25>",
+          "seq": 25
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-26>",
+          "seq": 26
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-27>",
+          "seq": 27
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-28>",
+          "seq": 28
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-29>",
+          "seq": 29
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-30>",
+          "seq": 30
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-31>",
+          "seq": 31
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-32>",
+          "seq": 32
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_edited",
+          "messageId": "<message-32>",
+          "seq": null
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-1>",
+          "seq": 1
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-2>",
+          "seq": 2
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-3>",
+          "seq": 3
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-4>",
+          "seq": 4
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-5>",
+          "seq": 5
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-6>",
+          "seq": 6
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-7>",
+          "seq": 7
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-8>",
+          "seq": 8
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-9>",
+          "seq": 9
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-10>",
+          "seq": 10
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-11>",
+          "seq": 11
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-12>",
+          "seq": 12
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-13>",
+          "seq": 13
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-14>",
+          "seq": 14
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-15>",
+          "seq": 15
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-16>",
+          "seq": 16
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-17>",
+          "seq": 17
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-18>",
+          "seq": 18
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-19>",
+          "seq": 19
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-20>",
+          "seq": 20
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-21>",
+          "seq": 21
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-22>",
+          "seq": 22
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-23>",
+          "seq": 23
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-24>",
+          "seq": 24
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-25>",
+          "seq": 25
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-26>",
+          "seq": 26
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-27>",
+          "seq": 27
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-28>",
+          "seq": 28
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-29>",
+          "seq": 29
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-30>",
+          "seq": 30
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-31>",
+          "seq": 31
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-32>",
+          "seq": 32
+        },
+        "recipient": "foreign"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_edited",
+          "messageId": "<message-32>",
+          "seq": null
+        },
+        "recipient": "foreign"
+      }
+    ]
+  ],
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "route": "POST /chat/channels/{id}/messages"
+}

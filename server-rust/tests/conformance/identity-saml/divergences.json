@@ -1,0 +1,338 @@
+[
+  {
+    "baseline": "goldens/acs-cross-tenant.json",
+    "expectation": "feature/acs-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "8f697ea6e61ef8372d2a9fdaeb96a1a321ca24aaf0c064f6b2da75adbc0c7e16"
+  },
+  {
+    "baseline": "goldens/acs-repeat.json",
+    "expectation": "feature/acs-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "bc246209d5ce2af492600b93de513cd5f4295eb3e1fa83aadb2dd6c1412fa57b"
+  },
+  {
+    "baseline": "goldens/acs-success.json",
+    "expectation": "feature/acs-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "fe3efd59c242e7e01c472e8f0ebd23448e17e1ac09b6e6da1eb9c24a79d26cc0"
+  },
+  {
+    "baseline": "goldens/acs-wrapping.json",
+    "expectation": "feature/acs-wrapping.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "4c2e5f9e5fdf59e25b7cf3360aa5fc62aea150176cb108edc73e90e6f1bd4a82"
+  },
+  {
+    "baseline": "goldens/link-cross-tenant.json",
+    "expectation": "feature/link-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "b84804b263e9af1ce6580965b6d11c20a818a9e2938f08530bd7cb4e6ead6500"
+  },
+  {
+    "baseline": "goldens/link-repeat.json",
+    "expectation": "feature/link-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "40ae9b46f7cbc5d7dac00176768ac6d451842be546b44b8cb00fbdcb36488ca7"
+  },
+  {
+    "baseline": "goldens/link-success.json",
+    "expectation": "feature/link-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "8f237c3a3c8d4c3dc51f8331a724cb5081280e19abc704fad931e388120eb700"
+  },
+  {
+    "baseline": "goldens/login-cross-tenant.json",
+    "expectation": "feature/login-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "59c0092559ed94bcd9ba87e5a1fe9366d28363e2e3c53082ad0cb6e71769aaab"
+  },
+  {
+    "baseline": "goldens/login-encoded.json",
+    "expectation": "feature/login-encoded.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "f12970132b39d4f06c75c67fc923fefe7cad12ab6f57c58a05a736015738dce9"
+  },
+  {
+    "baseline": "goldens/login-foreign-session.json",
+    "expectation": "feature/login-foreign-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "4c3daa0673db1e44d14aae4eed3d77929b1ede497b5c49251a0308ef09cd3dda"
+  },
+  {
+    "baseline": "goldens/login-invalid-session.json",
+    "expectation": "feature/login-invalid-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "a087d68a49a02076470372977ecce51c86944d13c73eb1f5b9376d54a65962b6"
+  },
+  {
+    "baseline": "goldens/login-post.json",
+    "expectation": "feature/login-post.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "a943c0386b6ecfb61abe1c678ac87c1f885891179d40b32489329f2b84966c54"
+  },
+  {
+    "baseline": "goldens/login-success.json",
+    "expectation": "feature/login-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "f09321bcef5b6f126714684bd781ae3aadac3fdaff5394cf4cbb025907d8e79a"
+  },
+  {
+    "baseline": "legacy-rsa1024.json",
+    "expectation": "feature/legacy-rsa1024.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "053abefd6c13ff93d56df8e415b5d8ce9635f12ff087655e77e9347c9687f770"
+  },
+  {
+    "baseline": "qualified/acs--acs-cross-tenant.json",
+    "expectation": "feature/acs--acs-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "ae0a900b52caa3c7ccdc0c8fbbf40248c17a6a9bc809be6792717203b91086e9"
+  },
+  {
+    "baseline": "qualified/acs--acs-repeat.json",
+    "expectation": "feature/acs--acs-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "6662c4d1351c43cb6353887141213897c4cb90838afb68b28f21a303415ca06a"
+  },
+  {
+    "baseline": "qualified/acs--acs-success.json",
+    "expectation": "feature/acs--acs-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "4e651a1852ae3d61bfb5b49ee255a7d463fa1a487a6429fe6501c1b1a6526a9e"
+  },
+  {
+    "baseline": "qualified/acs--acs-wrapping.json",
+    "expectation": "feature/acs--acs-wrapping.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "cd80b17c6edc83a044654f36b7b343566ebe7b5bab1872a155f6f8dd2143db5b"
+  },
+  {
+    "baseline": "qualified/gateway-acs--acs-cross-tenant.json",
+    "expectation": "feature/gateway-acs--acs-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "71bd0b45ad19b3f843c2b7f2267160ade060e6f0cd20af9ef80dce977740a23e"
+  },
+  {
+    "baseline": "qualified/gateway-acs--acs-repeat.json",
+    "expectation": "feature/gateway-acs--acs-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "e0acbac20294f899e00ceb060280ce1f8d8db8835c79090d51a6a8fcfebf3606"
+  },
+  {
+    "baseline": "qualified/gateway-acs--acs-success.json",
+    "expectation": "feature/gateway-acs--acs-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "1b7ef5aab1e246f31b34547501ef32f56da1d85a3c50c1fd51a9ff4323625b06"
+  },
+  {
+    "baseline": "qualified/gateway-acs--acs-wrapping.json",
+    "expectation": "feature/gateway-acs--acs-wrapping.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): the verified SAML ACS replaces the frozen middleware path mismatch. Go answered every ACS POST with a text/plain 404 followed by a 401 problem and never reached verification; a message that fails verification is now a 401 problem (nothing is written but an audit row).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "bd80f29531e1a67effeea7f217df0c1f21e6828b43c10669ec5d7a0a99dbe05f"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-cross-tenant.json",
+    "expectation": "feature/gateway-link--link-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "ad502bd357f365551e50ff9e49c3167920f86b22a0ef27d423a09475a212cdf4"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-repeat.json",
+    "expectation": "feature/gateway-link--link-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "4c92adc69c177a3be8d62f3bf38d6d1a812689ec689ad345792ce7eb453cad7e"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-success.json",
+    "expectation": "feature/gateway-link--link-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "8921f2a5c03c23744094d4bff813a0554891bc62a8ff981ba44523a782f908e8"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-cross-tenant.json",
+    "expectation": "feature/gateway-login--login-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "d12c4685e7ebee948fe45e6780316756c1c7d5929f8726d8b3a3dd7836a8ac62"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-encoded.json",
+    "expectation": "feature/gateway-login--login-encoded.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "a380ddadb45bc322f0781559e5c3298affde16b51020a6351e62b743d8a25bb4"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-foreign-session.json",
+    "expectation": "feature/gateway-login--login-foreign-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "74409e98a7ced2286024a7ae3c08a15fc914f5902d3f9d4b39468cf2728abc50"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-invalid-session.json",
+    "expectation": "feature/gateway-login--login-invalid-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "1ad5bbfb59898d731ef0de062880ccb97d916659701ca805f264d782c8360579"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-post.json",
+    "expectation": "feature/gateway-login--login-post.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "34bbb5233b061955e4f64941ac2f157898b97effb01ba5c386d05e3c5f4a3262"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-success.json",
+    "expectation": "feature/gateway-login--login-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "521cfb20e0cd256d99907994bedf77438b1a768e6cfe72a6910ce34a33604ce7"
+  },
+  {
+    "baseline": "qualified/link--link-cross-tenant.json",
+    "expectation": "feature/link--link-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "dcf5f61fbef95f7e754a504d6625e22d882a6322c5f723177e18fefa789be99d"
+  },
+  {
+    "baseline": "qualified/link--link-repeat.json",
+    "expectation": "feature/link--link-repeat.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "2750dd52a54910217d5d236adcbb9aa08bf26ed974d4a829a246c3c3e0fa224e"
+  },
+  {
+    "baseline": "qualified/link--link-success.json",
+    "expectation": "feature/link--link-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "c331242829013a72b5fd4dbb5d2a14476ec427af2620c854f13ee1be859b4143"
+  },
+  {
+    "baseline": "qualified/login--login-cross-tenant.json",
+    "expectation": "feature/login--login-cross-tenant.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "330c26ec991600cef4d6f510adaaa470943dc6c077735f36909ad62ba1ec7ba2"
+  },
+  {
+    "baseline": "qualified/login--login-encoded.json",
+    "expectation": "feature/login--login-encoded.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "39a32b0227b8d07e518d78ec2c518daba314ec3170ee5a6663aac6383494324d"
+  },
+  {
+    "baseline": "qualified/login--login-foreign-session.json",
+    "expectation": "feature/login--login-foreign-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "c26e109cd8a276806200bbfb440804d1117cefa12ed4107204d39aafc21aed8b"
+  },
+  {
+    "baseline": "qualified/login--login-invalid-session.json",
+    "expectation": "feature/login--login-invalid-session.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "eb1fa82cca404f47140ad73e76e2394019b6fded35423e7e6eeeebcb29e66d9c"
+  },
+  {
+    "baseline": "qualified/login--login-post.json",
+    "expectation": "feature/login--login-post.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "2e81e5457e999c3151fe267ad0097f3afea4addaf68ba4f09bfd03f3ec2deb19"
+  },
+  {
+    "baseline": "qualified/login--login-success.json",
+    "expectation": "feature/login--login-success.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "c1dae14822b328b996d7dd8b46c74eec55745025f6d1e52084dc2b4a6563d430"
+  },
+  {
+    "baseline": "worker-go-json.json",
+    "expectation": "feature/worker-go-json.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "70d54cd11fa1686286695f9b7218e29bf13b46202a90e25937df172246bb1a00"
+  },
+  {
+    "baseline": "worker.json",
+    "expectation": "feature/worker.json",
+    "reason": "owner-approved feature 2026-11-08 (#534): login advertises the working ACS URL (/auth/saml/{idp}/acs) in the AuthnRequest and scopes the tracking cookie to it, where Go advertised the unmounted /saml/acs; the AuthnRequest no longer asks for a transient NameID, which cannot key a link. The tracking cookie is SameSite=None; Secure and its signed claims add purpose, registration and link flow.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #546 implementer; owner decision 2026-11-08 (#534); Opus review before merge (#546)",
+    "sha256": "f1703f6b5a2d2cd91c4e5e5313a5ddf2b14f99d662aa7955cedd438f3632130b"
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/approval-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "ID   ConsumerType             Name                         Enabled  Requires Pri Updated\n7    mail.external_send       Review                       disabled disabled 0   \n",
+  "stderr": "",
+  "exit": 0
+}

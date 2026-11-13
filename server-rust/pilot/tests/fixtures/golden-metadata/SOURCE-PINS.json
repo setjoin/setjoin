@@ -1,0 +1,164 @@
+{
+  "archive_member_equality": "independent provenance review 11+27 files; current local hashes recorded",
+  "framer_archive_sha256": "a266c7bf0acd4f485c3b1846e5add10f7d8b358872dc3bd0e642489be6f27f8e",
+  "framer_library": "libfile_5c161f6e1fe081918145baead1a64747",
+  "framer_version": 2,
+  "golden_archive_sha256": "74a642ede244466fad76da92903b62b7cae8e61f861a8f6d168a2d11e23c4661",
+  "golden_sql_sha256": "778f2ca1a12d71259a0f40950ec8050f4201e4553d8561f5538db662eabb1596",
+  "members": {
+    "backend/access/common/printtup.c": {
+      "bytes": 13221,
+      "sha256": "639a51dbb8abf82728173417b2d3d9424d1ede9cda0478c0cd9f4f56ae93c3b3"
+    },
+    "backend/catalog/genbki.pl": {
+      "bytes": 32572,
+      "sha256": "7807b5ed741f798dc070181fa6cae82fec922e455003deb099966eb7e24ca54f"
+    },
+    "backend/catalog/namespace.c": {
+      "bytes": 141629,
+      "sha256": "a4b6678d14ef01dde30e4ca4ffde0bc3f0061f4554c240f06f6fb3e132a47bd1"
+    },
+    "backend/commands/dbcommands.c": {
+      "bytes": 106823,
+      "sha256": "2e4d653e183f2af1fdc44287323338867e84b694a3f4bc843d6419dde4760801"
+    },
+    "backend/executor/execExprInterp.c": {
+      "bytes": 150100,
+      "sha256": "dba51cc47f1dab4ab9152a6bcbde067fa9a3090a2a6fcd8e41782e6ee614c8a5"
+    },
+    "backend/parser/analyze.c": {
+      "bytes": 111339,
+      "sha256": "810c4a9abacf70cf2064e8249a20813fed3f7f6d6041f9f50622c5c32ca93d94"
+    },
+    "backend/parser/gram.y": {
+      "bytes": 501908,
+      "sha256": "ba8ad5a6e1df5768dee7dbca5f2594400a741806b4f671579ecf806969b9e3bf"
+    },
+    "backend/parser/parse_coerce.c": {
+      "bytes": 110844,
+      "sha256": "82ef2caf36374d25f3a7045e13782eacb19418c6fb8d04abb47681b6cac4b264"
+    },
+    "backend/parser/parse_node.c": {
+      "bytes": 14755,
+      "sha256": "d0d29f662c95c7cc217a3f5fb27c40a169b8a62afc0aa28dbe46dafb5fe86a79"
+    },
+    "backend/parser/parse_type.c": {
+      "bytes": 22062,
+      "sha256": "f7ce5806cf32b19d76307328f9c5c5f458e3f4e73b9f9bd3d3b349bf495e598c"
+    },
+    "backend/tcop/pquery.c": {
+      "bytes": 49524,
+      "sha256": "994bf14825c77dbcb458a559a24f4666f48c38a0069ad0e5af76f49a7b677e9f"
+    },
+    "backend/tsearch/to_tsany.c": {
+      "bytes": 16751,
+      "sha256": "2cacb530a6e2460869ac1ab1a24d225382dd3a3a09b4a37a6e3c419b25bec00c"
+    },
+    "backend/utils/adt/encode.c": {
+      "bytes": 12622,
+      "sha256": "1571e9a063b7af1b425d6acd94d8b552eeb0e5a087a1695d9fdf1f6857621a33"
+    },
+    "backend/utils/adt/misc.c": {
+      "bytes": 27814,
+      "sha256": "91a88f67912aef30f3645a04fbb587ef8351443d145a3d424f4c694d4dfc38d5"
+    },
+    "backend/utils/adt/network.c": {
+      "bytes": 48848,
+      "sha256": "6ea1431e018d8ab61658faeac69d6ed2a5a0b36676da37d7715ba3019a039fef"
+    },
+    "backend/utils/adt/pgstatfuncs.c": {
+      "bytes": 55263,
+      "sha256": "fcf69c2cf56d1a3007f72bc1b18385c831c8bde41357d9003472d59947e5ab76"
+    },
+    "backend/utils/adt/timestamp.c": {
+      "bytes": 171641,
+      "sha256": "23126c6b849bf9ff89c023b4bd7c92f07860ea0b8711fa5539983b18a902339e"
+    },
+    "backend/utils/adt/tsvector.c": {
+      "bytes": 13050,
+      "sha256": "1eac84fc54b21e3cabd0c227e0976bcb2aaa4e80a1470527fcb4404213cb2d64"
+    },
+    "backend/utils/adt/varlena.c": {
+      "bytes": 172983,
+      "sha256": "b06a849c38035ded7322ccd4c24ebebec33f53db449ef7a346ac49edd7528ece"
+    },
+    "backend/utils/adt/version.c": {
+      "bytes": 491,
+      "sha256": "49d1aa9d74fe1355d984f2b5d6e036d2440895d25a2cdfe42f11f10b0db68d2a"
+    },
+    "backend/utils/mb/mbutils.c": {
+      "bytes": 54283,
+      "sha256": "9fd8f0eadaafb14ff7e243ff187606fce2f909eb0efc73b5692a2a4d7b0ce8c8"
+    },
+    "backend/utils/misc/guc.c": {
+      "bytes": 194627,
+      "sha256": "c1a70e1fd8bc5b52c284f23c2e324d23a202d0212abea13f76ac31f5cbf8ce34"
+    },
+    "backend/utils/misc/guc_funcs.c": {
+      "bytes": 26907,
+      "sha256": "27d7e32592ddf4ac6b6a278b07d3288ab0bd6d352138cba57525177592ebab90"
+    },
+    "include/catalog/pg_database.h": {
+      "bytes": 3593,
+      "sha256": "9d25871274fd7d1ca7e32226f8c75838dc2e931af365ff76dfe6227ac6703c16"
+    },
+    "include/catalog/pg_namespace.h": {
+      "bytes": 2044,
+      "sha256": "8877553d4dffd1a40a13e7484e8a9d8aee7c10b232e6e45c547e7bdc4dbdf685"
+    },
+    "include/catalog/pg_proc.dat": {
+      "bytes": 634185,
+      "sha256": "e22a6a9d26eb6accb1c3a75398dbc6ec1e90c30fc010e729c943fe7af83615dc"
+    },
+    "include/catalog/pg_proc.h": {
+      "bytes": 6761,
+      "sha256": "53d112fe870eed981e9fda200e016371aa9054318012219afefe927087105ed7"
+    },
+    "include/catalog/pg_ts_config.dat": {
+      "bytes": 517,
+      "sha256": "05c3a75efcd066e09baff0b38ad68c59cd650a4533389757b5efc4d5d7eb2840"
+    },
+    "include/catalog/pg_ts_config.h": {
+      "bytes": 1629,
+      "sha256": "aa077dbbdb32e4aafd7385632f0ef8d22c6d63933782afa0e52c201d2aecd6c5"
+    },
+    "include/catalog/pg_ts_config_map.dat": {
+      "bytes": 2055,
+      "sha256": "2cffef75f74b8e82b2df8ad4cab3a4f982e5dc19faa9b566c4297aef51419e1f"
+    },
+    "include/catalog/pg_ts_config_map.h": {
+      "bytes": 1504,
+      "sha256": "caa6ef13cdb256bd7e299d753fa30a79b9d4f4b169fdfb1c1d4afa3a55f9acd8"
+    },
+    "include/catalog/pg_ts_dict.dat": {
+      "bytes": 581,
+      "sha256": "f923b39d9dcd0a5fa549438e22a6903addb38359652a26c01d06a66285240bb7"
+    },
+    "include/catalog/pg_ts_dict.h": {
+      "bytes": 1777,
+      "sha256": "bde891438a181356166a9960d75bfc6367ee843af37c0c5296d3f2f12c095ef4"
+    },
+    "include/catalog/pg_ts_parser.dat": {
+      "bytes": 637,
+      "sha256": "b1afd18be7be60bf8b76d0bf9390758e72827855ca49de2ed3cb119dad652681"
+    },
+    "include/catalog/pg_ts_parser.h": {
+      "bytes": 1853,
+      "sha256": "6a79f43219583926b354bb4e026faaf7d66ed2dcf50056347c9a091295ec42e0"
+    },
+    "include/catalog/pg_ts_template.dat": {
+      "bytes": 1082,
+      "sha256": "29ba1a99510074755f69562e869aeac645c36e7b64306efe41ef8f540761ed07"
+    },
+    "include/catalog/pg_ts_template.h": {
+      "bytes": 1695,
+      "sha256": "9d38267304382d0fe7e5c8d4a3dfee988bee3c8d281413a4ae5f16e70000aa05"
+    },
+    "include/catalog/pg_type.dat": {
+      "bytes": 39283,
+      "sha256": "1129eecb660ba4b84b8ecd44dd94b1668be22e349bd81fb07c2c771cd0314606"
+    }
+  },
+  "postgres_archive_sha256": "dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979",
+  "status": "source-derived, runtime unqualified"
+}

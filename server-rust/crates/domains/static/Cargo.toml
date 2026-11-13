@@ -1,0 +1,18 @@
+[package]
+name = "setjoin-static"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# F20 (Assist) and F22 (static, health, metrics, telemetry) domain logic.
+# Depends on no other family crate: the executor comes from setjoin-pg only.
+[dependencies]
+setjoin-pg = { path = "../../pg" }
+setjoin-config-secret = { path = "../../config-secret" }
+setjoin-authz = { path = "../../authz" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots"] }
+tokio = { version = "=1.54.1", features = ["sync", "time"] }
+sha2 = "=0.10.9"

@@ -1,0 +1,67 @@
+groups:
+  - name: setjoin-identity
+    interval: 30s
+    rules:
+      - alert: SetjoinIdentityMetricsCollectorDown
+        expr: gateway_identity_collector_success != 1 or absent(gateway_identity_collector_success)
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: Identity safety metrics are unavailable
+          runbook_url: docs/guides/IDENTITY_ALERTING.md#collector-down
+      - alert: SetjoinIdentityCriticalDivergence
+        expr: setjoin_identity_shadow_divergences > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: Normalized identity resolution diverges from the legacy path
+          runbook_url: docs/guides/IDENTITY_UPGRADE_AND_ROLLBACK.md
+      - alert: SetjoinIdentitySourceCursorStale
+        expr: setjoin_identity_cursor_age_seconds > 600
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: An identity source cursor is stale beyond two polling intervals
+          runbook_url: docs/guides/IDENTITY_TROUBLESHOOTING.md
+      - alert: SetjoinIdentityInboxQuarantined
+        expr: gateway_identity_inbox_quarantined > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Identity source entries require conflict or quarantine review
+          runbook_url: docs/guides/IDENTITY_INVENTORY_AND_CONFLICTS.md
+      - alert: SetjoinIdentityTransitionEffectsStuck
+        expr: setjoin_identity_effect_intents > 0 and setjoin_identity_effect_oldest_age_seconds > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Identity post-commit effects have not converged
+          runbook_url: docs/guides/IDENTITY_RECOVERY.md
+      - alert: SetjoinIdentityTransitionEffectsCritical
+        expr: setjoin_identity_effect_intents > 0 and setjoin_identity_effect_oldest_age_seconds > 1800
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Identity post-commit effects exceeded the critical recovery SLO
+          runbook_url: docs/guides/IDENTITY_RECOVERY.md
+      - alert: SetjoinIdentityTransitionStuck
+        expr: setjoin_identity_transitions > 0 and setjoin_identity_transition_age_seconds > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Identity transition has not reached a terminal or attention state
+          runbook_url: docs/guides/IDENTITY_RECOVERY.md
+      - alert: SetjoinIdentityApprovalExpiring
+        expr: gateway_identity_approvals_pending > 0 and gateway_identity_approval_expiry_seconds > 0 and gateway_identity_approval_expiry_seconds < 1800
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: A protected identity transition approval is close to expiry
+          runbook_url: docs/guides/IDENTITY_TRANSITION.md
+      - alert: SetjoinIdentitySourceAttention
+        expr: gateway_identity_sources_attention > 0 or gateway_identity_inbox_pending > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: An identity source or inbox entry needs operator attention
+          runbook_url: docs/guides/IDENTITY_TROUBLESHOOTING.md

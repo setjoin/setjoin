@@ -1,0 +1,97 @@
+{
+  "case": "sentinel-preserve-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": true,
+            "key": "tls_dns_token_enc",
+            "value": {
+              "sealed": "\"old-secret\""
+            }
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": []
+      },
+      "before": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": true,
+            "key": "tls_dns_token_enc",
+            "value": {
+              "sealed": "\"old-secret\""
+            }
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/tls/config"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl ca validate [--strict] <file.json>\n",
+  "exit": 1
+}

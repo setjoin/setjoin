@@ -1,0 +1,147 @@
+{
+  "case": "policy-always-row-effects",
+  "effects": [
+    {
+      "after": {
+        "app_passwords": [],
+        "mailbox_states": [
+          {
+            "jmap_email_state": 0,
+            "mailbox_id": "<a>"
+          },
+          {
+            "jmap_email_state": 0,
+            "mailbox_id": "<b>"
+          }
+        ],
+        "messages": [
+          {
+            "from_addr": "sender@source.test",
+            "is_read": false,
+            "mailbox_id": "<a>",
+            "message_header_id": "<idlogin4-receipt-a@source.test>",
+            "message_id": "<message-a>",
+            "received_at": "2026-10-01T10:00:00+00:00",
+            "subject": "IDLOGIN4 receipt"
+          },
+          {
+            "from_addr": "sender@source.test",
+            "is_read": false,
+            "mailbox_id": "<b>",
+            "message_header_id": "<idlogin4-receipt-b@source.test>",
+            "message_id": "<message-b>",
+            "received_at": "2026-10-01T10:00:00+00:00",
+            "subject": "IDLOGIN4 receipt"
+          }
+        ],
+        "outbound_queue": [
+          {
+            "attempt_count": 0,
+            "dedup_key": null,
+            "delivered_at": null,
+            "dkim_signed": false,
+            "forward_unwrap_links": false,
+            "from_addr": "x@test",
+            "last_error": null,
+            "mailbox_id": null,
+            "message_id": "<mdn-message-a-<clock>@mailserver>",
+            "message_pk": null,
+            "next_attempt_at": "<timestamp>",
+            "queued_at": "<timestamp>",
+            "raw_ref": "From: x@test\r\nTo: sender@source.test\r\nMessage-ID: <mdn-message-a-<clock>@mailserver>\r\nDate: <mdn-date>\r\nSubject: Read: IDLOGIN4 receipt\r\nMIME-Version: 1.0\r\nContent-Type: multipart/report; report-type=disposition-notification; boundary=\"mdn-boundary-20384727\"\r\n\r\n--mdn-boundary-20384727\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYour message was displayed on <mdn-date>\r\n--mdn-boundary-20384727\r\nContent-Type: message/disposition-notification\r\n\r\nReporting-UA: mailserver; JMAP Webmail\r\nOriginal-Recipient: rfc822;x@test\r\nFinal-Recipient: rfc822;x@test\r\nOriginal-Message-ID: <idlogin4-receipt-a@source.test>\r\nDisposition: manual-action/MDN-sent-manually; displayed\r\n--mdn-boundary-20384727--",
+            "rcpt_addrs": [
+              "sender@source.test"
+            ],
+            "status": "pending"
+          }
+        ],
+        "read_receipts": [
+          {
+            "ip_address": null,
+            "message_id": "<message-a>",
+            "read_at": "<timestamp>",
+            "received_at": "2026-10-01T10:00:00+00:00",
+            "recipient_email": "x@test",
+            "user_agent": null
+          }
+        ],
+        "receipt_policies": [
+          {
+            "calendar_reminders": true,
+            "chat_notifications": "all",
+            "created_at": "<timestamp>",
+            "device_fingerprint": null,
+            "dnd_days": 127,
+            "dnd_end": null,
+            "dnd_start": null,
+            "mail_notifications": "all",
+            "push_enabled": true,
+            "push_sound": "default",
+            "read_receipt_policy": "always",
+            "stop_push_when_desktop_online": false,
+            "task_reminders": true,
+            "updated_at": "<timestamp>",
+            "user_id": "<a>"
+          }
+        ]
+      },
+      "before": {
+        "app_passwords": [],
+        "mailbox_states": [
+          {
+            "jmap_email_state": 0,
+            "mailbox_id": "<a>"
+          },
+          {
+            "jmap_email_state": 0,
+            "mailbox_id": "<b>"
+          }
+        ],
+        "messages": [
+          {
+            "from_addr": "sender@source.test",
+            "is_read": false,
+            "mailbox_id": "<a>",
+            "message_header_id": "<idlogin4-receipt-a@source.test>",
+            "message_id": "<message-a>",
+            "received_at": "2026-10-01T10:00:00+00:00",
+            "subject": "IDLOGIN4 receipt"
+          },
+          {
+            "from_addr": "sender@source.test",
+            "is_read": false,
+            "mailbox_id": "<b>",
+            "message_header_id": "<idlogin4-receipt-b@source.test>",
+            "message_id": "<message-b>",
+            "received_at": "2026-10-01T10:00:00+00:00",
+            "subject": "IDLOGIN4 receipt"
+          }
+        ],
+        "outbound_queue": [],
+        "read_receipts": [],
+        "receipt_policies": [
+          {
+            "calendar_reminders": true,
+            "chat_notifications": "all",
+            "created_at": "<timestamp>",
+            "device_fingerprint": null,
+            "dnd_days": 127,
+            "dnd_end": null,
+            "dnd_start": null,
+            "mail_notifications": "all",
+            "push_enabled": true,
+            "push_sound": "default",
+            "read_receipt_policy": "always",
+            "stop_push_when_desktop_online": false,
+            "task_reminders": true,
+            "updated_at": "<timestamp>",
+            "user_id": "<a>"
+          }
+        ]
+      }
+    }
+  ],
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "route": "POST /auth/me/read-receipt"
+}

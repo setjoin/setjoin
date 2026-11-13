@@ -1,0 +1,71 @@
+{
+  "cases": [
+    {
+      "accepted": false,
+      "code": "016735",
+      "offset_seconds": -60,
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": true,
+      "code": "968538",
+      "offset_seconds": -30,
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": true,
+      "code": "676974",
+      "offset_seconds": 0,
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": true,
+      "code": "104806",
+      "offset_seconds": 30,
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": "955876",
+      "offset_seconds": 60,
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": "",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": "12345",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": "1234567",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": "abcdef",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    },
+    {
+      "accepted": false,
+      "code": " 287082",
+      "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "unix": 1793843342
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ff"
+}

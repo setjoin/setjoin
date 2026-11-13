@@ -1,0 +1,13 @@
+{
+  "case": "login-force-change-row-effects",
+  "effects": [
+    {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    }
+  ],
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "route": "POST /auth/login"
+}

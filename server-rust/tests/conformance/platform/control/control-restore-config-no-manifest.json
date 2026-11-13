@@ -1,0 +1,42 @@
+{
+  "case": "control-restore-config-no-manifest",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [],
+      "quarantine": [],
+      "restore_jobs": [
+        {
+          "error_log": [
+            "restore config: <config.json s3 error>"
+          ],
+          "status": "failed",
+          "type": "config"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/restore"
+    },
+    "response": {
+      "body": {
+        "errors": [],
+        "restore_job_id": "<id>",
+        "restored_blobs": 0,
+        "restored_config_keys": 0,
+        "status": "failed"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 500
+    }
+  },
+  "route": "POST /setup/restore"
+}

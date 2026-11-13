@@ -1,0 +1,105 @@
+{
+  "case": "mixed-case",
+  "format": 1,
+  "go_source": "e144c714a9a94d73a8032e2467181e927efbbc72",
+  "observation": {
+    "audit": [
+      {
+        "action": "mail_recovery_upload_consent",
+        "actor": "<actor>",
+        "state": {
+          "artifactIdentity": "<artifact-identity>",
+          "declaredBytes": "1",
+          "deviceId": "<device>",
+          "incidentId": "<incident>",
+          "mailboxId": "<mailbox>"
+        }
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "artifact_identity": "<artifact-identity>",
+          "consented_at": "<timestamp>",
+          "created_at": "<timestamp>",
+          "declared_size": 1,
+          "device_id": "<device>",
+          "eligibility": "received",
+          "expires_at": "<timestamp>",
+          "id": "<session>",
+          "idempotency_key": "<idempotency>",
+          "incident_id": "<incident>",
+          "lineage_sha256": "<lineage>",
+          "mailbox_id": "<mailbox>",
+          "next_offset": 0,
+          "raw_mime_sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "receipt": "<verified-receipt>",
+          "status": "uploading",
+          "terminal_reason": null,
+          "total_declared_size": 1,
+          "updated_at": "<timestamp>",
+          "uploading_user_id": "<actor>"
+        },
+        "table": "mail_recovery_upload_sessions"
+      },
+      {
+        "after": {
+          "declared_size": 1,
+          "item_id": "raw",
+          "next_offset": 0,
+          "object_ref": null,
+          "role": "raw",
+          "session_id": "<session>",
+          "sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "status": "uploading"
+        },
+        "table": "mail_recovery_upload_items"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/recovery/uploads"
+    },
+    "response": {
+      "body": "{\"items\": [{\"size\": \"1\", \"itemId\": \"raw\", \"status\": \"uploading\", \"nextOffset\": \"0\"}], \"status\": \"uploading\", \"replayed\": false, \"expiresAt\": \"<timestamp>\", \"sessionId\": \"<session>\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "181"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-begin-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /recovery/uploads"
+}

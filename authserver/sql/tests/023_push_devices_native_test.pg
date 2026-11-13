@@ -1,0 +1,36 @@
+BEGIN;
+SELECT plan(5);
+
+-- push_devices.user_id is an FK to users; the INSERT below references user_id=1,
+-- so materialise it (carrying the current username/domain_id NOT NULL set).
+INSERT INTO domains (name, is_local) VALUES ('authtest.local', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+  OVERRIDING SYSTEM VALUE
+  VALUES (1, 'pushuser1', (SELECT id FROM domains WHERE name = 'authtest.local'),
+          'pushuser1@authtest.local', 'Push User 1')
+  ON CONFLICT (id) DO NOTHING;
+
+-- hms now valid
+SELECT lives_ok(
+    $$INSERT INTO push_devices (user_id, push_provider, push_token_enc, device_name)
+      VALUES (1, 'hms', '\xDEAD', 'test-hms') $$,
+    'hms is a valid provider'
+);
+
+-- device_public_key column exists
+SELECT has_column('push_devices', 'device_public_key', 'device_public_key column exists');
+SELECT col_type_is('push_devices', 'device_public_key', 'bytea', 'device_public_key is bytea');
+SELECT col_is_null('push_devices', 'device_public_key', 'device_public_key is nullable');
+
+-- Negative (D-AUTHSERVER-SQL-TESTS-007): an unknown provider must be rejected
+-- by push_devices_push_provider_check. Positive-only CHECK coverage would let
+-- the constraint be silently dropped or widened without a red test.
+SELECT throws_ok(
+    $$INSERT INTO push_devices (user_id, push_provider, push_token_enc, device_name)
+      VALUES (1, 'bogus-provider', '\xDEAD', 'test-invalid-provider')$$,
+    '23514', NULL,
+    'unknown push provider is rejected by push_devices_push_provider_check'
+);
+
+ROLLBACK;

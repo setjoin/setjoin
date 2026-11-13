@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/email-address-policies/apply",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"policyId\":7}"
+    }
+  ],
+  "stdout": "Apply job enqueued: jobId=9\n",
+  "stderr": "",
+  "exit": 0
+}

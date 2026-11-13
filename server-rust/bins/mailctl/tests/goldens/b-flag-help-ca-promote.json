@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca promote:\n  -id int\n    \tPolicy ID (required)\n  -yes\n    \tSkip would-block confirmation\nError: flag: help requested\n",
+  "exit": 1
+}

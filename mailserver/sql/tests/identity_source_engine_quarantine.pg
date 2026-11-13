@@ -1,0 +1,224 @@
+-- pgTAP: directory-sync engine durable quarantine ledger (med-shard2-012,
+-- Astra waves34 HOLD 1). The identity_source_quarantines table + the
+-- identity_source_quarantine_record reducer are the durable, source-scoped
+-- accounting the engine writes BEFORE acknowledging a page cursor, so a
+-- skipped object's evidence survives cursor advancement and restarts.
+-- Isolation posture mirrors the identity substrate: FORCE RLS with zero
+-- permissive policies (fail-closed deny), access only through the SECURITY
+-- DEFINER reducer, proved here under the real runtime role.
+BEGIN;
+SELECT plan(21);
+
+SELECT has_table('public','identity_source_quarantines',
+    'engine quarantine accounting has a durable ledger');
+SELECT col_is_pk('public','identity_source_quarantines',
+    ARRAY['source_id','object_key','reason_code'],
+    'quarantine evidence is keyed by source, object, and reason');
+SELECT is(
+    (SELECT relrowsecurity::text || ':' || relforcerowsecurity::text
+     FROM pg_class WHERE oid='identity_source_quarantines'::regclass),
+    'true:true',
+    'engine quarantine ledger is FORCE RLS'
+);
+SELECT is(
+    (SELECT rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
+     WHERE c.oid='identity_source_quarantines'::regclass),
+    'setjoin_owner',
+    'engine quarantine ledger has isolated ownership'
+);
+
+-- Fixture: one dedicated source (never shared legacy state), a live lease,
+-- and a stable digest for a mail-less subject.
+INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state)
+VALUES ('dsync-pgtap-engine-quarantine','directorysync quarantine fixture','ldap',
+        '{"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+        'active');
+
+CREATE TEMP TABLE dsync_q_fixture (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO dsync_q_fixture VALUES
+    ('source_id',(SELECT id::text FROM identity_sources
+                  WHERE source_key='dsync-pgtap-engine-quarantine')),
+    ('generation',(SELECT generation::text FROM identity_sources
+                   WHERE source_key='dsync-pgtap-engine-quarantine')),
+    ('instance',gen_random_uuid()::text),
+    ('digest',encode(digest('mailless-object-subject','sha256'),'hex'));
+
+SELECT ok(identity_source_lease_acquire(
+    (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),45
+),'fixture holds the discovery lease required for engine accounting');
+
+SELECT is(
+    identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','mailless-object',
+            'subjectDigest',(SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','NO_USABLE_MAIL_ATTRIBUTE'
+        ))
+    ),
+    1,'engine records one durable quarantine before cursor acknowledgment'
+);
+SELECT is(
+    (SELECT occurrences::integer FROM identity_source_quarantines
+     WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id')
+       AND object_key='mailless-object'
+       AND reason_code='NO_USABLE_MAIL_ATTRIBUTE'),
+    1,'first traversal accounts exactly one occurrence'
+);
+
+SELECT is(
+    identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','mailless-object',
+            'subjectDigest',(SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','NO_USABLE_MAIL_ATTRIBUTE'
+        ))
+    ),
+    1,'re-traversal re-accounts on the same ledger row'
+);
+SELECT is(
+    (SELECT occurrences::integer FROM identity_source_quarantines
+     WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id')
+       AND object_key='mailless-object'
+       AND reason_code='NO_USABLE_MAIL_ATTRIBUTE'),
+    2,'re-traversal accumulates occurrences instead of duplicating evidence'
+);
+SELECT ok(
+    (SELECT first_quarantined_at = (SELECT MIN(first_quarantined_at)
+                                    FROM identity_source_quarantines
+                                    WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'))
+       AND last_quarantined_at >= first_quarantined_at
+     FROM identity_source_quarantines
+     WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id')
+       AND object_key='mailless-object'),
+    'first-quarantine evidence is retained while last-quarantine advances'
+);
+
+-- Duplicate (key, reason) pairs inside one page collapse to one occurrence.
+SELECT is(
+    identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(
+            jsonb_build_object(
+                'objectKey','dup-object',
+                'subjectDigest',(SELECT value FROM dsync_q_fixture WHERE key='digest'),
+                'reasonCode','MISSING_IMMUTABLE_SUBJECT'),
+            jsonb_build_object(
+                'objectKey','dup-object',
+                'subjectDigest',(SELECT value FROM dsync_q_fixture WHERE key='digest'),
+                'reasonCode','MISSING_IMMUTABLE_SUBJECT')
+        )
+    ),
+    1,'duplicate records in one page collapse to one accounting'
+);
+SELECT is(
+    (SELECT occurrences::integer FROM identity_source_quarantines
+     WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id')
+       AND object_key='dup-object'),
+    1,'collapsed page accounts exactly one occurrence'
+);
+
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+     WHERE source_id=(SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id')
+       AND action='source_entry_quarantined'),
+    3,'each accounting call is visible in the append-only event stream'
+);
+
+SELECT throws_ok(
+    $$SELECT identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation') + 1,
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','stale','subjectDigest',
+            (SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','NO_USABLE_MAIL_ATTRIBUTE'))
+    )$$,
+    'BZ229','identity source generation is stale',
+    'a stale generation cannot write quarantine evidence'
+);
+SELECT throws_ok(
+    $$SELECT identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        gen_random_uuid(),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','leaseless','subjectDigest',
+            (SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','NO_USABLE_MAIL_ATTRIBUTE'))
+    )$$,
+    'BZ229','identity source discovery lease was lost',
+    'a process without the live lease cannot write quarantine evidence'
+);
+SELECT throws_ok(
+    $$SELECT identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','bad-reason','subjectDigest',
+            (SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','not-a-code'))
+    )$$,
+    'BZ228','invalid identity source quarantine record',
+    'an invalid reason code is rejected before any write'
+);
+SELECT throws_ok(
+    $$SELECT identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        jsonb_build_array(jsonb_build_object(
+            'objectKey',E'bad\nkey','subjectDigest',
+            (SELECT value FROM dsync_q_fixture WHERE key='digest'),
+            'reasonCode','NO_USABLE_MAIL_ATTRIBUTE'))
+    )$$,
+    'BZ228','invalid identity source quarantine record',
+    'a control-character object key is rejected'
+);
+SELECT throws_ok(
+    $$SELECT identity_source_quarantine_record(
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM dsync_q_fixture WHERE key='instance'),
+        '[]'::jsonb
+    )$$,
+    'BZ228','identity source quarantine request exceeds bounds',
+    'an empty accounting call is rejected'
+);
+
+-- Non-vacuous denial: the superuser fixture rows exist, then the constrained
+-- runtime role is denied every row and every write under FORCE RLS.
+SELECT is(
+    (SELECT count(*)::integer FROM identity_source_quarantines),
+    2,'fixture ledger rows exist so the denial proof below is not vacuous'
+);
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+    (SELECT count(*)::integer FROM identity_source_quarantines),
+    0,'engine quarantine ledger hides all source quarantine evidence from setjoin_app'
+);
+SELECT throws_ok(
+    $$INSERT INTO identity_source_quarantines (
+        source_id, object_key, reason_code, subject_digest, last_generation)
+       VALUES (
+        (SELECT value::bigint FROM dsync_q_fixture WHERE key='source_id'),
+        'app-write', 'NO_USABLE_MAIL_ATTRIBUTE',
+        decode((SELECT value FROM dsync_q_fixture WHERE key='digest'),'hex'), 1)$$,
+    '42501',NULL,
+    'setjoin_app cannot write engine quarantine evidence directly'
+);
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

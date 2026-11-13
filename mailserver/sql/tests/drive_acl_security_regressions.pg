@@ -1,0 +1,165 @@
+-- Focused ACL boundary regressions found during A9 diff review.  These are
+-- ordinary product tests, not a dependency on the Codex Security workflow.
+BEGIN;
+SELECT plan(27);
+
+SELECT has_function('public','drive_require_node_mutation_capability',
+  ARRAY['bigint','bigint','text'],
+  'node mutations share one generation-serialized authorization guard');
+SELECT has_function('public','drive_require_space_root_mutation_capability',
+  ARRAY['bigint','bigint','text'],
+  'virtual-root mutations use the same generation fence');
+SELECT ok(position('FOR SHARE' IN pg_get_functiondef(
+    'drive_require_node_mutation_capability(bigint,bigint,text)'::regprocedure))
+  < position('PERFORM public.drive_require_node_capability' IN pg_get_functiondef(
+    'drive_require_node_mutation_capability(bigint,bigint,text)'::regprocedure)),
+  'generation row is locked before terminal node authority is evaluated');
+SELECT ok(position('drive_tree_lock' IN pg_get_functiondef(
+    'drive_node_move(bigint,bigint,bigint)'::regprocedure))
+  < position('drive_require_node_mutation_capability' IN pg_get_functiondef(
+    'drive_node_move(bigint,bigint,bigint)'::regprocedure)),
+  'move takes the tree lock before its terminal source capability check');
+SELECT ok(position('drive_tree_lock' IN pg_get_functiondef(
+    'drive_node_rename(bigint,bigint,text)'::regprocedure))
+  < position('drive_require_node_mutation_capability' IN pg_get_functiondef(
+    'drive_node_rename(bigint,bigint,text)'::regprocedure)),
+  'rename serializes before its terminal capability check');
+SELECT ok(position('drive_tree_lock' IN pg_get_functiondef(
+    'drive_node_restore(bigint,bigint)'::regprocedure))
+  < position('drive_require_node_mutation_capability' IN pg_get_functiondef(
+    'drive_node_restore(bigint,bigint)'::regprocedure)),
+  'restore serializes before its terminal source/destination checks');
+
+SELECT mk_account('acl-sec-owner') AS mbo \gset
+SELECT mk_account('acl-sec-attacker') AS mba \gset
+SELECT mk_account('acl-sec-victim') AS mbv \gset
+SELECT mk_account('acl-sec-rootmember') AS mbr \gset
+SELECT mk_account('acl-sec-disabled') AS mbd \gset
+SELECT mk_account('acl-sec-guest-expired') AS mbge \gset
+SELECT mk_account('acl-sec-guest-noapp') AS mbgn \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ua FROM mailboxes WHERE id=:mba \gset
+SELECT user_id AS uv FROM mailboxes WHERE id=:mbv \gset
+SELECT user_id AS ur FROM mailboxes WHERE id=:mbr \gset
+SELECT user_id AS ud FROM mailboxes WHERE id=:mbd \gset
+SELECT user_id AS uge FROM mailboxes WHERE id=:mbge \gset
+SELECT user_id AS ugn FROM mailboxes WHERE id=:mbgn \gset
+SELECT domain_id AS dom FROM users WHERE id=:uo \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:uo,1,:uo);
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.drive','feature.guest_accounts','feature.drive_node_acl_reads',
+  'feature.drive_node_acl_writes','feature.directory_group_authority');
+
+-- The empty-space virtual root must apply the same user/Guest liveness caps
+-- as the normal root-node branch.
+SELECT drive_space_create(:uo,'ACL empty-root liveness','regular') AS empty_sid \gset
+INSERT INTO drive_space_members(space_id,user_id,role,granted_by) VALUES
+  (:empty_sid,:ud,'viewer',:uo),(:empty_sid,:uge,'viewer',:uo),
+  (:empty_sid,:ugn,'viewer',:uo);
+SELECT id AS host_domain FROM domains WHERE is_local ORDER BY id LIMIT 1 \gset
+INSERT INTO guest_profiles(host_domain_id,name,allow_download,apps)
+VALUES(:host_domain,'ACL security guest',true,ARRAY['drive']) RETURNING id AS gpid \gset
+INSERT INTO guest_accounts(
+  user_id,invited_email,invited_by_email,host_domain_id,profile_id,status,expires_at
+) VALUES
+  (:uge,'acl-sec-expired@example.test','owner@example.test',:host_domain,:gpid,
+    'active',now()-interval '1 minute'),
+  (:ugn,'acl-sec-noapp@example.test','owner@example.test',:host_domain,:gpid,
+    'active',now()+interval '1 day');
+INSERT INTO user_app_entitlements(user_id,app,enabled) VALUES
+  (:uge,'drive',true),(:ugn,'drive',false)
+ON CONFLICT(user_id,app) DO UPDATE SET enabled=EXCLUDED.enabled;
+UPDATE users SET enabled=false WHERE id=:ud;
+SELECT is(drive_runtime_has_space_root_capability(
+  :ud,:empty_sid,'download'),false,'disabled regular member is denied in an empty space');
+SELECT is(drive_runtime_has_space_root_capability(
+  :uge,:empty_sid,'download'),false,'expired Guest is denied in an empty space');
+SELECT is(drive_runtime_has_space_root_capability(
+  :ugn,:empty_sid,'download'),false,'unentitled Guest is denied in an empty space');
+SELECT drive_node_create(:uo,:empty_sid,NULL,'folder','Root') AS empty_root \gset
+SELECT is(drive_runtime_has_space_root_capability(
+  :ud,:empty_sid,'download'),false,'disabled-member denial is unchanged after root creation');
+SELECT is(drive_runtime_has_space_root_capability(
+  :uge,:empty_sid,'download'),false,'expired-Guest denial is unchanged after root creation');
+SELECT is(drive_runtime_has_space_root_capability(
+  :ugn,:empty_sid,'download'),false,'entitlement denial is unchanged after root creation');
+
+-- A caller with aggregate capability through one source cannot spend a
+-- different direct or group grant's max-use budget.
+SELECT drive_space_create(:uo,'ACL lease subject binding','regular') AS sid \gset
+SELECT drive_member_grant(:uo,:sid,:ua,'editor');
+SELECT drive_node_create(:uo,:sid,NULL,'folder','Root') AS root \gset
+SELECT drive_node_create(:uo,:sid,:root,'file','Budget.bin') AS file \gset
+SELECT drive_chunk_register(:uo,:sid,repeat('a',64),10);
+SELECT (drive_file_put_version(
+  :uo,:file,repeat('b',64),10,'application/octet-stream',NULL,
+  format('[{"sha256":"%s","size":10}]',repeat('a',64))::jsonb,
+  NULL,'acl-security')->>'versionId')::bigint AS version_id \gset
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:sid;
+INSERT INTO drive_acl_grants(
+  space_id,node_id,subject_kind,subject_user_id,preset,capabilities,
+  propagation,source,max_uses,created_by
+) VALUES(:sid,:file,'user',:uv,'custom',ARRAY['modify_content'],'self',
+  'direct',2,:uo) RETURNING id AS direct_grant \gset
+SELECT directory_group_static_set(
+  :uo,NULL,:dom,'ACL lease victim group','members',ARRAY[:uv]::bigint[],NULL
+) AS gid \gset
+INSERT INTO drive_acl_grants(
+  space_id,node_id,subject_kind,subject_group_id,subject_generation,preset,capabilities,
+  propagation,source,max_uses,created_by
+) VALUES(:sid,:file,'group',:gid,
+  (SELECT generation FROM directory_groups WHERE id=:gid),
+  'custom',ARRAY['modify_content'],'self',
+  'group',2,:uo) RETURNING id AS group_grant \gset
+SELECT is(drive_acl_grant_subject_applies(:ua,:direct_grant),false,
+  'attacker does not match the selected victim direct grant');
+SELECT throws_ok(format($q$SELECT drive_access_use_lease_reserve(
+  %s,%s,'modify_content','acl-sec-direct-attack')$q$,:ua,:direct_grant),
+  'BZ254',NULL,'aggregate capability cannot reserve a victim direct grant');
+SELECT is((SELECT used_count FROM drive_acl_grants WHERE id=:direct_grant),0,
+  'failed direct-grant attack leaves the victim budget unchanged');
+SELECT is(drive_acl_grant_subject_applies(:ua,:group_grant),false,
+  'attacker does not match the selected victim group grant');
+SELECT throws_ok(format($q$SELECT drive_access_use_lease_reserve(
+  %s,%s,'modify_content','acl-sec-group-attack')$q$,:ua,:group_grant),
+  'BZ254',NULL,'aggregate capability cannot reserve an unrelated group grant');
+SELECT is((SELECT used_count FROM drive_acl_grants WHERE id=:group_grant),0,
+  'failed group-grant attack leaves the group budget unchanged');
+SELECT ok(drive_acl_grant_subject_applies(:uv,:direct_grant),
+  'the actual direct subject matches its bounded grant');
+SELECT ok((drive_access_use_lease_reserve(
+  :uv,:direct_grant,'modify_content','acl-sec-valid-victim')->>'leaseId') IS NOT NULL,
+  'the valid direct subject can reserve its own bounded grant');
+
+-- Root membership is an ACL source in ACL mode: grant/revoke must advance the
+-- exact access journal and revoke a stale file checkout in the same txn.
+SELECT epoch AS before_member_epoch FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT drive_member_grant(:uo,:sid,:ur,'editor');
+SELECT is(drive_acl_epoch(:sid),(:before_member_epoch::bigint+1),
+  'ACL-mode root member grant advances the access generation');
+SELECT drive_file_lock(:ur,:file,'soft',NULL,:version_id,'acl-sec',60);
+SELECT is((SELECT count(*)::int FROM drive_file_locks
+            WHERE node_id=:file AND user_id=:ur),1,
+  'root member holds a file lock before revoke');
+SELECT drive_access_invalidation_page(:ur,:sid,NULL,200) AS member_page \gset
+SELECT drive_member_revoke(:uo,:sid,:ur);
+SELECT ok(EXISTS(SELECT 1 FROM drive_access_invalidations
+  WHERE space_id=:sid AND principal_kind='user' AND principal_id=:ur
+    AND reason='member_revoke'),
+  'root member revoke emits one exact principal invalidation');
+SELECT is((SELECT count(*)::int FROM drive_file_locks
+            WHERE node_id=:file AND user_id=:ur),0,
+  'root member revoke removes a now-unauthorized file lock');
+SELECT is((drive_access_invalidation_page(
+  :ur,:sid,(:'member_page'::jsonb->>'cursor')::uuid,200)->>'reason'),
+  'accessRevoked','retained cursor receives a content-free terminal revoke reason');
+SELECT is((drive_access_invalidation_page(
+  :ur,:sid,(:'member_page'::jsonb->>'cursor')::uuid,200)->>'cursor'),NULL,
+  'fully revoked caller receives no reusable successor cursor');
+SELECT ok((drive_access_invalidation_page(
+  :ur,:sid,(:'member_page'::jsonb->>'cursor')::uuid,200)->>'fullReconcile')::boolean,
+  'terminal response instructs the managed client to purge via full reconcile');
+
+SELECT * FROM finish();
+ROLLBACK;

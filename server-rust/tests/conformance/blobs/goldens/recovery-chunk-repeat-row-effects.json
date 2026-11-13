@@ -1,0 +1,48 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "next_offset": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_items"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "next_offset": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_sessions"
+    },
+    {
+      "after": {
+        "created_at": "<timestamp>",
+        "item_id": "raw",
+        "object_key": "<quarantine-key>",
+        "session_id": "<session>",
+        "sha256": "\\x2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "size_bytes": 1,
+        "start_offset": 0
+      },
+      "change": "insert",
+      "row": "raw:0",
+      "table": "mail_recovery_upload_chunks"
+    }
+  ],
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "route": "PUT /recovery/uploads/{sessionId}/items/{itemId}"
+}

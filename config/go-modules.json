@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "id": "authserver",
+      "path": "authserver",
+      "workspace": true,
+      "kind": "service",
+      "artifacts": [{"package": "./cmd/authserverd", "output": "authserverd"}],
+      "capabilities": ["build", "test", "lint", "vulnerability", "coverage", "crossCompile"]
+    },
+    {
+      "id": "mailserver",
+      "path": "mailserver",
+      "workspace": true,
+      "kind": "service",
+      "artifacts": [
+        {"package": "./cmd/mailserverd", "output": "mailserverd"},
+        {"package": "./cmd/setjoin-updater", "output": "setjoin-updater"},
+        {"package": "./cmd/setjoin-recovery", "output": "setjoin-recovery"}
+      ],
+      "capabilities": ["build", "test", "lint", "vulnerability", "coverage", "crossCompile"]
+    },
+    {
+      "id": "shared",
+      "path": "shared",
+      "workspace": true,
+      "kind": "library",
+      "capabilities": ["test", "lint", "vulnerability", "coverage", "crossCompile"]
+    },
+    {
+      "id": "mailctl",
+      "path": "mailctl",
+      "workspace": true,
+      "kind": "adminTool",
+      "capabilities": ["test", "lint", "vulnerability", "coverage", "crossCompile"]
+    },
+    {
+      "id": "setjoin-release",
+      "path": "tools/setjoin-release",
+      "workspace": true,
+      "kind": "ciTool",
+      "capabilities": ["test", "lint", "vulnerability", "coverage"]
+    },
+    {
+      "id": "asrbot",
+      "path": "asrbot",
+      "workspace": false,
+      "kind": "sidecar",
+      "capabilities": ["build", "test", "lint", "vulnerability", "coverage"],
+      "environment": {
+        "GOWORK": "off"
+      },
+      "buildTags": ["nolibopusfile"],
+      "artifacts": [{"package": "./cmd/asrbotd", "output": "asrbotd"}],
+      "prerequisites": ["pkg-config:opus"]
+    }
+  ]
+}

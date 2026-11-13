@@ -1,0 +1,661 @@
+{
+  "case": "subscription-sync-tick",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "requests": [
+      "GET :: /allbad :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /bad-etag :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /big :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /chain1 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /chain2 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /chain3 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /chain4 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /exact :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /garbage :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /gone :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /nm :: accept=text/calendar, */* | if-modified-since=Tue, 31 Dec 2039 00:00:00 GMT | if-none-match=\"v-old\" | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators :: accept=text/calendar, */* | if-modified-since=Tue, 31 Dec 2039 00:00:00 GMT | if-none-match=\"v-old\" | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?due :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /nul :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /ok :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /ok2 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /ok2 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /partial :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-chain5 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loop :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-loopback :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-noloc :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-private :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /redir-scheme :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /update :: accept=text/calendar, */* | if-modified-since=Tue, 31 Dec 2039 00:00:00 GMT | if-none-match=\"v-old\" | user-agent=setjoin-calendarsync/1"
+    ],
+    "subscriptions": [
+      {
+        "claimed": true,
+        "error": null,
+        "etag": "\"v-ok\"",
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "With alarm",
+            "uid": "ok-alarm"
+          },
+          {
+            "all_day": true,
+            "description": "",
+            "end": "2040-07-05T00:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-07-04T00:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Holiday",
+            "uid": "ok-allday"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Bad dates",
+            "uid": "ok-bad-dates"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-02T00:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-bare"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-bogus-status"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "cancelled",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-cancelled"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "second",
+            "uid": "ok-dup"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T09:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-frac"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2024-03-10T07:30:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2024-03-10T06:30:00Z",
+            "status": "confirmed",
+            "timezone": "America/New_York",
+            "title": "Untitled",
+            "uid": "ok-gap"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Journal",
+            "uid": "ok-journal"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2024-07-01T07:30:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2024-07-01T06:30:00Z",
+            "status": "confirmed",
+            "timezone": "Asia/Kolkata",
+            "title": "Untitled",
+            "uid": "ok-kolkata"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "😀 ok",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "caf� ��",
+            "uid": "ok-latin1"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2024-07-01T12:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2024-07-01T11:00:00Z",
+            "status": "confirmed",
+            "timezone": "Europe/London",
+            "title": "Untitled",
+            "uid": "ok-london"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "location:Lower place",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "summary:Lower summary",
+            "uid": "ok-lower"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T04:30:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T14:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-offset"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2024-11-03T07:30:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2024-11-03T05:30:00Z",
+            "status": "confirmed",
+            "timezone": "America/New_York",
+            "title": "Untitled",
+            "uid": "ok-overlap"
+          },
+          {
+            "all_day": true,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "needs-action",
+            "timezone": "",
+            "title": "Todo",
+            "uid": "ok-todo"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-03-01T15:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-03-01T14:00:00Z",
+            "status": "confirmed",
+            "timezone": "America/New_York",
+            "title": "NY",
+            "uid": "ok-tz"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2024-07-01T13:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2024-07-01T12:00:00Z",
+            "status": "confirmed",
+            "timezone": "Mars/Phobos",
+            "title": "Untitled",
+            "uid": "ok-unknown-tz"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Untitled",
+            "uid": "ok-untitled"
+          },
+          {
+            "all_day": false,
+            "description": "line one\nline two; witha folded part\\",
+            "end": "2040-01-01T09:30:00Z",
+            "location": "Room 1",
+            "rrule": "FREQ=WEEKLY;BYDAY=MO",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": "",
+            "title": "Stand, up <b>&amp; \"q\"",
+            "uid": "ok-utc"
+          }
+        ],
+        "last_modified": "Wed, 01 Jan 2040 00:00:00 GMT",
+        "status": "ok",
+        "url": "http://localhost:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "1 of 2 events synced",
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Good",
+            "uid": "p-good"
+          }
+        ],
+        "last_modified": null,
+        "status": "partial",
+        "url": "http://localhost:<port>/partial"
+      },
+      {
+        "claimed": true,
+        "error": "no events could be parsed (2 errors)",
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "old description",
+            "end": "2030-01-01T10:00:00Z",
+            "location": null,
+            "rrule": null,
+            "start": "2030-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": null,
+            "title": "Untouched",
+            "uid": "ab-1"
+          }
+        ],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/allbad"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/garbage"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "old description",
+            "end": "2030-01-01T10:00:00Z",
+            "location": null,
+            "rrule": null,
+            "start": "2030-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": null,
+            "title": "Untouched",
+            "uid": "gone-1"
+          }
+        ],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/gone"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Followed",
+            "uid": "redir-ok"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/redir"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/redir-loop"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Followed",
+            "uid": "redir-ok"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/redir-chain5"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/redir-loopback"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/redir-private"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/redir-noloc"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/redir-scheme"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/big"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "At the limit",
+            "uid": "exact"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/exact"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": "\"v-ok\"",
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2030-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-05-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "New title",
+            "uid": "u-keep"
+          },
+          {
+            "all_day": false,
+            "description": "",
+            "end": null,
+            "location": "",
+            "rrule": "",
+            "start": null,
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Brand new",
+            "uid": "u-new"
+          }
+        ],
+        "last_modified": "Wed, 01 Jan 2040 00:00:00 GMT",
+        "status": "ok",
+        "url": "http://localhost:<port>/update"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": "\"v-old\"",
+        "events": [
+          {
+            "all_day": false,
+            "description": "old description",
+            "end": "2030-01-01T10:00:00Z",
+            "location": null,
+            "rrule": null,
+            "start": "2030-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": null,
+            "title": "Kept",
+            "uid": "nm-1"
+          }
+        ],
+        "last_modified": "Tue, 31 Dec 2039 00:00:00 GMT",
+        "status": "ok",
+        "url": "http://localhost:<port>/nm"
+      },
+      {
+        "claimed": true,
+        "error": "sync failed — will retry next cycle",
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "old description",
+            "end": "2030-01-01T10:00:00Z",
+            "location": null,
+            "rrule": null,
+            "start": "2030-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": null,
+            "title": "Survives",
+            "uid": "nul-old"
+          }
+        ],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/nul"
+      },
+      {
+        "claimed": true,
+        "error": "sync failed — will retry next cycle",
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "old description",
+            "end": "2030-01-01T10:00:00Z",
+            "location": null,
+            "rrule": null,
+            "start": "2030-01-01T09:00:00Z",
+            "status": "tentative",
+            "timezone": null,
+            "title": "Survives",
+            "uid": "be-old"
+          }
+        ],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/bad-etag"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?due"
+      },
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/ok"
+      },
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/ok"
+      }
+    ]
+  }
+}

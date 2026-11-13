@@ -1,0 +1,51 @@
+// Recording-only overlay: frozen Go's public Model Train/Save/Score boundary.
+package spam
+
+import (
+ "compress/gzip"
+ "encoding/json"
+ "fmt"
+ "math"
+ "os"
+ "path/filepath"
+ "testing"
+)
+
+func TestGoFreeSpamModel(t *testing.T) {
+ dir := os.Getenv("GOFREE_SPAM_OUT")
+ if dir == "" { t.Fatal("GOFREE_SPAM_OUT required") }
+ if err := os.MkdirAll(dir, 0700); err != nil { t.Fatal(err) }
+ write := func(name string, data []byte) {
+  f, err := os.OpenFile(filepath.Join(dir,name),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600); if err != nil { t.Fatal(err) }
+  z := gzip.NewWriter(f); if _,err=z.Write(data); err != nil { t.Fatal(err) }; if err=z.Close();err!=nil{t.Fatal(err)}; if err=f.Close();err!=nil{t.Fatal(err)}
+ }
+ raw := []byte("From: Sender <SENDER@Example.test>\r\nSubject: URGENT FREE OFFER 123\r\n\tLIMITED time\r\nContent-Type: text/html\r\n\r\n<p>Click https://Shop.Example.test:8080/offer%20now/Win?x=1 free prize million!</p>\nFrom: forged@body.test\n")
+ var cases []map[string]any
+ for i,dot := range []float64{0,0.1,-0.1,0.7,-2.3,700,-700} {
+  uid := int64(-17+i)
+  model := newUserModel(uid)
+  feats := ExtractFeatures(raw,PerUserFeatureKey(uid)); model.ftrl.W[feats[0]]=dot
+  before,_:=model.Save(); write(fmt.Sprintf("model-%d-before.gz",i),sealModelBlob(uid,before))
+  score:=model.Score(raw)
+  for n:=0;n<23;n++ { model.Train(raw,n%3!=0) }
+  after,_:=model.Save(); write(fmt.Sprintf("model-%d-after.gz",i),sealModelBlob(uid,after))
+  cases=append(cases,map[string]any{"name":fmt.Sprintf("model-%d",i),"user":uid,"raw":raw,"steps":23,"score_bits":fmt.Sprintf("%016x",math.Float64bits(score))})
+ }
+ // Header parsing, Unicode case mapping, URL parsing, byte regex and absent body.
+ for i,raw := range [][]byte{
+  []byte("Subject: First\nSubject: SECOND\n\tfolded\nContent-Type: text/plain\nDate:\nMessage-ID:\n\nHello <b>WORLD</b> lottery"),
+  []byte("Bad header\n continuation\nFrom: No address\nSubject: İKΣǅⅣ ΑΒΓ\n\nhttps://例子.测试/a%2Fb//C http://x.test:bad/path http://x.test/a%zz"),
+  []byte("Subject: no body"),
+  {0xff,0xfe,'\n','\n','x','y','z',0xff,'A','B','C'},
+  []byte("From: x@y.test\n\nhttp://user:pw@EXAMPLE.test/A/../B?x#frag https://[::1]:88/a https://x.test/a+b"),
+ } {
+  id:=i+7;uid:=int64(1+id);model:=newUserModel(uid)
+  before,_:=model.Save();write(fmt.Sprintf("model-%d-before.gz",id),sealModelBlob(uid,before))
+  score:=model.Score(raw)
+  for n:=0;n<9;n++ {model.Train(raw,n%3!=0)}
+  after,_:=model.Save();write(fmt.Sprintf("model-%d-after.gz",id),sealModelBlob(uid,after))
+  cases=append(cases,map[string]any{"name":fmt.Sprintf("model-%d",id),"user":uid,"raw":raw,"steps":9,"score_bits":fmt.Sprintf("%016x",math.Float64bits(score))})
+ }
+ data,err:=json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"cases":cases},"","  ");if err!=nil{t.Fatal(err)}
+ if err=os.WriteFile(filepath.Join(dir,"models.json"),data,0600);err!=nil{t.Fatal(err)}
+}

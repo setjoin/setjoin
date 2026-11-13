@@ -1,0 +1,258 @@
+{
+  "case": "link-cross-tenant",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "actor": {
+          "elevations": [
+            {
+              "consumed": false,
+              "hash_bound": true,
+              "jti": "gofree-idfed3-session-a",
+              "kind": "saml",
+              "provider": "saml:34101"
+            }
+          ],
+          "events": [
+            {
+              "action": "auth_linked",
+              "actor_is_owner": true,
+              "after_digest": true,
+              "before_digest": false,
+              "metadata": {
+                "kind": "saml",
+                "providerKey": "saml:34101"
+              },
+              "reason": "IDFED3 fixture"
+            }
+          ],
+          "evictions": [],
+          "grants": [],
+          "links": [
+            {
+              "detached_by_owner": null,
+              "detached_reason": null,
+              "generation": 1,
+              "method": "operator",
+              "purposes": [
+                "authenticate"
+              ],
+              "state": "active",
+              "subject": "idfed3-actor-subject"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "hash_bound": true,
+              "id": "gofree-idfed3-session-a",
+              "method": "totp"
+            }
+          ],
+          "tokens": [],
+          "user": {
+            "enabled": true,
+            "password_set": true,
+            "saml_idp_entity_id": "idfed3",
+            "saml_name_id": "idfed3-actor-subject"
+          },
+          "ws": 0
+        },
+        "foreign": {
+          "elevations": [],
+          "events": [
+            {
+              "action": "auth_linked",
+              "actor_is_owner": true,
+              "after_digest": true,
+              "before_digest": false,
+              "metadata": {
+                "kind": "saml",
+                "providerKey": "saml:34101"
+              },
+              "reason": "IDFED3 fixture"
+            }
+          ],
+          "evictions": [],
+          "grants": [],
+          "links": [
+            {
+              "detached_by_owner": null,
+              "detached_reason": null,
+              "generation": 1,
+              "method": "operator",
+              "purposes": [
+                "authenticate"
+              ],
+              "state": "active",
+              "subject": "idfed3-foreign-subject"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "hash_bound": true,
+              "id": "gofree-idfed3-session-b",
+              "method": "totp"
+            }
+          ],
+          "tokens": [],
+          "user": {
+            "enabled": true,
+            "password_set": true,
+            "saml_idp_entity_id": "idfed3",
+            "saml_name_id": "idfed3-foreign-subject"
+          },
+          "ws": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "elevations": [],
+          "events": [
+            {
+              "action": "auth_linked",
+              "actor_is_owner": true,
+              "after_digest": true,
+              "before_digest": false,
+              "metadata": {
+                "kind": "saml",
+                "providerKey": "saml:34101"
+              },
+              "reason": "IDFED3 fixture"
+            }
+          ],
+          "evictions": [],
+          "grants": [],
+          "links": [
+            {
+              "detached_by_owner": null,
+              "detached_reason": null,
+              "generation": 1,
+              "method": "operator",
+              "purposes": [
+                "authenticate"
+              ],
+              "state": "active",
+              "subject": "idfed3-actor-subject"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "hash_bound": true,
+              "id": "gofree-idfed3-session-a",
+              "method": "totp"
+            }
+          ],
+          "tokens": [],
+          "user": {
+            "enabled": true,
+            "password_set": true,
+            "saml_idp_entity_id": "idfed3",
+            "saml_name_id": "idfed3-actor-subject"
+          },
+          "ws": 0
+        },
+        "foreign": {
+          "elevations": [],
+          "events": [
+            {
+              "action": "auth_linked",
+              "actor_is_owner": true,
+              "after_digest": true,
+              "before_digest": false,
+              "metadata": {
+                "kind": "saml",
+                "providerKey": "saml:34101"
+              },
+              "reason": "IDFED3 fixture"
+            }
+          ],
+          "evictions": [],
+          "grants": [],
+          "links": [
+            {
+              "detached_by_owner": null,
+              "detached_reason": null,
+              "generation": 1,
+              "method": "operator",
+              "purposes": [
+                "authenticate"
+              ],
+              "state": "active",
+              "subject": "idfed3-foreign-subject"
+            }
+          ],
+          "revocations": [],
+          "sessions": [
+            {
+              "hash_bound": true,
+              "id": "gofree-idfed3-session-b",
+              "method": "totp"
+            }
+          ],
+          "tokens": [],
+          "user": {
+            "enabled": true,
+            "password_set": true,
+            "saml_idp_entity_id": "idfed3",
+            "saml_name_id": "idfed3-foreign-subject"
+          },
+          "ws": 0
+        }
+      }
+    },
+    "flow": {
+      "expiresAt": 600,
+      "flowId": "_flow",
+      "kind": "saml",
+      "providerKey": "saml:34101",
+      "sessionHash": "_session_hash",
+      "sessionJti": "gofree-idfed3-session-a",
+      "userId": "_actor"
+    },
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "body": "{\"user_id\":\"_foreign\"}",
+      "cookie": "_actor_access",
+      "method": "*",
+      "path": "/auth/saml/",
+      "wire_method": "POST",
+      "wire_path": "/auth/saml/idfed3/link"
+    },
+    "response": {
+      "authn_request": "<samlp:AuthnRequest xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ID=\"_request\" Version=\"2.0\" IssueInstant=\"_instant\" Destination=\"https://idp.idfed3.test/sso\" AssertionConsumerServiceURL=\"https://auth.idfed3.test/auth/saml/idfed3/acs\" ProtocolBinding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\"><saml:Issuer Format=\"urn:oasis:names:tc:SAML:2.0:nameid-format:entity\">https://auth.idfed3.test/saml/metadata</saml:Issuer><samlp:NameIDPolicy AllowCreate=\"true\"/></samlp:AuthnRequest>",
+      "body": "",
+      "headers": {
+        "location": "https://idp.idfed3.test/sso?SAMLRequest=_request&RelayState=_relay&SigAlg=http://www.w3.org/2001/04/xmldsig-more#rsa-sha256&Signature=_signature",
+        "set-cookie": [
+          "identity_link_flow=_sealed_link_flow; Path=/; Max-Age=600; HttpOnly; SameSite=Strict",
+          "saml__relay=_tracked; Path=/auth/saml/idfed3/acs; Max-Age=90; HttpOnly; SameSite=None; Secure"
+        ]
+      },
+      "status": 302,
+      "tracked": {
+        "aud": [
+          "https://auth.idfed3.test"
+        ],
+        "exp": "_exp",
+        "flow": "_flow",
+        "iat": "_iat",
+        "id": "_request",
+        "iss": "https://auth.idfed3.test",
+        "nbf": "_nbf",
+        "purpose": "link",
+        "reg": 34101,
+        "saml-authn-request": true,
+        "sub": "_relay",
+        "uri": "/auth/saml/idfed3/link"
+      }
+    }
+  },
+  "route": "* /auth/saml/ link"
+}

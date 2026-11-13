@@ -1,0 +1,69 @@
+{
+  "case": "signal-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed_at": "<timestamp>",
+          "error": "SSH <node-1>: Process exited with status 143 from signal TERM. Reason was: gofree-plat2b signal — output: ok\n",
+          "output": "",
+          "started_at": "<timestamp>",
+          "status": "failed",
+          "step_name": "ssh_check"
+        }
+      ],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": {
+        "log": [
+          "[ssh_check] SSH connectivity check",
+          "[ssh_check] FAILED: SSH <node-1>: Process exited with status 143 from signal TERM. Reason was: gofree-plat2b signal — output: ok\n"
+        ],
+        "nodes": [
+          {
+            "has_inline_key": true,
+            "host": "<node-1>",
+            "role": "primary",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-2>",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-3>",
+            "role": "standby",
+            "ssh_user": "root"
+          }
+        ],
+        "profile": 0,
+        "started_at": "<timestamp>",
+        "status": "failed",
+        "steps": [
+          {
+            "error": "SSH <node-1>: Process exited with status 143 from signal TERM. Reason was: gofree-plat2b signal — output: ok\n",
+            "name": "ssh_check",
+            "status": "failed"
+          }
+        ]
+      },
+      "before": {
+        "log": null,
+        "nodes": [],
+        "profile": 0,
+        "started_at": "<zero-time>",
+        "status": "",
+        "steps": null
+      },
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/start"
+}

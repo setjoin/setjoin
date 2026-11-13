@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/admin/domains?name=example.test",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Delete domain example.test — are you sure? (type 'yes' to confirm): Error: HTTP 403 denied: outside scope (remediation: use scoped token)\n",
+  "exit": 1
+}

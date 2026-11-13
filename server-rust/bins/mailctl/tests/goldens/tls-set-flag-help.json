@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of tls set:\n  -challenge string\n    \tACME challenge type (tls-alpn-01, http-01, dns-01)\n  -dns-provider string\n    \tDNS provider for dns-01 (cloudflare, route53, rfc2136)\n  -domains string\n    \tComma-separated domain list\n  -email string\n    \tACME notification email\n",
+  "exit": 0
+}

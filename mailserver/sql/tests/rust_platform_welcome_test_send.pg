@@ -1,0 +1,21 @@
+-- pgTAP: rust_platform_welcome_test_send.sql (#443) — frozen Go's welcome-email test send.
+BEGIN;
+SELECT plan(6);
+SELECT mk_account('wtown') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT email AS addr FROM mailboxes WHERE id = :mb \gset
+UPDATE users SET display_name = 'Wanda <W>', username = 'wanda' WHERE id = :u;
+
+SELECT is(rust_platform_welcome_test_send(:u, 'Hi {{DisplayName}} at {{OrgName}}', 'Mail {{Email}} {{Username}} {{WebmailURL}} {{Unknown}}', '<p>{{DisplayName}}</p>'), :mb::bigint, 'returns the primary mailbox');
+SELECT is((SELECT subject FROM messages WHERE mailbox_id = :mb AND raw_ref = 'system:welcome:' || :u),
+          'Hi Wanda <W> at ' || split_part(:'addr', '@', 2), 'subject is personalized');
+SELECT is((SELECT body_text FROM messages WHERE mailbox_id = :mb AND raw_ref = 'system:welcome:' || :u),
+          'Mail ' || :'addr' || ' wanda https://' || split_part(:'addr', '@', 2) || ' {{Unknown}}', 'body text keeps unknown tokens literal');
+SELECT is((SELECT body_html FROM messages WHERE mailbox_id = :mb AND raw_ref = 'system:welcome:' || :u), '<p>Wanda <W></p>', 'html is personalized');
+-- No idempotency guard: a second test send delivers a second message.
+SELECT rust_platform_welcome_test_send(:u, 's', 'b', '');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id = :mb AND raw_ref = 'system:welcome:' || :u), 2::bigint, 'testing is repeatable');
+-- No primary mailbox: Go's error.
+SELECT throws_ok($$SELECT rust_platform_welcome_test_send(999999999, 's', 'b', '')$$, NULL, NULL, 'a user without a mailbox raises');
+SELECT * FROM finish();
+ROLLBACK;

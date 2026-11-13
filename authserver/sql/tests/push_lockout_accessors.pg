@@ -1,0 +1,97 @@
+-- pgTAP: push_lockout_accessors.pg — the push-MFA recovery-lockout accessor
+-- seam (PLAN-20260913 D2 / REDUCERS-004, Astra AGREE: ALL auth_lockouts
+-- accessor paths INCLUDING push-MFA lockout).
+--
+-- The forgot-password push branch (authserver/internal/authn/push_lockout.go)
+-- keeps per-account lock state in the SHARED auth_lockouts table. Under the
+-- V259 deny-all FORCE flip that table has zero permissive policies, so this
+-- file proves the push path's ONLY remaining surface: the three worker-owned
+-- SECURITY DEFINER accessors in authserver/sql/reducers/
+-- push_lockout_accessors.sql, driven in the same sequence the Go seam drives
+-- them (acquire → record failures → trip → count-only locked attempts →
+-- success reset).
+--
+-- Role contract per the r12 actual-role form: the test connection is the
+-- superuser/table owner (bypasses RLS even under FORCE), so the denial arms
+-- run under SET LOCAL ROLE setjoin_app (NOBYPASSRLS) and the lifecycle runs
+-- under setjoin_worker (BYPASSRLS, the accessors' only EXECUTE holder).
+-- NO ACL repair happens here: this file runs AFTER the provisioning pass
+-- (load-test-schema.sh step 4/4 / install.sh post-load), whose worker-only
+-- carve-out in scripts/provision-roles.sql now carries all nine accessor
+-- signatures and owns the denial — so the 42501 arms below verify the actual
+-- shipped post-provisioning ACL state, not a permission this test restored
+-- (the Astra HOLD finding this round closes). See
+-- mailserver/sql/tests/V259__auth_lockouts_rls_backstop.pg for the full
+-- deny-all matrix.
+BEGIN;
+SELECT plan(18);
+
+-- ── Setup: a clean key range for this file (data only — no grants). ────────
+DELETE FROM auth_lockouts WHERE lockout_key LIKE 'push_user:9100%';
+
+-- ── Shape: the three accessors are installed, SECURITY DEFINER, worker-only ─
+SELECT has_function('public', 'push_lockout_acquire', ARRAY['bigint'],
+    'push_lockout_acquire(bigint) is installed');
+SELECT has_function('public', 'push_lockout_record', ARRAY['bigint','int','timestamptz'],
+    'push_lockout_record(bigint,int,timestamptz) is installed');
+SELECT has_function('public', 'push_lockout_count_locked', ARRAY['bigint'],
+    'push_lockout_count_locked(bigint) is installed');
+SELECT is(
+  (SELECT count(*)::int FROM pg_proc
+    WHERE proname IN ('push_lockout_acquire','push_lockout_record',
+                      'push_lockout_count_locked')
+      AND pronamespace = 'public'::regnamespace
+      AND prosecdef
+      AND (SELECT rolname = 'setjoin_worker' FROM pg_roles WHERE oid = proowner)),
+  3, 'all three push accessors are SECURITY DEFINER owned by setjoin_worker');
+
+-- ── The app credential is denied the whole push seam ───────────────────────
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$SELECT * FROM push_lockout_acquire(910001)$$,
+  '42501', NULL,
+  'setjoin_app is denied EXECUTE on push_lockout_acquire (42501)');
+SELECT throws_ok(
+  $$SELECT push_lockout_record(910001, 1, NULL)$$,
+  '42501', NULL,
+  'setjoin_app is denied EXECUTE on push_lockout_record (42501)');
+SELECT throws_ok(
+  $$SELECT push_lockout_count_locked(910001)$$,
+  '42501', NULL,
+  'setjoin_app is denied EXECUTE on push_lockout_count_locked (42501)');
+
+-- ── The worker drives the full Go-seam lifecycle ───────────────────────────
+SET LOCAL ROLE setjoin_worker;
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(910001)), 0,
+    'fresh account acquires the count-0 row (never-locked insert branch)');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(910001)), FALSE,
+    'the fresh-acquire sentinel (locked_until = now) is not a lock');
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key = 'push_user:910001'), 1,
+    'the accessor writes the push_user:{id} key (Go pushLockoutKey parity)');
+SELECT push_lockout_record(910001, 4, NULL);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(910001)), 4,
+    'failure recording stores the sub-threshold count (4 of 5)');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(910001)), FALSE,
+    'a NULL lock horizon keeps the account unlocked below the threshold');
+SELECT push_lockout_record(910001, 5, now() + interval '15 minutes');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(910001)), TRUE,
+    'the threshold-crossing record trips the account lock (locked check refuses before verify)');
+SELECT push_lockout_count_locked(910001);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(910001)), 6,
+    'count-only locked attempts keep the shared budget honest');
+SELECT is((SELECT locked_until > now() + interval '14 minutes'
+             FROM push_lockout_acquire(910001)), TRUE,
+    'locked attempts never extend the lock horizon (expires on schedule)');
+SELECT push_lockout_record(910001, 0, NULL);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(910001)), 0,
+    'the success reset zeroes the counter');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(910001)), FALSE,
+    'the success reset re-arms the unlocked sentinel');
+SELECT push_lockout_acquire(910002);
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key LIKE 'push_user:9100%'), 2,
+    'a second account acquires its own row (per-account isolation)');
+
+SELECT * FROM finish();
+ROLLBACK;

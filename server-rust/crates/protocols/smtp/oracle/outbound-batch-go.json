@@ -1,0 +1,479 @@
+[
+  {
+    "case": {
+      "barrier": 10,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "oldest-ten-concurrent",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound-0@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350012,'\u003coutbound-1@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350013,'\u003coutbound-2@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350014,'\u003coutbound-3@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350015,'\u003coutbound-4@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350016,'\u003coutbound-5@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350017,'\u003coutbound-6@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350018,'\u003coutbound-7@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350019,'\u003coutbound-8@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350020,'\u003coutbound-9@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350021,'\u003coutbound-10@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nUPDATE outbound_queue SET queued_at=now()+make_interval(secs=\u003eid::integer-9350011) WHERE message_id LIKE '%smtp3.test%';",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350012,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350013,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350014,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350015,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350016,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350017,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350018,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350019,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350020,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350021,
+          "status": "pending",
+          "attempt_count": 0,
+          "last_error": null,
+          "delivered": false,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound-4@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-1@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-7@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-9@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-8@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-5@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-6@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-3@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-0@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        },
+        {
+          "message_id": "\u003coutbound-2@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      },
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  }
+]

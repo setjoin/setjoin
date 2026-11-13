@@ -1,0 +1,477 @@
+-- guest_chat_policy.pg -- Guest G2 Task 5 posting, DM, immutable history,
+-- preview projection, and External/Removed wire contracts.
+BEGIN;
+SELECT plan(63);
+SELECT set_config('app.capture_notify', 'on', true);
+
+UPDATE feature_toggles SET enabled = TRUE
+ WHERE key IN ('feature.guest_accounts', 'feature.chat_push');
+INSERT INTO system_config(key, value)
+VALUES ('chat.send_rate_per_minute', '0'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+
+INSERT INTO domains(name, is_local) VALUES
+  ('g2chat-host.example', TRUE),
+  ('g2chat-other.example', TRUE),
+  ('g2chat-federated.example', FALSE);
+
+INSERT INTO users(username, domain_id, email, display_name, enabled, is_local_admin)
+SELECT v.username, d.id, v.email, v.display_name, TRUE, v.is_admin
+  FROM (VALUES
+    ('g2chat-admin',     'g2chat-admin@g2chat-host.example',     'G2 Admin',     'g2chat-host.example', TRUE),
+    ('g2chat-shared',    'g2chat-shared@g2chat-host.example',    'Shared User',  'g2chat-host.example', FALSE),
+    ('g2chat-arbitrary', 'g2chat-arbitrary@g2chat-host.example', 'Arbitrary',    'g2chat-host.example', FALSE),
+    ('g2chat-legacy',    'g2chat-legacy@g2chat-host.example',    'Legacy',       'g2chat-host.example', FALSE),
+    ('g2chat-fed',       'g2chat-fed@g2chat-federated.example',  'Federated',    'g2chat-federated.example', FALSE)
+  ) AS v(username,email,display_name,domain_name,is_admin)
+  JOIN domains d ON d.name = v.domain_name;
+
+INSERT INTO users(username, domain_id, email, display_name, enabled)
+SELECT v.email, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g2chat-post@external.example',    'Posting Guest'),
+    ('g2chat-history@external.example', 'History Guest'),
+    ('g2chat-dm-yes@external.example',  'DM Yes Guest'),
+    ('g2chat-dm-no@external.example',   'DM No Guest'),
+    ('g2chat-target@external.example',  'Guest Target'),
+    ('g2chat-author@external.example',  'Guest Author'),
+    ('g2chat-roster@external.example',  'Roster Guest')
+  ) AS v(email,display_name)
+  JOIN domains d ON d.name = 'guest.invalid';
+
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status, expires_at)
+SELECT u.id, u.email, 'g2chat-admin@g2chat-host.example', d.id, 'active', now()+interval '1 day'
+  FROM users u CROSS JOIN domains d
+ WHERE u.email LIKE 'g2chat-%@external.example'
+   AND d.name = 'g2chat-host.example';
+
+INSERT INTO admin_role_groups(name, permissions, domain_scope)
+SELECT 'g2chat-guest-managers', ARRAY['guests.view','guests.manage'], id
+  FROM domains WHERE name = 'g2chat-host.example';
+INSERT INTO admin_role_assignments(user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE FROM users u CROSS JOIN admin_role_groups rg
+ WHERE u.email = 'g2chat-admin@g2chat-host.example'
+   AND rg.name = 'g2chat-guest-managers';
+
+SELECT guest_profile_set(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), NULL,
+  (SELECT id FROM domains WHERE name='g2chat-host.example'),
+  'G2 Writer', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL, ARRAY['chat']) AS writer_profile \gset
+SELECT guest_profile_set(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), NULL,
+  (SELECT id FROM domains WHERE name='g2chat-host.example'),
+  'G2 DM Yes', TRUE, TRUE, FALSE, FALSE, FALSE, TRUE, FALSE, NULL, ARRAY['chat']) AS dm_yes_profile \gset
+SELECT guest_profile_set(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), NULL,
+  (SELECT id FROM domains WHERE name='g2chat-host.example'),
+  'G2 DM No', TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL, ARRAY['chat']) AS dm_no_profile \gset
+
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-post@external.example'), :writer_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-history@external.example'), :writer_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'), :dm_yes_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-dm-no@external.example'), :dm_no_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-target@external.example'), :writer_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-author@external.example'), :writer_profile);
+SELECT guest_profile_apply(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+  (SELECT id FROM users WHERE email='g2chat-roster@external.example'), :writer_profile);
+
+-- Posting: NULL keeps legacy member behavior; a live profile flip denies at
+-- the membership choke before every observable send side effect.
+SELECT chat_channel_create(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), 'g2chat-posting') AS posting_ch \gset
+SELECT chat_member_add(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :posting_ch,
+  (SELECT id FROM users WHERE email='g2chat-legacy@g2chat-host.example'));
+SELECT chat_member_add(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :posting_ch,
+  (SELECT id FROM users WHERE email='g2chat-post@external.example'));
+SELECT is((SELECT can_post FROM chat_channel_members
+            WHERE channel_id=:posting_ch
+              AND user_id=(SELECT id FROM users WHERE email='g2chat-legacy@g2chat-host.example')),
+  NULL::boolean, 'legacy member retains can_post=NULL');
+SELECT lives_ok(format($q$SELECT chat_message_send(%s,%s,'legacy NULL posts')$q$,
+  (SELECT id FROM users WHERE email='g2chat-legacy@g2chat-host.example'), :posting_ch),
+  'can_post=NULL preserves member posting behavior');
+SELECT lives_ok(format($q$SELECT chat_message_send(%s,%s,'guest before policy flip')$q$,
+  (SELECT id FROM users WHERE email='g2chat-post@external.example'), :posting_ch),
+  'permissive guest posts before the live profile flip');
+UPDATE chat_channel_members SET can_post=NULL
+ WHERE channel_id=:posting_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-post@external.example');
+SELECT throws_ok(format($q$SELECT chat_message_send(%s,%s,'legacy NULL guest must not post')$q$,
+  (SELECT id FROM users WHERE email='g2chat-post@external.example'), :posting_ch),
+  'BZ220', NULL, 'pre-V145 guest can_post=NULL fails closed');
+UPDATE chat_channel_members SET can_post=TRUE
+ WHERE channel_id=:posting_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-post@external.example');
+SELECT guest_profile_set(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :writer_profile,
+  (SELECT id FROM domains WHERE name='g2chat-host.example'),
+  'G2 Writer', FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL, ARRAY['chat']);
+SELECT count(*) AS before_messages FROM chat_messages WHERE channel_id=:posting_ch \gset
+SELECT count(*) AS before_mentions FROM chat_mentions \gset
+SELECT count(*) AS before_push FROM chat_push_intents WHERE channel_id=:posting_ch \gset
+SELECT count(*) AS before_guest_intents FROM guest_notification_intents \gset
+SELECT count(*) AS before_notifies FROM _test_notify_log \gset
+SELECT change_seq AS before_state FROM chat_channels WHERE id=:posting_ch \gset
+SELECT throws_ok(format($q$SELECT chat_message_send(%s,%s,'must not land',NULL,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-post@external.example'), :posting_ch,
+  (SELECT id FROM users WHERE email='g2chat-post@external.example')),
+  'BZ220', NULL, 'read-only membership raises BZ220');
+SELECT is((SELECT count(*) FROM chat_messages WHERE channel_id=:posting_ch), :before_messages::bigint,
+  'BZ220 writes no message');
+SELECT is((SELECT count(*) FROM chat_mentions), :before_mentions::bigint,
+  'BZ220 writes no mention');
+SELECT is((SELECT count(*) FROM chat_push_intents WHERE channel_id=:posting_ch), :before_push::bigint,
+  'BZ220 writes no mobile-push intent');
+SELECT is((SELECT count(*) FROM guest_notification_intents), :before_guest_intents::bigint,
+  'BZ220 writes no guest notification intent');
+SELECT is((SELECT count(*) FROM _test_notify_log), :before_notifies::bigint,
+  'BZ220 emits no live notification');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id=:posting_ch), :before_state::bigint,
+  'BZ220 does not bump channel state');
+
+-- Guest DM initiation: one exact shared-channel local member is allowed only
+-- for can_initiate_dm=true. Every deny is BZ215 to keep one anti-oracle.
+SELECT chat_channel_create(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), 'g2chat-shared') AS shared_ch \gset
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :shared_ch,
+                       (SELECT id FROM users WHERE email='g2chat-shared@g2chat-host.example'));
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :shared_ch,
+                       (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'));
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :shared_ch,
+                       (SELECT id FROM users WHERE email='g2chat-dm-no@external.example'));
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :shared_ch,
+                       (SELECT id FROM users WHERE email='g2chat-target@external.example'));
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :shared_ch,
+                       (SELECT id FROM users WHERE email='g2chat-fed@g2chat-federated.example'));
+SELECT lives_ok(format($q$SELECT chat_dm_open(%s,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'),
+  (SELECT id FROM users WHERE email='g2chat-shared@g2chat-host.example')),
+  'DM-enabled guest may initiate to a shared-channel local member');
+SELECT throws_ok(format($q$SELECT chat_dm_open(%s,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-no@external.example'),
+  (SELECT id FROM users WHERE email='g2chat-shared@g2chat-host.example')),
+  'BZ215', NULL, 'profile-false guest DM initiation is BZ215');
+SELECT throws_ok(format($q$SELECT chat_dm_open(%s,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'),
+  (SELECT id FROM users WHERE email='g2chat-arbitrary@g2chat-host.example')),
+  'BZ215', NULL, 'memberless target is the same BZ215 anti-oracle');
+SELECT throws_ok(format($q$SELECT chat_dm_open(%s,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'),
+  (SELECT id FROM users WHERE email='g2chat-target@external.example')),
+  'BZ215', NULL, 'guest target is the same BZ215 anti-oracle');
+SELECT throws_ok(format($q$SELECT chat_dm_open(%s,ARRAY[%s]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example'),
+  (SELECT id FROM users WHERE email='g2chat-fed@g2chat-federated.example')),
+  'BZ215', NULL, 'federated target is the same BZ215 anti-oracle');
+SELECT throws_ok(format($q$SELECT chat_dm_open(%s,ARRAY[999999999]::bigint[])$q$,
+  (SELECT id FROM users WHERE email='g2chat-dm-yes@external.example')),
+  'BZ215', NULL, 'nonexistent target is the same BZ215 anti-oracle');
+
+-- History floor. Pre-join rows are made observably older because pgTAP keeps
+-- this whole file in one transaction and now() is transaction-stable.
+SELECT chat_channel_create(
+  (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), 'g2chat-history') AS history_ch \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old parent') AS old_parent_json \gset
+SELECT (:'old_parent_json'::jsonb->>'messageId')::bigint AS old_parent \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old reply', :old_parent) AS old_reply_json \gset
+SELECT (:'old_reply_json'::jsonb->>'messageId')::bigint AS old_reply \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old pin') AS old_pin_json \gset
+SELECT (:'old_pin_json'::jsonb->>'messageId')::bigint AS old_pin \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old save') AS old_save_json \gset
+SELECT (:'old_save_json'::jsonb->>'messageId')::bigint AS old_save \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old edit') AS old_edit_json \gset
+SELECT (:'old_edit_json'::jsonb->>'messageId')::bigint AS old_edit \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 old delete') AS old_delete_json \gset
+SELECT (:'old_delete_json'::jsonb->>'messageId')::bigint AS old_delete \gset
+UPDATE chat_messages SET created_at = clock_timestamp() - interval '1 hour'
+ WHERE id IN (:old_parent,:old_reply,:old_pin,:old_save,:old_edit,:old_delete);
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                       (SELECT id FROM users WHERE email='g2chat-history@external.example'));
+SELECT history_floor_seq AS history_floor FROM chat_channel_members
+ WHERE channel_id=:history_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-history@external.example') \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 new root') AS new_root_json \gset
+SELECT (:'new_root_json'::jsonb->>'messageId')::bigint AS new_root \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'g2 post reply to old parent', :old_parent) AS post_old_reply_json \gset
+SELECT (:'post_old_reply_json'::jsonb->>'messageId')::bigint AS post_old_reply \gset
+-- Impossible-through-the-reducer reverse-direction fixture: move an old
+-- reply under the post-floor parent, proving both sides are filtered.
+UPDATE chat_messages SET parent_message_id=:new_root WHERE id=:old_reply;
+SELECT chat_pin_toggle((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :old_pin);
+SELECT chat_message_edit((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :old_edit, 'g2 old edit restamped');
+SELECT chat_message_delete((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :old_delete);
+-- Seed an impossible-through-the-fixed-reducer stale bookmark so the reader
+-- belt remains independently proven without reopening the remembered-ID
+-- mutation hole fixed below.
+INSERT INTO chat_saved_messages(user_id, message_id)
+VALUES ((SELECT id FROM users WHERE email='g2chat-history@external.example'), :old_save);
+INSERT INTO chat_mentions(message_id, mentioned_user_id)
+VALUES (:old_parent, (SELECT id FROM users WHERE email='g2chat-history@external.example'));
+SELECT chat_mark_read((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                      :history_ch, :history_floor);
+
+SELECT ok(jsonb_path_exists(chat_messages_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch),
+    format('$[*] ? (@.messageId == %s)', :new_root)::jsonpath),
+  'message list includes post-floor content');
+SELECT is((SELECT e->>'replyCount' FROM jsonb_array_elements(chat_messages_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch)) e
+    WHERE (e->>'messageId')::bigint=:new_root), '0',
+  'visible parent metadata does not count a pre-floor reply');
+SELECT ok(NOT jsonb_path_exists(chat_messages_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch),
+    format('$[*] ? (@.messageId == %s)', :old_pin)::jsonpath),
+  'message list hides a pre-join message re-stamped by pin');
+SELECT ok(NOT jsonb_path_exists(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, 0),
+    format('$[*] ? (@.messageId == %s)', :old_edit)::jsonpath),
+  'messages_since hides a pre-join message re-stamped by edit');
+SELECT ok(NOT jsonb_path_exists(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, 0),
+    format('$[*] ? (@.messageId == %s)', :old_delete)::jsonpath),
+  'messages_since hides a pre-join message re-stamped by delete');
+SELECT throws_ok(format($q$SELECT chat_thread_list(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :old_parent),
+  'BZ165', NULL, 'pre-floor thread parent is indistinguishable from not found');
+SELECT throws_ok(format($q$SELECT chat_thread_list(%s,999999999)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example')),
+  'BZ165', NULL, 'nonexistent thread parent has the same BZ165 outcome');
+SELECT is(jsonb_array_length(chat_thread_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :new_root)), 1,
+  'pre-floor reply under a post-floor parent is absent');
+SELECT is(jsonb_array_length(chat_search(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'),
+    'old', :history_ch, NULL, NULL, NULL, FALSE, 50)), 0,
+  'search hides all pre-floor content');
+SELECT is(jsonb_array_length(chat_pins_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch)), 0,
+  'post-floor pin reference cannot disclose pre-floor content');
+SELECT is(jsonb_array_length(chat_saves_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'))), 0,
+  'post-floor save reference cannot disclose pre-floor content');
+SELECT is(jsonb_array_length(chat_my_threads(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'))), 0,
+  'my-threads hides pre-floor roots and replies');
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(chat_channel_readers(
+      (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch)) e
+     WHERE (e->>'lastReadSeq')::bigint <= :history_floor),
+  'read-receipt reader exposes no pre-floor watermark reference');
+SELECT is((SELECT (e->>'unreadCount')::int FROM jsonb_array_elements(chat_conversation_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'))) e
+    WHERE (e->>'channelId')::bigint=:history_ch), 1,
+  'unread count includes only the visible post-floor top-level message');
+SELECT is((SELECT e->'lastMessagePreview'->>'snippet' FROM jsonb_array_elements(chat_conversation_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'))) e
+    WHERE (e->>'channelId')::bigint=:history_ch), 'g2 new root',
+  'last-message preview ignores pre-join content re-stamped later');
+SELECT is((SELECT (e->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'))) e
+    WHERE (e->>'channelId')::bigint=:history_ch), FALSE,
+  'conversation mention state ignores a pre-floor mention reference');
+SELECT is(chat_ediscovery_message_json(:old_edit)->>'body', 'g2 old edit restamped',
+  'eDiscovery remains unfiltered by a guest history floor');
+
+-- Deterministic remembered-ID proof: the guest legitimately creates and
+-- saves content, is removed, the channel advances, and the SAME identity is
+-- re-added with a new immutable floor. Every ID-targeted mutation must now
+-- treat those known ids as absent. Unsave remains deliberately available so
+-- a stale personal bookmark can always be dismissed.
+UPDATE chat_channel_members SET can_post=TRUE
+ WHERE channel_id=:history_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-history@external.example');
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'remembered root') AS remembered_root_json \gset
+SELECT (:'remembered_root_json'::jsonb->>'messageId')::bigint AS remembered_root \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'remembered edit') AS remembered_edit_json \gset
+SELECT (:'remembered_edit_json'::jsonb->>'messageId')::bigint AS remembered_edit \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'remembered delete') AS remembered_delete_json \gset
+SELECT (:'remembered_delete_json'::jsonb->>'messageId')::bigint AS remembered_delete \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'remembered reaction/pin/save') AS remembered_target_json \gset
+SELECT (:'remembered_target_json'::jsonb->>'messageId')::bigint AS remembered_target \gset
+SELECT chat_save_toggle((SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_target);
+SELECT chat_poll_create((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                        :history_ch, 'remembered poll?', ARRAY['yes','no']) AS remembered_poll_json \gset
+SELECT (:'remembered_poll_json'::jsonb->>'pollId')::bigint AS remembered_poll \gset
+SELECT id AS remembered_option FROM chat_poll_options
+ WHERE poll_id=:remembered_poll ORDER BY ordinal LIMIT 1 \gset
+SELECT chat_member_remove((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                          (SELECT id FROM users WHERE email='g2chat-history@external.example'));
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 're-add floor barrier') AS floor_barrier_json \gset
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                       (SELECT id FROM users WHERE email='g2chat-history@external.example'));
+
+SELECT is(chat_save_toggle(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_target), FALSE,
+  'remembered pre-floor save can still be dismissed');
+SELECT throws_ok(format($q$SELECT chat_message_edit(%s,%s,'must not edit')$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_edit),
+  'BZ167', NULL, 'remembered pre-floor message cannot be edited');
+SELECT throws_ok(format($q$SELECT chat_message_delete(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_delete),
+  'BZ167', NULL, 'remembered pre-floor message cannot be deleted');
+SELECT throws_ok(format($q$SELECT chat_reaction_toggle(%s,%s,'thumbsup')$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_target),
+  'BZ169', NULL, 'remembered pre-floor message cannot be reacted to');
+SELECT throws_ok(format($q$SELECT chat_pin_toggle(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_target),
+  'BZ169', NULL, 'remembered pre-floor message cannot be pinned');
+SELECT throws_ok(format($q$SELECT chat_save_toggle(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_target),
+  'BZ169', NULL, 'remembered pre-floor message cannot be newly saved');
+SELECT throws_ok(format($q$SELECT chat_poll_vote(%s,%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_poll, :remembered_option),
+  'BZ177', NULL, 'remembered pre-floor poll cannot be voted');
+SELECT throws_ok(format($q$SELECT chat_poll_close(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_poll),
+  'BZ177', NULL, 'remembered pre-floor poll cannot be closed');
+SELECT throws_ok(format($q$SELECT chat_poll_results(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_poll),
+  'BZ177', NULL, 'remembered pre-floor poll results and voters stay hidden');
+UPDATE chat_channel_members SET can_post=TRUE
+ WHERE channel_id=:history_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-history@external.example');
+SELECT throws_ok(format($q$SELECT chat_message_send(%s,%s,'hidden parent reply',%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, :remembered_root),
+  'BZ165', NULL, 'guest cannot reply to a remembered pre-floor parent');
+
+-- A member may reply after the re-add to an older parent. Replay exposes the
+-- new reply as detached (never the parent id/thread) so the row-derived cursor
+-- still reaches the channel's committed seq and cannot refetch forever.
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :history_ch, 'visible detached reply', :remembered_root) AS detached_reply_json \gset
+SELECT (:'detached_reply_json'::jsonb->>'messageId')::bigint AS detached_reply \gset
+SELECT (:'detached_reply_json'::jsonb->>'seq')::bigint AS detached_seq \gset
+SELECT ok(jsonb_path_exists(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, 0),
+    format('$[*] ? (@.messageId == %s)', :detached_reply)::jsonpath),
+  'messages_since includes a post-floor reply to a hidden parent');
+SELECT is((SELECT e->>'parentMessageId' FROM jsonb_array_elements(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, 0)) e
+    WHERE (e->>'messageId')::bigint=:detached_reply), NULL::text,
+  'detached replay does not disclose the hidden parent id');
+SELECT is((SELECT max((e->>'seq')::bigint) FROM jsonb_array_elements(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, 0)) e),
+  :detached_seq::bigint, 'detached replay advances the row-derived cursor gap-free');
+
+-- A distinct empty-body replay gap: a visible member mutates a pre-floor row
+-- after join. The row's seq advances but the timestamp belt must still hide
+-- it. The HTTP layer exposes the channel high-water mark separately; this SQL
+-- proof pins the two facts that layer composes from one MVCC snapshot.
+SELECT chat_message_edit((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'),
+                         :old_edit, 'second hidden edit after re-add') AS hidden_mutation_seq \gset
+SELECT is(chat_messages_since(
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :history_ch, :detached_seq),
+  '[]'::jsonb, 'messages_since leaks no row for a post-join mutation of pre-floor content');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id=:history_ch), :hidden_mutation_seq::bigint,
+  'hidden pre-floor mutation still advances the channel replay high-water mark');
+
+-- Server-derived External/Removed message-author and roster contracts.
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                       (SELECT id FROM users WHERE email='g2chat-author@external.example'));
+UPDATE chat_channel_members SET can_post=TRUE
+ WHERE channel_id=:history_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-author@external.example');
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-author@external.example'),
+                         :history_ch, 'guest authored') AS guest_authored_json \gset
+SELECT (:'guest_authored_json'::jsonb->>'messageId')::bigint AS guest_authored \gset
+SELECT is(chat_message_to_json((SELECT m FROM chat_messages m WHERE id=:guest_authored),
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'))->>'authorExternal', 'true',
+  'message authorExternal is server-derived from guest_accounts');
+SELECT is(chat_message_to_json((SELECT m FROM chat_messages m WHERE id=:guest_authored),
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'))->>'authorRemoved', 'false',
+  'active guest message author is not removed');
+SELECT chat_member_remove((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                          (SELECT id FROM users WHERE email='g2chat-author@external.example'));
+UPDATE guest_accounts SET status='disabled'
+ WHERE user_id=(SELECT id FROM users WHERE email='g2chat-author@external.example');
+SELECT is(chat_message_to_json((SELECT m FROM chat_messages m WHERE id=:guest_authored),
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'))->>'authorExternal', 'true',
+  'historical authorExternal survives membership removal');
+SELECT is(chat_message_to_json((SELECT m FROM chat_messages m WHERE id=:guest_authored),
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'))->>'authorRemoved', 'true',
+  'disabled historical guest author is Removed');
+SELECT chat_member_add((SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch,
+                       (SELECT id FROM users WHERE email='g2chat-roster@external.example'));
+UPDATE guest_accounts SET status='expired'
+ WHERE user_id=(SELECT id FROM users WHERE email='g2chat-roster@external.example');
+SELECT is((SELECT e->>'removed' FROM jsonb_array_elements(chat_channel_roster(
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch)) e
+    WHERE (e->>'userId')::bigint=(SELECT id FROM users WHERE email='g2chat-roster@external.example')),
+  'true', 'roster marks expired guests Removed');
+SELECT is((SELECT e->>'external' FROM jsonb_array_elements(chat_channel_roster(
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch)) e
+    WHERE (e->>'userId')::bigint=(SELECT id FROM users WHERE email='g2chat-roster@external.example')),
+  'true', 'roster External remains server-derived after expiry');
+SELECT is((SELECT e->>'removed' FROM jsonb_array_elements(chat_mention_search(
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch, 'Roster')) e
+    WHERE (e->>'userId')::bigint=(SELECT id FROM users WHERE email='g2chat-roster@external.example')),
+  'true', 'mention search marks expired guests Removed');
+SELECT is((SELECT e->>'external' FROM jsonb_array_elements(chat_mention_search(
+    (SELECT id FROM users WHERE email='g2chat-admin@g2chat-host.example'), :history_ch, 'Roster')) e
+    WHERE (e->>'userId')::bigint=(SELECT id FROM users WHERE email='g2chat-roster@external.example')),
+  'true', 'mention-search External remains server-derived after expiry');
+
+-- Archived-channel parity: a remembered pre-floor id must resolve to the
+-- same BZ167 as an absent id before the visible target's BZ171 read-only
+-- check. Visible current-history targets still report the archived state.
+UPDATE chat_channel_members SET can_post=TRUE
+ WHERE channel_id=:history_ch
+   AND user_id=(SELECT id FROM users WHERE email='g2chat-history@external.example');
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'visible archived edit') AS visible_archived_edit_json \gset
+SELECT (:'visible_archived_edit_json'::jsonb->>'messageId')::bigint AS visible_archived_edit \gset
+SELECT chat_message_send((SELECT id FROM users WHERE email='g2chat-history@external.example'),
+                         :history_ch, 'visible archived delete') AS visible_archived_delete_json \gset
+SELECT (:'visible_archived_delete_json'::jsonb->>'messageId')::bigint AS visible_archived_delete \gset
+UPDATE chat_channels SET is_archived=TRUE WHERE id=:history_ch;
+SELECT throws_ok(format($q$SELECT chat_message_edit(%s,%s,'hidden archived edit')$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_edit),
+  'BZ167', NULL, 'archived hidden edit target is indistinguishable from absent');
+SELECT throws_ok(format($q$SELECT chat_message_edit(%s,999999999,'absent archived edit')$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example')),
+  'BZ167', NULL, 'archived absent edit target has the same BZ167 outcome');
+SELECT throws_ok(format($q$SELECT chat_message_delete(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :remembered_delete),
+  'BZ167', NULL, 'archived hidden delete target is indistinguishable from absent');
+SELECT throws_ok(format($q$SELECT chat_message_delete(%s,999999999)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example')),
+  'BZ167', NULL, 'archived absent delete target has the same BZ167 outcome');
+SELECT throws_ok(format($q$SELECT chat_message_edit(%s,%s,'visible archived edit')$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :visible_archived_edit),
+  'BZ171', NULL, 'visible edit target still reports archived read-only state');
+SELECT throws_ok(format($q$SELECT chat_message_delete(%s,%s)$q$,
+    (SELECT id FROM users WHERE email='g2chat-history@external.example'), :visible_archived_delete),
+  'BZ171', NULL, 'visible delete target still reports archived read-only state');
+
+SELECT * FROM finish();
+ROLLBACK;

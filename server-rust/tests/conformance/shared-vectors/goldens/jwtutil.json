@@ -1,0 +1,195 @@
+{
+  "contract": "jwtutil",
+  "cases": [
+    {
+      "name": "valid_hs256_claims",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2lkIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiYWRtaW4iOnRydWUsInBlcm1zIjpbIm1haWwucmVhZCIsIm1haWwud3JpdGUiXSwiZG9tYWluIjo5LCJ0eXAiOiJhY2Nlc3MiLCJqdGkiOiJmaXh0dXJlLWp0aSIsImFjciI6ImFhbDIiLCJhbXIiOlsicHdkIiwib3RwIiwibWZhIl0sImlzcyI6ImZpeHR1cmUtaXNzdWVyIiwiYXVkIjpbImZpeHR1cmUtYXVkaWVuY2UiXSwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.f2BRrWCrZgAv-2-C4U-vFkkxkKIfwg5x0HmlaEptJaQ"
+      },
+      "output": {
+        "claims_json": "{\"uid\":42,\"email\":\"fixture@example.test\",\"admin\":true,\"perms\":[\"mail.read\",\"mail.write\"],\"domain\":9,\"typ\":\"access\",\"jti\":\"fixture-jti\",\"acr\":\"aal2\",\"amr\":[\"pwd\",\"otp\",\"mfa\"],\"iss\":\"fixture-issuer\",\"aud\":[\"fixture-audience\"],\"exp\":4102444800,\"iat\":1700000000}",
+        "valid": true
+      }
+    },
+    {
+      "name": "valid_es256_claims",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImZpeHR1cmUtZXMyNTYiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiZml4dHVyZS1hdWRpZW5jZSJdLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwLCJpc3MiOiJmaXh0dXJlLWlzc3VlciIsInR5cCI6ImFjY2VzcyIsInVpZCI6NDJ9.ull8eddwevnKY9ZnS8I0EYd5S8syhkKR03rBg9tdufl-7eBK3GPJ29sU4zLDkDAPdZbauoQGaPLQBE0L0SPn9A"
+      },
+      "output": {
+        "claims_json": "{\"uid\":42,\"email\":\"fixture@example.test\",\"typ\":\"access\",\"iss\":\"fixture-issuer\",\"aud\":[\"fixture-audience\"],\"exp\":4102444800}",
+        "valid": true
+      }
+    },
+    {
+      "name": "valid_sm2_claims",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJTTTIiLCJraWQiOiJhdXRoc2VydmVyLXNtMi0xIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwidHlwIjoiYWNjZXNzIiwiaXNzIjoiZml4dHVyZS1pc3N1ZXIiLCJhdWQiOlsiZml4dHVyZS1hdWRpZW5jZSJdLCJleHAiOjQxMDI0NDQ4MDB9.MEUCIBAS9D-jL4m9PZw3gcP1Is1gYM1ZD0Hl0PRWB8b19c-HAiEA7mPLbwZSSq7LsPWpCwVCbF7AbT-ZPSCp0LpOZvZ7BWM"
+      },
+      "output": {
+        "claims_json": "{\"uid\":42,\"email\":\"fixture@example.test\",\"typ\":\"access\",\"iss\":\"fixture-issuer\",\"aud\":[\"fixture-audience\"],\"exp\":4102444800}",
+        "valid": true
+      }
+    },
+    {
+      "name": "invalid_sm2_signature",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJTTTIiLCJraWQiOiJhdXRoc2VydmVyLXNtMi0xIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwidHlwIjoiYWNjZXNzIiwiaXNzIjoiZml4dHVyZS1pc3N1ZXIiLCJhdWQiOlsiZml4dHVyZS1hdWRpZW5jZSJdLCJleHAiOjQxMDI0NDQ4MDB9.MEUCIBAS9D-jL4m9PZw3gcP1Is1gYM1ZD0Hl0PRWB8b19c-HAiEA7mPLbwZSSq7LsPWpCwVCbF7AbT-ZPSCp0LpOZvZ7BAA"
+      },
+      "output": {
+        "error": "token signature is invalid: SM2 signature verification failed",
+        "valid": false
+      }
+    },
+    {
+      "name": "invalid_es256_signature",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImZpeHR1cmUtZXMyNTYiLCJ0eXAiOiJKV1QifQ.eyJhdWQiOlsiZml4dHVyZS1hdWRpZW5jZSJdLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiZXhwIjo0MTAyNDQ0ODAwLCJpc3MiOiJmaXh0dXJlLWlzc3VlciIsInR5cCI6ImFjY2VzcyIsInVpZCI6NDJ9.ull8eddwevnKY9ZnS8I0EYd5S8syhkKR03rBg9tdufl-7eBK3GPJ29sU4zLDkDAPdZbauoQGaPLQBE0L0SPnAA"
+      },
+      "output": {
+        "error": "token signature is invalid: crypto/ecdsa: verification error",
+        "valid": false
+      }
+    },
+    {
+      "name": "expired",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2lkIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiYWRtaW4iOnRydWUsInBlcm1zIjpbIm1haWwucmVhZCIsIm1haWwud3JpdGUiXSwiZG9tYWluIjo5LCJ0eXAiOiJhY2Nlc3MiLCJqdGkiOiJmaXh0dXJlLWp0aSIsImFjciI6ImFhbDIiLCJhbXIiOlsicHdkIiwib3RwIiwibWZhIl0sImlzcyI6ImZpeHR1cmUtaXNzdWVyIiwiYXVkIjpbImZpeHR1cmUtYXVkaWVuY2UiXSwiZXhwIjo5NDY2ODQ4MDAsImlhdCI6MTcwMDAwMDAwMH0.LDE_Ept3w0795sNdpd8mZsVARTR0MqR_w5txue5NEs4"
+      },
+      "output": {
+        "error": "token has invalid claims: token is expired",
+        "valid": false
+      }
+    },
+    {
+      "name": "wrong_issuer",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2lkIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiYWRtaW4iOnRydWUsInBlcm1zIjpbIm1haWwucmVhZCIsIm1haWwud3JpdGUiXSwiZG9tYWluIjo5LCJ0eXAiOiJhY2Nlc3MiLCJqdGkiOiJmaXh0dXJlLWp0aSIsImFjciI6ImFhbDIiLCJhbXIiOlsicHdkIiwib3RwIiwibWZhIl0sImlzcyI6Im90aGVyIiwiYXVkIjpbImZpeHR1cmUtYXVkaWVuY2UiXSwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.8FQdHxVJZ_7rRp1_yjAKSJjutyQmb_RsJ45FufoJ-mo"
+      },
+      "output": {
+        "error": "token has invalid claims: token has invalid issuer",
+        "valid": false
+      }
+    },
+    {
+      "name": "unknown_kid",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6Im90aGVyLWtpZCIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiYWRtaW4iOnRydWUsInBlcm1zIjpbIm1haWwucmVhZCIsIm1haWwud3JpdGUiXSwiZG9tYWluIjo5LCJ0eXAiOiJhY2Nlc3MiLCJqdGkiOiJmaXh0dXJlLWp0aSIsImFjciI6ImFhbDIiLCJhbXIiOlsicHdkIiwib3RwIiwibWZhIl0sImlzcyI6ImZpeHR1cmUtaXNzdWVyIiwiYXVkIjpbImZpeHR1cmUtYXVkaWVuY2UiXSwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.Civ1khLGBvBvI4hrrHfCNB70wjKraB3csrM0vUvvehg"
+      },
+      "output": {
+        "error": "token is unverifiable: error while executing keyfunc: jwtutil: unexpected kid: other-kid",
+        "valid": false
+      }
+    },
+    {
+      "name": "none_algorithm",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwiYWRtaW4iOnRydWUsInBlcm1zIjpbIm1haWwucmVhZCIsIm1haWwud3JpdGUiXSwiZG9tYWluIjo5LCJ0eXAiOiJhY2Nlc3MiLCJqdGkiOiJmaXh0dXJlLWp0aSIsImFjciI6ImFhbDIiLCJhbXIiOlsicHdkIiwib3RwIiwibWZhIl0sImlzcyI6ImZpeHR1cmUtaXNzdWVyIiwiYXVkIjpbImZpeHR1cmUtYXVkaWVuY2UiXSwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9."
+      },
+      "output": {
+        "error": "token signature is invalid: signing method none is invalid",
+        "valid": false
+      }
+    },
+    {
+      "name": "malformed_token",
+      "input": {
+        "audience": "fixture-audience",
+        "es256_kid": "fixture-es256",
+        "es256_public_x": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "es256_public_y": "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+        "issuer": "fixture-issuer",
+        "kid": "fixture-kid",
+        "secret": "fixture-signing-secret-not-production",
+        "sm2_public_x": "32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7",
+        "sm2_public_y": "bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0",
+        "token": "not-a-token"
+      },
+      "output": {
+        "error": "token is malformed: token contains an invalid number of segments",
+        "valid": false
+      }
+    }
+  ]
+}

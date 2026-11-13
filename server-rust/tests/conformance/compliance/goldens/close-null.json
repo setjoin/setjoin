@@ -1,0 +1,125 @@
+{
+  "case": "null",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "ediscovery_case_close",
+        "after_state": null,
+        "before_state": {
+          "reason": ""
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": 970001,
+        "target_type": "ediscovery_case",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "cases": [
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "results": [],
+          "searches": []
+        },
+        "before": {
+          "cases": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "results": [],
+          "searches": []
+        },
+        "table": "ediscovery_cases"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "null",
+      "method": "POST",
+      "path": "/admin/ediscovery/cases/{id}/close"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "POST /admin/ediscovery/cases/{id}/close"
+}

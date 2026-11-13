@@ -1,0 +1,124 @@
+-- pgTAP: ca_policy_impact.pg — CA-1 C4: window counts, distinct_users,
+-- would_block_admins, blocked_users list with admin_users uncapped.
+-- Read-only reducer: no audit/notify.
+BEGIN;
+SELECT plan(14);
+
+-- Seed domain + users (IDs in isolated range to avoid fixture collisions)
+INSERT INTO domains (id, name, is_local) VALUES (97100, 'ci.test', TRUE) ON CONFLICT DO NOTHING;
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (84001, 'ci_u1', 97100, 'u1@ci.test', 'User1', TRUE),
+  (84002, 'ci_u2', 97100, 'u2@ci.test', 'User2', TRUE),
+  (84003, 'ci_u3', 97100, 'u3@ci.test', 'User3', TRUE),
+  (84004, 'ci_u4', 97100, 'u4@ci.test', 'User4', TRUE);
+
+-- Make users 84001 and 84002 admins
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (92001, 'ci-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES
+  (84001, 92001, NULL),
+  (84002, 92001, NULL);
+
+-- Seed a policy to test with
+INSERT INTO conditional_access_policies (id, priority, name, state, scope_type, conditions, actions)
+  VALUES (900001, 50, 'ci-test-policy', 'report_only', 'global',
+          '{}', '{"operator":"all","grants":[{"action":"block"}]}');
+
+-- Seed ca_signin_log rows for policy 900001 within the last 24h:
+--   u1 (admin): 2 rows — would_block
+--   u2 (admin): 1 row  — would_block
+--   u3 (non-admin): 1 row — would_block
+--   u4 (non-admin): 1 row — would_step_up
+-- Total matched=5, would_block=3 rows (3 distinct users: u1,u2,u3), would_step_up=1
+INSERT INTO ca_signin_log (user_id, source_ip, matched_policy_id, decision, would_decision, report_only, evaluated)
+  VALUES
+  (84001, '10.0.0.1'::inet, 900001, 'allow', 'block', TRUE, '[]'),
+  (84001, '10.0.0.1'::inet, 900001, 'allow', 'block', TRUE, '[]'),
+  (84002, '10.0.0.2'::inet, 900001, 'allow', 'block', TRUE, '[]'),
+  (84003, '10.0.0.3'::inet, 900001, 'allow', 'block', TRUE, '[]'),
+  (84004, '10.0.0.4'::inet, 900001, 'allow', 'step_up', TRUE, '[]');
+
+-- 1. window_has_data=TRUE when log has rows in window
+SELECT ok(
+  (SELECT (ca_policy_impact(900001, '24h', NULL))->>'window_has_data')::boolean,
+  'window_has_data=TRUE when log has rows in the window');
+
+-- 2. matched = 5 (total sign-in rows matching this policy in window)
+SELECT is(
+  ((ca_policy_impact(900001, '24h', NULL))->>'matched')::int,
+  5,
+  'matched=5 (all rows for this policy in window)');
+
+-- 3. would_block = 4 rows with would_decision=block (u1×2, u2×1, u3×1)
+SELECT is(
+  ((ca_policy_impact(900001, '24h', NULL))->>'would_block')::int,
+  4,
+  'would_block=4 rows (row count, not distinct)');
+
+-- 4. would_step_up = 1
+SELECT is(
+  ((ca_policy_impact(900001, '24h', NULL))->>'would_step_up')::int,
+  1,
+  'would_step_up=1 row');
+
+-- 5. distinct_users = 4 (u1,u2,u3,u4 each appear at least once)
+SELECT is(
+  ((ca_policy_impact(900001, '24h', NULL))->>'distinct_users')::int,
+  4,
+  'distinct_users=4');
+
+-- 6. would_block_admins = 2 (u1 and u2 are admins AND have would_block rows)
+SELECT is(
+  ((ca_policy_impact(900001, '24h', NULL))->>'would_block_admins')::int,
+  2,
+  'would_block_admins=2 (admins with would_block rows)');
+
+-- 7. window key is present in output
+SELECT ok(
+  (ca_policy_impact(900001, '24h', NULL)) ? 'window',
+  'result contains window key');
+
+-- 8. window_has_data=FALSE for a policy with no log rows in window
+INSERT INTO conditional_access_policies (id, priority, name, state, scope_type, conditions, actions)
+  VALUES (900002, 60, 'ci-empty-policy', 'report_only', 'global',
+          '{}', '{"operator":"all","grants":[{"action":"block"}]}');
+SELECT ok(
+  NOT ((ca_policy_impact(900002, '24h', NULL))->>'window_has_data')::boolean,
+  'window_has_data=FALSE when no log rows for policy in window');
+
+-- 9. zeroed counts when no data
+SELECT is(
+  ((ca_policy_impact(900002, '24h', NULL))->>'matched')::int,
+  0,
+  'matched=0 when no data');
+
+-- 10. p_list=blocked_users returns users array
+SELECT ok(
+  (ca_policy_impact(900001, '24h', 'blocked_users')) ? 'users',
+  'blocked_users list returns users array');
+
+-- 11. total=3 blocked users (distinct user_ids with would_block)
+SELECT is(
+  ((ca_policy_impact(900001, '24h', 'blocked_users'))->'total')::int,
+  3,
+  'blocked_users total=3 distinct users with would_block');
+
+-- 12. shown <= total (capped at 200)
+SELECT ok(
+  ((ca_policy_impact(900001, '24h', 'blocked_users'))->'shown')::int <=
+  ((ca_policy_impact(900001, '24h', 'blocked_users'))->'total')::int,
+  'shown <= total (cap enforced)');
+
+-- 13. admin_users returns all admin rows (u1 and u2)
+SELECT is(
+  jsonb_array_length((ca_policy_impact(900001, '24h', 'blocked_users'))->'admin_users'),
+  2,
+  'admin_users contains both admins who would be blocked');
+
+-- 14. 7d and 30d windows parse without error
+SELECT lives_ok(
+  $$ SELECT ca_policy_impact(900001, '7d', NULL), ca_policy_impact(900001, '30d', NULL) $$,
+  '7d and 30d windows parse without error');
+
+SELECT finish();
+ROLLBACK;

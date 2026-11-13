@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: quota bytes must be positive; the server ignores non-positive values (a quota cannot be zeroed this way)\n",
+  "exit": 1
+}

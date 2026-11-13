@@ -1,0 +1,16 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "exit_codes": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      1,
+      2,
+      2,
+      2
+    ]
+  }
+}

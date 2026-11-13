@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --person must be a positive decimal person id\n",
+  "exit": 1
+}

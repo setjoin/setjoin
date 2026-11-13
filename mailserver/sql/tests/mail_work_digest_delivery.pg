@@ -1,0 +1,53 @@
+BEGIN;
+SELECT plan(11);
+SET LOCAL app.capture_notify='on';
+
+SELECT mk_shared_mailbox('digest-shared') AS shared_mb \gset
+SELECT mk_account('digest-user') AS user_mb \gset
+SELECT user_id AS digest_user FROM mailboxes WHERE id=:user_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by)
+VALUES(:shared_mb,:digest_user,'full_access',:digest_user);
+
+SELECT is((mail_work_digest_dispatch(10)->>'disabled')::boolean,true,
+  'daily digest dispatch is inert while notifications are OFF');
+UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.shared_mail_work','feature.shared_mail_notifications');
+INSERT INTO mail_work_notification_preferences(mailbox_id,user_id,category,delivery,timezone,digest_hour)
+VALUES(:shared_mb,:digest_user,'due','digest','Asia/Shanghai',9);
+INSERT INTO mail_thread_work(mailbox_id,thread_id,status,assignee_user_id,due_at,sla_breached_at)
+VALUES(:shared_mb,'digest-unassigned','unassigned',NULL,statement_timestamp()+interval '12 hours',NULL),
+  (:shared_mb,'digest-mine','owned',:digest_user,statement_timestamp()+interval '12 hours',NULL),
+  (:shared_mb,'digest-breached','owned',:digest_user,statement_timestamp()-interval '1 hour',statement_timestamp());
+INSERT INTO mail_work_digest_ledger(mailbox_id,user_id,category,window_start,dedupe_key,deliver_after)
+VALUES(:shared_mb,:digest_user,'due',date_trunc('day',statement_timestamp())-interval '1 day',
+  'digest-due-ready',statement_timestamp()-interval '1 minute');
+
+SELECT is((mail_work_digest_dispatch(10)->>'dispatched')::integer,1,
+  'due digest dispatches one mailbox/user summary');
+SELECT is(notify_count('mailwork:'||:digest_user),1,
+  'daily reset emits one user-scoped notification');
+SELECT is(last_notify_payload('mailwork:'||:digest_user)::jsonb->>'type','mailWorkDailyReset',
+  'daily reset uses the explicit safe payload type');
+SELECT is((last_notify_payload('mailwork:'||:digest_user)::jsonb#>>'{counts,unassigned}')::integer,1,
+  'daily reset reports the aggregate unassigned count');
+SELECT is((last_notify_payload('mailwork:'||:digest_user)::jsonb#>>'{counts,mine}')::integer,2,
+  'daily reset reports active work assigned to the recipient');
+SELECT is((last_notify_payload('mailwork:'||:digest_user)::jsonb#>>'{counts,breached}')::integer,1,
+  'daily reset reports the server-marked breach count');
+SELECT ok((SELECT delivered_at IS NOT NULL FROM mail_work_digest_ledger WHERE dedupe_key='digest-due-ready'),
+  'delivered digest ledger is terminalized');
+SELECT is((mail_work_digest_dispatch(10)->>'dispatched')::integer,0,
+  'daily digest replay emits no duplicate notification');
+
+INSERT INTO mail_work_notification_preferences(mailbox_id,user_id,category,delivery,timezone,digest_hour)
+VALUES(:shared_mb,:digest_user,'breach','digest','UTC',9);
+INSERT INTO mail_work_digest_ledger(mailbox_id,user_id,category,window_start,dedupe_key,deliver_after)
+VALUES(:shared_mb,:digest_user,'breach',date_trunc('day',statement_timestamp())-interval '2 days',
+  'digest-revoked-ready',statement_timestamp()-interval '1 minute');
+DELETE FROM mailbox_delegates WHERE mailbox_id=:shared_mb AND user_id=:digest_user;
+SELECT is((mail_work_digest_dispatch(10)->>'suppressed')::integer,1,
+  'revoked delegate digest fails closed at delivery time');
+SELECT is(notify_count('mailwork:'||:digest_user),1,
+  'revoked delegate receives no additional notification');
+
+SELECT * FROM finish();
+ROLLBACK;

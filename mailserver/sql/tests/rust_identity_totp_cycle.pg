@@ -1,0 +1,14 @@
+-- #334 frozen-Go cycle transaction seam; crypto result is server-proved.
+BEGIN;
+SELECT plan(5);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-cycle.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled)
+VALUES('idmfa1-cycle','cycle@idmfa1-cycle.test','cycle',:dom,'x',true) RETURNING id AS uid \gset
+SELECT is(rust_identity_totp_cycle(:uid,true,100,digest('fixture','sha256')),'accepted','first valid proof claims replay window');
+SELECT is(rust_identity_totp_cycle(:uid,true,100,digest('fixture','sha256')),'invalid','duplicate claim is evaluated rejection');
+SELECT is((SELECT totp_failed_attempts FROM users WHERE id=:uid),1,'replay increments shared counter');
+UPDATE users SET totp_failed_attempts=4 WHERE id=:uid;
+SELECT is(rust_identity_totp_cycle(:uid,false,NULL,NULL),'invalid','fifth failure still reports invalid in Go');
+SELECT is(rust_identity_totp_cycle(:uid,true,100,digest('fixture','sha256')),'locked','locked budget never evaluates a valid code');
+SELECT * FROM finish();
+ROLLBACK;

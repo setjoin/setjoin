@@ -1,0 +1,38 @@
+-- pgTAP: mailbox_type_constraint.pg
+-- Tests that mailboxes.type is constrained to 'personal' only (V076).
+-- Proves that 'distribution' and other legacy type values are rejected by
+-- the CHECK constraint after V076__collapse_mailbox_type.sql is applied.
+BEGIN;
+SELECT plan(2);
+
+INSERT INTO domains (name, is_local) VALUES ('typeconstraint.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 108001 != mailbox 8001).
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (108001, 'tc_user', (SELECT id FROM domains WHERE name = 'typeconstraint.test'),
+          'tc@typeconstraint.test', 'Type Constraint User', TRUE);
+
+-- Test 1: personal type is accepted (valid value)
+SELECT lives_ok(
+  $$
+    INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+    VALUES (8001, 108001,
+            (SELECT id FROM domains WHERE name = 'typeconstraint.test'),
+            'tc@typeconstraint.test', 'TC User', 'personal', TRUE)
+  $$,
+  'mailboxes: personal type is accepted by mailboxes_type_check'
+);
+
+-- Test 2: distribution type is rejected (legacy value, now prohibited)
+SELECT throws_ok(
+  $$
+    INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+    VALUES (8002, 108001,
+            (SELECT id FROM domains WHERE name = 'typeconstraint.test'),
+            'dist@typeconstraint.test', 'Distribution', 'distribution', FALSE)
+  $$,
+  '23514', NULL,
+  'mailboxes: distribution type rejected by mailboxes_type_check constraint'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

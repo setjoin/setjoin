@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/transitions",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"items\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000001\",\n      \"userId\": \"7\",\n      \"kind\": \"directory_to_local\",\n      \"state\": \"previewed\",\n      \"sourceKey\": \"directory\",\n      \"protected\": false,\n      \"pendingEffects\": 0\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

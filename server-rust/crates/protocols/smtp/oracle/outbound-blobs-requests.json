@@ -1,0 +1,28 @@
+[
+  {
+    "name": "stored-existing",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'blobs/existing',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "blobs": {
+      "blobs/existing": "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IFN0b3JlZCBTL01JTUUgY2lwaGVydGV4dA0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wa2NzNy1taW1lDQoNCm9wYXF1ZSAuY2lwaGVydGV4dA0K"
+    }
+  },
+  {
+    "name": "stored-missing",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'blobs/missing',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "blobs": {
+      "blobs/existing": "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IFN0b3JlZCBTL01JTUUgY2lwaGVydGV4dA0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wa2NzNy1taW1lDQoNCm9wYXF1ZSAuY2lwaGVydGV4dA0K"
+    }
+  }
+]

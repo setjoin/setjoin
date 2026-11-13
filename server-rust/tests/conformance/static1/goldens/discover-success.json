@@ -1,0 +1,33 @@
+{
+  "case": "discover-success",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/api/discover"
+    },
+    "response": {
+      "body_length": 128,
+      "body_sha256": "9f67fccdd0b816b9d06819d3e85eb274a32006656b6d89b68dd406ac87e0473f",
+      "body_text": "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"no server found for domain nonexistent.invalid\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-discover_success"
+      },
+      "status": 404
+    }
+  },
+  "route": "GET /api/discover"
+}

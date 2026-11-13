@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/webhooks",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"eventTypes\":[\"mail.new\",\"mail.deleted\"],\"url\":\"https://example.test/hook\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 denied: outside scope (remediation: use scoped token)\n",
+  "exit": 1
+}

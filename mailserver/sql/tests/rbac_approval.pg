@@ -1,0 +1,105 @@
+-- rbac_approval.pg — pgTAP: RBAC JIT approval consumer (Task 5).
+-- 8 assertions: activate under require_approval creates a request (no window);
+-- approve the request opens the window; skip-spec bypasses approval (2); revoked-at-apply → BZ110 (2).
+-- Seed ids: 95400 (domain), 95401/95402/95403/95404 (users) — no conflict with other 954xx files.
+
+BEGIN;
+SELECT plan(8);
+
+-- fixtures: domain + approver + requester
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (95400, 'rbacappr.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95401, 'rbac_req', 95400, 'req@rbacappr.test', 'Requester', TRUE),
+  (95402, 'rbac_apr', 95400, 'apr@rbacappr.test', 'Approver',  TRUE);
+
+UPDATE feature_toggles SET enabled=true WHERE key IN ('rbac.jit','approval.rbac');
+
+-- eligible assignment for user 95401 on role 5 (Security Admin — exists in baseline)
+INSERT INTO admin_role_assignments(user_id, role_group_id, eligible, granted_by)
+  VALUES (95401, 5, true, NULL);
+
+-- per-role policy: require_approval ON, named approver = user 95402
+INSERT INTO admin_role_activation_policy(role_group_id, max_duration_minutes, require_justification, require_approval, approver_spec)
+  VALUES (5, 60, false, true, jsonb_build_object('kind','named','user_id',95402));
+
+-- 1: activate under approval gate — should not raise
+SELECT lives_ok(
+  $$ SELECT admin_role_activate(95401, 5, 30, 'audit') $$,
+  'activate under approval does not raise'
+);
+
+-- 2: no time-boxed window opened (pending approval)
+SELECT is(
+  (SELECT activated_until FROM admin_role_assignments WHERE user_id=95401 AND role_group_id=5),
+  NULL::timestamptz,
+  'window NOT opened yet (pending approval)'
+);
+
+-- 3: approver decides approve
+SELECT lives_ok(
+  $$ SELECT rbac_approval_decide(
+       (SELECT id FROM approval_requests WHERE requester_user_id=95401 ORDER BY id DESC LIMIT 1),
+       95402, 'approve', 'looks good') $$,
+  'approve does not raise'
+);
+
+-- 4: window opened after approval
+SELECT ok(
+  (SELECT activated_until FROM admin_role_assignments WHERE user_id=95401 AND role_group_id=5) > now(),
+  'window opened on approve'
+);
+
+-- === skip-path test ===
+-- User 95403 has NULL manager; approver_spec falls back to skip → window opens immediately.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95403, 'rbac_skip', 95400, 'skip@rbacappr.test', 'Skip User', TRUE);
+INSERT INTO admin_role_assignments(user_id, role_group_id, eligible, granted_by)
+  VALUES (95403, 6, true, NULL);
+INSERT INTO admin_role_activation_policy(role_group_id, max_duration_minutes, require_justification, require_approval, approver_spec)
+  VALUES (6, 60, false, true, '{"kind":"manager","fallback":[{"kind":"skip"}]}');
+
+-- 5: skip spec with NULL manager → window opens immediately (non-NULL return)
+SELECT ok(
+  admin_role_activate(95403, 6, 30, NULL) > now(),
+  'skip approver_spec with NULL manager opens window immediately'
+);
+
+-- 6: no approval_requests row created for the skip path
+SELECT is(
+  (SELECT COUNT(*)::int FROM approval_requests WHERE requester_user_id = 95403),
+  0,
+  'skip path creates no approval_requests row'
+);
+
+-- === revoked-at-apply test ===
+-- User 95404 requests role 4 (named approver 95402); eligible assignment then deleted before apply.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95404, 'rbac_rev', 95400, 'rev@rbacappr.test', 'Revoke User', TRUE);
+INSERT INTO admin_role_assignments(user_id, role_group_id, eligible, granted_by)
+  VALUES (95404, 4, true, NULL);
+INSERT INTO admin_role_activation_policy(role_group_id, max_duration_minutes, require_justification, require_approval, approver_spec)
+  VALUES (4, 60, false, true, jsonb_build_object('kind','named','user_id',95402));
+
+SELECT admin_role_activate(95404, 4, 30, NULL);
+
+-- revoke the eligible assignment before the approver acts
+DELETE FROM admin_role_assignments WHERE user_id = 95404 AND role_group_id = 4;
+
+-- 7: approving after revocation raises BZ110 (rolls back; request stays pending)
+SELECT throws_ok(
+  $$ SELECT rbac_approval_decide(
+       (SELECT id FROM approval_requests WHERE requester_user_id=95404 ORDER BY id DESC LIMIT 1),
+       95402, 'approve', 'too late') $$,
+  'BZ110', NULL,
+  'revoked-at-apply raises BZ110'
+);
+
+-- 8: request status is NOT applied (transaction rolled back by the BZ110 raise)
+SELECT isnt(
+  (SELECT status FROM approval_requests WHERE requester_user_id=95404 ORDER BY id DESC LIMIT 1),
+  'applied',
+  'request status not applied after revoked-at-apply error'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

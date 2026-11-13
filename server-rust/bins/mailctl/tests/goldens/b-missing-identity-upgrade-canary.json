@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --source and a positive --expected-generation are required\n",
+  "exit": 1
+}

@@ -1,0 +1,62 @@
+-- jit_lifecycle.pg
+-- pgTAP: JIT activation lifecycle (dormant → activate → expire), Task 5.
+--
+-- Pins the is_admin-counts-eligible invariant (JIT decision 9):
+--   a dormant-eligible admin satisfies the is_admin EXISTS (expires_at-only)
+--   so their session runs permissions.Resolve, which mints nothing until they
+--   call admin_role_activate. This is intentional — see isAdminExprSQL comment
+--   in authserver/internal/handlers/auth.go.
+--
+-- 4 assertions:
+--   (a) eligible-only user satisfies the is_admin EXISTS → Resolve will run
+--   (b) dormant → admin_effective_authority returns 0 perms
+--   (c) after admin_role_activate → perms mint
+--   (d) after simulated expiry → perms drop
+--
+-- Seed ids: 95260 (avoids conflicts with other 952xx files; all cleaned by ROLLBACK).
+
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95260, 'jit-lc.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE
+  VALUES (95260, 'jit_lc', 95260, 'lc@jit-lc.test', 'LC', TRUE);
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'rbac.jit';
+
+-- a NON-admin becomes eligible-only (no activated_until set)
+INSERT INTO admin_role_assignments (user_id, role_group_id, eligible, granted_by)
+  VALUES (95260, 1, true, 95260);
+
+-- (a) eligible-only row satisfies the is_admin EXISTS (expires_at-only predicate used
+--     by isAdminExprSQL at token mint) — so this user gets is_admin=true and their
+--     session runs Resolve (which returns empty until they activate).
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_role_assignments ara
+          WHERE ara.user_id = 95260
+            AND (ara.expires_at IS NULL OR ara.expires_at > now())),
+  'eligible-only user still satisfies the is_admin EXISTS (Resolve will run)');
+
+-- (b) dormant → Resolve mints nothing (JIT gate withholds active perms)
+SELECT is(
+  (SELECT cardinality(perms) FROM admin_effective_authority(95260)), 0,
+  'dormant → no active perms');
+
+-- (c) activate → perms mint (activated_until is set by admin_role_activate)
+SELECT admin_role_activate(95260, 1, 30, 'x');
+SELECT ok(
+  (SELECT cardinality(perms) FROM admin_effective_authority(95260)) > 0,
+  'activated → perms mint');
+
+-- (d) simulate window expiry → perms drop (lazy: no background job needed;
+--     admin_effective_authority re-checks activated_until on every call)
+UPDATE admin_role_assignments
+   SET activated_until = now() - interval '1 min'
+ WHERE user_id = 95260 AND role_group_id = 1;
+SELECT is(
+  (SELECT cardinality(perms) FROM admin_effective_authority(95260)), 0,
+  'expired window → perms drop (lazy)');
+
+SELECT * FROM finish();
+ROLLBACK;

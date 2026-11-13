@@ -1,0 +1,105 @@
+-- mailserver/sql/tests/drive_changes_journal.pg — I-10: every mutating reducer
+-- journals exactly one drive_changes row and change_seq stays in lockstep with
+-- the journal head; content-plane/pref calls (chunk_register, watch_set,
+-- access_audit) journal NOTHING. Invariant gate over Tasks 4-14: a failure here
+-- is a reducer bug, never a test weakening (fix-bugs-before-continuing).
+BEGIN;
+SELECT plan(18);
+SELECT mk_account('djU') AS mbu \gset
+SELECT mk_account('djA') AS mba \gset
+SELECT mk_account('djV') AS mbv \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mbu \gset
+SELECT user_id AS a FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS v FROM mailboxes WHERE id = :mbv \gset
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:a, 1, :a);
+
+-- 1. drive_space_create already journals its own 'space' row (R3 node_id=0 sentinel)
+SELECT drive_space_create(:u, 'J', 'regular') AS sid \gset
+SELECT is((SELECT count(*) FROM drive_changes WHERE space_id=:sid)::int, 1, 'space_create journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_space_set_classification(:u, :sid, 'secure');
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'set_classification journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_space_set_policy(:u, :sid, '{}'::jsonb);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'set_policy journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+-- V255__drive_space_update_rls_backstop.sql: trg_drive_space_no_reassign pins
+-- quota_bytes to a drive.manage admin resolved from app.current_user_id — the
+-- GUC the gateway sets per request via dbscope.RunUserScoped. :a holds the
+-- admin grant above; a bare pgTAP session must set the GUC to match.
+SELECT set_config('app.current_user_id', :a::text, true);
+SELECT drive_space_set_quota(:a, :sid, 100000000);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'set_quota journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_member_grant(:u, :sid, :v, 'viewer');
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'member_grant journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_member_revoke(:u, :sid, :v);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'member_revoke journals 1 row');
+
+-- fixture: a destination folder for the move step (not itself asserted)
+SELECT drive_node_create(:u, :sid, NULL, 'folder', 'dst') AS dst \gset
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'j.bin') AS nid \gset
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_create journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_rename(:u, :nid, 'j2.bin');
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_rename journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_move(:u, :nid, :dst);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_move journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_trash(:u, :nid);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_trash journals 1 row');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_restore(:u, :nid);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_restore journals 1 row');
+
+-- destroy needs a trashed node; re-trash :nid (unasserted) before the checked call
+SELECT drive_node_trash(:u, :nid);
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_node_destroy(:u, :nid);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'node_destroy journals 1 row');
+
+-- put_version on a fresh file node
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'put.bin') AS pid \gset
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 10);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 0, 'chunk_register does NOT journal (content plane)');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_file_put_version(:u, :pid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 1, 'put_version journals 1 row');
+
+-- pref/audit calls that must NOT journal
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_watch_set(:u, :dst, NULL);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 0, 'watch_set does NOT journal (subscription pref)');
+
+SELECT count(*) AS before FROM drive_changes WHERE space_id=:sid \gset
+SELECT drive_access_audit(:u, :sid, 'view', 'space', :sid, NULL, NULL, NULL, NULL);
+SELECT is(((SELECT count(*) FROM drive_changes WHERE space_id=:sid) - :before)::int, 0, 'access_audit does NOT journal (audit-only call)');
+
+-- change_seq stays in lockstep with the journal head across the whole sequence
+SELECT is(((SELECT change_seq FROM drive_spaces WHERE id=:sid) - (SELECT MAX(seq) FROM drive_changes WHERE space_id=:sid))::int,
+  0, 'change_seq == MAX(journal seq)');
+
+-- pruned-floor sentinel: once the journal no longer covers a since-cursor, the
+-- reducer must answer cannotCalculateChanges rather than a wrong/partial diff.
+DELETE FROM drive_changes WHERE space_id=:sid AND seq < (SELECT change_seq FROM drive_spaces WHERE id=:sid);
+SELECT is((drive_changes_since(:u, :sid, 0)->>'cannotCalculateChanges')::boolean, TRUE,
+  'pruned floor: since=0 is now unanswerable (cannotCalculateChanges)');
+
+SELECT * FROM finish();
+ROLLBACK;

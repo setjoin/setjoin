@@ -1,0 +1,42 @@
+// Recording-only overlay (#298): runs frozen Go's real calendarsync Worker against
+// the disposable database and the feed fixture the Rust test serves. Modes (env
+// GOFREE_SYNC_MODE): "tick" is one due-poll tick over an unguarded-dial client (the
+// production worker's redirect handling, minus the dial guard that would refuse the
+// loopback fixture); "guarded" is the production client (ssrf.SafeHTTPClient);
+// "kick" is RefreshSubscriptionNow for GOFREE_SYNC_SUB/CAL/URL.
+package calendarsync
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"strconv"
+	"testing"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeSubscriptionSync(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_SYNC_DSN"), 1, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	logger := slog.Default()
+	mode := os.Getenv("GOFREE_SYNC_MODE")
+	w := NewWorker(pgxutil.WorkerPool{Pool: pool}, logger)
+	if mode != "guarded" {
+		w.httpClient = &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
+	if mode == "kick" {
+		sub, _ := strconv.ParseInt(os.Getenv("GOFREE_SYNC_SUB"), 10, 64)
+		cal, _ := strconv.ParseInt(os.Getenv("GOFREE_SYNC_CAL"), 10, 64)
+		w.RefreshSubscriptionNow(ctx, sub, cal, os.Getenv("GOFREE_SYNC_URL"))
+		return
+	}
+	w.tick(ctx)
+}

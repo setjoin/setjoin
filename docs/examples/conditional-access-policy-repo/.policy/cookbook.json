@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "named_locations": [
+    {
+      "slug": "corp-network",
+      "name": "Corporate Network",
+      "ip_ranges": ["10.0.0.0/8", "192.168.0.0/16"]
+    }
+  ],
+  "auth_strengths": [
+    {
+      "slug": "phishing-resistant",
+      "name": "Phishing-Resistant MFA",
+      "builtin": true,
+      "combinations": [["webauthn"], ["passkey"]]
+    }
+  ],
+  "policies": [
+    {
+      "name": "Require MFA — All Users",
+      "description": "Baseline: require MFA for every sign-in.",
+      "priority": 100,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_acr", "acr": "aal2"}]}
+    },
+    {
+      "name": "Block High-Risk Countries",
+      "description": "Block sign-ins from sanctioned or high-risk countries.",
+      "priority": 200,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"country_in": ["KP", "IR", "CU"]},
+      "actions": {"grants": [{"type": "block"}]}
+    },
+    {
+      "name": "Phishing-Resistant for Admins",
+      "description": "Require hardware key or passkey for admin-role users.",
+      "priority": 300,
+      "state": "on",
+      "scope": {"type": "group", "target": "role:admin"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_strength", "strength_slug": "phishing-resistant"}]}
+    }
+  ]
+}

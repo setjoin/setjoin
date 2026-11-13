@@ -1,0 +1,21 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/inventory/export",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "inventory.json": {
+      "body": "{\"manifestVersion\": \"1\", \"schemaVersion\": 167, \"generatedAt\": \"2026-01-01T00:00:00Z\", \"redactionPolicy\": \"identity-inventory-v1\", \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"sources\": [], \"people\": [], \"conflicts\": [], \"redactionCounts\": {\"emailsOmitted\": 0, \"externalSubjectsOmitted\": 0, \"candidateSubjectsOmitted\": 0, \"secretsOmitted\": 0}}",
+      "mode": 384
+    }
+  }
+}

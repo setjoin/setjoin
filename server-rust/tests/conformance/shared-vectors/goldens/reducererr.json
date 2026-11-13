@@ -1,0 +1,142 @@
+{
+  "contract": "reducererr",
+  "cases": [
+    {
+      "input": {
+        "code": "BZ002",
+        "message": "private database detail",
+        "hint": ""
+      },
+      "name": "forbidden",
+      "output": {
+        "detail": "access denied",
+        "http_status": 403,
+        "jmap_error": "forbidden",
+        "parsed": {
+          "type": "BZ002"
+        },
+        "smtp_code": 550,
+        "smtp_message": "5.7.1 Message rejected by policy",
+        "smtp_ok": true,
+        "webdav_status": 403
+      }
+    },
+    {
+      "input": {
+        "code": "BZ001",
+        "message": "disk full",
+        "hint": "{\"type\":\"over_quota\",\"mailbox_id\":42}"
+      },
+      "name": "quota_hint",
+      "output": {
+        "detail": "over quota",
+        "http_status": 507,
+        "jmap_error": "overQuota",
+        "parsed": {
+          "type": "over_quota",
+          "mailbox_id": 42
+        },
+        "smtp_code": 552,
+        "smtp_message": "5.2.2 Mailbox full",
+        "smtp_ok": true,
+        "webdav_status": 507
+      }
+    },
+    {
+      "input": {
+        "code": "BZ001",
+        "message": "private database detail",
+        "hint": "{\"type\":\"not_found\"}"
+      },
+      "name": "quota_wrong_slug",
+      "output": {
+        "detail": "request failed",
+        "http_status": 500,
+        "jmap_error": "",
+        "parsed": {
+          "type": "not_found"
+        },
+        "smtp_code": 0,
+        "smtp_message": "",
+        "smtp_ok": false,
+        "webdav_status": 500
+      }
+    },
+    {
+      "input": {
+        "code": "BZ001",
+        "message": "private database detail",
+        "hint": "{"
+      },
+      "name": "quota_malformed_hint",
+      "output": {
+        "detail": "request failed",
+        "http_status": 500,
+        "jmap_error": "",
+        "parse_error": "unexpected end of JSON input",
+        "smtp_code": 0,
+        "smtp_message": "",
+        "smtp_ok": false,
+        "webdav_status": 500
+      }
+    },
+    {
+      "input": {
+        "code": "BZ099",
+        "message": "cannot delete last global policy",
+        "hint": "{\"type\":\"last_global\"}"
+      },
+      "name": "last_global",
+      "output": {
+        "detail": "cannot delete last global policy",
+        "http_status": 409,
+        "jmap_error": "",
+        "parsed": {
+          "type": "last_global"
+        },
+        "smtp_code": 0,
+        "smtp_message": "",
+        "smtp_ok": false,
+        "webdav_status": 409
+      }
+    },
+    {
+      "input": {
+        "code": "BZ008",
+        "message": "internal config",
+        "hint": ""
+      },
+      "name": "transient",
+      "output": {
+        "detail": "request failed",
+        "http_status": 500,
+        "jmap_error": "",
+        "parsed": {
+          "type": "BZ008"
+        },
+        "smtp_code": 451,
+        "smtp_message": "4.3.0 Temporary failure, please try again later",
+        "smtp_ok": true,
+        "webdav_status": 500
+      }
+    },
+    {
+      "input": {
+        "code": "ZZ999",
+        "message": "private database detail",
+        "hint": ""
+      },
+      "name": "unknown_code",
+      "output": {
+        "detail": "request failed",
+        "http_status": 500,
+        "jmap_error": "",
+        "parse_error": ": private database detail (SQLSTATE ZZ999)",
+        "smtp_code": 0,
+        "smtp_message": "",
+        "smtp_ok": false,
+        "webdav_status": 500
+      }
+    }
+  ]
+}

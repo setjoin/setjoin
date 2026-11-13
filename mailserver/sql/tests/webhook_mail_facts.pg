@@ -1,0 +1,120 @@
+BEGIN;
+SELECT plan(22);
+
+SELECT mk_account('webhook-mail-sender') AS sender_mb \gset
+SELECT mk_account('webhook-mail-recipient') AS recipient_mb \gset
+SELECT user_id AS sender_user FROM mailboxes WHERE id=:sender_mb \gset
+SELECT user_id AS recipient_user FROM mailboxes WHERE id=:recipient_mb \gset
+SELECT email AS sender_email FROM mailboxes WHERE id=:sender_mb \gset
+SELECT email AS recipient_email FROM mailboxes WHERE id=:recipient_mb \gset
+
+SELECT is(has_function_privilege('setjoin_app',
+  'webhook_mail_committed_publish(bigint,text,text,text,text,integer)','EXECUTE'),false,
+  'tenant app cannot invoke the cross-tenant committed-mail helper');
+SELECT is(has_function_privilege('setjoin_app','smtp_inbound_deliver(jsonb,text,text)','EXECUTE'),false,
+  'tenant app cannot invoke the SMTP inbound worker wrapper');
+SELECT is(has_function_privilege('setjoin_app',
+  'smtp_submission_send(bigint,bigint,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamptz,jsonb)',
+  'EXECUTE'),false,'tenant app cannot invoke the SMTP submission worker wrapper');
+
+-- Production SMTP/JMAP/approval/scheduled callers use DB_WORKER_DSN. Exercise
+-- the rest of this file as that exact credential, not the schema owner.
+SET LOCAL ROLE setjoin_worker;
+
+-- OFF compatibility: the wrapper returns the reducer-derived mailbox subject,
+-- but writes no durable fact. The Go caller uses these exact ids after commit.
+SELECT * FROM smtp_submission_send(
+  :sender_user,:sender_mb,'inline:off','<mail-fact-off>',:'sender_email',
+  '[{"email":"one@outside.test"}]','[]','[]','off',NULL,NULL,'body',NULL,4,false,NULL,
+  '["one@outside.test"]') \gset off_
+SELECT isnt(:off_message_id::bigint,NULL::bigint,'OFF SMTP submission commits a Sent message');
+SELECT is(:off_subject_user_id::bigint,:sender_user::bigint,'OFF result derives the user subject');
+SELECT is(:off_subject_mailbox_id::bigint,:sender_mb::bigint,'OFF result derives the mailbox subject');
+SELECT is(:'off_publication_enrolled'::boolean,false,'OFF result assigns legacy post-commit delivery');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,0,
+  'OFF SMTP submission leaves no durable mail fact');
+
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+
+-- ON: preserve one event per SMTP envelope RCPT and the exact legacy payload.
+SELECT * FROM smtp_submission_send(
+  :sender_user,:sender_mb,'inline:on','<mail-fact-on>',:'sender_email',
+  '[{"email":"header@outside.test"}]','[]','[]','on',NULL,NULL,'body',NULL,4,false,NULL,
+  '["env-one@outside.test","env-two@outside.test"]') \gset on_
+SELECT ok(:'on_publication_enrolled'::boolean,'ON SMTP submission enrolls durably');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,2,
+  'ON submission emits one durable event per envelope recipient');
+SELECT is((SELECT payload FROM webhook_publications WHERE event_id='mail-sent-'||:on_message_id||'-1'),
+  jsonb_build_object('from',:'sender_email','to','env-one@outside.test'),
+  'sent payload preserves SMTP envelope from/to without extra PII');
+SELECT is((SELECT payload FROM webhook_publications WHERE event_id='mail-sent-'||:on_message_id||'-2'),
+  jsonb_build_object('from',:'sender_email','to','env-two@outside.test'),
+  'second recipient has the stable ordinal and exact payload');
+SELECT ok((SELECT subject_user_id=:sender_user AND subject_mailbox_id=:sender_mb
+  FROM webhook_publications WHERE event_id='mail-sent-'||:on_message_id||'-1'),
+  'sent subject is derived from the committed database mailbox');
+SELECT * FROM webhook_mail_committed_publish(
+  :on_message_id,'mail.sent','smtp_submission',:'sender_email','env-one@outside.test',1);
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,2,
+  'stable event id makes committed-fact replay idempotent');
+
+SAVEPOINT mail_fact_rollback;
+SELECT * FROM smtp_submission_send(
+  :sender_user,:sender_mb,'inline:rollback','<mail-fact-rollback>',:'sender_email',
+  '[{"email":"rollback@outside.test"}]','[]','[]','rollback',NULL,NULL,'body',NULL,4,false,NULL,
+  '["rollback@outside.test"]');
+ROLLBACK TO mail_fact_rollback;
+SELECT is((SELECT count(*) FROM webhook_publications
+  WHERE payload->>'to'='rollback@outside.test')::integer,0,
+  'caller rollback removes the Sent row and durable fact together');
+
+-- Local send publishes only mail.sent. Its internal deliver() must not create a
+-- received event for the local recipient copy.
+SELECT * FROM smtp_submission_send(
+  :sender_user,:sender_mb,'inline:local','<mail-fact-local>',:'sender_email',
+  jsonb_build_array(jsonb_build_object('email',:'recipient_email')),'[]','[]',
+  'local',NULL,NULL,'body',NULL,4,false,NULL,
+  jsonb_build_array(:'recipient_email')) \gset local_
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.received')::integer,0,
+  'send-to-local deliver fanout does not double-count mail.received');
+SELECT is((SELECT count(*) FROM webhook_publications
+  WHERE event_id='mail-sent-'||:local_message_id||'-1')::integer,1,
+  'local send still produces exactly one mail.sent fact');
+
+-- Direct inbound SMTP commits a received fact with the envelope contract.
+SELECT * FROM smtp_inbound_deliver(jsonb_build_object(
+  'p_raw_ref','inline:received','p_message_id','<mail-fact-received>',
+  'p_from_addr','Header Sender <header@outside.test>','p_from_name','Header Sender',
+  'p_rcpt_addr',:'recipient_email','p_to_addrs',jsonb_build_array(jsonb_build_object('email',:'recipient_email')),
+  'p_cc_addrs','[]'::jsonb,'p_bcc_addrs','[]'::jsonb,'p_subject','received',
+  'p_in_reply_to',NULL,'p_references_hdr',NULL,'p_body_text','body','p_body_html',NULL,
+  'p_size_bytes',4,'p_has_attachments',false,'p_sent_at',now(),
+  'p_spf_result','pass','p_dkim_result','none','p_dmarc_result','none',
+  'p_spam_score',0,'p_spam_headers','{}'::jsonb,'p_vote_response',NULL,
+  'p_crypto_type',NULL,'p_is_external',true,'p_sender_display_name','Header Sender',
+  'p_is_name_spoof',false,'p_depth',0,'p_list_id',NULL,'p_smime_status',NULL,
+  'p_smime_signer_email',NULL,'p_smime_signer_cn',NULL,'p_smime_issuer_cn',NULL),
+  'bounce@envelope.test',:'recipient_email') \gset recv_
+SELECT ok(:'recv_publication_enrolled'::boolean,'direct inbound SMTP enrolls after delivery');
+SELECT is((SELECT payload FROM webhook_publications
+  WHERE event_id='mail-received-'||:recv_message_id),
+  jsonb_build_object('from','bounce@envelope.test','to',:'recipient_email'),
+  'received payload uses SMTP envelope addresses, not the MIME From header');
+SELECT ok((SELECT subject_user_id=:recipient_user AND subject_mailbox_id=:recipient_mb
+  FROM webhook_publications WHERE event_id='mail-received-'||:recv_message_id),
+  'received subject is derived after alias/mailbox resolution');
+
+-- The permission denial is the hard boundary against arbitrary historical
+-- message ids and forged origins from a tenant credential.
+RESET ROLE;
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  format('SELECT * FROM webhook_mail_committed_publish(%s,''mail.sent'',''smtp_submission'',''fake@x'',''victim@x'',1)',:on_message_id),
+  '42501',NULL,'setjoin_app cannot forge a cross-user historical mail fact');
+RESET ROLE;
+SELECT is((SELECT count(*) FROM webhook_publications WHERE payload->>'from'='fake@x')::integer,0,
+  'rejected app forgery leaves no durable fact');
+
+SELECT * FROM finish();
+ROLLBACK;

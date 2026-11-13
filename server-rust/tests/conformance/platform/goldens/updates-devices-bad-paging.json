@@ -1,0 +1,112 @@
+{
+  "case": "bad-paging",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "id": 9101,
+            "name": "a",
+            "platform": "ios",
+            "version": "v1.0"
+          },
+          {
+            "id": 9102,
+            "name": "b",
+            "platform": "android",
+            "version": "v2.0"
+          },
+          {
+            "id": 9103,
+            "name": "c",
+            "platform": "macos",
+            "version": "v1.0"
+          },
+          {
+            "id": 9104,
+            "name": "d",
+            "platform": "ios",
+            "version": "v1.0"
+          }
+        ],
+        "before": [
+          {
+            "id": 9101,
+            "name": "a",
+            "platform": "ios",
+            "version": "v1.0"
+          },
+          {
+            "id": 9102,
+            "name": "b",
+            "platform": "android",
+            "version": "v2.0"
+          },
+          {
+            "id": 9103,
+            "name": "c",
+            "platform": "macos",
+            "version": "v1.0"
+          },
+          {
+            "id": 9104,
+            "name": "d",
+            "platform": "ios",
+            "version": "v1.0"
+          }
+        ],
+        "table": "devices"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/updates/devices",
+      "method": "GET",
+      "path": "/admin/updates/devices",
+      "query": "?limit=abc&offset=-5"
+    },
+    "response": {
+      "body": "{\"devices\":[{\"id\":9103,\"name\":\"c\",\"platform\":\"macos\",\"os_version\":\"14.1\",\"app_version\":\"v1.0\",\"last_seen\":\"\",\"status\":\"up_to_date\"}],\"limit\":50,\"offset\":0}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "156"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/updates/devices"
+}

@@ -1,0 +1,211 @@
+-- pgTAP tests for deliver() reducer
+BEGIN;
+SELECT plan(21);
+
+-- Setup test fixtures (domain must be created first)
+INSERT INTO domains (name, is_local) VALUES ('test.example.com', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('alice', (SELECT id FROM domains WHERE name = 'test.example.com'),
+          'alice@test.example.com', 'Alice');
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+  VALUES ((SELECT id FROM users WHERE email = 'alice@test.example.com'),
+          (SELECT id FROM domains WHERE name = 'test.example.com'),
+          'alice@test.example.com', 'Alice', 'personal', TRUE);
+
+-- Test 1: deliver by alias
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary)
+  VALUES ((SELECT id FROM mailboxes WHERE email = 'alice@test.example.com'),
+          'alias@test.example.com',
+          (SELECT id FROM domains WHERE name = 'test.example.com'),
+          FALSE);
+SELECT lives_ok(
+  $$ SELECT deliver('ref1', '<msg1>', 'bob@ext.com', 'Bob', 'alias@test.example.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hello', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'deliver via alias should succeed'
+);
+
+-- Test 2: deliver by primary mailbox email (no alias)
+SELECT lives_ok(
+  $$ SELECT deliver('ref2', '<msg2>', 'bob@ext.com', 'Bob', 'alice@test.example.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hello2', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'deliver via primary mailbox email should succeed'
+);
+
+-- Test 3: deliver to unknown address should fail
+SELECT throws_ok(
+  $$ SELECT deliver('ref3', '<msg3>', 'bob@ext.com', 'Bob', 'unknown@test.example.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hello3', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'BZ007',
+  'no mailbox for unknown@test.example.com',
+  'deliver to unknown address raises BZ007 (no_mailbox) — so SMTP maps it to a 550, not a retried 451'
+);
+
+-- Test 4: tag counters updated correctly (system uses tags, not folders)
+SELECT is(
+  (SELECT total_count FROM tags
+   WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')
+     AND name = 'Inbox'),
+  2,
+  'inbox should have 2 messages after two deliveries'
+);
+
+-- Test 5: mailbox used_bytes updated
+SELECT is(
+  (SELECT used_bytes FROM mailboxes WHERE email = 'alice@test.example.com'),
+  200::BIGINT,
+  'mailbox used_bytes should be 200 after two 100-byte deliveries'
+);
+
+-- Test 6: catch-all should not match subdomains
+INSERT INTO domains (name, is_local, catch_all_mailbox_id)
+  VALUES ('example.com', TRUE,
+          (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com'));
+SELECT throws_ok(
+  $$ SELECT deliver('ref4', '<msg4>', 'bob@ext.com', 'Bob', 'user@notexample.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hello4', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'BZ007',
+  'no mailbox for user@notexample.com',
+  'catch-all should not match subdomains (notexample.com vs example.com) — raises BZ007'
+);
+
+-- Test: over-quota delivery raises BZ001 (over_quota), so the SMTP classifier
+-- emits a permanent 552 (sender stops retrying) instead of a generic, retried 451.
+-- This is the regression guard for the T9 dead-classifier bug: deliver() used to
+-- RAISE a bare 'over_quota:...' (SQLSTATE P0001) the classifier never matched.
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary, quota_bytes, used_bytes)
+  VALUES ((SELECT user_id FROM mailboxes WHERE email = 'alice@test.example.com'),
+          (SELECT id FROM domains WHERE name = 'test.example.com'),
+          'tiny@test.example.com', 'Tiny', 'personal', FALSE, 50, 0);
+SELECT throws_ok(
+  $$ SELECT deliver('refq', '<msgq>', 'bob@ext.com', 'Bob', 'tiny@test.example.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Big', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'BZ001',
+  NULL,
+  'deliver of a 100-byte message to a 50-byte-quota mailbox raises BZ001 (over_quota)'
+);
+
+-- Test 7 — Regression: a new inbound message MUST advance jmap_email_state,
+-- else a polling client ships a stale state token and concludes "nothing
+-- changed". RED before deliver() routes its notify through notify_state_change.
+CREATE TEMP TABLE _dlv_base AS
+SELECT jmap_email_state AS e0 FROM mailboxes WHERE email = 'alice@test.example.com';
+
+SELECT deliver('ref7', '<msg7>', 'bob@ext.com', 'Bob', 'alice@test.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hello7', NULL, NULL, 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+
+SELECT cmp_ok(
+  (SELECT jmap_email_state FROM mailboxes WHERE email = 'alice@test.example.com'),
+  '>',
+  (SELECT e0 FROM _dlv_base),
+  'deliver advances jmap_email_state (no stale token in the push)');
+
+-- ── REAL push assertion (WAVE 4 Phase 3): a new inbound message must actually
+-- PUSH on tag:{recipient_mailbox} so a listening client wakes up. Capture the
+-- app_notify tee and assert the push fired on the right channel with the
+-- state_change event shape. The bump assertion above proves the token moved; this
+-- proves the wake-up signal was emitted (not just the token silently advanced). ──
+SET LOCAL app.capture_notify = 'on';
+
+SELECT deliver('refpush', '<msgpush>', 'bob@ext.com', 'Bob', 'alice@test.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'HelloPush', NULL, NULL, 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+
+SELECT is(
+  notify_count('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')),
+  1,
+  'deliver pushes on tag:{recipient_mailbox} exactly once');
+
+SELECT is(
+  last_notify_event('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')),
+  'state_change',
+  'deliver push carries the state_change event (client wakes and resyncs)');
+
+-- Test A6: deliver() accepts + persists S/MIME verdict
+SELECT lives_ok(
+  $$ SELECT deliver('refsm', '<msgsm>', 'bank@trust.example', 'Bank', 'alice@test.example.com',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Statement', NULL, NULL, 'body', NULL, 100, FALSE, now(),
+       'pass', 'pass', 'pass', 0.0, NULL,
+       p_smime_status => 'valid', p_smime_signer_email => 'bank@trust.example',
+       p_smime_signer_cn => 'Bank of Example', p_smime_issuer_cn => 'Example SMIME CA') $$,
+  'deliver accepts S/MIME verdict args');
+SELECT is((SELECT smime_status FROM messages WHERE message_id = '<msgsm>'), 'valid', 'deliver persists smime_status');
+SELECT is((SELECT smime_signer_cn FROM messages WHERE message_id = '<msgsm>'), 'Bank of Example', 'deliver persists smime_signer_cn');
+
+-- ── Phase 3.3: encrypted-at-rest — p_is_encrypted nulls the recipient body cols ──
+-- deliver(... p_is_encrypted => TRUE): the local-recipient copy stores ONLY the
+-- ciphertext in raw_ref; body_text/body_html NULL; body_tsv empty; subject +
+-- raw_ref preserved.
+SELECT deliver('encref', '<msg-enc-dlv>', 'bob@ext.com', 'Bob', 'alice@test.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'EncStatement', NULL, NULL,
+  'cleartext body', '<p>cleartext</p>', 100, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_encrypted => TRUE);
+
+SELECT is(
+  (SELECT (body_text IS NULL AND body_html IS NULL AND body_tsv IS NULL)
+     FROM messages WHERE message_id = '<msg-enc-dlv>'),
+  TRUE,
+  'encrypted deliver: recipient body_text/body_html NULL + body_tsv NULL (V029)');
+
+-- REGRESSION GUARD: deliver() must derive crypto_type='smime-encrypted' from
+-- p_is_encrypted (the call above passes NO p_crypto_type) so the internal
+-- recipient's copy is decryptable-on-read instead of rendering blank.
+SELECT is(
+  (SELECT crypto_type FROM messages WHERE message_id = '<msg-enc-dlv>'),
+  'smime-encrypted',
+  'encrypted deliver: recipient crypto_type = smime-encrypted (decrypt-on-read fires)');
+
+SELECT is(
+  (SELECT (subject = 'EncStatement' AND raw_ref = 'encref')
+     FROM messages WHERE message_id = '<msg-enc-dlv>'),
+  TRUE,
+  'encrypted deliver: subject + raw_ref (ciphertext) preserved');
+
+-- Control: default (FALSE) keeps cleartext bodies (additivity).
+SELECT deliver('clearref', '<msg-clear-dlv>', 'bob@ext.com', 'Bob', 'alice@test.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'ClearStatement', NULL, NULL,
+  'cleartext body', '<p>cleartext</p>', 100, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL);
+
+SELECT is(
+  (SELECT (body_text IS NOT NULL AND body_html IS NOT NULL)
+     FROM messages WHERE message_id = '<msg-clear-dlv>'),
+  TRUE,
+  'non-encrypted deliver: recipient bodies preserved (additivity)');
+
+-- ── SP1 Phase 7 (Task 7.3): push NOTIFY for an encrypted delivery carries no
+-- body or preview. When deliver() runs the encrypted-at-rest path (p_is_encrypted
+-- => TRUE, NULL body cols), the pg_notify wake-up payload MUST NOT contain a
+-- 'body' or 'preview' key — the reactive channel never sees cleartext. The
+-- notify_state_change payload is {event, …} by design; this pins that a future
+-- refactor cannot smuggle a body preview onto the push for an encrypted message.
+SET LOCAL app.capture_notify = 'on';
+
+SELECT deliver('refencpush', '<msg-enc-push>', 'sender@ext.com', 'Sender',
+  'alice@test.example.com', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'Encrypted Subject', NULL, NULL,
+  'cleartext that must never reach the notify channel',
+  '<p>cleartext that must never reach the notify channel</p>',
+  512, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_encrypted => TRUE);
+
+-- The encrypted delivery fired a push on the recipient's tag channel.
+SELECT cmp_ok(
+  notify_count('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')),
+  '>=', 1,
+  'encrypted deliver pushes on tag:{recipient_mailbox}');
+
+-- The push event is the body-free state_change shape.
+SELECT is(
+  last_notify_event('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')),
+  'state_change',
+  'encrypted delivery notify event = state_change');
+
+-- The payload carries NO "body" key (no cleartext on the reactive channel).
+SELECT ok(
+  NOT ((last_notify_payload('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')))::JSONB ? 'body'),
+  'encrypted delivery notify payload has no "body" key');
+
+-- The payload carries NO "preview" key.
+SELECT ok(
+  NOT ((last_notify_payload('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@test.example.com')))::JSONB ? 'preview'),
+  'encrypted delivery notify payload has no "preview" key');
+
+SELECT * FROM finish();
+ROLLBACK;

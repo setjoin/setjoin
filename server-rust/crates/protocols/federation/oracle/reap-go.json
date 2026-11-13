@@ -1,0 +1,23 @@
+{
+  "after": {
+    "inbox": [
+      2
+    ],
+    "outbox": [
+      2,
+      3
+    ]
+  },
+  "before": {
+    "inbox": [
+      1,
+      2
+    ],
+    "outbox": [
+      1,
+      2,
+      3
+    ]
+  },
+  "go_source": "2ab18c4ef0b3ea1c2e463fcb9848aaf43867c472"
+}

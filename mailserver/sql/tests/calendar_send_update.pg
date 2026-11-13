@@ -1,0 +1,91 @@
+-- pgTAP: calendar_itip.sql — send-update re-issues iTIP REQUEST + bumps SEQUENCE.
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (name, is_local) VALUES ('upd.test', TRUE);
+
+-- ADR-003: DIVERGENT ids (users 109301/109302 != mailboxes 9301/9302).
+-- jmap_calendar_event_send_update is mailbox-keyed; calendar/event ids (9301/9302)
+-- are separate namespaces.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (109301, 'organizer', (SELECT id FROM domains WHERE name = 'upd.test'), 'org@upd.test', 'Org'),
+  (109302, 'other',     (SELECT id FROM domains WHERE name = 'upd.test'), 'other@upd.test', 'Other');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (9301, 109301, (SELECT id FROM domains WHERE name = 'upd.test'), 'org@upd.test', 'personal', 'Org Mbox', TRUE),
+  (9302, 109302, (SELECT id FROM domains WHERE name = 'upd.test'), 'other@upd.test', 'personal', 'Other Mbox', TRUE);
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (9301, 9301, 'Default', TRUE),
+  (9302, 9302, 'Default', TRUE);
+
+-- A meeting (sequence 0) with one external attendee, and a non-meeting event.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting, sequence, jmap_state)
+VALUES
+  (9301, 9301, 'upd-evt-1', 'Sprint Review', now(), now() + '1h'::INTERVAL, 'org@upd.test', TRUE, 0, 5),
+  (9302, 9301, 'upd-evt-2', 'Solo Work', now(), now() + '1h'::INTERVAL, 'org@upd.test', FALSE, 0, 5);
+
+INSERT INTO event_attendees (event_id, email, name, role, status)
+VALUES (9301, 'guest@ext.com', 'Guest', 'required', 'accepted');
+
+-- (1) send_update bumps SEQUENCE to 1 and returns the invite payload.
+SELECT is(
+  (jmap_calendar_event_send_update(9301, 9301))->>'sequence',
+  '1',
+  'send_update returns sequence=1 in the payload'
+);
+
+SELECT is(
+  (SELECT sequence FROM calendar_events WHERE id = 9301),
+  1,
+  'send_update persists sequence=1 on the event'
+);
+
+-- jmap_state bumped (was 5).
+SELECT cmp_ok(
+  (SELECT jmap_state FROM calendar_events WHERE id = 9301),
+  '>',
+  5::BIGINT,
+  'send_update bumps the event jmap_state'
+);
+
+-- The payload carries the attendee list.
+SELECT cmp_ok(
+  jsonb_array_length((jmap_calendar_event_send_update(9301, 9301))->'attendees'),
+  '>=',
+  1,
+  'send_update payload includes the attendees'
+);
+
+-- D4 (close the asymmetry): the sendUpdate payload carries the STORED participation status
+-- under the canonical JMAP keys participationStatus/expectReply — the shape the JSON-tagged
+-- caldav.Attendee reads, so the re-issued iMIP REQUEST's ATTENDEE line gets PARTSTAT/RSVP
+-- (RFC 5546 §3.2.2). The guest stored status='accepted' and rsvp defaults TRUE.
+SELECT is(
+  ((jmap_calendar_event_send_update(9301, 9301))#>>'{attendees,0,participationStatus}'),
+  'accepted',
+  'send_update payload carries stored participationStatus (→ PARTSTAT on the wire)'
+);
+SELECT is(
+  ((jmap_calendar_event_send_update(9301, 9301))#>>'{attendees,0,expectReply}')::bool,
+  TRUE,
+  'send_update payload carries stored expectReply=TRUE (→ RSVP on the wire)'
+);
+
+-- (2) send_update on a non-meeting returns notMeeting, no sequence bump.
+SELECT is(
+  (jmap_calendar_event_send_update(9301, 9302))->>'type',
+  'notMeeting',
+  'send_update on a non-meeting returns notMeeting'
+);
+
+-- (3) cross-account send_update raises BZ001.
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_event_send_update(9302, 9301) $$,
+  'BZ001',
+  NULL,
+  'cross-account send_update raises BZ001'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

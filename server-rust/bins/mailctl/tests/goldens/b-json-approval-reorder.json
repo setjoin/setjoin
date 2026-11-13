@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/approval-policies/reorder",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"consumerType\":\"mail.external_send\",\"orderedIds\":[7,8]}"
+    }
+  ],
+  "stdout": "Approval policy order updated.\n",
+  "stderr": "",
+  "exit": 0
+}

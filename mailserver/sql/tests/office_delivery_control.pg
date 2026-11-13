@@ -1,0 +1,221 @@
+-- Office qualification/activation and managed-CODE operation authority.
+BEGIN;
+SELECT plan(48);
+
+SELECT has_table('public','office_provider_qualifications','qualification receipts are durable');
+SELECT has_table('public','office_provider_health_observations','provider health observations are durable');
+SELECT has_table('public','office_app_revisions','managed Office app revisions are separate state');
+SELECT has_table('public','office_app_operations','managed Office operations are separate state');
+SELECT has_column('public','office_provider_policies','route_state','provider route state is explicit');
+SELECT has_column('public','office_provider_policies','active_qualification_id','provider binds active qualification');
+SELECT has_index('public','office_app_operations','office_app_operations_one_active_uniq',
+  'one active operation per curated app is enforced');
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'office_provider_qualifications'::regclass,'office_provider_health_observations'::regclass,
+  'office_app_revisions'::regclass,'office_app_operations'::regclass) AND relrowsecurity),4,
+  'all four V224 Office delivery tables enable RLS');
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'office_provider_qualifications'::regclass,'office_provider_health_observations'::regclass,
+  'office_app_revisions'::regclass,'office_app_operations'::regclass) AND relforcerowsecurity),4,
+  'all four V224 Office delivery tables force RLS');
+SELECT ok((SELECT enabled FROM feature_toggles WHERE key='feature.office_managed_delivery'),
+  'managed Office delivery is admitted by the pre-release production default');
+SELECT ok(EXISTS(SELECT 1 FROM admin_permissions WHERE permission_key='apps.view'),
+  'apps.view permission exists');
+SELECT ok(EXISTS(SELECT 1 FROM admin_permissions WHERE permission_key='apps.manage'),
+  'apps.manage permission exists');
+
+SELECT mk_account('office-delivery-admin') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id=:mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(:u,1,:u);
+SELECT drive_space_create(:u,'Office delivery','regular') AS sid \gset
+SELECT drive_node_create(:u,:sid,NULL,'file','qualification.docx') AS nid \gset
+SELECT drive_chunk_register(:u,:sid,repeat('4',64),10);
+SELECT drive_file_put_version(:u,:nid,repeat('5',64),10,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',NULL,
+  format('[{"sha256":"%s","size":10}]',repeat('4',64))::jsonb,'v1','test') AS vr \gset
+SELECT (:'vr'::jsonb->>'versionId')::bigint AS vid \gset
+
+SELECT office_provider_configure(:u,'collabora-managed',0,'managed-wildcard','evaluation','code-test',
+  '{"profile":"managed-wildcard","proofDiscoveryUrl":"https://office.example/hosting/discovery","wopiPublicBaseUrl":"https://setjoin.example","editorUrl":"https://office.example/browser"}'::jsonb,
+  'configure managed test editor') AS configured \gset
+SELECT is((:'configured'::jsonb->>'routeState'),'connected_inactive',
+  'configuration never activates routing');
+SELECT is((:'configured'::jsonb->>'generation')::bigint,1::bigint,
+  'new provider begins at generation one');
+SELECT throws_ok(format($sql$SELECT office_provider_configure(%s,'collabora-managed',0,
+  'managed-wildcard','evaluation','code-test',
+  '{"profile":"managed-wildcard","proofDiscoveryUrl":"https://office.example/hosting/discovery","wopiPublicBaseUrl":"https://setjoin.example","editorUrl":"https://office.example/browser"}'::jsonb,
+  'stale configure')$sql$,:u),'BZ324',NULL,'stale configure CAS is rejected');
+
+INSERT INTO office_editor_sessions(
+  space_id,file_node_id,base_version_id,provider_id,cohort_key,status,lease_expires_at
+) VALUES(:sid,:nid,:vid,'collabora-managed','qualification','active',now()+interval '1 hour')
+RETURNING id AS session_id \gset
+INSERT INTO office_save_receipts(
+  session_id,space_id,file_node_id,provider_id,operation_key,expected_base_id,
+  content_sha256,result_version_id,response_class
+) VALUES(:'session_id'::uuid,:sid,:nid,'collabora-managed','qualification-save',:vid,
+  repeat('5',64),:vid,'accepted') RETURNING id AS receipt_id \gset
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.office_managed_delivery';
+SELECT throws_ok(format($sql$SELECT office_provider_policy_set(%s,'legacy-bypass',true,false,
+  'valid','legacy','{"proofDiscoveryUrl":"https://office.example/hosting/discovery","wopiPublicBaseUrl":"https://setjoin.example","editorUrl":"https://office.example/browser"}',
+  'legacy bypass')$sql$,:u),'BZ324',NULL,
+  'managed-delivery mode closes the legacy direct-enable bypass');
+
+SELECT office_app_operation_request(:u,'install','collabora-managed',1,gen_random_uuid(),
+  '{"profile":"managed-wildcard","ingress":{"hostname":"office.example"},"catalogRevision":"code-v1"}',
+  'install managed CODE test editor') AS operation \gset
+SELECT is((:'operation'::jsonb->>'state'),'requested','install request is durable and inert');
+SELECT is((SELECT request->>'wopiPublicBaseUrl' FROM office_app_operations
+            WHERE id=(:'operation'::jsonb->>'operationId')::uuid),'https://setjoin.example',
+  'install operation binds the server-owned WOPI origin');
+SELECT throws_ok(format($sql$SELECT office_app_operation_request(%s,'install','collabora-managed',1,
+  gen_random_uuid(),'{"profile":"managed-wildcard","ingress":{},"command":"sh"}',
+  'reject command')$sql$,:u),'BZ322',NULL,'raw command input is rejected by the closed plan');
+SELECT throws_ok(format($sql$SELECT office_app_operation_request(%s,'install','collabora-managed',1,
+  gen_random_uuid(),'{"profile":"managed-wildcard","ingress":{}}','parallel install')$sql$,:u),
+  'BZ327',NULL,'a second active app operation is rejected');
+
+SELECT throws_ok(format($sql$SELECT office_provider_configure(%s,'http-rejected',0,
+  'existing-provider','evaluation','code-test',
+  '{"proofMode":"test_disabled","proofDiscoveryUrl":"http://127.0.0.1:9980/hosting/discovery","wopiPublicBaseUrl":"http://host.docker.internal:4173","editorUrl":"http://127.0.0.1:9980/browser/test/cool.html?"}'::jsonb,
+  'reject unguarded HTTP')$sql$,:u),'BZ322',NULL,'direct HTTP is rejected while the root test seam is off');
+SELECT set_system_config('office.insecure_test_transport','true'::jsonb);
+SELECT lives_ok(format($sql$SELECT office_provider_configure(%s,'http-e2e',0,
+  'existing-provider','evaluation','code-test',
+  '{"proofMode":"test_disabled","proofDiscoveryUrl":"http://127.0.0.1:9980/hosting/discovery","wopiPublicBaseUrl":"http://host.docker.internal:4173","editorUrl":"http://127.0.0.1:9980/browser/test/cool.html?"}'::jsonb,
+  'guarded HTTP E2E')$sql$,:u),'root test seam admits only the bounded HTTP topology');
+
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('office-runner',gen_random_uuid()) AS claim \gset
+RESET ROLE;
+SELECT is((:'claim'::jsonb->>'state'),'claimed','worker claims the oldest request');
+SELECT is((:'claim'::jsonb->>'operationId'),(:'operation'::jsonb->>'operationId'),
+  'claim returns the requested operation');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'claim'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'preflight','preflight',
+  '{"checks":"pass"}',NULL) AS advanced \gset
+RESET ROLE;
+SELECT is((:'advanced'::jsonb->>'state'),'preflight','worker advances one legal transition');
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(format($sql$SELECT office_app_operation_advance(%L::uuid,%s,'office-runner',%L::uuid,
+  'connected_inactive','skip','{}',NULL)$sql$,
+  :'claim'::jsonb->>'operationId',:'advanced'::jsonb->>'stateGeneration',:'claim'::jsonb->>'leaseId'),
+  'BZ324',NULL,'worker cannot skip the closed lifecycle');
+RESET ROLE;
+
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'advanced'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'pulling','artifact_pull','{}',NULL) AS pulling \gset
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'pulling'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'verifying','artifact_digest','{}',NULL) AS verifying \gset
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'verifying'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'staging','runtime_staging','{}',NULL) AS staging \gset
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'staging'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'starting','runtime_start','{}',NULL) AS starting \gset
+SELECT office_app_operation_advance(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'starting'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,'qualifying','discovery_health','{}',NULL) AS app_qualifying \gset
+SELECT office_app_install_commit(
+  (:'claim'::jsonb->>'operationId')::uuid,(:'app_qualifying'::jsonb->>'stateGeneration')::bigint,
+  'office-runner',(:'claim'::jsonb->>'leaseId')::uuid,
+  'collabora/code@sha256:'||repeat('a',64),'sha256:'||repeat('a',64),
+  '{"source":"docker.io/collabora/code"}','{"listenAddress":"127.0.0.1","listenPort":9980}') AS app_revision \gset
+SELECT throws_ok(format($sql$SELECT office_app_install_commit(%L::uuid,%s,'office-runner',%L::uuid,
+  'collabora/code@sha256:%s','sha256:%s','{}','{}')$sql$,
+  :'claim'::jsonb->>'operationId',(:'app_revision'::jsonb->>'stateGeneration')::bigint,
+  :'claim'::jsonb->>'leaseId',repeat('b',64),repeat('b',64)),
+  'BZ326',NULL,'atomic install replay rejects changed evidence');
+RESET ROLE;
+SELECT is((:'app_revision'::jsonb->>'state'),'connected_inactive',
+  'revision evidence and install completion commit atomically');
+SELECT is((SELECT image_digest FROM office_app_revisions ORDER BY revision DESC LIMIT 1),
+  'sha256:'||repeat('a',64),'revision persists the accepted image digest');
+SELECT is((office_app_admin_list(:u)->'operations'->0->>'state'),'connected_inactive',
+  'admin list projects the completed managed install state');
+
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','paused_recoverable',5,:u,'recover test',gen_random_uuid(),
+  repeat('d',64),'{"providerId":"collabora-managed"}','old-runner',gen_random_uuid(),
+  'runtime_interrupted',now()-interval '2 seconds',now()+interval '30 seconds')
+RETURNING id,lease_id AS old_lease \gset
+SELECT office_app_operation_recover_request(:u,:'id'::uuid,5,'operator approved recovery') AS recover_requested \gset
+SELECT is((:'recover_requested'::jsonb->>'phase'),'recovery_requested',
+  'operator recovery request expires the old lease under CAS');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('replacement-runner',gen_random_uuid()) AS recovered_claim \gset
+SELECT throws_ok(format($sql$SELECT office_app_operation_advance(%L::uuid,5,'old-runner',%L::uuid,
+  'preflight','stale','{}',NULL)$sql$,:'id',:'old_lease'),
+  'BZ324',NULL,'stale executor cannot advance a recovered operation');
+RESET ROLE;
+SELECT is((:'recovered_claim'::jsonb->>'reclaimed')::boolean,true,
+  'replacement worker reclaims the explicitly recoverable operation');
+SELECT is((:'recovered_claim'::jsonb->>'executorId'),'replacement-runner',
+  'recovery binds a fresh executor and lease');
+
+SELECT throws_ok(format($sql$SELECT office_provider_qualify(%s,'collabora-managed',1,
+  'managed-wildcard',%L,'{"discovery":"pass","proof":"pass","editor":"pass","wopiSave":"pass"}',
+  %L,'sha256:%s',1,999999,'bad receipt')$sql$,
+  :u,:'configured'::jsonb->>'configSha256',repeat('6',64),repeat('a',64)),
+  'BZ327',NULL,'qualification requires a real provider-bound save receipt');
+SELECT office_provider_qualify(:u,'collabora-managed',1,'managed-wildcard',
+  :'configured'::jsonb->>'configSha256',
+  '{"discovery":"pass","proof":"pass","editor":"pass","wopiSave":"pass"}',
+  repeat('6',64),'sha256:'||repeat('a',64),1,:receipt_id,'qualify managed test editor') AS qualified \gset
+SELECT is((:'qualified'::jsonb->>'routeState'),'connected_inactive',
+  'qualification still does not activate routing');
+SELECT is((SELECT count(*)::int FROM office_provider_qualifications
+  WHERE provider_id='collabora-managed' AND status='passed'),1,
+  'one immutable qualification receipt is current');
+SELECT is((SELECT state FROM office_provider_health_observations
+  WHERE provider_id='collabora-managed' ORDER BY id DESC LIMIT 1),'healthy',
+  'qualification records bounded health evidence');
+
+SELECT office_provider_activate(:u,'collabora-managed',1,
+  (:'qualified'::jsonb->>'qualificationId')::uuid,'{"scope":"all"}',
+  'activate qualified managed editor') AS activated \gset
+SELECT is((:'activated'::jsonb->>'routeState'),'active_for_scope',
+  'activation is a separate explicit reducer');
+SELECT is((SELECT generation FROM office_provider_policies
+  WHERE provider_id='collabora-managed'),2::bigint,'activation advances provider generation');
+SELECT is((SELECT count(*)::int FROM office_provider_health_observations
+  WHERE provider_id='collabora-managed' AND provider_generation=2),1,
+  'activation carries health evidence to the active generation');
+SELECT throws_ok(format($sql$SELECT office_provider_activate(%s,'collabora-managed',1,
+  %L::uuid,'{"scope":"all"}','stale activation')$sql$,
+  :u,:'qualified'::jsonb->>'qualificationId'),'BZ324',NULL,
+  'activation CAS rejects a stale generation');
+
+SELECT mk_account('office-delivery-outsider') AS outsider_mb \gset
+SELECT user_id AS outsider FROM mailboxes WHERE id=:outsider_mb \gset
+GRANT SELECT ON office_provider_qualifications,office_provider_health_observations,
+  office_app_revisions,office_app_operations TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:outsider::text,true);
+SELECT is((SELECT count(*)::int FROM office_provider_qualifications),0,
+  'unrelated app user cannot read qualification receipts');
+SELECT is((SELECT count(*)::int FROM office_provider_health_observations),0,
+  'unrelated app user cannot read provider health');
+SELECT is((SELECT count(*)::int FROM office_app_revisions),0,
+  'unrelated app user cannot read app revisions');
+SELECT is((SELECT count(*)::int FROM office_app_operations),0,
+  'unrelated app user cannot read app operations');
+RESET ROLE;
+
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log WHERE action='office.provider.activated'),
+  'activation is audited');
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log WHERE action='office.app.operation.requested'),
+  'managed install request is audited');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/roles/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"description\":\"\",\"domainScope\":0,\"sodClass\":\"\"}"
+    }
+  ],
+  "stdout": "Role 7 updated.\n",
+  "stderr": "",
+  "exit": 0
+}

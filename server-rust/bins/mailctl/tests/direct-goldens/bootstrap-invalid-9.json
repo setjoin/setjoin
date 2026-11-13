@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: inspect password file: lstat /gofree-mctl3-missing-password: no such file or directory\n",
+  "exit": 1,
+  "database_effects": {
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

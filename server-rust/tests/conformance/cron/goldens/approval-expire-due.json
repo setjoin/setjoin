@@ -1,0 +1,37 @@
+{
+  "case": "approval-expire-due",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "approvals": [
+              "gofree-cron-approval-1due:pending",
+              "gofree-cron-approval-2open:pending"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [
+            "approval_expired:approval_request:approval window expired"
+          ],
+          "notifies": [],
+          "rows": {
+            "approvals": [
+              "gofree-cron-approval-1due:expired",
+              "gofree-cron-approval-2open:pending"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

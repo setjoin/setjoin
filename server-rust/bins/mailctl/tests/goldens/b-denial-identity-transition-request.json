@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/request",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"approvalRequestId\":\"9\",\"elevationId\":\"00000000-0000-4000-8000-000000000002\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"previewDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 AUTH_DENIED: Access denied (remediation: Ask an administrator) (retry after: 7)\n",
+  "exit": 3
+}

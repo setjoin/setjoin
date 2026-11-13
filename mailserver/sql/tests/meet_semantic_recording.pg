@@ -1,0 +1,501 @@
+-- meet_semantic_recording.pg — MEET plan M4 slice 1: the semantic event
+-- capture and replay authority (V266, meeting_semantic_recording.sql).
+-- Covers: the start fences (BZ185/BZ186/BZ190/BZ200/BZ199 guest arm/BZ276
+-- profile shape), the SINGLE-PRIMARY-MODE invariant in BOTH directions
+-- (a live B2 recording blocks a semantic start and vice versa, through the
+-- shared meeting_recording_active predicate), the truthful segment binding
+-- contract (verified requires digest+size+identity+ack — BZ279 otherwise;
+-- idempotent replay; conflicting replay; duplicate-media overlap refused at
+-- BOTH the reducer arm and the V266 trigger belt; the schema CHECK belt),
+-- the stop/meeting-end arms, the idempotent export receipts (BZ281
+-- no-verified-interval / anti-oracle; ready-immutability and exact-replay
+-- idempotence — a retry can never mint a second Drive version), and the
+-- .sjrec package delete/hold/restore lifecycle (HELD_PARTIAL ineligible for
+-- restore in V1, HELD_COMPLETE restorable, stale deletion generation fails
+-- closed, finalize requires the exhausted set with zero holds, release
+-- receipts are idempotent, a hold fences releases).
+--
+-- Plan: retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-
+-- semantic-recording.md, M4. Contracts: internal/meet/presentation/
+-- (lifecycle.go, segment.go, sjrec.go, acquisition.go, export.go).
+-- The FORCE-RLS cross-tenant proof lives in meet_semantic_recording_rls.pg.
+
+BEGIN;
+SELECT plan(113);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('sem-host@meet-semantic.test') AS host \gset
+SELECT mk_auth_user('sem-member@meet-semantic.test') AS member \gset
+SELECT mk_auth_user('sem-other@meet-semantic.test') AS other \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures: m1 — live, host + member; m2 — live, host only; m3 — ended;
+-- m4 — live with an ADMITTED GUEST (the BZ199 arm).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m1', :host, 'live')
+  RETURNING id AS m1 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :member, 'u:' || :member, 'member', now());
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m2', :host, 'live')
+  RETURNING id AS m2 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m2, :host, 'u:' || :host, 'host', now());
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m3', :host, 'ended')
+  RETURNING id AS m3 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m3, :host, 'u:' || :host, 'host', now());
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m4', :host, 'live')
+  RETURNING id AS m4 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m4, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:m4, 'Gary Guest', 'admitted') RETURNING id AS m4_guest_req \gset
+INSERT INTO meeting_participants (meeting_id, guest_display_name, identity, role)
+  VALUES (:m4, 'Gary Guest', 'g:' || :m4_guest_req, 'guest');
+
+-- The B2 RoomComposite row for the single-primary-mode tests ('requested'
+-- counts in meeting_recording_active).
+INSERT INTO meeting_recordings (meeting_id, started_by, state)
+  VALUES (:m2, :host, 'requested')
+  RETURNING id AS b2rec \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 — meeting_semantic_recording_start: the fences.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s + 1000, 'server_audio', NULL) $$, :host, :m1),
+  'BZ185', NULL, 'an unknown meeting is BZ185 not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :member, :m1),
+  'BZ186', NULL, 'a plain member cannot start (host/cohost floor)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :other, :m1),
+  'BZ186', NULL, 'a non-participant stranger cannot start');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :host, :m3),
+  'BZ190', NULL, 'an ended meeting refuses start (BZ190)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'nonsense_mode', NULL) $$, :host, :m1),
+  'BZ276', NULL, 'an unknown capture mode is BZ276');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio',
+              '{"class":"qualified","producerId":"x"}'::jsonb) $$, :host, :m1),
+  'BZ276', NULL, 'a qualified profile without evidence is BZ276 (fail-closed shape)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio',
+              $j${"class":"qualified","producerId":"x","producerVersion":"1","egressApiVersion":"v1","container":"audio/webm","codec":"opus","sampleRateHz":48000,"evidenceRef":"receipts/run-1/receipt.json"}$j$::jsonb) $$, :host, :m1),
+  'BZ276', NULL, 'a qualified profile with a digest-less evidence reference is BZ276 (row-32 amendment: the pin must be verifiable)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio',
+              $j${"class":"qualified","producerId":"x","producerVersion":"1","egressApiVersion":"v1","container":"audio/webm","codec":"opus","sampleRateHz":48000,"evidenceRef":"receipts/run-1/receipt.json#sha256=zz"}$j$::jsonb) $$, :host, :m1),
+  'BZ276', NULL, 'a qualified profile with a malformed evidence digest is BZ276');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :host, :m4),
+  'BZ199', NULL, 'an admitted guest blocks the semantic start (BZ199, shared arm)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :host, :m2),
+  'BZ278', NULL, 'a live B2 recording blocks the semantic start (single primary mode, BZ278)');
+
+-- The positive start on m1 (evidence-pending profile recorded as a FACT —
+-- the fail-closed classification, never a claimed audio path).
+SELECT meeting_semantic_recording_start(:host, :m1, 'server_audio', NULL) AS rec \gset
+SELECT ok(:rec IS NOT NULL, 'the semantic recording starts');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id = :rec), 'active',
+  'the semantic recording starts active');
+SELECT is((SELECT package_state FROM meeting_semantic_recordings WHERE id = :rec), 'ACTIVE',
+  'the .sjrec package starts ACTIVE');
+SELECT is((SELECT profile_class FROM meeting_semantic_recordings WHERE id = :rec), 'evidence_pending',
+  'the recorded profile class is the honest evidence_pending');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children WHERE recording_id = :rec), 4::bigint,
+  'the expected child set is seeded (manifest, timeline, integrity, media)');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children
+            WHERE recording_id = :rec AND required AND NOT released), 4::bigint,
+  'every seeded child is required and unreleased');
+SELECT is(meeting_recording_active(:m1), true,
+  'meeting_recording_active counts a live semantic recording (one banner truth)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_start(%s, %s, 'server_audio', NULL) $$, :host, :m1),
+  'BZ278', NULL, 'a second live semantic recording on one meeting is BZ278');
+SELECT is(meeting_recording_active(:m2), true,
+  'the B2 requested row alone keeps the shared predicate true (banner truth)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 — the segment binding contract (truthful capture).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'capturing', NULL, NULL, '', '', '', 0, 1000, 1000, 2000, NULL) $$, :rec),
+  'a capturing segment records provisionally');
+SELECT is((SELECT state FROM meeting_semantic_segments WHERE recording_id = :rec AND seq = 1), 'capturing',
+  'the segment starts capturing');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'verified', NULL, NULL, '', '', '', 0, 1000, 1000, 2000, NULL) $$, :rec),
+  'BZ279', NULL, 'a verified promotion without digest/size/identity proof is BZ279 (MR-01: no unsupported complete-record claim)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 2, 'interrupted', NULL, NULL, '', '', '', 1000, 1500, 2000, 2500, NULL) $$, :rec),
+  'BZ279', NULL, 'an interrupted segment without a reason is BZ279 (truthful partial results)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 0, 'capturing', NULL, NULL, '', '', '', 0, 10, 0, 10, NULL) $$, :rec),
+  'BZ279', NULL, 'segment sequence numbers from 1');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 2, 'capturing', NULL, NULL, '', '', '', 500, 400, 0, 10, NULL) $$, :rec),
+  'BZ279', NULL, 'a non-positive media interval is BZ279');
+
+-- The verified promotion (digest + size + actual media identity + ack).
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'verified', repeat('ab', 32), 48210,
+              'audio/webm', 'opus', 'webm', 0, 1000, 1000, 2000, NULL) $$, :rec),
+  'the segment verifies with its full proof');
+SELECT is((SELECT ack_state FROM meeting_semantic_segments WHERE recording_id = :rec AND seq = 1), 'acknowledged',
+  'a verified segment is acknowledged');
+SELECT is((SELECT mime_type || '/' || codec || '/' || container FROM meeting_semantic_segments
+            WHERE recording_id = :rec AND seq = 1), 'audio/webm/opus/webm',
+  'the ACTUAL media identity is bound, not the requested one');
+
+-- Idempotent replay: byte-identical facts are a silent no-op.
+SELECT is(
+  (meeting_semantic_segment_ingest(:rec, 1, 'verified', repeat('ab', 32), 48210,
+   'audio/webm', 'opus', 'webm', 0, 1000, 1000, 2000, NULL))->>'alreadyRecorded', 'true',
+  'an exact replay is idempotent (duplicate ingest cannot double-count media)');
+
+-- Conflicting replay: same seq, different facts.
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'verified', repeat('cd', 32), 48210,
+              'audio/webm', 'opus', 'webm', 0, 1000, 1000, 2000, NULL) $$, :rec),
+  'BZ279', NULL, 'a conflicting replay of one segment is BZ279 (a restart opens a NEW seq)');
+
+-- Duplicate media: an overlapping verified segment fails at the reducer arm…
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 2, 'verified', repeat('cd', 32), 10,
+              'audio/webm', 'opus', 'webm', 500, 1500, 1500, 2500, NULL) $$, :rec),
+  'BZ279', NULL, 'an overlapping verified segment is BZ279 (duplicate media fails closed)');
+-- …and at the V266 trigger belt even when a caller bypasses the reducer.
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_semantic_segments
+              (recording_id, seq, state, ack_state, content_sha256, byte_size,
+               mime_type, codec, container, start_ms, end_ms, wall_start_unix_ms, wall_end_unix_ms)
+            VALUES (%s, 3, 'verified', 'acknowledged', repeat('ef', 32), 5,
+                    'audio/webm', 'opus', 'webm', 900, 1800, 1, 2) $$, :rec),
+  'BZ279', NULL, 'the trigger belt refuses a bypassing verified overlap too');
+
+-- The interrupted arm (truthful partial).
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 2, 'interrupted', repeat('ef', 32), 512,
+              'audio/webm', 'opus', 'webm', 1000, 1500, 2000, 2500,
+              'producer crashed mid-segment') $$, :rec),
+  'an interrupted segment records truthfully WITH its reason');
+SELECT is((SELECT state FROM meeting_semantic_segments WHERE recording_id = :rec AND seq = 2), 'interrupted',
+  'the interrupted segment stays interrupted (never coverage)');
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_semantic_segments
+              (recording_id, seq, state, ack_state, content_sha256, byte_size,
+               mime_type, codec, container, start_ms, end_ms, wall_start_unix_ms, wall_end_unix_ms)
+            VALUES (%s, 9, 'verified', 'none', repeat('ab', 32), 5,
+                    'audio/webm', 'opus', 'webm', 5000, 6000, 1, 2) $$, :rec),
+  '23514', NULL, 'the schema CHECK refuses an unacknowledged verified row (belt under the belt)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 — stop, single-primary-mode (reverse direction), and the end arm.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_stop(%s, %s) $$, :host, :m2),
+  'BZ278', NULL, 'stopping where only a B2 recording is active is BZ278');
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :host, :m1),
+  'BZ200', NULL, 'a B2 start is refused while the semantic recording is live (BZ200 already-recording)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_stop(%s, %s) $$, :member, :m1),
+  'BZ186', NULL, 'a plain member cannot stop');
+
+SELECT meeting_semantic_recording_stop(:host, :m1) AS stopped \gset
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id = :rec), 'stopped',
+  'the stop lands truthfully');
+SELECT is((SELECT stopped_at IS NOT NULL FROM meeting_semantic_recordings WHERE id = :rec), true,
+  'the stop stamps stopped_at');
+SELECT is(meeting_recording_active(:m1), false,
+  'the banner predicate clears after the stop');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_recording_stop(%s, %s) $$, :host, :m1),
+  'BZ278', NULL, 'a second stop is BZ278');
+
+-- The meeting_end arm: a live semantic row cannot outlive its meeting.
+-- (m2's B2 'requested' row from §1 first drains to 'failed' — the
+-- reconcile worker's terminal state — freeing the single primary slot.)
+UPDATE meeting_recordings SET state = 'failed', stopped_at = now()
+ WHERE id = :b2rec AND state = 'requested';
+SELECT meeting_semantic_recording_start(:host, :m2, 'server_audio', NULL) AS rec2 \gset
+SELECT meeting_end(:host, :m2) AS room \gset
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id = :rec2), 'stopped',
+  'meeting_end flips the live semantic recording stopped in the same txn');
+SELECT is((SELECT state FROM meetings WHERE id = :m2), 'ended', 'the meeting ended');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 — the idempotent export receipts (on m1/:rec, stopped).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_request(%s, %s, %s, NULL, NULL) $$, :host, :m2, :rec),
+  'BZ278', NULL, 'a foreign meeting/recording pair is the anti-oracle not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_request(%s, %s, %s, NULL, NULL) $$, :member, :m1, :rec),
+  'BZ186', NULL, 'a plain member cannot request an export (even post-stop)');
+
+SELECT meeting_semantic_export_request(:host, :m1, :rec, NULL, NULL) AS ex \gset
+SELECT is(:'ex'::jsonb->>'state', 'pending', 'the export receipt starts pending');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_exports WHERE recording_id = :rec), 1::bigint,
+  'exactly one receipt exists (one (recording, generation) identity)');
+
+-- The claim/compose/complete arc with a FAILED composition (the honest
+-- outcome while the audio path is evidence-pending).
+SELECT meeting_semantic_export_claim(:rec, (:'ex'::jsonb->>'generation')::bigint) AS claim \gset
+SELECT is(:'claim'::jsonb->>'claimable', 'true', 'the claim admits the worker');
+SELECT is((SELECT state FROM meeting_semantic_exports WHERE recording_id = :rec), 'composing',
+  'the receipt is composing');
+SELECT is((SELECT attempts FROM meeting_semantic_exports WHERE recording_id = :rec), 1::integer,
+  'attempts are durable');
+SELECT meeting_semantic_export_complete(:rec, (:'ex'::jsonb->>'generation')::bigint, false,
+  NULL, NULL, 'exportCompositionFailed');
+SELECT is((SELECT state FROM meeting_semantic_exports WHERE recording_id = :rec), 'failed',
+  'the failed completion lands truthfully');
+SELECT is((SELECT error FROM meeting_semantic_exports WHERE recording_id = :rec), 'exportCompositionFailed',
+  'the failure reason is kept');
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_export_complete(%s, %s, false, NULL, NULL, 'exportCompositionFailed') $$,
+         :rec, (:'ex'::jsonb->>'generation')::bigint),
+  'the exact failed completion replays idempotently (a crash after commit cannot wedge the retry)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_complete(%s, %s, true, 1, 2, NULL) $$,
+         :rec, (:'ex'::jsonb->>'generation')::bigint),
+  'BZ278', NULL, 'a success cannot land against a settled failed receipt (a retry is a NEW generation)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_complete(%s, %s, true, 1, 2, NULL) $$,
+         :rec, (:'ex'::jsonb->>'generation')::bigint + 50),
+  'BZ281', NULL, 'an unknown receipt is BZ281 not-found');
+
+-- A READY receipt is immutable: success commits identity once, replays
+-- clean, and refuses a conflicting identity (never a duplicate Drive
+-- version — the export-idempotence failure mode).
+SELECT meeting_semantic_export_request(:host, :m1, :rec, NULL, NULL) AS ex2 \gset
+SELECT is((:'ex2'::jsonb->>'generation')::bigint, 2::bigint, 'the retry request mints generation 2');
+SELECT meeting_semantic_export_claim(:rec, (:'ex2'::jsonb->>'generation')::bigint);
+SELECT meeting_semantic_export_complete(:rec, (:'ex2'::jsonb->>'generation')::bigint,
+  true, 4242, 4243, NULL);
+SELECT is((SELECT state || ':' || drive_node_id || ':' || drive_version_id
+             FROM meeting_semantic_exports
+            WHERE recording_id = :rec AND generation = 2), 'ready:4242:4243',
+  'the ready receipt commits its output identity once');
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_export_complete(%s, 2, true, 4242, 4243, NULL) $$, :rec),
+  'the exact ready completion replays idempotently');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_complete(%s, 2, true, 9999, 9999, NULL) $$, :rec),
+  'BZ278', NULL, 'a conflicting output identity against a ready receipt is BZ278');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_exports WHERE recording_id = :rec
+            AND state = 'ready'), 1::bigint,
+  'exactly one ready receipt — a retry can never mint a second Drive version');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 — the .sjrec package lifecycle: delete → release → hold → restore.
+-- On m1/:rec (stopped) and m2/:rec2 (meeting ended — the post-end
+-- attendee-role authority floor is what makes these verbs reachable).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_mark_delete(%s, %s, %s) $$, :member, :m1, :rec),
+  'BZ186', NULL, 'a plain member cannot mark-delete');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_mark_delete(%s, %s, %s) $$, :other, :m1, :rec),
+  'BZ186', NULL, 'a stranger cannot mark-delete');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_mark_delete(%s, %s, %s) $$, :host, :m2, :rec),
+  'BZ278', NULL, 'a foreign meeting/package pair is the anti-oracle not-found');
+
+-- Post-end authority: m2 ended, but its host still owns :rec2's package.
+SELECT meeting_semantic_package_mark_delete(:host, :m2, :rec2) AS del2 \gset
+SELECT is(:'del2'::jsonb->>'packageState', 'DELETE_PENDING', 'the post-end delete marks DELETE_PENDING');
+SELECT is(:'del2'::jsonb->>'deletionGeneration', '1', 'the deletion generation starts at 1');
+-- The capture-born legacy-video child joined the expected set at mark-delete.
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children WHERE recording_id = :rec2), 5::bigint,
+  'the expected set grew by the optional legacy-video child');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children
+            WHERE recording_id = :rec2 AND NOT required AND child = 'media/legacy-video-reference.json'),
+          1::bigint, 'the legacy-video reference child is OPTIONAL (its release never downgrades a hold)');
+
+-- Release receipts: idempotent, generation-fenced.
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_child_release(%s, 'timeline.ndjson', 99) $$, :rec2),
+  'BZ280', NULL, 'a stale deletion generation fails closed (BZ280)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_child_release(%s, 'captions/<language>.vtt', 1) $$, :rec2),
+  'BZ280', NULL, 'a child outside the expected set is BZ280');
+SELECT meeting_semantic_child_release(:rec2, 'timeline.ndjson', 1) AS r1 \gset
+SELECT is(:'r1'::jsonb->>'alreadyReleased', 'false', 'the first release releases');
+SELECT meeting_semantic_child_release(:rec2, 'timeline.ndjson', 1) AS r1b \gset
+SELECT is(:'r1b'::jsonb->>'alreadyReleased', 'true', 'the replayed release is an idempotent no-op');
+
+-- Finalize requires the exhausted set.
+SELECT is(meeting_semantic_package_finalize(:rec2, 1), false,
+  'finalize stays open while the expected set is not exhausted');
+-- A hold fences further releases…
+SELECT meeting_semantic_package_hold(:host, :m2, :rec2, true) AS holds \gset
+SELECT is(:holds, 1, 'the hold registers');
+SELECT meeting_semantic_child_release(:rec2, 'manifest.json', 1) AS rfenced \gset
+SELECT is(:'rfenced'::jsonb->>'heldBeforeRelease', 'true', 'a hold linearized before the release fences it');
+SELECT is(meeting_semantic_package_finalize(:rec2, 1), false,
+  'finalize stays closed while a hold stands');
+-- …and the hold classifies the package: required children already released?
+-- (timeline.ndjson is required and was released BEFORE the hold → HELD_PARTIAL.)
+SELECT is((SELECT package_state FROM meeting_semantic_recordings WHERE id = :rec2), 'HELD_PARTIAL',
+  'a hold over a released REQUIRED child classifies HELD_PARTIAL');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_restore(%s, %s, %s) $$, :host, :m2, :rec2),
+  'BZ280', NULL, 'HELD_PARTIAL is ineligible for restore in V1 (a current HEAD seeing bytes proves nothing)');
+
+-- The HELD_COMPLETE/restore arc on m1/:rec: mark-delete, hold FIRST (zero
+-- required releases → HELD_COMPLETE), then restore.
+SELECT meeting_semantic_package_mark_delete(:host, :m1, :rec) AS del \gset
+SELECT is(:'del'::jsonb->>'packageState', 'DELETE_PENDING', 'the m1 delete marks DELETE_PENDING');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_mark_delete(%s, %s, %s) $$, :host, :m1, :rec),
+  'BZ280', NULL, 'deleting a non-ACTIVE package is BZ280');
+SELECT meeting_semantic_package_hold(:host, :m1, :rec, true) AS holds2 \gset
+SELECT is((SELECT package_state FROM meeting_semantic_recordings WHERE id = :rec), 'HELD_COMPLETE',
+  'a hold with zero released required children classifies HELD_COMPLETE');
+-- Restore locks the same package, verifies every required live reference,
+-- and cancels the deletion generation (the stale sweep dies).
+SELECT meeting_semantic_package_restore(:host, :m1, :rec) AS restored \gset
+SELECT is(:'restored'::jsonb->>'packageState', 'ACTIVE', 'restore returns the package to ACTIVE');
+SELECT is((SELECT deletion_generation FROM meeting_semantic_recordings WHERE id = :rec), 2::bigint,
+  'restore cancels the deletion generation (bumps it — old receipts are stale forever)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_child_release(%s, 'manifest.json', 1) $$, :rec),
+  'BZ280', NULL, 'the stale sweep''s release now fails closed against the restored package');
+-- The export fence on an ACTIVE package is a SUCCESS (already exercised:
+-- generation 1 and 2 in §4). The DELETED fence is §6.
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — the DELETED arc on m1/:rec: release the full expected set, finalize
+-- to DELETED, and prove every post-delete fence.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_semantic_package_hold(:host, :m1, :rec, false) AS unheld \gset
+SELECT is(:unheld, 0::integer, 'the HELD_COMPLETE hold releases (restore already ran)');
+
+SELECT meeting_semantic_package_mark_delete(:host, :m1, :rec) AS del3 \gset
+SELECT is(:'del3'::jsonb->>'deletionGeneration', '3', 'the third delete cycle bumps the generation to 3');
+SELECT is(meeting_semantic_package_finalize(:rec, 3), false,
+  'finalize stays open until the sweep exhausts the set');
+SELECT meeting_semantic_child_release(:rec, 'manifest.json', 3);
+SELECT meeting_semantic_child_release(:rec, 'timeline.ndjson', 3);
+SELECT meeting_semantic_child_release(:rec, 'integrity/sha256.json', 3);
+SELECT meeting_semantic_child_release(:rec, 'media/audio-<segment>', 3);
+SELECT meeting_semantic_child_release(:rec, 'media/legacy-video-reference.json', 3);
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children
+            WHERE recording_id = :rec AND NOT released), 0::bigint,
+  'the expected set is exhausted');
+SELECT is(meeting_semantic_package_finalize(:rec, 3), true,
+  'finalize completes once the expected set is exhausted with zero holds');
+SELECT is((SELECT package_state FROM meeting_semantic_recordings WHERE id = :rec), 'DELETED',
+  'the package is DELETED');
+
+-- Every post-delete fence.
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_request(%s, %s, %s, NULL, NULL) $$, :host, :m1, :rec),
+  'BZ280', NULL, 'a DELETED package fences new exports');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_hold(%s, %s, %s, true) $$, :host, :m1, :rec),
+  'BZ280', NULL, 'a DELETED package cannot be held (nothing remains to protect)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_restore(%s, %s, %s) $$, :host, :m1, :rec),
+  'BZ280', NULL, 'a DELETED package has no restore arm');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_child_release(%s, 'captions/<language>.vtt', 3) $$, :rec),
+  'BZ280', NULL, 'releases of untracked children refuse on a DELETED package');
+SELECT is(meeting_semantic_package_finalize(:rec, 3), false,
+  'a second finalize is a false no-op (already DELETED)');
+
+-- The authorized package read: attendees converge; a stranger is the
+-- indistinguishable BZ278.
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_package_read(%s, %s, %s) $$, :host, :m1, :rec),
+  'the host reads the package projection post-delete');
+SELECT is(
+  (meeting_semantic_package_read(:host, :m1, :rec))->>'packageState', 'DELETED',
+  'the read projects the truthful package state');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_read(%s, %s, %s) $$, :other, :m1, :rec),
+  'BZ278', NULL, 'a non-attendee read is the indistinguishable BZ278');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — M4 completion gates: the annotation-member seed extension + the
+-- deterministic replay read (meeting_semantic_replay_read, the M4 named
+-- gap). The admission slice (V267) extends the mark-delete seed with the
+-- `annotations/<snapshot>.json` child when committed annotation facts
+-- exist; the replay read composes the package projection with the
+-- presentation version links, the committed annotation references and the
+-- wall/media-aligned fact rail (captions are an explicitly empty list —
+-- named absence, never a fabricated track).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_semantic_recording_start(:host, :m1) AS rec3 \gset
+SELECT ok(:rec3 IS NOT NULL, 'a fresh semantic recording starts on m1 (the old package is terminal)');
+
+-- A presented session with a committed durable annotation (real reducer
+-- path), plus one verified segment with a known wall base for the media
+-- alignment.
+SELECT drive_space_create(:host, 'sem-replay-space', 'regular') AS rspace \gset
+SELECT drive_node_create(:host, :rspace, NULL, 'file', 'replay.pdf') AS rnode \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:rnode, :rspace, repeat('ab', 32), 1, :host) RETURNING id AS rver \gset
+INSERT INTO meeting_presentations
+  (meeting_id, drive_node_id, drive_version_id, source_sha256, manifest_digest,
+   status, presenter_participant_id, presenter_generation, checkpoint_seq, initiated_by)
+VALUES (:m1, :rnode, :rver, repeat('ab', 32), repeat('ef', 32),
+        'ACTIVE', (SELECT id FROM meeting_participants WHERE meeting_id = :m1 AND user_id = :host),
+        1, 5, :host)
+RETURNING id AS rpid \gset
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 5, false,
+           '{"sem":"replay"}', octet_length('{"sem":"replay"}')) $$, :host, :m1, :rpid),
+  'a durable annotation commits on the presented session');
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'verified', repeat('cd', 32), 100,
+           'audio/webm', 'opus', 'webm', 0, 1000, 1700000000000, 1700000001000, NULL) $$, :rec3),
+  'a verified segment binds its media identity');
+SELECT meeting_semantic_recording_stop(:host, :m1);
+SELECT meeting_semantic_package_mark_delete(:host, :m1, :rec3) AS del3 \gset
+SELECT is(:'del3'::jsonb->>'packageState', 'DELETE_PENDING', 'the stopped package marks DELETE_PENDING');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children WHERE recording_id = :rec3), 6::bigint,
+  'the expected set: structural three + media + legacy-video + the ANNOTATIONS member');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children
+            WHERE recording_id = :rec3 AND child = 'annotations/<snapshot>.json'
+              AND NOT required AND child_state = 'embedded'), 1::bigint,
+  'the annotations member seeds OPTIONAL + EMBEDDED from the committed annotation facts');
+
+-- The deterministic replay read: an attendee converges; a stranger is the
+-- indistinguishable BZ278.
+SELECT meeting_semantic_replay_read(:host, :m1, :rec3) AS replay \gset
+SELECT is(:'replay'::jsonb->>'packageState', 'DELETE_PENDING',
+  'the replay feed projects the truthful package state');
+SELECT is(jsonb_array_length(:'replay'::jsonb->'presentationLinks'), 1,
+  'the presentation version link is visible (never hidden)');
+SELECT is(:'replay'::jsonb->'presentationLinks'->0->>'presentationId', :'rpid'::text,
+  'the link names the presented session');
+SELECT is(jsonb_array_length(:'replay'::jsonb->'annotations'), 1,
+  'the committed annotation reference is visible');
+SELECT is(:'replay'::jsonb->'annotations'->0->>'snapshotPath',
+  'annotations/p' || :'rpid' || '-s6.json',
+  'the annotation reference carries the derived StableRef path');
+SELECT is(:'replay'::jsonb->'annotations'->0->>'sha256',
+  encode(sha256(convert_to('{"sem":"replay"}', 'UTF8')), 'hex'),
+  'the annotation reference carries the in-database-derived content identity');
+SELECT is((:'replay'::jsonb->'facts'->0->>'mediaMs')::bigint > 0, true,
+  'the fact rail aligns against the earliest verified segment wall start (mediaMs > 0)');
+SELECT is(:'replay'::jsonb->'captions', '[]'::jsonb,
+  'captions project as an explicitly empty list (named absence, never a fabricated track)');
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_replay_read(%s, %s, %s) $$, :other, :m1, :rec3),
+  'BZ278', NULL, 'a non-attendee replay read is the indistinguishable BZ278');
+
+ROLLBACK;

@@ -1,0 +1,150 @@
+-- meet_captions.pg — Meet B3 Task 13: meeting_captions_set (fact-first +
+-- reducer-composed cc: bot grant, D6/D8, durable captionsSince), the
+-- meeting_get captionsEnabled/captionsOn envelope keys, and the
+-- meeting_join_request_poll admitted-grant captionsOn rider (DN3).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-15-meet-B3-qol.md Task 13.
+BEGIN;
+SELECT plan(33);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('host@meet-captions.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-captions.test') AS member_id \gset
+
+SELECT (meeting_create(:host_id, 'Captions test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'roomName') AS room_name \gset
+SELECT (:'m'::jsonb ->> 'slug') AS slug \gset
+SELECT meeting_join(:member_id, :meeting_id);
+UPDATE meetings SET state = 'live' WHERE id = :meeting_id;
+
+-- an ended meeting (direct INSERT — the meeting_recording.pg m3 genre — so
+-- the host's meeting_member_role stays live for the role check while the
+-- ended check still fires BZ190, never a masked BZ186 from a mass left_at
+-- stamp: meeting_end was never called, so left_at is untouched).
+INSERT INTO meetings (title, owner_user_id, state, ended_at) VALUES ('Ended', :host_id, 'ended', now())
+  RETURNING id AS ended_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ended_id, :host_id, 'u:' || :host_id, 'host', now());
+
+-- ── non-host → BZ186 ──────────────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_captions_set(%s, %s, true) $$, :member_id, :meeting_id),
+  'BZ186', NULL, 'a plain member cannot start captions'
+);
+
+-- ── ended meeting → BZ190 ─────────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_captions_set(%s, %s, true) $$, :host_id, :ended_id),
+  'BZ190', NULL, 'captions cannot be started on an ended meeting'
+);
+
+-- ── OFF→ON: returns the bot grant, sets captionsOn+captionsSince, pushes ──
+SELECT (meeting_captions_set(:host_id, :meeting_id, true)) AS grant1 \gset
+SELECT ok(:'grant1' IS NOT NULL, 'OFF->ON returns a non-null grant');
+SELECT is(:'grant1'::jsonb ->> 'identity', 'cc:' || :meeting_id, 'grant identity is cc:{meetingId}');
+SELECT is(:'grant1'::jsonb ->> 'room', :'room_name', 'grant room matches the meeting room');
+-- 2026-07-16 delta (B3b live-gate P0 1b): hidden flipped false — livekit
+-- strips a hidden participant's data-packet sender identity, killing F8
+-- attestation. Webmail now filters cc: identities out of the roster
+-- client-side instead. See meeting_control.sql's meeting_captions_set.
+SELECT is((:'grant1'::jsonb ->> 'hidden')::boolean, false, 'grant hidden=false (unhidden — webmail roster-filters cc: instead)');
+SELECT is((:'grant1'::jsonb ->> 'canPublish')::boolean, false, 'grant canPublish=false');
+SELECT is((:'grant1'::jsonb ->> 'canSubscribe')::boolean, true, 'grant canSubscribe=true');
+SELECT is((:'grant1'::jsonb ->> 'canPublishData')::boolean, true, 'grant canPublishData=true');
+SELECT is((:'grant1'::jsonb ->> 'roomAdmin')::boolean, false, 'grant roomAdmin=false');
+SELECT is(:'grant1'::jsonb ->> 'role', 'bot', 'grant role=bot');
+SELECT is((:'grant1'::jsonb ->> 'recordingActive')::boolean, false,
+  'grant recordingActive is hard false (bot grant never inherits recording state)');
+
+SELECT is((SELECT settings ->> 'captionsOn' FROM meetings WHERE id = :meeting_id), 'true',
+  'settings.captionsOn flipped true');
+SELECT ok((SELECT settings ->> 'captionsSince' FROM meetings WHERE id = :meeting_id) IS NOT NULL,
+  'settings.captionsSince stamped (F5 durable start-grace)');
+
+SELECT is(last_notify_event(format('meet:%s', :member_id)), 'captions_state',
+  'OFF->ON pushes captions_state to a live member');
+SELECT is((last_notify_payload(format('meet:%s', :member_id))::jsonb -> 'payload' ->> 'on')::boolean, true,
+  'the push payload carries on:true');
+SELECT is(last_notify_payload(format('meet:%s', :member_id))::jsonb -> 'payload' ->> 'botIdentity',
+  'cc:' || :meeting_id, 'the push payload carries the attested botIdentity (F8)');
+
+-- ── idempotent ON→ON: no-op, no second push, NULL return ────────────────
+SELECT notify_count(format('meet:%s', :member_id)) AS pre_count \gset
+SELECT ok((meeting_captions_set(:host_id, :meeting_id, true)) IS NULL,
+  'ON->ON is a no-op: returns NULL');
+SELECT is(notify_count(format('meet:%s', :member_id))::int, :pre_count::int,
+  'ON->ON pushes nothing (idempotent, no double-push, no re-stamped captionsSince)');
+
+-- ── ON→OFF: clears the flag, returns NULL, pushes off ────────────────────
+SELECT ok((meeting_captions_set(:host_id, :meeting_id, false)) IS NULL, 'ON->OFF returns NULL');
+SELECT is((SELECT settings ->> 'captionsOn' FROM meetings WHERE id = :meeting_id), 'false',
+  'settings.captionsOn cleared');
+SELECT is(last_notify_event(format('meet:%s', :member_id)), 'captions_state',
+  'ON->OFF pushes captions_state');
+SELECT is((last_notify_payload(format('meet:%s', :member_id))::jsonb -> 'payload' ->> 'on')::boolean, false,
+  'the OFF push payload carries on:false');
+
+-- ── meeting_get projects captionsEnabled + captionsOn ────────────────────
+SELECT (meeting_get(:host_id, :meeting_id)) AS detail1 \gset
+SELECT is((:'detail1'::jsonb ->> 'captionsEnabled')::boolean, false,
+  'meeting_get.captionsEnabled reflects the feature.meet_captions toggle (seeded OFF)');
+SELECT is((:'detail1'::jsonb ->> 'captionsOn')::boolean, false,
+  'meeting_get.captionsOn reflects the current OFF state');
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.meet_captions';
+SELECT meeting_captions_set(:host_id, :meeting_id, true);
+SELECT (meeting_get(:host_id, :meeting_id)) AS detail2 \gset
+SELECT is((:'detail2'::jsonb ->> 'captionsEnabled')::boolean, true,
+  'meeting_get.captionsEnabled flips true with the toggle');
+SELECT is((:'detail2'::jsonb ->> 'captionsOn')::boolean, true,
+  'meeting_get.captionsOn reflects the current ON state');
+
+-- ── the admitted-guest poll envelope carries captionsOn (DN3) ────────────
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+SELECT (meeting_join_request_create(:'slug', 'Gary Guest')) AS req \gset
+SELECT (:'req'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT (:'req'::jsonb ->> 'secret') AS guest_secret \gset
+SELECT meeting_admit(:host_id, :guest_req_id);
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS guest_poll \gset
+SELECT is((:'guest_poll'::jsonb ->> 'captionsOn')::boolean, true,
+  'the admitted-guest poll envelope carries captionsOn (DN3 — visible to guests too)');
+SELECT is(:'guest_poll'::jsonb ->> 'ccIdentity', 'cc:' || :meeting_id,
+  'the admitted-guest poll envelope carries ccIdentity (design finding #4, the named root fix)');
+
+-- ── composite: captions ON + recording active coexist (D4 — no BZ199) ────
+-- The admitted guest above must leave first — meeting_recording_start's
+-- arm-1 (BZ199) blocks start while ANY admitted-but-unjoined guest exists,
+-- and this test is about the captions/recording interaction, not that gate.
+UPDATE meeting_participants SET left_at = now()
+ WHERE meeting_id = :meeting_id AND identity = 'g:' || :guest_req_id;
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.meet_recording';
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+SELECT (meeting_recording_start(:host_id, :meeting_id)) AS rec_id \gset
+SELECT meeting_recording_bind_egress(:rec_id, 'EG_cap', 'meet/cap.mp4', true, NULL);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :rec_id), 'active',
+  'a recording is active alongside captions');
+SELECT lives_ok(
+  format($$ SELECT meeting_captions_set(%s, %s, false) $$, :host_id, :meeting_id),
+  'captions can be toggled OFF while a recording is active (D4: no BZ199 interaction)'
+);
+SELECT lives_ok(
+  format($$ SELECT meeting_captions_set(%s, %s, true) $$, :host_id, :meeting_id),
+  'captions can be toggled back ON while a recording is active (D4: captions retain nothing, the invariant does not extend)'
+);
+
+-- ── E5 concurrency (eng retro finding #3): the meetings-row FOR UPDATE lock
+-- taken above is STILL HELD (row locks live until COMMIT/ROLLBACK) —
+-- pg_locks-visible proof the serialization is real, the meet_breakouts.pg
+-- §18 genre. A single pgTAP session cannot reproduce the actual two-caller
+-- race (both reading captionsOn=false before either commits), but it CAN
+-- prove the lock every call takes is real, not narrated.
+SELECT is(
+  (SELECT count(*)::int FROM pg_locks
+    WHERE locktype = 'relation' AND mode = 'RowShareLock'
+      AND relation = 'meetings'::regclass AND pid = pg_backend_pid()) > 0,
+  true,
+  'E5: meeting_captions_set holds a meetings-row RowShareLock (serialization is real)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

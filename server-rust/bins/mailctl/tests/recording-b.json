@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "source_commit": "9ea7da184425b52ca7ab2555493028ba17b0cb84",
+  "mailctl_tree": "3bda2378d2e7b6edfc2761dd19477908f3204ef5",
+  "shared_tree": "4ffbad274ebd97fc7f134c9c12abde943348a9df",
+  "go_version": "go1.26.6",
+  "goos": "linux",
+  "goarch": "amd64",
+  "CGO_ENABLED": "0",
+  "build_command": "go build -o <oracle> . (cwd mailctl/)",
+  "image": "setjoin-ci-linux-tc:local-amd64",
+  "image_id": "sha256:b5c41404ac8126e7d2ab4c7f8c7d45d926f165425d589d197f497313410511b6",
+  "binary_sha256": "a333e81f4e6b83cc93acd43ee78327d7dbbafbe7d078f8292c73f7a0f22e0bb6",
+  "ticket": 353,
+  "cases": 1030,
+  "cases_sha256": "72e48b6d17b1823ae40e291ba8d0452f546b7f463ac99f75db6cbd7e7c06215d",
+  "goldens_sha256": "055a4075ebbc9c1a3061e272fc74a7c8af938d691891168419932fec014fb3db",
+  "goldens_digest_format": "sha256(concat(sorted filename + NUL + exact file bytes))",
+  "normalization": "private HOME, assigned loopback port; optional random artifact basename; UUIDv4 validated then equal body/header values replaced; transport headers excluded",
+  "derived_inputs_sha256": {
+    "src/flags_b.json": "1892afd65df107fdd7f4b675c9acf163604a2397cd0cd99e4cc581a976c03353",
+    "src/wire_b.rs": "c69d0194482df9f5c19faa5f7d7c642579b5dbe6f8c3eb8a0f30df836385ba9c",
+    "src/ca_errors.json": "fffd03319e9907071a3a1fbb002fe1dd52a959567a7a89c82435c289e950fdb0",
+    "tests/derive_models.py": "16527b3e7f1b0993e4cf504a639a6b66bb8820cd38461bbb5bdf490173da5b17",
+    "tests/derive_flags.py": "260252b22bb1e35c1bdbc6fe03f8ee61952131a650a103fadcb991fde38e3bbf",
+    "tests/oracle.py": "05218684c9bae546704669676382ce496b6a602b2631c818328b49f26a2f66ae"
+  }
+}

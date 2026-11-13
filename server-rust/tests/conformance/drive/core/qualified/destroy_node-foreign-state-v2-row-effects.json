@@ -1,0 +1,305 @@
+{
+  "format": 1,
+  "route": "DELETE /drive/nodes/{id}",
+  "case": "destroy_node-foreign-state-v2-row-effects",
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "source_recording": {
+    "path": "server-rust/tests/conformance/drive/core/destroy_node-foreign-state-v2.json",
+    "sha256": "60426a40da4492b6d4e470d82d4be639a284ed078e4d762264d4640a3083e5c1"
+  },
+  "effects": [
+    {
+      "audit": [
+        {
+          "action": "space.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Project"
+          },
+          "before_state": null,
+          "id": 1,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<space>",
+          "target_type": "space",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "kind": "folder",
+            "name": "Documents",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": 2,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<node>",
+          "target_type": "node",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "node.trash",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>"
+          },
+          "before_state": null,
+          "id": 3,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<node>",
+          "target_type": "node",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "space.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Foreign project"
+          },
+          "before_state": null,
+          "id": 1,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<foreign-space>",
+          "target_id": "<foreign-space>",
+          "target_type": "space",
+          "user_id": "<foreign>"
+        }
+      ],
+      "authorizations": [],
+      "changes": [
+        {
+          "at": "<time>",
+          "node_id": 0,
+          "op": "space",
+          "seq": 1,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": "<node>",
+          "op": "create",
+          "seq": 2,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": "<node>",
+          "op": "trash",
+          "seq": 3,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": 0,
+          "op": "space",
+          "seq": 1,
+          "space_id": "<foreign-space>"
+        }
+      ],
+      "chunks": [],
+      "claims": [],
+      "closure": [
+        {
+          "ancestor_id": "<node>",
+          "depth": 0,
+          "descendant_id": "<node>",
+          "space_id": "<space>"
+        }
+      ],
+      "core_audit": [],
+      "drive_access_request_details": [],
+      "drive_access_request_policies": [],
+      "drive_acl_breaks": [],
+      "drive_acl_cutover_evidence": [],
+      "drive_acl_shadow_mismatches": [],
+      "drive_acl_shadow_state": [],
+      "drive_export_grants": [],
+      "drive_file_branches": [],
+      "drive_file_locks": [],
+      "drive_folder_admins": [],
+      "files": [],
+      "generations": [
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<space>",
+          "updated_at": "<time>"
+        },
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<foreign-space>",
+          "updated_at": "<time>"
+        }
+      ],
+      "grants": [],
+      "invalidations": [],
+      "labels": [],
+      "members": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner>",
+          "role": "manager",
+          "space_id": "<space>",
+          "user_id": "<owner>"
+        },
+        {
+          "granted_at": "<time>",
+          "granted_by": "<foreign>",
+          "role": "manager",
+          "space_id": "<foreign-space>",
+          "user_id": "<foreign>"
+        }
+      ],
+      "nodes": [
+        {
+          "created_at": "<time>",
+          "created_by": "<owner>",
+          "deleted_at": "<time>",
+          "id": "<node>",
+          "kind": "folder",
+          "name": "Documents",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        }
+      ],
+      "rate": [],
+      "spaces": [
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "legacy",
+          "acl_protocol_version": 1,
+          "change_seq": 1,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<time>",
+          "export_policy": {},
+          "id": "<foreign-space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Foreign project",
+          "owner_user_id": "<foreign>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 0,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        },
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "legacy",
+          "acl_protocol_version": 1,
+          "change_seq": 3,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<time>",
+          "export_policy": {},
+          "id": "<space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Project",
+          "owner_user_id": "<owner>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 0,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        }
+      ],
+      "version_chunks": [],
+      "versions": [],
+      "watches": []
+    },
+    [
+      {
+        "action": "space.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "classification": "regular",
+          "isPersonal": false,
+          "name": "Project"
+        },
+        "before_state": null,
+        "id": 1,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<space>",
+        "target_type": "space",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "kind": "folder",
+          "name": "Documents",
+          "parentId": null
+        },
+        "before_state": null,
+        "id": 2,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<node>",
+        "target_type": "node",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "node.trash",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>"
+        },
+        "before_state": null,
+        "id": 3,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<node>",
+        "target_type": "node",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "space.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "classification": "regular",
+          "isPersonal": false,
+          "name": "Foreign project"
+        },
+        "before_state": null,
+        "id": 1,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<foreign-space>",
+        "target_id": "<foreign-space>",
+        "target_type": "space",
+        "user_id": "<foreign>"
+      }
+    ],
+    [],
+    null,
+    null
+  ]
+}

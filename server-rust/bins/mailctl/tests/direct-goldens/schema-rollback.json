@@ -1,0 +1,10 @@
+{
+  "stdout": "pending (current=274 \u2192 target=275): V275__feature_toggle_registry_projection.sql\n",
+  "stderr": "Error: V275__feature_toggle_registry_projection.sql failed (rolled back, schema unchanged): ERROR: fixture migration failure (SQLSTATE P0001)\n",
+  "exit": 1,
+  "database_effects": {
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

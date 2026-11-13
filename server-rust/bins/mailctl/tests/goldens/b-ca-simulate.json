@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/simulate",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"ip\":\"192.0.2.1\",\"user\":\"a@example.test\"}"
+    }
+  ],
+  "stdout": "{\n  \"decision\": \"allow\",\n  \"matched_by\": []\n}\n",
+  "stderr": "Error: simulate: expected \"block\", got \"allow\"\n",
+  "exit": 1
+}

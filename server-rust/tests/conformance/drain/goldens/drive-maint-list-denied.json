@@ -1,0 +1,39 @@
+{
+  "case": "drive-maint-list-denied",
+  "format": 1,
+  "go_source": "2683b6ce8cd0a3eb88888117042a387ccdc25658",
+  "observation": {
+    "chunks": [],
+    "claims": [],
+    "journal": [],
+    "queue": [],
+    "s3": {
+      "keys": [
+        "tmp/upload/old1"
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<ld-gc>"
+        }
+      ]
+    }
+  }
+}

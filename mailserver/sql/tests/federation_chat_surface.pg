@@ -1,0 +1,125 @@
+-- federation_chat_surface.pg — Pillar C1 Task 3: the user-facing chat<->
+-- federation surface's server-side half. Requires: V139 (chat_channels/
+-- chat_messages federation columns), federation_dm_ensure.sql (Task 2),
+-- chat_read.sql's chat_conversation_list (this task's federatedPeerDomain/
+-- federatedRemoteId projection), chat_message.sql's chat_message_to_json
+-- (this task's federatedSenderAddr/deliveredAt/spamQuarantined/null-safe-
+-- authorId projection). The route itself (POST /chat/dm/federated) is
+-- exercised in Go (internal/chat/federated_dm_route_test.go, DB-gated) per
+-- the plan's "test via Go if there's a chat handler test pattern" — this
+-- file only proves the two reducer-level projections.
+BEGIN;
+SELECT plan(11);
+
+-- ── fixture: one local user, one allow-listed peer domain ─────────────────
+INSERT INTO domains (name, is_local) VALUES ('alpha.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_id FROM domains WHERE name = 'alpha.test' \gset
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (81001, 'alice', :dom_id, 'alice@alpha.test', 'Alice', 'x')
+  ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('bravo.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+-- an ordinary (non-federated) channel, for the "NULL when not federated" leg.
+SELECT chat_channel_create(81001, 'alpha-general') AS plain_ch \gset
+
+SELECT federation_dm_ensure(81001, 'bob@bravo.test') AS fed_ch \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 chat_conversation_list: federatedPeerDomain/federatedRemoteId
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT is(
+  (SELECT (c ->> 'channelId')::bigint FROM jsonb_array_elements(chat_conversation_list(81001)) c
+    WHERE (c ->> 'channelId')::bigint = :fed_ch),
+  :fed_ch::bigint,
+  'the federated channel appears in the caller''s own conversation list'
+);
+SELECT is(
+  (SELECT c ->> 'federatedPeerDomain' FROM jsonb_array_elements(chat_conversation_list(81001)) c
+    WHERE (c ->> 'channelId')::bigint = :fed_ch),
+  'bravo.test',
+  'chat_conversation_list projects federatedPeerDomain for the federated channel'
+);
+SELECT is(
+  (SELECT c ->> 'federatedRemoteId' FROM jsonb_array_elements(chat_conversation_list(81001)) c
+    WHERE (c ->> 'channelId')::bigint = :fed_ch),
+  'bob@bravo.test',
+  'chat_conversation_list projects federatedRemoteId for the federated channel'
+);
+SELECT is(
+  (SELECT c -> 'federatedPeerDomain' FROM jsonb_array_elements(chat_conversation_list(81001)) c
+    WHERE (c ->> 'channelId')::bigint = :plain_ch),
+  'null'::jsonb,
+  'chat_conversation_list projects federatedPeerDomain as JSON null for an ordinary channel'
+);
+SELECT is(
+  (SELECT c -> 'federatedRemoteId' FROM jsonb_array_elements(chat_conversation_list(81001)) c
+    WHERE (c ->> 'channelId')::bigint = :plain_ch),
+  'null'::jsonb,
+  'chat_conversation_list projects federatedRemoteId as JSON null for an ordinary channel'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 chat_message_to_json: a federated-inbound-SHAPED row (author_id NULL,
+--    federated_sender_addr set — the exact shape Task 4's applier will
+--    insert; this file inserts it directly since Task 4 itself is out of
+--    scope, per the plan's own instruction).
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, body, delivered_at, spam_quarantined)
+  VALUES (:fed_ch, 1, NULL, 'bob@bravo.test', 'hi alice', '2026-07-17T00:00:00Z', false)
+  RETURNING id AS fed_msg_id \gset
+
+SELECT is(
+  (chat_message_to_json(m, 81001) -> 'authorId'),
+  'null'::jsonb,
+  'chat_message_to_json projects authorId as JSON null for a federated inbound row (no local author)'
+) FROM chat_messages m WHERE m.id = :fed_msg_id;
+
+SELECT is(
+  (chat_message_to_json(m, 81001) ->> 'federatedSenderAddr'),
+  'bob@bravo.test',
+  'chat_message_to_json projects federatedSenderAddr for a federated inbound row'
+) FROM chat_messages m WHERE m.id = :fed_msg_id;
+
+SELECT is(
+  (chat_message_to_json(m, 81001) ->> 'deliveredAt')::timestamptz,
+  '2026-07-17T00:00:00Z'::timestamptz,
+  'chat_message_to_json projects deliveredAt'
+) FROM chat_messages m WHERE m.id = :fed_msg_id;
+
+SELECT is(
+  (chat_message_to_json(m, 81001) ->> 'spamQuarantined')::boolean,
+  false,
+  'chat_message_to_json projects spamQuarantined:false for a clean federated row'
+) FROM chat_messages m WHERE m.id = :fed_msg_id;
+
+-- a second row with spam_quarantined:true — proves the flag rides through,
+-- not just a hardcoded false.
+INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, body, spam_quarantined, spam_reason)
+  VALUES (:fed_ch, 2, NULL, 'bob@bravo.test', 'buy now!!!', true, 'text-classifier: promo language')
+  RETURNING id AS quarantined_msg_id \gset
+
+SELECT is(
+  (chat_message_to_json(m, 81001) ->> 'spamQuarantined')::boolean,
+  true,
+  'chat_message_to_json projects spamQuarantined:true when the row is flagged'
+) FROM chat_messages m WHERE m.id = :quarantined_msg_id;
+
+-- an ordinary LOCAL message (author_id set, federated_sender_addr NULL)
+-- keeps projecting authorId as a real number, not null — the null-safety
+-- added for the federated case must never regress the common path.
+SELECT (chat_message_send(81001, :plain_ch, 'ordinary local message') ->> 'messageId')::bigint AS ord_msg_id \gset
+
+SELECT is(
+  (chat_message_to_json(m, 81001) ->> 'authorId')::bigint,
+  81001::bigint,
+  'chat_message_to_json still projects a real authorId for an ordinary local message'
+) FROM chat_messages m WHERE m.id = :ord_msg_id;
+
+SELECT * FROM finish();
+ROLLBACK;

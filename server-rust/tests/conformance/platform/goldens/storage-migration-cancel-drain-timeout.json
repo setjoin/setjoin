@@ -1,0 +1,115 @@
+{
+  "case": "drain-timeout",
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "observation": {
+    "audit": [],
+    "cancel_phase": {
+      "in_flight": true,
+      "rows": [
+        {
+          "completed": false,
+          "error": null,
+          "id": 9700,
+          "last": null,
+          "migrated": 0,
+          "source": "s3",
+          "started": true,
+          "status": "backfill",
+          "target": "posix",
+          "total": null
+        }
+      ]
+    },
+    "effects": [
+      {
+        "after": [
+          {
+            "completed": true,
+            "error": null,
+            "id": 9700,
+            "last": null,
+            "migrated": 0,
+            "source": "s3",
+            "started": true,
+            "status": "cancelled",
+            "target": "posix",
+            "total": null
+          }
+        ],
+        "before": [
+          {
+            "completed": false,
+            "error": null,
+            "id": 9700,
+            "last": null,
+            "migrated": 0,
+            "source": "s3",
+            "started": true,
+            "status": "backfill",
+            "target": "posix",
+            "total": null
+          }
+        ],
+        "table": "storage_migrations"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"actor_id\":196,\"mailbox_id\":196}",
+      "external_path": "/api/admin/storage/migrate/9700/cancel",
+      "method": "POST",
+      "path": "/admin/storage/migrate/{id}/cancel"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"detail\":\"migration: cancel drain deadline expired — run goroutine still live\",\"instance\":\"/admin/storage/migrate/9700/cancel\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "195"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 503
+    },
+    "target_objects": [
+      {
+        "key": "fa2c8cc4f28176bbeed4b736df569a34c79cd3723e9ec42f9674b4d46ac6b8b8",
+        "kind": "fifo",
+        "mode": 384
+      }
+    ]
+  },
+  "route": "POST /admin/storage/migrate/{id}/cancel"
+}

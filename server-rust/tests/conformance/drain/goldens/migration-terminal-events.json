@@ -1,0 +1,186 @@
+{
+  "case": "migration-terminal-events",
+  "format": 1,
+  "go_source": "1d7ea54c0",
+  "observation": {
+    "deliveries": [
+      [
+        "/org",
+        "migration.completed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job0>\"}, \"time\": \"<time>\", \"type\": \"migration.completed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/org",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job1>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/org",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job2>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/org",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job3>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self-a",
+        "migration.completed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job0>\"}, \"time\": \"<time>\", \"type\": \"migration.completed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self-b",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job1>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self-c",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job2>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self-d",
+        "migration.failed",
+        "{\"id\": \"<id>\", \"data\": {\"job_id\":\"<job3>\"}, \"time\": \"<time>\", \"type\": \"migration.failed\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ]
+    ],
+    "jobs": [
+      [
+        0,
+        "completed",
+        "[]",
+        false
+      ],
+      [
+        1,
+        "failed",
+        "[]",
+        false
+      ],
+      [
+        2,
+        "failed",
+        "[\"startup_recovery: gateway restart during migration\"]",
+        false
+      ],
+      [
+        3,
+        "failed",
+        "[\"startup_recovery: gateway restart during migration\"]",
+        false
+      ],
+      [
+        4,
+        "cancelled",
+        "[]",
+        false
+      ],
+      [
+        5,
+        "completed",
+        "[]",
+        false
+      ]
+    ],
+    "publications": [],
+    "requests": [
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.completed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job0>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job1>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job2>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job3>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.completed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job0>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self-a",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job1>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self-b",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job2>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self-c",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"job_id\":\"<job3>\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self-d",
+        "signature": "<valid>"
+      }
+    ]
+  }
+}

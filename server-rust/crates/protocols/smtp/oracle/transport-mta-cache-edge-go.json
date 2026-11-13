@@ -1,0 +1,449 @@
+[
+  {
+    "blob_requests": null,
+    "case": {
+      "transport": {
+        "feature.dane": false,
+        "feature.dnssec": false,
+        "feature.mta_sts": true,
+        "feature.tls_rpt": false
+      },
+      "blob_headers": null,
+      "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "cached-case-alias-last-wins",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 3600, \"mode\": \"testing\"}'::jsonb,now());",
+      "mx": {
+        "dest.test": [
+          "localhost."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "localhost.",
+          "details": {
+            "total": 2,
+            "delivered": 2
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "localhost.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA",
+          "RSET",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003ctwo@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K",
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "transport": {
+        "feature.dane": false,
+        "feature.dnssec": false,
+        "feature.mta_sts": true,
+        "feature.tls_rpt": false
+      },
+      "blob_headers": null,
+      "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "cached-null-scalar-keeps-earlier-value",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 3600, \"mode\": null}'::jsonb,now());",
+      "mx": {
+        "dest.test": [
+          "localhost."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to two@dest.test failed: TLS required but not offered by localhost. (MTA-STS enforce or DANE policy)",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "TLS required but not offered by localhost. (MTA-STS enforce or DANE policy)",
+          "outcome": "error",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "TLS required but not offered by localhost. (MTA-STS enforce or DANE policy)",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "localhost.",
+        "commands": [
+          "EHLO \u003chostname\u003e"
+        ],
+        "data": []
+      },
+      {
+        "host": "localhost.",
+        "commands": [
+          "EHLO \u003chostname\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "transport": {
+        "feature.dane": false,
+        "feature.dnssec": false,
+        "feature.mta_sts": true,
+        "feature.tls_rpt": false
+      },
+      "blob_headers": null,
+      "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "cached-null-slice-clears-earlier-value",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 3600, \"mx\": null}'::jsonb,now());",
+      "mx": {
+        "dest.test": [
+          "localhost."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: MTA-STS enforce: MX localhost. not in policy for dest.test",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "MTA-STS enforce: MX localhost. not in policy for dest.test",
+          "outcome": "error",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "MTA-STS enforce: MX localhost. not in policy for dest.test",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "transport": {
+        "feature.dane": false,
+        "feature.dnssec": false,
+        "feature.mta_sts": true,
+        "feature.tls_rpt": false
+      },
+      "blob_headers": null,
+      "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "cached-type-error-discards-even-if-later-correct",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": 42, \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 3600, \"version\": \"STSv1\"}'::jsonb,now());",
+      "mx": {
+        "dest.test": [
+          "localhost."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "localhost.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "localhost.",
+          "details": {
+            "total": 2,
+            "delivered": 2
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "localhost.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA",
+          "RSET",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003ctwo@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K",
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  }
+]

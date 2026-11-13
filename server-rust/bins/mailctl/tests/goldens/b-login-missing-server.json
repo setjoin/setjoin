@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage: mailctl login <server-url>\n",
+  "exit": 1
+}

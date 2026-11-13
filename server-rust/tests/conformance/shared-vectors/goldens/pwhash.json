@@ -1,0 +1,89 @@
+{
+  "contract": "pwhash",
+  "cases": [
+    {
+      "name": "bcrypt",
+      "input": {
+        "hash": "$2b$10$PedblkiwaUbDsqqrryOt7uRJMFhmX80v9hermz7rZrMshnM9m1FAy",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": true,
+        "needs_rehash": false,
+        "password_valid": true
+      }
+    },
+    {
+      "name": "legacy_bcrypt_cost",
+      "input": {
+        "hash": "$2b$04$A5ox0PnnBJzfk5U44aU2f.rG2Qap1gfazGCHrnK/6M21ieIW2Ty8G",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": true,
+        "needs_rehash": true,
+        "password_valid": true
+      }
+    },
+    {
+      "name": "legacy_sm3_iterations",
+      "input": {
+        "hash": "$sm3$1000$Zml4ZWQtc2FsdC0xMjM0NQ$ww77uFYw3ESURuYwecIlu0i0cfw+QRw3mtrnxOswjC4",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": false,
+        "needs_rehash": true,
+        "password_valid": true
+      }
+    },
+    {
+      "name": "wrong_password",
+      "input": {
+        "hash": "$2b$10$PedblkiwaUbDsqqrryOt7uRJMFhmX80v9hermz7rZrMshnM9m1FAy",
+        "password": "wrong"
+      },
+      "output": {
+        "credential_valid": false,
+        "needs_rehash": false,
+        "password_valid": false
+      }
+    },
+    {
+      "name": "malformed_hash",
+      "input": {
+        "hash": "not-a-hash",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": false,
+        "needs_rehash": false,
+        "password_valid": false
+      }
+    },
+    {
+      "name": "zero_sm3_iterations",
+      "input": {
+        "hash": "$sm3$0$YQ$YQ",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": false,
+        "needs_rehash": true,
+        "password_valid": false
+      }
+    },
+    {
+      "name": "empty_sm3_salt",
+      "input": {
+        "hash": "$sm3$1000$$YQ",
+        "password": "fixture-password"
+      },
+      "output": {
+        "credential_valid": false,
+        "needs_rehash": true,
+        "password_valid": false
+      }
+    }
+  ]
+}

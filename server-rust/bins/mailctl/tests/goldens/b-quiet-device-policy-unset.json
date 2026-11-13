@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/admin/mam/devices/d1/policy/screen",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

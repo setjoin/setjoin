@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/ad/health",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Status: \nLast sync: never\nChecked: 0  Created: 0  Updated: 0  Disabled: 0  Skipped: 0  Errors: 0\nPending conflicts: 0\n",
+  "stderr": "Error: directory sync status: \n",
+  "exit": 1
+}

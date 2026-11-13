@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Usage of smime import:\n  -default\n    \tmake each imported cert the user's default signing cert\n  -dry-run\n    \tvalidate manifest + certs and resolve users, but write nothing\n",
+  "exit": 0,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

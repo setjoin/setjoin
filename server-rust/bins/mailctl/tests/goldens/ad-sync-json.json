@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/ad/sync",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"checked\": 5,\n  \"created\": 1,\n  \"updated\": 0,\n  \"disabled\": 0,\n  \"skipped\": 0,\n  \"errors\": 2,\n  \"duration\": \"3s\"\n}\n",
+  "stderr": "Error: sync completed with 2 error(s)\n",
+  "exit": 1
+}

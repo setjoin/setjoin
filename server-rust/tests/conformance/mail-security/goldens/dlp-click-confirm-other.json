@@ -1,0 +1,75 @@
+{
+  "case": "confirm-other",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "client_ip": "127.0.0.1",
+            "created_recent": true,
+            "mailbox": "<mailbox-actor>",
+            "message_resolved": false,
+            "scanner": "spamhaus",
+            "url_hash": "95d34a67350b28feff240c8657568074dedad9f0be9cdbfeff6bd5cdb4d2fa16",
+            "verdict": "safe"
+          }
+        ],
+        "before": [],
+        "table": "link_protect_audit"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/link-protect",
+      "method": "GET",
+      "path": "/link-protect",
+      "query": "?token=<token>&confirm=yes"
+    },
+    "response": {
+      "body": "<a href=\"https://ok.example/\">Found</a>.\n\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "42"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/html; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "location": [
+          "https://ok.example/"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 302
+    }
+  },
+  "route": "GET /link-protect"
+}

@@ -1,0 +1,116 @@
+-- meet_annotation_rls.pg — MEET plan M4: the V267 annotation ledger's
+-- FORCE-RLS proof (the meet_presentation_rls.pg genre). Two orthogonal
+-- machine guards, both driven as the constrained non-owner runtime role
+-- setjoin_app with a SECOND tenant's rows present:
+--   · DENIAL — a foreign meeting's participant (and a GUC-less session)
+--     sees no annotation rows; their UPDATE no-ops; their INSERT 42501s;
+--     the snapshot read is the indistinguishable not-found. The read
+--     backstop is the HISTORICAL gate (meeting_attendee_role) — retained
+--     material a post-end attendee still converges on.
+--   · ALLOW — the meeting's own presenter drives the REAL reducer write
+--     path (meeting_presentation_annotation_commit) as setjoin_app under
+--     FORCE: the legitimate writer is never locked out.
+-- COVERED entries: scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
+BEGIN;
+SELECT plan(11);
+
+-- ── Fixtures as superuser: two disjoint meetings (two tenants); tenant A
+--    holds a Drive version + an ACTIVE session with a committed snapshot. ──
+INSERT INTO domains (name, is_local) VALUES ('ann-rls.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id, 'ann-rls-' || id::text,
+       (SELECT id FROM domains WHERE name = 'ann-rls.test'),
+       'ann-rls-' || id::text || '@ann-rls.test', 'Ann RLS ' || id::text, 'x'
+  FROM generate_series(91, 94) AS ids(id)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('ann-a', 91, 'live')
+  RETURNING id AS ma \gset
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('ann-b', 93, 'live')
+  RETURNING id AS mb \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ma, 91, 'u:91', 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:mb, 93, 'u:93', 'host', now());
+
+SELECT drive_space_create(91, 'ann-rls-space', 'regular') AS rspace \gset
+SELECT drive_node_create(91, :rspace, NULL, 'file', 'ann-rls.pdf') AS rnode \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:rnode, :rspace, repeat('ab', 32), 1, 91) RETURNING id AS rver \gset
+
+SELECT meeting_presentation_prepare(91, :ma, :rnode, :rver, repeat('ef', 32)) AS rpid \gset
+SELECT meeting_presentation_ready(91, :ma, :rpid, NULL);
+SELECT meeting_presentation_start(91, :ma, :rpid, 1);
+SELECT meeting_presentation_annotation_commit(91, :ma, :rpid, 1, 2, false,
+  '{"rls":"tenant-a"}', octet_length('{"rls":"tenant-a"}'));
+
+-- FORCE state, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_presentation_annotations'::regclass),
+  TRUE, 'meeting_presentation_annotations RLS FORCED');
+
+GRANT SELECT, INSERT, UPDATE ON public.meeting_presentation_annotations TO setjoin_app;
+GRANT SELECT, INSERT, UPDATE ON public.meeting_presentations,
+  public.meeting_presentation_events TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_presentation_annotation_commit(bigint, bigint, bigint, bigint, bigint, boolean, text, integer)
+  TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_presentation_annotation_read(bigint, bigint, bigint)
+  TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_presentation_checkpoint(bigint, bigint, bigint)
+  TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- DENIAL first: the policies MUST NOT recurse (the ARCH-018 dodge).
+SELECT set_config('app.current_user_id', '91', true);
+SELECT lives_ok($$ SELECT count(*) FROM meeting_presentation_annotations $$,
+  'the annotation policies do not recurse');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_annotations), 1,
+  'tenant A sees exactly their own committed snapshot');
+
+-- A foreign participant sees none of tenant A's annotation rows; their
+-- UPDATE no-ops; their INSERT 42501s; the read is the anti-oracle.
+SELECT set_config('app.current_user_id', '93', true);
+SELECT is((SELECT count(*)::int FROM meeting_presentation_annotations WHERE meeting_id = :ma), 0,
+  'a foreign participant sees no annotation rows (cross-tenant denial)');
+UPDATE meeting_presentation_annotations SET content = '{"rls":"tampered"}'
+ WHERE meeting_id = :ma;
+SELECT set_config('app.current_user_id', '91', true);
+SELECT is((SELECT content FROM meeting_presentation_annotations
+            WHERE meeting_id = :ma), '{"rls":"tenant-a"}',
+  'a foreign participant''s UPDATE no-ops (R3: same-statement ownership)');
+SELECT set_config('app.current_user_id', '93', true);
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_presentation_annotations
+       (presentation_id, meeting_id, checkpoint_seq, presenter_generation,
+        snapshot_path, content, content_sha256, byte_size)
+     SELECT %s, %s, 99, 1, 'annotations/p99-s99.json', '{"rls":"b"}',
+            encode(sha256(convert_to('{"rls":"b"}', 'UTF8')), 'hex'), 12 $$, :rpid, :ma),
+  '42501', NULL, 'a foreign participant''s INSERT is denied (WITH CHECK)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_read(93, %s, %s) $$, :ma, :rpid),
+  'BZ272', NULL, 'a non-attendee snapshot read is the anti-oracle not-found');
+-- Fail-closed: no GUC at all.
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM meeting_presentation_annotations), 0,
+  'no GUC is fail-closed (no rows)');
+SELECT set_config('app.current_user_id', '91', true);
+
+-- ALLOW: the meeting's OWN presenter drives the REAL commit path as
+-- setjoin_app under FORCE — the reducer's ledger INSERT is never locked
+-- out, and the historical read still converges.
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(91, %s, %s, 1, 3, true, NULL, NULL) $$,
+         :ma, :rpid),
+  'the presenter commits a clear through the real reducer as setjoin_app (ALLOW)');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(91, %s, %s, 1, 4, false,
+           '{"rls":"allow-arm"}', octet_length('{"rls":"allow-arm"}')) $$,
+         :ma, :rpid),
+  'the presenter commits a snapshot through the real reducer as setjoin_app (ALLOW)');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_annotation_read(91, %s, %s) $$, :ma, :rpid),
+  'the presenter reads the snapshot as setjoin_app (ALLOW)');
+
+SELECT * FROM finish();
+ROLLBACK;

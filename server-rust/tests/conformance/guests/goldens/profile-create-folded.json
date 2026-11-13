@@ -1,0 +1,175 @@
+{
+  "case": "folded",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "guest.profile_create",
+        "after_state": {
+          "allowDownload": false,
+          "allowMeetCreate": false,
+          "allowMeetHost": false,
+          "allowNativeShell": true,
+          "apps": [
+            "chat",
+            "meet"
+          ],
+          "canInitiateDm": false,
+          "canPost": false,
+          "defaultExpiryDays": null,
+          "historyFromJoin": true,
+          "hostDomainId": "<domain>",
+          "name": "Created <one>"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<created-profile>",
+        "target_type": "guest_profile",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "allow_download": false,
+            "allow_meet_create": false,
+            "allow_meet_host": false,
+            "allow_native_shell": true,
+            "apps": [
+              "chat"
+            ],
+            "can_initiate_dm": false,
+            "can_post": true,
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "default_expiry_days": null,
+            "history_from_join": true,
+            "host_domain_id": "<domain>",
+            "id": "<profile>",
+            "name": "Profile <one>",
+            "updated_at": "2026-10-01T12:00:00+00:00"
+          },
+          {
+            "allow_download": false,
+            "allow_meet_create": false,
+            "allow_meet_host": false,
+            "allow_native_shell": true,
+            "apps": [
+              "chat",
+              "meet"
+            ],
+            "can_initiate_dm": false,
+            "can_post": false,
+            "created_at": "<timestamp>",
+            "default_expiry_days": null,
+            "history_from_join": true,
+            "host_domain_id": "<domain>",
+            "id": "<created-profile>",
+            "name": "Created <one>",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "before": [
+          {
+            "allow_download": false,
+            "allow_meet_create": false,
+            "allow_meet_host": false,
+            "allow_native_shell": true,
+            "apps": [
+              "chat"
+            ],
+            "can_initiate_dm": false,
+            "can_post": true,
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "default_expiry_days": null,
+            "history_from_join": true,
+            "host_domain_id": "<domain>",
+            "id": "<profile>",
+            "name": "Profile <one>",
+            "updated_at": "2026-10-01T12:00:00+00:00"
+          }
+        ],
+        "table": "guest_profiles"
+      },
+      {
+        "after": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "tags": 0
+          }
+        ],
+        "before": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "tags": 0
+          }
+        ],
+        "table": "mailbox_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"ALLOWDOWNLOAD\":false,\"ALLOWMEETCREATE\":false,\"ALLOWMEETHOST\":false,\"ALLOWNATIVESHELL\":true,\"APPS\":[\"chat\",\"meet\"],\"CANINITIATEDM\":false,\"CANPOST\":false,\"DEFAULTEXPIRYDAYS\":null,\"HISTORYFROMJOIN\":true,\"HOSTDOMAINID\":599,\"NAME\":\"Created <one>\"}",
+      "external_path": "/api/admin/guest-profiles",
+      "method": "POST",
+      "path": "/admin/guest-profiles"
+    },
+    "response": {
+      "body": "{\"id\":\"<created-profile>\",\"apps\":[\"chat\",\"meet\"],\"name\":\"Created \\u003cone\\u003e\",\"canPost\":false,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\",\"hostDomainId\":\"<domain>\",\"allowDownload\":false,\"allowMeetHost\":false,\"assignedCount\":0,\"canInitiateDm\":false,\"allowMeetCreate\":false,\"historyFromJoin\":true,\"allowNativeShell\":true,\"defaultExpiryDays\":null}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "357"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-guests1-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /admin/guest-profiles"
+}

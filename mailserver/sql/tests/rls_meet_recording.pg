@@ -1,0 +1,91 @@
+-- rls_meet_recording.pg — Meet B2 Task 1: meeting_recordings FORCE-RLS
+-- proof, gated by meeting_attendee_role (NOT meeting_member_role — its
+-- left_at IS NULL filter dies at the meeting-end mass-stamp; that is the
+-- whole reason meeting_attendee_role exists, spec §B2). Spec:
+-- retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 1.
+-- COVERED entry in scripts/rls-denial-allowlist.txt points here:
+-- non-attendee/banned/never-joined see no recording rows; attendee reads survive meeting-end.
+--
+-- meeting_id is captured via \gset at fixture time (the meet_control.pg
+-- genre) rather than re-queried by title under the restricted role: post-
+-- meeting-end, the `meetings` table itself goes RLS-dark to a non-owner
+-- whose left_at got mass-stamped (meetings_read's own meeting_member_role
+-- arm), so a title lookup done AS setjoin_app after the mass-stamp would
+-- silently resolve to no rows and make assertion 7 pass for the wrong
+-- reason (NULL meeting_id) instead of proving the actual invariant.
+BEGIN;
+SELECT plan(8);
+
+-- Fixture as superuser: one meeting with a host (no joined_at — hosts don't
+-- need it), an attended member, an admitted-but-never-joined member, a
+-- banned (kicked) member, and one recording row.
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('B2 recording test', 95001, 'live');
+SELECT id AS meeting_id FROM meetings WHERE title = 'B2 recording test' \gset
+
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 95001, 'u:95001', 'host', NULL);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 95002, 'u:95002', 'member', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 95003, 'u:95003', 'member', NULL);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at, banned_at)
+  VALUES (:meeting_id, 95004, 'u:95004', 'member', now(), now());
+INSERT INTO meeting_recordings (meeting_id, started_by) VALUES (:meeting_id, 95001);
+
+GRANT SELECT, INSERT ON public.meeting_recordings TO setjoin_app;
+
+-- 1. FORCE flag set.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_recordings'::regclass),
+  TRUE, 'meeting_recordings RLS FORCED');
+
+SET LOCAL ROLE setjoin_app;
+
+-- 2. Host sees the recording row (host leg needs no joined_at).
+SELECT set_config('app.current_user_id', '95001', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  1, 'host sees the recording row');
+
+-- 3. Attended member sees it.
+SELECT set_config('app.current_user_id', '95002', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  1, 'attended member sees the recording row');
+
+-- 4. Admitted-but-never-joined member sees ZERO rows.
+SELECT set_config('app.current_user_id', '95003', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  0, 'admitted-never-joined member sees zero recording rows');
+
+-- 5. Banned (kicked) member sees ZERO rows.
+SELECT set_config('app.current_user_id', '95004', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  0, 'banned member sees zero recording rows');
+
+-- 6. Non-participant sees ZERO rows.
+SELECT set_config('app.current_user_id', '95099', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  0, 'non-participant sees zero recording rows');
+
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+-- 7. Post-end: meeting_end's mass-stamp simulated directly — the attended
+-- member (95002) STILL sees the row. This is the §B2 point: meeting_
+-- member_role would go dead here (its left_at IS NULL filter), which is
+-- exactly why meeting_attendee_role exists.
+UPDATE meeting_participants SET left_at = now() WHERE meeting_id = :meeting_id;
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '95002', true);
+SELECT is((SELECT count(*) FROM meeting_recordings WHERE meeting_id = :meeting_id)::int,
+  1, 'attended member still sees the recording row post-meeting-end (meeting_attendee_role, not meeting_member_role)');
+
+-- 8. V134 write policy: INSERT is host/cohost-attendee-only with started_by
+-- pinned to the caller — an attended plain member (GUC=95002) inserting a
+-- row attributed to the host fails BOTH arms.
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_recordings (meeting_id, started_by) VALUES (%s, 95001) $$, :meeting_id),
+  '42501', NULL, 'app-role INSERT into meeting_recordings is rejected (V134 host/cohost + started_by WITH CHECK)');
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

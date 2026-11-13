@@ -1,0 +1,105 @@
+{
+  "case": "worm-retention-retry-worker",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "normalization": [
+    "fixture actor/hash and random temp key",
+    "validated database timestamps and 30-day retain-until",
+    "retention Content-Type differs by SDK and is not compared; signatures are independently verified"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "content_type": "text/plain",
+          "created_at": "<timestamp>",
+          "minio_ref": "mailblobs/<hash>",
+          "ref_count": 0,
+          "sha256": "<hash>",
+          "size_bytes": 20
+        },
+        "table": "blobs"
+      },
+      {
+        "after": {
+          "blob_sha256": "<hash>",
+          "charged_at": "<timestamp>",
+          "size_bytes": 20,
+          "user_id": "<actor>"
+        },
+        "table": "blob_user_charges"
+      },
+      {
+        "after": {
+          "charged_bytes": 20,
+          "updated_at": "<timestamp>",
+          "user_id": "<actor>"
+        },
+        "table": "blob_user_usage"
+      },
+      {
+        "after": {
+          "blob_sha256": "<hash>",
+          "delay_minutes": 1440,
+          "scheduled_at": "<timestamp>"
+        },
+        "table": "blob_cleanup_queue"
+      }
+    ],
+    "email_state": 0,
+    "keys": [
+      "<hash>"
+    ],
+    "notify": [],
+    "objects": [
+      {
+        "content_type": "text/plain",
+        "length": 20,
+        "operation": "put-temp",
+        "sha256": "<hash>",
+        "signature_valid": true
+      },
+      {
+        "operation": "promote",
+        "signature_valid": true
+      },
+      {
+        "operation": "delete-temp",
+        "signature_valid": true
+      },
+      {
+        "bypass_governance": false,
+        "key": "<hash>",
+        "mode": "GOVERNANCE",
+        "operation": "retention",
+        "retain_days": 30,
+        "signature_valid": true,
+        "status": 403
+      },
+      {
+        "bypass_governance": false,
+        "key": "<hash>",
+        "mode": "GOVERNANCE",
+        "operation": "retention",
+        "retain_days": 30,
+        "signature_valid": true,
+        "status": 403
+      },
+      {
+        "bypass_governance": false,
+        "key": "<hash>",
+        "mode": "GOVERNANCE",
+        "operation": "retention",
+        "retain_days": 30,
+        "signature_valid": true,
+        "status": 200
+      }
+    ],
+    "put": {
+      "body": "",
+      "status": 201
+    }
+  },
+  "worker": "blob-cleanup"
+}

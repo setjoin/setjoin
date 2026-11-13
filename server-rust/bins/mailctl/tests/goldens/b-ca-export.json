@@ -1,0 +1,15 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/export",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{ \"schemaVersion\": 1, \"policies\": [] }\n",
+  "stderr": "",
+  "exit": 0
+}

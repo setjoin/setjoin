@@ -1,0 +1,106 @@
+{
+  "case": "bad-id",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "before": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "table": "storage_migrations"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/storage/migrate/abc",
+      "method": "GET",
+      "path": "/admin/storage/migrate/{id}"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"invalid migration id\",\"instance\":\"/admin/storage/migrate/abc\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "130"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "GET /admin/storage/migrate/{id}"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Restart system (mode: hot_reload) — are you sure? (type 'yes' to confirm): Error: cancelled\n",
+  "exit": 1
+}

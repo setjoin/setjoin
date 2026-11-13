@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --id is required\n",
+  "exit": 1
+}

@@ -1,0 +1,13 @@
+{
+  "case": "seed-one-tick-malformed",
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "observation": {
+    "pushes": {
+      "outsider": [],
+      "owner": [],
+      "peer": []
+    }
+  },
+  "worker": "drive-watch"
+}

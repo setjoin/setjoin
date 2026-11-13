@@ -1,0 +1,21 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": {
+        "auth_event_log": 6,
+        "dmarc_reports": 0,
+        "failed_messages": 0
+      },
+      "before": {
+        "auth_event_log": 6,
+        "dmarc_reports": 0,
+        "failed_messages": 0
+      },
+      "table": "dmarc"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/auth-log"
+}

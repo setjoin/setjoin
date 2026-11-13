@@ -1,0 +1,15 @@
+BEGIN;
+SELECT plan(8);
+
+SELECT is(restore_config_disposition('feature.test_restore', false), 'safe', 'known safe prefix applies');
+SELECT is(restore_config_disposition('totally.unknown.restore.key', false), 'quarantine', 'unknown key quarantines');
+SELECT is(restore_config_disposition('feature.test_restore', true), 'rotate', 'encrypted value always rotates');
+SELECT is(restore_config_disposition('ews.global', false), 'quarantine', 'migration endpoint quarantines');
+
+SELECT is(restore_config_apply('feature.test_restore', 'true'::jsonb, false, false), 'safe', 'safe config applies');
+SELECT is((SELECT value FROM system_config WHERE key='feature.test_restore'), 'true'::jsonb, 'safe config is written');
+SELECT is(restore_config_apply('unknown.restore.endpoint', '"https://127.0.0.1"'::jsonb, false, false), 'quarantine', 'unknown endpoint is isolated');
+SELECT is((SELECT count(*)::int FROM restore_config_quarantine WHERE config_key='unknown.restore.endpoint'), 1, 'quarantine records local review evidence');
+
+SELECT * FROM finish();
+ROLLBACK;

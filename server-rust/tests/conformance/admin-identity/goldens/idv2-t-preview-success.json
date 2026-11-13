@@ -1,0 +1,134 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "approvals": [],
+          "challenges": [],
+          "effects": [],
+          "elevations": [],
+          "events": [
+            {
+              "action": "transition_previewed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "expiresAt": "<timestamp>",
+                "previewVersion": 1,
+                "protected": false
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            }
+          ],
+          "steps": [
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 1,
+              "stage": "preview",
+              "state": "completed",
+              "user_id": "<target>"
+            }
+          ],
+          "transitions": [
+            {
+              "actor_user_id": "<admin>",
+              "approver_elevation": false,
+              "authorized_generation": null,
+              "boundary": "not_committed",
+              "committed": false,
+              "completed": false,
+              "decided_by": null,
+              "execution_elevation": false,
+              "failure": null,
+              "generation": 2,
+              "has_approval": false,
+              "has_rollback_approval": false,
+              "kind": "directory_to_local",
+              "preview_digest": "<digest2>",
+              "protected": false,
+              "reason": "admin8 reason <&>",
+              "requester_elevation": false,
+              "rollback_digest": null,
+              "rollback_execution_elevation": false,
+              "rollback_reason": null,
+              "rollback_requester_elevation": false,
+              "state": "previewed",
+              "user_id": "<target>"
+            }
+          ]
+        },
+        "before": {
+          "approvals": [],
+          "challenges": [],
+          "effects": [],
+          "elevations": [],
+          "events": [],
+          "steps": [],
+          "transitions": []
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "<DIGEST>{<DIGEST>\"<DIGEST>i<DIGEST>d<DIGEST>e<DIGEST>m<DIGEST>p<DIGEST>o<DIGEST>t<DIGEST>e<DIGEST>n<DIGEST>c<DIGEST>y<DIGEST>K<DIGEST>e<DIGEST>y<DIGEST>\"<DIGEST>:<DIGEST>\"<DIGEST>9<DIGEST>5<DIGEST>4<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>-<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>-<DIGEST>4<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>-<DIGEST>8<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>-<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>0<DIGEST>1<DIGEST>\"<DIGEST>,<DIGEST>\"<DIGEST>r<DIGEST>e<DIGEST>a<DIGEST>s<DIGEST>o<DIGEST>n<DIGEST>\"<DIGEST>:<DIGEST>\"<DIGEST>a<DIGEST>d<DIGEST>m<DIGEST>i<DIGEST>n<DIGEST>8<DIGEST> <DIGEST>r<DIGEST>e<DIGEST>a<DIGEST>s<DIGEST>o<DIGEST>n<DIGEST> <DIGEST><<DIGEST>&<DIGEST>><DIGEST>\"<DIGEST>,<DIGEST>\"<DIGEST>u<DIGEST>s<DIGEST>e<DIGEST>r<DIGEST>I<DIGEST>d<DIGEST>\"<DIGEST>:<DIGEST>\"<DIGEST><<DIGEST>t<DIGEST>a<DIGEST>r<DIGEST>g<DIGEST>e<DIGEST>t<DIGEST>><DIGEST>\"<DIGEST>}<DIGEST>",
+      "external_path": "/api/admin/identity/v2/transitions/preview",
+      "headers": [
+        "content-type",
+        "idempotency-key",
+        "x-audit-reason",
+        "if-match"
+      ],
+      "method": "POST",
+      "path": "/admin/identity/v2/transitions/preview"
+    },
+    "response": {
+      "body": "{\"state\": \"previewed\", \"preview\": {\"type\": \"directory_to_local\", \"version\": 1, \"personId\": \"<target>\", \"sessions\": {\"webSessions\": 0, \"oauthFamilies\": 0, \"livekitTargets\": 0}, \"expiresAt\": \"<timestamp>\", \"oldLinkId\": \"<oldLinkId>\", \"protected\": false, \"generations\": {\"link\": \"1\", \"source\": \"1\", \"mapping\": \"1\", \"lifecycle\": \"2\"}, \"oldSourceId\": \"<oldSourceId>\", \"recoveryReady\": true, \"sourceGrantIds\": [], \"attributeChanges\": [{\"field\": \"display_name\", \"generation\": \"1\", \"localOverride\": \"none\"}, {\"field\": \"email\", \"generation\": \"1\", \"localOverride\": \"none\"}, {\"field\": \"enabled\", \"generation\": \"1\", \"localOverride\": \"none\"}], \"ownershipIdsPreserved\": true}, \"replayed\": false, \"protected\": false, \"transitionId\": \"<uuid1>\", \"previewDigest\": \"<digest2>\", \"recoveryReady\": true, \"linkGeneration\": \"1\", \"previewVersion\": \"1\", \"previewExpiresAt\": \"<timestamp>\", \"sourceGeneration\": \"1\", \"lifecycleGeneration\": \"2\", \"transitionGeneration\": \"2\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "944"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "\"<digest2>\""
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin8-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/identity/v2/transitions/preview"
+}

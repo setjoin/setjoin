@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/inventory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 AUTH_DENIED: Access denied (remediation: Ask an administrator) (retry after: 7)\n",
+  "exit": 3
+}

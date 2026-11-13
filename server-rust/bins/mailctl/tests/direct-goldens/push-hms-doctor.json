@@ -1,0 +1,22 @@
+{
+  "stdout": "  [..] webpush  absent\n  [..] apns     absent\n  [..] fcm      absent\n  [OK] hms      configured \u2014 app fixture-app\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "outbound": [
+      {
+        "method": "POST",
+        "path": "/oauth2/v3/token",
+        "content_type": "application/x-www-form-urlencoded",
+        "authorization": "",
+        "body": {
+          "client_id": "fixture-app",
+          "client_secret": "synthetic-secret",
+          "grant_type": "client_credentials"
+        }
+      }
+    ],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

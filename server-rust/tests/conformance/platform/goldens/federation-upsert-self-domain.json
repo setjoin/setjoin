@@ -1,0 +1,99 @@
+{
+  "case": "self-domain",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "enabled": true,
+            "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+            "peer_domain": "alpha.example",
+            "scope": "dm",
+            "updated_at": "2026-10-01T10:00:00+00:00"
+          },
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "enabled": false,
+            "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUEUi33XEPgUbfAcgtkSM0FY5gnJ8wCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci10d28uZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItdHdvLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAASmJ2JcGhIDsHBS74qqcRfVpz89xcgJQLCJRUgX\nrwKKXJ7OdxaGyTeuRMWnN8uVaBx41Hui2xNzNAOFt6MYrfWmo1MwUTAdBgNVHQ4E\nFgQUrwDtgdHAUerSVGQSl4hgMXGtfcgwHwYDVR0jBBgwFoAUrwDtgdHAUerSVGQS\nl4hgMXGtfcgwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAlNC/\nirHjgIpy2aRSyVjj2yYwfsHrHjGo18bsWY2jZJQCIGqA440KViZ3Y7s58F0Csz2X\n+sDUqRm4JknhXDveXUm2\n-----END CERTIFICATE-----\n",
+            "peer_domain": "beta.example",
+            "scope": "room",
+            "updated_at": "2026-10-01T10:00:00+00:00"
+          }
+        ],
+        "before": [
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "enabled": true,
+            "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+            "peer_domain": "alpha.example",
+            "scope": "dm",
+            "updated_at": "2026-10-01T10:00:00+00:00"
+          },
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "enabled": false,
+            "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUEUi33XEPgUbfAcgtkSM0FY5gnJ8wCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci10d28uZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItdHdvLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAASmJ2JcGhIDsHBS74qqcRfVpz89xcgJQLCJRUgX\nrwKKXJ7OdxaGyTeuRMWnN8uVaBx41Hui2xNzNAOFt6MYrfWmo1MwUTAdBgNVHQ4E\nFgQUrwDtgdHAUerSVGQSl4hgMXGtfcgwHwYDVR0jBBgwFoAUrwDtgdHAUerSVGQS\nl4hgMXGtfcgwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAlNC/\nirHjgIpy2aRSyVjj2yYwfsHrHjGo18bsWY2jZJQCIGqA440KViZ3Y7s58F0Csz2X\n+sDUqRm4JknhXDveXUm2\n-----END CERTIFICATE-----\n",
+            "peer_domain": "beta.example",
+            "scope": "room",
+            "updated_at": "2026-10-01T10:00:00+00:00"
+          }
+        ],
+        "table": "federation_allowlist"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"domain\":\"self.test\",\"anchorPem\":\"-----BEGIN CERTIFICATE-----\\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\\niXjroL4h6glyQ1Q33cJV\\n-----END CERTIFICATE-----\\n\",\"scope\":\"dm\",\"enabled\":true}",
+      "external_path": "/api/admin/federation/peers",
+      "method": "POST",
+      "path": "/admin/federation/peers"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"cannot allow-list this server's own domain\",\"instance\":\"/admin/federation/peers\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "149"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /admin/federation/peers"
+}

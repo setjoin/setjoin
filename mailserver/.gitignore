@@ -1,0 +1,66 @@
+# Go binaries
+gateway/gateway
+gateway/cmd/gateway/gateway
+**/bin/
+*.exe
+
+# Go test cache
+**/*.test
+**/testdata/tmp/
+
+# Secrets — never commit these
+*.keytab
+*.pem
+*.key
+*.p12
+.env
+.env.*
+secrets/
+# Exception: embedded Mozilla CA bundle compiled into smime package
+!internal/smime/cacert.pem
+
+# Audit files — local reference only, not committed
+.audit/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Node / webmail build artifacts
+node_modules/
+.svelte-kit/
+build/
+
+# Playwright E2E test artifacts
+webmail/test-results/
+webmail/playwright-report/
+webmail/e2e/test-results/
+
+# Self-signed TLS certs (generated at compose time)
+deploy/tls/*.crt
+deploy/tls/*.key
+deploy/tls/*.pem
+
+# Go binaries
+gateway/gateway
+gateway/gateway-linux
+gateway/cmd/gateway/gateway
+**/bin/
+*.exe
+
+# Go test cache
+**/*.test
+**/testdata/tmp/
+
+# Secrets — never commit these
+*.keytab
+*.pem
+*.key
+*.p12
+.env
+.env.*
+secrets/
+# Exception: embedded Mozilla CA bundle compiled into smime package
+!internal/smime/cacert.pem

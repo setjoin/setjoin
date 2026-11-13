@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/spam",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"enabled\": true,\n  \"total_models\": 3,\n  \"total_samples\": 300,\n  \"avg_samples\": 100,\n  \"active_week\": 2,\n  \"disabled_users\": 1,\n  \"total_fp\": 2,\n  \"total_classified\": 500,\n  \"fp_rate\": 0.004\n}\n",
+  "stderr": "",
+  "exit": 0
+}

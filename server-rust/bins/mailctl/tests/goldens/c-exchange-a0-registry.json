@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "A0/v0 registry written to $HOME/registry.json\nSHA-256: 6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "registry.json": {
+      "body": "{\n  \"schemaVersion\": \"setjoin.exchange.a0.registry/v0\",\n  \"capabilities\": [\n    {\n      \"id\": \"EX-A0-TOPOLOGY\",\n      \"title\": \"Exchange topology and build inventory\",\n      \"outcome\": \"Identify the exact Exchange build and topology support cell.\",\n      \"commands\": [\"Get-ExchangeServer\", \"Get-OrganizationConfig\"]\n    },\n    {\n      \"id\": \"EX-A0-MAILBOX-DELEGATION\",\n      \"title\": \"Mailbox delegation\",\n      \"outcome\": \"Inventory explicit mailbox access and send delegation for migration planning.\",\n      \"commands\": [\"Get-Mailbox\", \"Get-MailboxPermission\", \"Get-RecipientPermission\"]\n    },\n    {\n      \"id\": \"EX-A0-CALENDAR-VISIBILITY\",\n      \"title\": \"Calendar visibility and delegation\",\n      \"outcome\": \"Assess default and explicit calendar-folder visibility without changing permissions.\",\n      \"commands\": [\"Get-Mailbox\", \"Get-MailboxFolderStatistics\", \"Get-MailboxFolderPermission\"]\n    },\n    {\n      \"id\": \"EX-A0-RESOURCE-BOOKING\",\n      \"title\": \"Room and equipment booking policy\",\n      \"outcome\": \"Inventory resource booking, approval and conflict policy.\",\n      \"commands\": [\"Get-Mailbox\", \"Get-CalendarProcessing\", \"Get-DistributionGroup\", \"Get-DistributionGroupMember\"]\n    }\n  ]\n}\n",
+      "mode": 384
+    }
+  }
+}

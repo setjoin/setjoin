@@ -1,0 +1,36 @@
+-- #494: actor-owned default selection and all-or-nothing flag changes.
+BEGIN;
+SELECT plan(12);
+SELECT mk_account('idlogin4-default-a') AS amb \gset
+SELECT mk_account('idlogin4-default-b') AS bmb \gset
+SELECT user_id AS au FROM account_scope(:amb) \gset
+SELECT user_id AS bu FROM account_scope(:bmb) \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default)
+VALUES(:au,'primary','public-a',true) RETURNING id AS aid \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default)
+VALUES(:au,'chosen','public-a2',false) RETURNING id AS sid \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default)
+VALUES(:bu,'foreign','public-b',true) RETURNING id AS bid \gset
+SELECT isnt(:au::bigint,:amb::bigint,'user and mailbox currency diverge');
+SELECT is(rust_identity_smime_cert_default(:au,:bid),'not-found','foreign certificate is refused');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:aid),'foreign refusal preserves current default');
+SELECT is(rust_identity_smime_cert_default(:au,-1),'not-found','missing certificate is refused');
+CREATE FUNCTION pg_temp.idlogin4_reject_default() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.is_default THEN RAISE EXCEPTION 'injected default fault' USING ERRCODE='BZ001'; END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER gofree_idlogin4_reject_default BEFORE UPDATE ON user_smime_certs
+FOR EACH ROW EXECUTE FUNCTION pg_temp.idlogin4_reject_default();
+SELECT is(rust_identity_smime_cert_default(:au,:sid),'update','update fault retains phase');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:aid),'failed switch restores old default');
+SELECT ok(NOT (SELECT is_default FROM user_smime_certs WHERE id=:sid),'failed switch leaves chosen certificate unchanged');
+DROP TRIGGER gofree_idlogin4_reject_default ON user_smime_certs;
+SELECT is(rust_identity_smime_cert_default(:au,:sid),'ok','owned switch succeeds');
+SELECT ok(NOT (SELECT is_default FROM user_smime_certs WHERE id=:aid),'old default is cleared');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:sid),'chosen certificate becomes default');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:bid),'foreign default is untouched');
+SELECT is(rust_identity_smime_cert_default(:au,:sid),'ok','repeat selection succeeds');
+SELECT * FROM finish();
+ROLLBACK;

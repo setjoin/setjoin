@@ -1,0 +1,175 @@
+{
+  "case": "token-cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "acr": "aal2",
+          "amr": [
+            "pwd",
+            "user",
+            "swk"
+          ],
+          "auth_time": "2023-11-14T22:13:20+00:00",
+          "client_id": "idfed1-client",
+          "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+          "code_challenge_method": "S256",
+          "code_hash": "_code1-sha256",
+          "created_at": "_created",
+          "done": true,
+          "expires_at": "_created+600s",
+          "id": "_request1",
+          "nonce": "nonce-339",
+          "redirect_uri": "https://rp.idfed1.test/callback",
+          "scopes": [
+            "openid",
+            "email",
+            "profile",
+            "offline_access"
+          ],
+          "state": "state-339",
+          "user_id": "_actor"
+        }
+      ],
+      "before": [
+        {
+          "acr": "aal2",
+          "amr": [
+            "pwd",
+            "user",
+            "swk"
+          ],
+          "auth_time": "2023-11-14T22:13:20+00:00",
+          "client_id": "idfed1-client",
+          "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+          "code_challenge_method": "S256",
+          "code_hash": "_code1-sha256",
+          "created_at": "_created",
+          "done": true,
+          "expires_at": "_created+600s",
+          "id": "_request1",
+          "nonce": "nonce-339",
+          "redirect_uri": "https://rp.idfed1.test/callback",
+          "scopes": [
+            "openid",
+            "email",
+            "profile",
+            "offline_access"
+          ],
+          "state": "state-339",
+          "user_id": "_actor"
+        }
+      ],
+      "table": "oidc_auth_requests"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "oidc_tokens"
+    },
+    {
+      "after": [
+        {
+          "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+          "failure_reason": null,
+          "geo_country": "",
+          "id": "_attempt1",
+          "occurred_at": "_attempt-time",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.1",
+          "target_username": ""
+        },
+        {
+          "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+          "failure_reason": null,
+          "geo_country": "",
+          "id": "_attempt2",
+          "occurred_at": "_attempt-time",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.1",
+          "target_username": ""
+        },
+        {
+          "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+          "failure_reason": null,
+          "geo_country": "",
+          "id": "_attempt3",
+          "occurred_at": "_attempt-time",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.1",
+          "target_username": ""
+        }
+      ],
+      "before": [
+        {
+          "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+          "failure_reason": null,
+          "geo_country": "",
+          "id": "_attempt1",
+          "occurred_at": "_attempt-time",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.1",
+          "target_username": ""
+        },
+        {
+          "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+          "failure_reason": null,
+          "geo_country": "",
+          "id": "_attempt2",
+          "occurred_at": "_attempt-time",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.1",
+          "target_username": ""
+        }
+      ],
+      "table": "auth_attempts"
+    },
+    {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "table": "mailboxes.jmap_*_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "route": "* /oauth/ authorization-code"
+}

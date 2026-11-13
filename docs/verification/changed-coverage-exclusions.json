@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "scope": [
+    "mailserver/webmail/src/"
+  ],
+  "extensions": [
+    ".js",
+    ".ts",
+    ".svelte"
+  ],
+  "exclude": [
+    "**/*.test.js",
+    "**/*.test.ts",
+    "**/*.spec.js",
+    "**/*.spec.ts",
+    "**/*.d.ts"
+  ],
+  "critical": [
+    "mailserver/webmail/src/lib/auth/**",
+    "mailserver/webmail/src/lib/admin/**",
+    "mailserver/webmail/src/lib/rbac/**",
+    "mailserver/webmail/src/lib/stores/auth.ts",
+    "mailserver/webmail/src/routes/admin/**",
+    "mailserver/webmail/src/routes/login/**",
+    "mailserver/webmail/src/routes/settings/security/**"
+  ]
+}

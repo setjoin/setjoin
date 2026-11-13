@@ -1,0 +1,180 @@
+-- pgTAP: dlp_evaluate_draft.sql — compose-time DLP dry-run (Purview policy tips).
+-- Wraps the SAME dlp_check() send.sql step 5a enforces — same call convention,
+-- read-only. The crux is the PINNED PARITY block: dlp_evaluate_draft's verdict
+-- must never disagree with send()'s actual enforcement for identical input.
+BEGIN;
+SELECT plan(23);
+
+INSERT INTO domains (name, is_local) VALUES ('dlpdraft.test', TRUE);
+
+-- ADR-003: DIVERGENT user_id != mailbox_id.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (861001, 'alice', (SELECT id FROM domains WHERE name = 'dlpdraft.test'), 'alice@dlpdraft.test', 'Alice');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (961001, 861001, (SELECT id FROM domains WHERE name = 'dlpdraft.test'), 'alice@dlpdraft.test', 'Alice', 'personal', TRUE);
+-- A second mailbox in the SAME domain, with no policy targeting it (test 9).
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (861002, 'bob', (SELECT id FROM domains WHERE name = 'dlpdraft.test'), 'bob@dlpdraft.test', 'Bob');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (961002, 861002, (SELECT id FROM domains WHERE name = 'dlpdraft.test'), 'bob@dlpdraft.test', 'Bob', 'personal', TRUE);
+
+SELECT has_function('dlp_evaluate_draft', ARRAY['bigint', 'jsonb', 'text', 'text', 'text'],
+  'dlp_evaluate_draft(bigint, jsonb, text, text, text) exists');
+
+-- 1-2: no policies applying to this mailbox/domain → clean.
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'plain clean body', NULL),
+  jsonb_build_object('violated', FALSE),
+  'no matching policy → {violated:false}');
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'plain clean body', NULL)->>'violated')::boolean,
+  FALSE,
+  'violated is boolean false, not a truthy string');
+
+-- 3-4: block regex policy (SSN-shaped) matching body → block, policy_name set,
+-- reason_kind='content'.
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, regex_patterns, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'dlpdraft.test'),
+        'draft-ssn-block', TRUE, -5, 'block', ARRAY['\d{3}-\d{2}-\d{4}'], TRUE);
+
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)->>'violated')::boolean,
+  TRUE,
+  'SSN-shaped body trips the block regex policy');
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)->>'action',
+  'block',
+  'action reflects the policy action (block)');
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)->>'policyName',
+  'draft-ssn-block',
+  'policyName is the matched policy''s name');
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)->>'reasonKind',
+  'content',
+  'reasonKind is the coarse category (content), not the raw match');
+
+-- 5: EVASION-ORACLE GUARD — the raw regex/matched text never appears in the result.
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)::text NOT LIKE '%123-45-6789%'
+    AND dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'my ssn is 123-45-6789', NULL)::text NOT LIKE '%Matched regex%',
+  TRUE,
+  'neither the matched text nor the raw "Matched regex:" reason ever appears in the result');
+
+-- 6: warn policy → action='warn'.
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, regex_patterns, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'dlpdraft.test'),
+        'draft-cardnum-warn', TRUE, -4, 'warn', ARRAY['4[0-9]{15}'], TRUE);
+
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'card 4111111111111111 here', NULL)->>'action',
+  'warn',
+  'a warn-action policy surfaces action=warn');
+
+-- 7: keyword+min_confidence policy honored — same math as dlp_check (it IS dlp_check).
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, keywords, min_confidence, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'dlpdraft.test'),
+        'draft-keyword-conf', TRUE, -3, 'warn', ARRAY['alpha','beta','gamma'], 0.67, TRUE);
+
+-- 2/3 keywords present = 0.667 >= 0.67? Use exactly 2/3 = 0.6667 >= 0.67 is FALSE
+-- (0.6667 < 0.67), so use a body hitting all 3 (1.0 >= 0.67 → TRUE).
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'kw subject', 'alpha beta gamma all here', NULL)->>'violated')::boolean,
+  TRUE,
+  'keyword policy fires when match_count/total >= min_confidence (same math dlp_check runs)');
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'kw subject', 'only alpha here', NULL)->>'violated')::boolean,
+  FALSE,
+  'keyword policy does NOT fire below min_confidence (1/3 < 0.67)');
+
+-- 9: applies_to_all=FALSE + dlp_policy_targets row → only the targeted mailbox
+-- gets the hit. Bob (961002) is untargeted and unaffected by a targeted-only
+-- keyword policy scoped to Alice.
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, keywords, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'dlpdraft.test'),
+        'draft-targeted-only', TRUE, -2, 'block', ARRAY['zonlyalice'], FALSE)
+RETURNING id;
+INSERT INTO dlp_policy_targets (policy_id, mailbox_id)
+SELECT id, 961001 FROM dlp_policies WHERE name = 'draft-targeted-only';
+
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'Subject', 'this has zonlyalice inside', NULL)->>'violated')::boolean,
+  TRUE,
+  'targeted policy fires for the targeted mailbox (Alice)');
+SELECT is(
+  (dlp_evaluate_draft(961002, '[]'::jsonb, 'Subject', 'this has zonlyalice inside', NULL)->>'violated')::boolean,
+  FALSE,
+  'targeted policy does NOT fire for an untargeted mailbox (Bob) in the same domain');
+
+-- 10: R1 — nonexistent p_mailbox_id → clean (fail-closed, no policy probe).
+SELECT is(
+  dlp_evaluate_draft(-999, '[]'::jsonb, 'Subject', 'zonlyalice zblocktrigger anything', NULL),
+  jsonb_build_object('violated', FALSE),
+  'R1: a bogus caller mailbox returns clean (fail-closed, not an error)');
+
+-- 11: NULL/empty subject+body → clean.
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, NULL, NULL, NULL),
+  jsonb_build_object('violated', FALSE),
+  'NULL subject/body/html → clean');
+
+-- ── 12-14: PINNED PARITY — dlp_evaluate_draft's verdict must never disagree
+-- with send()'s actual enforcement for the SAME (mailbox, subject, body). This
+-- is the crux invariant: any drift here means the compose tip could lie.
+-- send() is called with skip_rules/retention/journaling set (isolate the DLP
+-- leg only) and skip_dlp left UNSET (the exact 5a path dlp_evaluate_draft mirrors).
+SET LOCAL app.skip_rules      = 'true';
+SET LOCAL app.skip_retention  = 'true';
+SET LOCAL app.skip_journaling = 'true';
+
+-- 12: evaluate says BLOCK ⇔ send() RAISEs BZ005.
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'Parity subject', 'my ssn is 123-45-6789', NULL)->>'action'),
+  'block',
+  'parity setup: dlp_evaluate_draft says block for the SSN body');
+SELECT throws_ok(
+  $$ SELECT send(
+       861001, 961001, 'ref-parity-block', '<msg-parity-block>', 'alice@dlpdraft.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Parity subject', NULL, NULL, 'my ssn is 123-45-6789', NULL, 100, FALSE, NULL) $$,
+  'BZ005', NULL,
+  'PARITY: send() RAISEs BZ005 for the identical input dlp_evaluate_draft called block on');
+
+-- 13: evaluate says WARN ⇔ send() succeeds AND a dlp_violations row exists.
+SELECT is(
+  (dlp_evaluate_draft(961001, '[]'::jsonb, 'Parity warn subject', 'card 4111111111111111 here', NULL)->>'action'),
+  'warn',
+  'parity setup: dlp_evaluate_draft says warn for the card-number body');
+SELECT lives_ok(
+  $$ SELECT send(
+       861001, 961001, 'ref-parity-warn', '<msg-parity-warn>', 'alice@dlpdraft.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Parity warn subject', NULL, NULL, 'card 4111111111111111 here', NULL, 100, FALSE, NULL) $$,
+  'PARITY: send() succeeds (does not raise) for the identical input dlp_evaluate_draft called warn on');
+SELECT is(
+  (SELECT count(*)::int FROM dlp_violations dv
+     JOIN messages m ON m.id = dv.message_id
+     WHERE m.message_id = '<msg-parity-warn>' AND dv.action_taken = 'warn'),
+  1,
+  'PARITY: send() recorded the warn as a dlp_violations row (action_taken=warn)');
+
+-- 14: evaluate says CLEAN ⇔ send() succeeds with no dlp_violations row.
+SELECT is(
+  dlp_evaluate_draft(961001, '[]'::jsonb, 'Parity clean subject', 'nothing sensitive here at all', NULL),
+  jsonb_build_object('violated', FALSE),
+  'parity setup: dlp_evaluate_draft says clean for a plain body');
+SELECT lives_ok(
+  $$ SELECT send(
+       861001, 961001, 'ref-parity-clean', '<msg-parity-clean>', 'alice@dlpdraft.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Parity clean subject', NULL, NULL, 'nothing sensitive here at all', NULL, 100, FALSE, NULL) $$,
+  'PARITY: send() succeeds for the identical clean input');
+SELECT is(
+  (SELECT count(*)::int FROM dlp_violations dv
+     JOIN messages m ON m.id = dv.message_id
+     WHERE m.message_id = '<msg-parity-clean>'),
+  0,
+  'PARITY: send() recorded NO dlp_violations row for the clean input');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+services:
+  smtp-test:
+    build: .
+    ports:
+      # Loopback-pinned to match the parent runner (deploy/docker-compose.test.yml).
+      - "127.0.0.1:3025:25"

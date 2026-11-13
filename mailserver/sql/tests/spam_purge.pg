@@ -1,0 +1,67 @@
+-- pgTAP: spam_purge — purge_spam_messages() function
+BEGIN;
+SELECT plan(3);
+
+-- Seed test data
+INSERT INTO domains (name, is_local) VALUES ('spampurge.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 109001 != mailbox 9001). All reducer/scoping use
+-- the MAILBOX id; messages.id 9001/9002/9003 are message ids, unrelated.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (109001, 'spamuser', (SELECT id FROM domains WHERE name = 'spampurge.test'), 'spamuser@spampurge.test', 'Spam User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (9001, 109001, (SELECT id FROM domains WHERE name = 'spampurge.test'), 'spamuser@spampurge.test', 'personal', TRUE, 'Spam User');
+
+-- Insert a spam-tagged message old enough to purge
+INSERT INTO messages (id, mailbox_id, folder_id, received_at, subject, from_addr, thread_id, raw_ref, message_id)
+VALUES (
+  9001, 9001,
+  (SELECT id FROM folders WHERE mailbox_id = 9001 AND role = 'spam'),
+  NOW() - INTERVAL '60 days',
+  'Old Spam', 'spammer@test', '<old-spam@test>', 'ref-old-spam', '<old-spam@test>'
+);
+
+INSERT INTO message_tags (message_id, received_at, tag_id, is_primary)
+VALUES (9001, NOW() - INTERVAL '60 days', (SELECT id FROM tags WHERE mailbox_id = 9001 AND name = 'Spam'), TRUE);
+
+-- Test 1: purge_spam_messages purges old spam messages
+SELECT ok(
+    (SELECT purge_spam_messages() > 0),
+    'purge_spam_messages purges old spam messages'
+);
+
+-- Test 2: held messages are NOT purged
+INSERT INTO messages (id, mailbox_id, folder_id, received_at, subject, from_addr, thread_id, raw_ref, message_id, held)
+VALUES (
+  9002, 9001,
+  (SELECT id FROM folders WHERE mailbox_id = 9001 AND role = 'spam'),
+  NOW() - INTERVAL '60 days',
+  'Held Spam', 'spammer@test', '<held-spam@test>', 'ref-held-spam', '<held-spam@test>', TRUE
+);
+
+INSERT INTO message_tags (message_id, received_at, tag_id, is_primary)
+VALUES (9002, NOW() - INTERVAL '60 days', (SELECT id FROM tags WHERE mailbox_id = 9001 AND name = 'Spam'), TRUE);
+
+SELECT ok(
+    EXISTS(SELECT 1 FROM messages WHERE id = 9002 AND held),
+    'held spam message still exists after purge'
+);
+
+-- Test 3: recent spam is NOT purged
+INSERT INTO messages (id, mailbox_id, folder_id, received_at, subject, from_addr, thread_id, raw_ref, message_id)
+VALUES (
+  9003, 9001,
+  (SELECT id FROM folders WHERE mailbox_id = 9001 AND role = 'spam'),
+  NOW(),
+  'Recent Spam', 'spammer@test', '<recent-spam@test>', 'ref-recent-spam', '<recent-spam@test>'
+);
+
+INSERT INTO message_tags (message_id, received_at, tag_id, is_primary)
+VALUES (9003, NOW(), (SELECT id FROM tags WHERE mailbox_id = 9001 AND name = 'Spam'), TRUE);
+
+SELECT ok(
+    EXISTS(SELECT 1 FROM messages WHERE id = 9003),
+    'recent spam message not purged'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,2148 @@
+{
+  "case": "gate",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "dependents": [
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-admin@host-a.test",
+              "messages": 2
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-other@host-b.test",
+              "messages": 2
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-rm@host-a.test",
+              "messages": 0
+            },
+            {
+              "aliases": 1,
+              "mailbox": "mbox1-s@host-a.test",
+              "messages": 1
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-t@host-a.test",
+              "messages": 0
+            }
+          ],
+          "effects": [
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-admin@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-other@host-b.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-rm@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-s@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-t@host-a.test",
+              "outbox": null
+            }
+          ],
+          "folders": [
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Projects",
+              "parent": null,
+              "path": "Projects",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "2026",
+              "parent": "Projects",
+              "path": "Projects/2026",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Elsewhere",
+              "parent": null,
+              "path": "Elsewhere",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            }
+          ],
+          "lifecycle": [
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-admin@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-other@host-b.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-ru@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-t@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": false
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-t@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            }
+          ],
+          "mailboxes": [
+            {
+              "deleted_purge_days": null,
+              "display_name": "mbox1-admin",
+              "domain": "host-a.test",
+              "email": "mbox1-admin@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 20,
+              "user": "mbox1-admin@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "mbox1-other",
+              "domain": "host-b.test",
+              "email": "mbox1-other@host-b.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 20,
+              "user": "mbox1-other@host-b.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Reconnect",
+              "domain": "host-a.test",
+              "email": "mbox1-rm@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 0,
+              "user": "mbox1-ru@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Secondary",
+              "domain": "host-a.test",
+              "email": "mbox1-s@host-a.test",
+              "enabled": true,
+              "is_primary": false,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 10,
+              "user": "mbox1-t@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Target",
+              "domain": "host-a.test",
+              "email": "mbox1-t@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 0,
+              "user": "mbox1-t@host-a.test"
+            }
+          ],
+          "operations": [],
+          "purges": [],
+          "tags": [
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 2,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 2,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "2026",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Projects",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Elsewhere",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            }
+          ],
+          "tombstones": []
+        },
+        "before": {
+          "dependents": [
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-admin@host-a.test",
+              "messages": 2
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-other@host-b.test",
+              "messages": 2
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-rm@host-a.test",
+              "messages": 0
+            },
+            {
+              "aliases": 1,
+              "mailbox": "mbox1-s@host-a.test",
+              "messages": 1
+            },
+            {
+              "aliases": 0,
+              "mailbox": "mbox1-t@host-a.test",
+              "messages": 0
+            }
+          ],
+          "effects": [
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-admin@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-other@host-b.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-rm@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-s@host-a.test",
+              "outbox": null
+            },
+            {
+              "history": null,
+              "kinds": null,
+              "mailbox": "mbox1-t@host-a.test",
+              "outbox": null
+            }
+          ],
+          "folders": [
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Projects",
+              "parent": null,
+              "path": "Projects",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "2026",
+              "parent": "Projects",
+              "path": "Projects/2026",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Elsewhere",
+              "parent": null,
+              "path": "Elsewhere",
+              "role": null
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "path": "INBOX",
+              "role": "inbox"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Archive",
+              "parent": null,
+              "path": "INBOX/Archive",
+              "role": "archive"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "path": "INBOX/Drafts",
+              "role": "drafts"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "path": "INBOX/Sent",
+              "role": "sent"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "path": "INBOX/Spam",
+              "role": "spam"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Templates",
+              "parent": null,
+              "path": "INBOX/Templates",
+              "role": "templates"
+            },
+            {
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "path": "INBOX/Trash",
+              "role": "trash"
+            }
+          ],
+          "lifecycle": [
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-admin@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-other@host-b.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-ru@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-t@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": false
+            },
+            {
+              "access": "active",
+              "binding": "bound",
+              "bound_user": "mbox1-t@host-a.test",
+              "delivery": "accepting",
+              "generation": 1,
+              "has_operation": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "reason": null,
+              "retained": false,
+              "retention": false,
+              "updated_by": null,
+              "was_primary": true
+            }
+          ],
+          "mailboxes": [
+            {
+              "deleted_purge_days": null,
+              "display_name": "mbox1-admin",
+              "domain": "host-a.test",
+              "email": "mbox1-admin@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 20,
+              "user": "mbox1-admin@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "mbox1-other",
+              "domain": "host-b.test",
+              "email": "mbox1-other@host-b.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 20,
+              "user": "mbox1-other@host-b.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Reconnect",
+              "domain": "host-a.test",
+              "email": "mbox1-rm@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 0,
+              "user": "mbox1-ru@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Secondary",
+              "domain": "host-a.test",
+              "email": "mbox1-s@host-a.test",
+              "enabled": true,
+              "is_primary": false,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 10,
+              "user": "mbox1-t@host-a.test"
+            },
+            {
+              "deleted_purge_days": null,
+              "display_name": "Target",
+              "domain": "host-a.test",
+              "email": "mbox1-t@host-a.test",
+              "enabled": true,
+              "is_primary": true,
+              "litigation_hold": false,
+              "quota_bytes": 53687091200,
+              "spam_purge_days": null,
+              "states": [
+                0,
+                0,
+                0
+              ],
+              "type": "personal",
+              "used_bytes": 0,
+              "user": "mbox1-t@host-a.test"
+            }
+          ],
+          "operations": [],
+          "purges": [],
+          "tags": [
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 2,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-admin@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 2,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-other@host-b.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-rm@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "2026",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 1,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Projects",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-s@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Drafts",
+              "parent": null,
+              "sort_order": 20,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Elsewhere",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "user"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Important",
+              "parent": null,
+              "sort_order": 80,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Inbox",
+              "parent": null,
+              "sort_order": 0,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Muted",
+              "parent": null,
+              "sort_order": 90,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Other",
+              "parent": null,
+              "sort_order": 100,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Scheduled",
+              "parent": null,
+              "sort_order": 70,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Sent",
+              "parent": null,
+              "sort_order": 10,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": false,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Snoozed",
+              "parent": null,
+              "sort_order": 60,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Spam",
+              "parent": null,
+              "sort_order": 40,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Starred",
+              "parent": null,
+              "sort_order": 50,
+              "total": 0,
+              "type": "system"
+            },
+            {
+              "imap_expose": true,
+              "mailbox": "mbox1-t@host-a.test",
+              "name": "Trash",
+              "parent": null,
+              "sort_order": 30,
+              "total": 0,
+              "type": "system"
+            }
+          ],
+          "tombstones": []
+        },
+        "table": "mailboxes+folders+tags+dependents+lifecycle"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/mailboxes/{id}",
+      "method": "DELETE",
+      "path": "/admin/mailboxes/{id}"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"direct mailbox deletion is disabled; detach and retain the mailbox, then use the independently approved purge workflow\",\"instance\":\"/admin/mailboxes/<mailbox mbox1-s@host-a.test>\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "245"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox1-oracle"
+        ]
+      },
+      "status": 409
+    }
+  },
+  "route": "DELETE /admin/mailboxes/{id}"
+}

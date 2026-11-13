@@ -1,0 +1,11 @@
+[Unit]
+Description=Setjoin native HTTPS socket
+
+[Socket]
+ListenStream={{HTTPS_LISTEN}}
+FileDescriptorName=https
+Service=setjoin-gateway.service
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

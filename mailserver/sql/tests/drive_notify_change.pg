@@ -1,0 +1,22 @@
+-- mailserver/sql/tests/drive_notify_change.pg
+-- Fixture sigs are (p_channel TEXT) — no zero-arg overload exists — and
+-- last_notify_event() returns payload->>'event', which drive_notify_change's
+-- payload never sets. Assert notify_count + the spaceId in the raw payload
+-- instead (AUTOPLAN CORRECTIONS batch-1 item 1).
+BEGIN;
+SELECT plan(6);
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT mk_account('dnc') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('N', :u);
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES (:sid, :u, 'manager', :u);
+
+SELECT is(drive_notify_change(:sid, 0, 'space'), 1::bigint, 'first change is seq 1');
+SELECT is(drive_notify_change(:sid, 42, 'create'), 2::bigint, 'seq increments');
+SELECT is((SELECT change_seq FROM drive_spaces WHERE id=:sid), 2::bigint, 'change_seq bumped in-row');
+SELECT is((SELECT count(*) FROM drive_changes WHERE space_id=:sid)::int, 2, 'one journal row per call');
+SELECT is(notify_count('drive'), 2, 'two app_notify captures on the drive channel');
+SELECT is((last_notify_payload('drive')::jsonb->>'spaceId')::bigint, :sid::bigint, 'payload carries spaceId');
+SELECT * FROM finish();
+ROLLBACK;

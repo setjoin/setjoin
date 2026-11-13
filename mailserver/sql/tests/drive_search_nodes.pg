@@ -1,0 +1,68 @@
+-- mailserver/sql/tests/drive_search_nodes.pg — P6 Task 6 name search
+BEGIN;
+SELECT plan(11);
+
+SELECT mk_account('dsnA') AS mba \gset
+SELECT mk_account('dsnB') AS mbb \gset
+SELECT user_id AS a FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS b FROM mailboxes WHERE id = :mbb \gset
+
+SELECT drive_space_create(:a, 'SearchSpace', 'regular') AS sid \gset
+SELECT drive_space_create(:b, 'OtherSpace', 'regular') AS sid_other \gset
+
+SELECT drive_node_create(:a, :sid, NULL, 'file', 'Quarterly Report.docx') AS f1 \gset
+SELECT drive_node_create(:a, :sid, NULL, 'folder', 'reports') AS folder \gset
+SELECT drive_node_create(:a, :sid, :folder, 'file', 'nested-report.txt') AS f3 \gset
+SELECT drive_node_create(:a, :sid, NULL, 'file', '100%_final.docx') AS f_pct \gset
+
+-- a trashed node and a purged (tier-2) node must never match
+SELECT drive_node_create(:a, :sid, NULL, 'file', 'trashed-report.txt') AS f4 \gset
+SELECT drive_node_trash(:a, :f4);
+SELECT drive_node_create(:a, :sid, NULL, 'file', 'purged-report.txt') AS f5 \gset
+SELECT drive_node_trash(:a, :f5);
+SELECT drive_node_destroy(:a, :f5);
+
+-- a hit in the other user's space, for the zero-leakage assertion below
+SELECT drive_node_create(:b, :sid_other, NULL, 'file', 'Confidential Report.docx');
+
+-- 1) case-insensitive substring: Quarterly Report.docx, reports (folder),
+-- nested-report.txt = 3 (trashed/purged excluded; 100%_final has no "report").
+SELECT is(jsonb_array_length(drive_search_nodes(:a, NULL, 'report')), 3,
+          'case-insensitive substring match, trashed+purged excluded');
+
+-- 2) non-member finds zero hits across the other space (acceptance #27) —
+-- :a is not a member of sid_other, so a scoped search there returns [].
+SELECT is(drive_search_nodes(:a, :sid_other, 'report'), '[]'::jsonb,
+          'non-member gets zero cross-space hits (no oracle, not an error)');
+
+-- 3) p_space_id scoping: :a's own-space search never crosses into sid_other
+SELECT ok((SELECT bool_and((e->>'spaceId')::bigint = :sid)
+             FROM jsonb_array_elements(drive_search_nodes(:a, :sid, 'report')) e),
+          'space-scoped search stays inside the requested space');
+
+-- 4) trashed + purged rows never match (redundant with #1's count, pinned directly)
+SELECT ok(NOT (drive_search_nodes(:a, NULL, 'report'))::text LIKE '%trashed-report%',
+          'trashed row never matches');
+SELECT ok(NOT (drive_search_nodes(:a, NULL, 'report'))::text LIKE '%purged-report%',
+          'purged (tier-2) row never matches');
+
+-- 5) %/_/\ are literal, not wildcards (ESCAPE '\' + escaped ILIKE pattern)
+SELECT is(jsonb_array_length(drive_search_nodes(:a, NULL, '100%')), 1,
+          'literal % in the query matches the literal filename');
+SELECT is(jsonb_array_length(drive_search_nodes(:a, NULL, '100X')), 0,
+          '% is never treated as a SQL wildcard');
+
+-- 6) empty query -> BZ141
+SELECT throws_ok($$ SELECT drive_search_nodes(1, NULL, '') $$, 'BZ141', NULL,
+                 'empty query -> BZ141');
+SELECT throws_ok($$ SELECT drive_search_nodes(1, NULL, NULL) $$, 'BZ141', NULL,
+                 'NULL query -> BZ141');
+
+-- 7) no hits -> '[]', never null
+SELECT is(drive_search_nodes(:a, NULL, 'zzz-no-such-file'), '[]'::jsonb,
+          'no hits returns [] never null');
+SELECT ok(drive_search_nodes(:a, NULL, 'zzz-no-such-file') IS NOT NULL,
+          'result is never SQL NULL');
+
+SELECT * FROM finish();
+ROLLBACK;

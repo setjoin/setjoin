@@ -1,0 +1,78 @@
+-- pgTAP: resolve_identity.sql — the address-aware identity seam (ADR-004 §3).
+-- A person is resolved by ANY of their addresses: users.email (primary) ∪
+-- aliases.email (incl. a SISTER-DOMAIN alias) ∪ users.ad_upn (UPN). Divergent ids
+-- by construction (ADR-003): the owning user_id is in a 1NNNNN range, the mailbox
+-- id in a disjoint 2NNNNN range, so a user_id/mailbox_id confusion would surface.
+BEGIN;
+SELECT plan(10);
+
+-- Two LOCAL domains of the SAME org (ADR-004: domains are not tenant boundaries).
+INSERT INTO domains (name, is_local) VALUES ('home.test', TRUE), ('sister.test', TRUE);
+
+-- Dana: primary on home.test, an ALIAS on the sister domain, and a divergent UPN.
+INSERT INTO users (id, username, domain_id, email, display_name, ad_upn, enabled) VALUES
+  (130001, 'dana', (SELECT id FROM domains WHERE name='home.test'),
+   'dana@home.test', 'Dana', 'dana.upn@corp.local', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (230001, 130001, (SELECT id FROM domains WHERE name='home.test'),
+   'dana@home.test', 'Dana', 'personal', TRUE);
+-- A non-primary secondary mailbox should NOT be returned as primary_mailbox.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (230002, 130001, (SELECT id FROM domains WHERE name='home.test'),
+   'dana-extra@home.test', 'Dana Extra', 'personal', FALSE);
+-- Sister-domain alias on Dana's primary mailbox.
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (230001, 'dana.sales@sister.test', (SELECT id FROM domains WHERE name='sister.test'), FALSE);
+
+-- A disabled user (must never resolve).
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (130002, 'gone', (SELECT id FROM domains WHERE name='home.test'),
+   'gone@home.test', 'Gone', FALSE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (230003, 130002, (SELECT id FROM domains WHERE name='home.test'),
+   'gone@home.test', 'Gone', 'personal', TRUE);
+
+-- (1) Resolve by PRIMARY email.
+SELECT is((SELECT user_id FROM resolve_identity('dana@home.test')), 130001::BIGINT,
+  'resolves a person by their primary email');
+
+-- (2) Resolve by a SISTER-DOMAIN ALIAS (the org-wide, address-aware bug fix).
+SELECT is((SELECT user_id FROM resolve_identity('dana.sales@sister.test')), 130001::BIGINT,
+  'resolves a person by a sister-domain alias');
+
+-- (3) Resolve by UPN (frequently differs from the SMTP primary).
+SELECT is((SELECT user_id FROM resolve_identity('dana.upn@corp.local')), 130001::BIGINT,
+  'resolves a person by their AD userPrincipalName');
+
+-- (4) Case-insensitive.
+SELECT is((SELECT user_id FROM resolve_identity('DANA.SALES@SISTER.TEST')), 130001::BIGINT,
+  'address match is case-insensitive');
+
+-- (5) primary_mailbox is the IS_PRIMARY mailbox (230001), never the secondary.
+SELECT is((SELECT primary_mailbox FROM resolve_identity('dana.sales@sister.test')), 230001::BIGINT,
+  'primary_mailbox returns the is_primary mailbox (divergent from user_id)');
+
+-- (6) divergent: the resolved user_id (130001) is NOT the mailbox id (230001).
+SELECT isnt((SELECT user_id FROM resolve_identity('dana@home.test')),
+            (SELECT primary_mailbox FROM resolve_identity('dana@home.test')),
+  'user_id and primary_mailbox are divergent ids (ADR-003)');
+
+-- (7) domain_id is the person home domain.
+SELECT is((SELECT domain_id FROM resolve_identity('dana.sales@sister.test')),
+          (SELECT id FROM domains WHERE name='home.test'),
+  'domain_id is the home domain even when matched via a sister-domain alias');
+
+-- (8) An unknown address resolves to ZERO rows.
+SELECT is((SELECT count(*)::INT FROM resolve_identity('nobody@nowhere.test')), 0,
+  'unknown address resolves to zero rows');
+
+-- (9) A disabled user never resolves (parity with the auth + directory seams).
+SELECT is((SELECT count(*)::INT FROM resolve_identity('gone@home.test')), 0,
+  'a disabled person does not resolve');
+
+-- (10) NULL address is safe (zero rows, no error).
+SELECT is((SELECT count(*)::INT FROM resolve_identity(NULL)), 0,
+  'NULL address resolves to zero rows');
+
+SELECT * FROM finish();
+ROLLBACK;

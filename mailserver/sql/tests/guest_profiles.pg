@@ -1,0 +1,489 @@
+-- guest_profiles.pg -- Guest G2 Task 2 profile authority, derivation, and
+-- member-add snapshot behavior. The final two scenarios cover both legal
+-- serial outcomes of member-add racing a profile update.
+BEGIN;
+SELECT plan(72);
+
+INSERT INTO domains (name, is_local) VALUES
+  ('g2p-host-a.example', TRUE),
+  ('g2p-host-b.example', TRUE);
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.username, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g2p-admin-a', 'g2p-admin-a@g2p-host-a.example', 'Admin A', 'g2p-host-a.example'),
+    ('g2p-admin-b', 'g2p-admin-b@g2p-host-b.example', 'Admin B', 'g2p-host-b.example'),
+    ('g2p-member',  'g2p-member@g2p-host-a.example',  'Member',  'g2p-host-a.example')
+  ) AS v(username, email, display_name, domain_name)
+  JOIN domains d ON d.name = v.domain_name;
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.email, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g2p-guest-1@external.example', 'Guest One'),
+    ('g2p-guest-2@external.example', 'Guest Two'),
+    ('g2p-guest-3@external.example', 'Guest Three')
+  ) AS v(email, display_name)
+  JOIN domains d ON d.name = 'guest.invalid';
+
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'g2p-admin-a@g2p-host-a.example', d.id, 'active'
+  FROM users u CROSS JOIN domains d
+ WHERE u.email LIKE 'g2p-guest-%@external.example'
+   AND d.name = 'g2p-host-a.example';
+
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'g2p-profile-admin-' || d.name, ARRAY['guests.view','guests.manage'], d.id
+  FROM domains d WHERE d.name IN ('g2p-host-a.example', 'g2p-host-b.example');
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u
+  JOIN admin_role_groups rg
+    ON rg.name = 'g2p-profile-admin-' || split_part(u.email, '@', 2)
+ WHERE u.email IN ('g2p-admin-a@g2p-host-a.example', 'g2p-admin-b@g2p-host-b.example');
+
+SELECT lives_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Collaborator',true,true,true,false,false,false,true,30,ARRAY['meet','chat'])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'create: guest_profile_set creates a profile');
+SELECT is((SELECT apps FROM guest_profiles WHERE name='Collaborator'),
+  ARRAY['chat','meet']::text[], 'create: apps are sorted and normalized');
+SELECT ok(EXISTS (
+  SELECT 1 FROM jsonb_array_elements(guest_profile_list(
+    (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'))) p
+  WHERE p->>'name'='Collaborator' AND (p->>'assignedCount')::int=0
+), 'list: reachable profile is returned with assignedCount');
+SELECT is(guest_profile_domain_list(
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example')),
+  jsonb_build_array(jsonb_build_object(
+    'id', (SELECT id FROM domains WHERE name='g2p-host-a.example'),
+    'name', 'g2p-host-a.example')),
+  'domain list: only the actor-reachable local host domain is returned');
+SELECT is(
+  (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(guest_profile_get(
+    (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+    (SELECT id FROM guest_profiles WHERE name='Collaborator'))) k),
+  ARRAY['allowDownload','allowMeetCreate','allowMeetHost','allowNativeShell','apps',
+        'assignedCount','canInitiateDm','canPost','createdAt','defaultExpiryDays',
+        'historyFromJoin','hostDomainId','id','name','updatedAt']::text[],
+  'get: exact camelCase profile contract');
+SELECT ok(EXISTS (
+  SELECT 1 FROM admin_audit_log a
+   WHERE a.action='guest.profile_create'
+     AND a.target_type='guest_profile'
+     AND a.target_id=(SELECT id FROM guest_profiles WHERE name='Collaborator')
+     AND a.before_state IS NULL
+     AND a.after_state->>'name'='Collaborator'
+     AND a.after_state->'apps'='["chat","meet"]'::jsonb
+), 'create audit: profile target carries the created policy');
+
+SELECT lives_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Other Profile',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-b@g2p-host-b.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-b.example')),
+  'fixture: other-domain admin creates its own profile');
+SELECT is(jsonb_array_length(guest_profile_list(
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'))), 1,
+  'list anti-oracle: other-domain profile is absent');
+SELECT throws_ok(format('SELECT guest_profile_get(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Other Profile')),
+  'BZ170', NULL, 'get anti-oracle: out-of-scope equals not found');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,%s,%s,'Other Profile',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Other Profile'),
+  (SELECT id FROM domains WHERE name='g2p-host-b.example')),
+  'BZ170', NULL, 'update anti-oracle: out-of-scope equals not found');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Cross-domain create',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-b.example')),
+  'BZ170', NULL, 'create anti-oracle: out-of-scope domain equals not found');
+UPDATE domains SET is_local=FALSE WHERE name='g2p-host-a.example';
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Non-local host',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ170', NULL, 'create authority: reachable but non-local host domain is not found');
+UPDATE domains SET is_local=TRUE WHERE name='g2p-host-a.example';
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,9223372036854775806,'Missing host',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example')),
+  'BZ170', NULL, 'create authority: missing host domain is classified not found before the FK belt');
+SELECT throws_ok(format('SELECT guest_profile_delete(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Other Profile')),
+  'BZ170', NULL, 'delete anti-oracle: out-of-scope equals not found');
+SELECT throws_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-b@g2p-host-b.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-1@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Other Profile')),
+  'BZ170', NULL, 'apply anti-oracle: out-of-scope guest equals not found');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,' ',true,true,false,false,false,false,true,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'validation: blank name is BZ224');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Duplicate Apps',true,true,false,false,false,false,true,NULL,ARRAY['chat','chat'])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'validation: duplicate apps are BZ224');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Unknown App',true,true,false,false,false,false,true,NULL,ARRAY['mail'])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'validation: unknown apps are BZ224');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Bad Expiry',true,true,false,false,false,false,true,0,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'validation: non-positive default expiry is BZ224');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'collaborator',true,true,false,false,false,false,true,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'name collision: create is classified BZ224 case-insensitively');
+SELECT lives_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Collision Target',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'name collision fixture: second profile is created');
+
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-1@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'apply: profile assignment succeeds');
+SELECT is((SELECT count(*)::int FROM user_app_entitlements e JOIN users u ON u.id=e.user_id
+  WHERE u.email='g2p-guest-1@external.example'), 7,
+  'apply: exactly seven entitlement rows are derived');
+SELECT is((SELECT jsonb_object_agg(e.app, e.enabled ORDER BY e.app)
+  FROM user_app_entitlements e JOIN users u ON u.id=e.user_id
+  WHERE u.email='g2p-guest-1@external.example'),
+  '{"calendar":false,"chat":true,"contacts":false,"drive":false,"mail":false,"meet":true,"tasks":false}'::jsonb,
+  'apply: fixed apps are false and selected collaboration apps are true');
+SELECT ok(EXISTS (SELECT 1 FROM admin_audit_log a JOIN users u ON u.id=a.target_id
+  WHERE a.action='guest.profile_set' AND u.email='g2p-guest-1@external.example'),
+  'apply: guest.profile_set audit is written in-transaction');
+
+DO $$ BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                              'g2p-snapshot', NULL, 'private');
+END $$;
+UPDATE chat_channels SET change_seq=7 WHERE name='g2p-snapshot';
+SELECT lives_ok(format('SELECT chat_member_add(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM chat_channels WHERE name='g2p-snapshot'),
+  (SELECT id FROM users WHERE email='g2p-guest-1@external.example')),
+  'member-add: assigned guest can be added');
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), TRUE,
+  'member-add: can_post snapshots effective profile');
+SELECT is((SELECT m.history_floor_seq FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), 7::bigint,
+  'member-add: history floor snapshots current channel seq');
+UPDATE guest_profiles SET updated_at = created_at - interval '1 day'
+ WHERE name='Collaborator';
+SELECT lives_ok(format(
+  $q$SELECT guest_profile_set(%s,%s,%s,'Collaborator',false,false,false,false,false,false,false,45,ARRAY['drive'])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'update: profile policy update succeeds');
+SELECT ok((SELECT updated_at >= created_at FROM guest_profiles WHERE name='Collaborator'),
+  'update: updated_at advances');
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), FALSE,
+  'update: existing membership can_post propagates live');
+SELECT is((SELECT m.history_floor_seq FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), 7::bigint,
+  'update: existing history floor is immutable');
+SELECT is((SELECT jsonb_object_agg(e.app, e.enabled ORDER BY e.app)
+  FROM user_app_entitlements e JOIN users u ON u.id=e.user_id
+  WHERE u.email='g2p-guest-1@external.example'),
+  '{"calendar":false,"chat":false,"contacts":false,"drive":true,"mail":false,"meet":false,"tasks":false}'::jsonb,
+  'update: assigned guest entitlements propagate');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,%s,%s,'collision target',false,false,false,false,false,false,false,45,ARRAY['drive'])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ224', NULL, 'name collision: update is classified BZ224 case-insensitively');
+SELECT is((SELECT name FROM guest_profiles WHERE id=(SELECT profile_id FROM guest_accounts g
+  JOIN users u ON u.id=g.user_id WHERE u.email='g2p-guest-1@external.example')),
+  'Collaborator', 'name collision: failed update leaves the assigned profile unchanged');
+SELECT ok(EXISTS (
+  SELECT 1 FROM admin_audit_log a
+   WHERE a.action='guest.profile_update'
+     AND a.target_type='guest_profile'
+     AND a.target_id=(SELECT id FROM guest_profiles WHERE name='Collaborator')
+     AND (a.before_state->>'canPost')::boolean
+     AND NOT (a.after_state->>'canPost')::boolean
+     AND a.before_state->>'name'='Collaborator'
+     AND a.after_state->>'name'='Collaborator'
+), 'update audit: profile target carries before/after policy');
+SELECT is((SELECT count(*)::int FROM admin_audit_log a JOIN users u ON u.id=a.target_id
+  WHERE a.action='guest.profile_set' AND u.email='g2p-guest-1@external.example'), 1,
+  'update cascade: unchanged assignment does not emit a false profile transition audit');
+SELECT throws_ok(format('SELECT guest_profile_delete(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'BZ225', NULL, 'delete: assigned profile is BZ225 before FK RESTRICT');
+
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,NULL)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-1@external.example')),
+  'NULL apply: built-in restrictive profile succeeds');
+SELECT is((SELECT profile_id FROM guest_accounts g JOIN users u ON u.id=g.user_id
+  WHERE u.email='g2p-guest-1@external.example'), NULL::bigint,
+  'NULL apply: assignment is cleared');
+SELECT ok(NOT EXISTS (SELECT 1 FROM user_app_entitlements e JOIN users u ON u.id=e.user_id
+  WHERE u.email='g2p-guest-1@external.example' AND e.enabled),
+  'NULL apply: all seven derived entitlements are false');
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), FALSE,
+  'NULL apply: existing membership becomes read-only');
+SELECT is((SELECT m.history_floor_seq FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.name='g2p-snapshot'), 7::bigint,
+  'NULL apply: history floor remains immutable');
+
+SELECT lives_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Disposable',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'delete fixture: unassigned profile created');
+SELECT lives_ok(format('SELECT guest_profile_delete(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Disposable')),
+  'delete: unassigned profile is deleted');
+SELECT ok(EXISTS (
+  SELECT 1 FROM admin_audit_log a
+   WHERE a.action='guest.profile_delete'
+     AND a.target_type='guest_profile'
+     AND a.before_state->>'name'='Disposable'
+     AND a.after_state IS NULL
+), 'delete audit: profile target carries the deleted policy');
+SELECT throws_ok(format('SELECT guest_profile_get(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  currval('guest_profiles_id_seq')),
+  'BZ170', NULL, 'delete: removed profile is not found');
+
+-- Race ordering A: member-add snapshots old policy, then profile update must
+-- propagate the new value before it can commit.
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-2@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'race A fixture: guest starts on current profile');
+DO $$ BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                              'g2p-race-a', NULL, 'private');
+  PERFORM chat_member_add((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                          (SELECT id FROM chat_channels WHERE name='g2p-race-a'),
+                          (SELECT id FROM users WHERE email='g2p-guest-2@external.example'));
+END $$;
+DO $$ BEGIN
+  PERFORM guest_profile_set(
+    (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+    (SELECT id FROM guest_profiles WHERE name='Collaborator'),
+    (SELECT id FROM domains WHERE name='g2p-host-a.example'),
+    'Collaborator', TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 45, ARRAY['drive']);
+END $$;
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-2@external.example' AND c.name='g2p-race-a'), TRUE,
+  'race A final state: later profile update corrects the existing snapshot');
+
+-- Race ordering B: profile update commits first, then member-add snapshots it.
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-3@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'race B fixture: guest starts on updated profile');
+DO $$ BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                              'g2p-race-b', NULL, 'private');
+  PERFORM chat_member_add((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                          (SELECT id FROM chat_channels WHERE name='g2p-race-b'),
+                          (SELECT id FROM users WHERE email='g2p-guest-3@external.example'));
+  PERFORM chat_member_add((SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+                          (SELECT id FROM chat_channels WHERE name='g2p-race-b'),
+                          (SELECT id FROM users WHERE email='g2p-member@g2p-host-a.example'));
+END $$;
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-3@external.example' AND c.name='g2p-race-b'), TRUE,
+  'race B final state: later member-add snapshots the committed profile');
+
+SELECT is((SELECT m.can_post FROM chat_channel_members m JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-member@g2p-host-a.example' AND c.name='g2p-race-b'), NULL::boolean,
+  'member compatibility: non-guest membership policy remains NULL');
+
+SELECT lives_ok(format('SELECT chat_dm_open(%s, ARRAY[%s]::bigint[])',
+  (SELECT id FROM users WHERE email='g2p-member@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-1@external.example')),
+  'DM open: member can open a DM to a restrictive guest');
+SELECT is((SELECT m.can_post FROM chat_channel_members m
+  JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.kind='dm'), FALSE,
+  'DM open: restrictive guest snapshots explicit can_post=false');
+SELECT is((SELECT m.history_floor_seq FROM chat_channel_members m
+  JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-guest-1@external.example' AND c.kind='dm'), 0::bigint,
+  'DM open: restrictive guest snapshots join-time history floor');
+SELECT ok(NOT EXISTS (
+  SELECT 1 FROM chat_channel_members m
+  JOIN users u ON u.id=m.user_id
+  JOIN chat_channels c ON c.id=m.channel_id
+  WHERE u.email='g2p-member@g2p-host-a.example' AND c.kind='dm'
+    AND (m.can_post IS NOT NULL OR m.history_floor_seq IS NOT NULL)
+), 'DM open: non-guest policy columns remain NULL');
+
+-- Authorization-composition regression. Profiles are domain-wide objects,
+-- so OU/set-narrowed grants must not expose or mutate them even when the
+-- scoped assignment itself carries guests.manage. Target-user apply remains
+-- available when that SAME assignment reaches the guest. Permission from a
+-- different-domain assignment must never compose with an unrelated reach.
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.username, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g2p-ou-admin', 'g2p-ou-admin@g2p-host-a.example', 'OU Admin'),
+    ('g2p-set-admin', 'g2p-set-admin@g2p-host-a.example', 'Set Admin'),
+    ('g2p-composed-admin', 'g2p-composed-admin@g2p-host-a.example', 'Composed Admin')
+  ) AS v(username, email, display_name)
+  JOIN domains d ON d.name='g2p-host-a.example';
+INSERT INTO departments (name, path, ldap_ou)
+VALUES ('g2p-guest-ou', '/g2p-guest-ou', 'OU=G2PGuests');
+UPDATE users SET department_id=(SELECT id FROM departments WHERE path='/g2p-guest-ou')
+ WHERE email='g2p-guest-2@external.example';
+INSERT INTO admin_scope_sets (name, domain_id, created_by)
+SELECT 'g2p-guest-set', d.id, u.id FROM domains d, users u
+ WHERE d.name='g2p-host-a.example' AND u.email='g2p-set-admin@g2p-host-a.example';
+INSERT INTO admin_scope_set_members (set_id, member_type, member_id, added_by)
+SELECT s.id, 'user', g.id, a.id
+  FROM admin_scope_sets s, users g, users a
+ WHERE s.name='g2p-guest-set'
+   AND g.email='g2p-guest-3@external.example'
+   AND a.email='g2p-set-admin@g2p-host-a.example';
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT v.name, v.permissions, d.id
+  FROM (VALUES
+    ('g2p-scoped-profile-authority', ARRAY['guests.view','guests.manage']::text[], 'g2p-host-a.example'),
+    ('g2p-empty-reach-authority', ARRAY[]::text[], 'g2p-host-a.example'),
+    ('g2p-wrong-domain-manage', ARRAY['guests.manage']::text[], 'g2p-host-b.example')
+  ) AS v(name, permissions, domain_name)
+  JOIN domains d ON d.name=v.domain_name;
+INSERT INTO admin_role_assignments
+       (user_id, role_group_id, granted_by, scope_type, scope_id, eligible)
+SELECT u.id, rg.id, u.id, 'ou', d.id, FALSE
+  FROM users u, admin_role_groups rg, departments d
+ WHERE u.email='g2p-ou-admin@g2p-host-a.example'
+   AND rg.name='g2p-scoped-profile-authority' AND d.path='/g2p-guest-ou';
+INSERT INTO admin_role_assignments
+       (user_id, role_group_id, granted_by, scope_type, scope_id, eligible)
+SELECT u.id, rg.id, u.id, 'set', s.id, FALSE
+  FROM users u, admin_role_groups rg, admin_scope_sets s
+ WHERE u.email='g2p-set-admin@g2p-host-a.example'
+   AND rg.name='g2p-scoped-profile-authority' AND s.name='g2p-guest-set';
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u, admin_role_groups rg
+ WHERE u.email='g2p-composed-admin@g2p-host-a.example'
+   AND rg.name IN ('g2p-empty-reach-authority','g2p-wrong-domain-manage');
+DO $$ BEGIN
+  PERFORM guest_profile_set(
+    (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'), NULL,
+    (SELECT id FROM domains WHERE name='g2p-host-a.example'),
+    'Scoped Delete Target', FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL, ARRAY[]::text[]);
+END $$;
+
+SELECT is(guest_profile_list((SELECT id FROM users WHERE email='g2p-ou-admin@g2p-host-a.example')),
+  '[]'::jsonb, 'OU scope: domain-wide profile list is empty');
+SELECT is(guest_profile_domain_list((SELECT id FROM users WHERE email='g2p-set-admin@g2p-host-a.example')),
+  '[]'::jsonb, 'set scope: domain option enumeration is empty');
+SELECT throws_ok(format('SELECT guest_profile_get(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-ou-admin@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'BZ170', NULL, 'OU scope: domain-wide profile get is not found');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,NULL,%s,'Scoped Create',false,true,false,false,false,false,false,NULL,ARRAY[]::text[])$q$,
+  (SELECT id FROM users WHERE email='g2p-set-admin@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ170', NULL, 'set scope: domain-wide profile create is not found');
+SELECT throws_ok(format(
+  $q$SELECT guest_profile_set(%s,%s,%s,'Collaborator',true,false,false,false,false,false,false,45,ARRAY['drive'])$q$,
+  (SELECT id FROM users WHERE email='g2p-ou-admin@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example')),
+  'BZ170', NULL, 'OU scope: domain-wide profile update is not found');
+SELECT throws_ok(format('SELECT guest_profile_delete(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-set-admin@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Scoped Delete Target')),
+  'BZ170', NULL, 'set scope: domain-wide profile delete is not found');
+SELECT ok(NOT EXISTS (
+  SELECT 1 FROM jsonb_array_elements(guest_profile_list(
+    (SELECT id FROM users WHERE email='g2p-composed-admin@g2p-host-a.example'))) p
+  WHERE (p->>'hostDomainId')::bigint=(SELECT id FROM domains WHERE name='g2p-host-a.example')
+), 'cross-assignment: wrong-domain manage plus permissionless host reach cannot list host-A profiles');
+SELECT ok(NOT EXISTS (
+  SELECT 1 FROM jsonb_array_elements(guest_profile_domain_list(
+    (SELECT id FROM users WHERE email='g2p-composed-admin@g2p-host-a.example'))) d
+  WHERE (d->>'id')::bigint=(SELECT id FROM domains WHERE name='g2p-host-a.example')
+), 'cross-assignment: wrong-domain manage plus permissionless host reach cannot enumerate host A');
+SELECT throws_ok(format('SELECT guest_profile_get(%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-composed-admin@g2p-host-a.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'BZ170', NULL, 'cross-assignment: permission and domain reach cannot compose for profile get');
+SELECT throws_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-composed-admin@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-2@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'BZ170', NULL, 'cross-assignment: permission and target reach cannot compose for profile apply');
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-ou-admin@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-2@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'same-assignment OU scope: reachable guest profile apply succeeds');
+SELECT lives_ok(format('SELECT guest_profile_apply(%s,%s,%s)',
+  (SELECT id FROM users WHERE email='g2p-set-admin@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-3@external.example'),
+  (SELECT id FROM guest_profiles WHERE name='Collaborator')),
+  'same-assignment set scope: reachable guest profile apply succeeds');
+SELECT ok(guest_admin_has_domain_permission(
+  (SELECT id FROM users WHERE email='g2p-admin-a@g2p-host-a.example'),
+  (SELECT id FROM domains WHERE name='g2p-host-a.example'), 'guests.manage'),
+  'same-assignment unscoped authority: persisted manage and domain reach are coupled');
+SELECT ok(guest_admin_can_reach_with_permission(
+  (SELECT id FROM users WHERE email='g2p-ou-admin@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-2@external.example'), 'guests.manage'),
+  'same-assignment target authority: OU reach and manage permission are coupled');
+SELECT ok(NOT guest_admin_can_reach_with_permission(
+  (SELECT id FROM users WHERE email='g2p-composed-admin@g2p-host-a.example'),
+  (SELECT id FROM users WHERE email='g2p-guest-2@external.example'), 'guests.manage'),
+  'cross-assignment helper: separate permission and reach fail closed');
+SELECT ok(position('FROM domains d' IN split_part(
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_profile_set(bigint,bigint,bigint,text,boolean,boolean,boolean,boolean,boolean,boolean,boolean,integer,text[])'::regprocedure),
+    'INSERT INTO guest_profiles', 2)) > 0
+  AND position('d.id = p_host_domain_id' IN split_part(
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_profile_set(bigint,bigint,bigint,text,boolean,boolean,boolean,boolean,boolean,boolean,boolean,integer,text[])'::regprocedure),
+    'INSERT INTO guest_profiles', 2)) > 0
+  AND position('d.is_local' IN split_part(
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_profile_set(bigint,bigint,bigint,text,boolean,boolean,boolean,boolean,boolean,boolean,boolean,integer,text[])'::regprocedure),
+    'INSERT INTO guest_profiles', 2)) > 0,
+  'create mutation shape: INSERT itself repeats domain existence and local authority');
+
+SELECT * FROM finish();
+ROLLBACK;

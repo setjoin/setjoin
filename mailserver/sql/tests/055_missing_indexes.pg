@@ -1,0 +1,93 @@
+-- pgTAP: Missing indexes and UNIQUE constraints
+-- Requires V055__missing_indexes.sql to be applied first.
+BEGIN;
+SELECT plan(9);
+
+-- ============================================================================
+-- 2a — auth_event_log missing indexes
+-- ============================================================================
+
+-- Use 3-arg form: has_index(table, index_name, description) to check index existence
+-- without constraining on specific column list.
+SELECT has_index('auth_event_log', 'auth_event_log_email_idx',
+  'auth_event_log_email_idx exists for email lookups');
+
+SELECT has_index('auth_event_log', 'auth_event_log_ip_idx',
+  'auth_event_log_ip_idx exists for IP lookups');
+
+-- ============================================================================
+-- 2b — event_attendees UNIQUE constraint
+-- ============================================================================
+
+-- Verify the unique index exists
+SELECT has_index('event_attendees', 'event_attendees_event_email_uniq',
+  'event_attendees_event_email_uniq exists');
+
+-- Test: inserting duplicate email for same event should fail
+-- First, create a domain + user + mailbox + calendar and event for testing
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id   BIGINT;
+  v_mb_id     BIGINT;
+  v_cal_id    BIGINT;
+  v_evt_id    BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('idxtest.example', TRUE) RETURNING id INTO v_domain_id;
+  INSERT INTO users (username, email, display_name, domain_id)
+    VALUES ('idxtest', 'idxtest@idxtest.example', 'IdxTest', v_domain_id) RETURNING id INTO v_user_id;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+    VALUES (v_user_id, v_domain_id, 'idxtest@idxtest.example', 'IdxTest', TRUE) RETURNING id INTO v_mb_id;
+  INSERT INTO calendars (mailbox_id, name)
+    VALUES (v_mb_id, 'index-test-cal') RETURNING id INTO v_cal_id;
+  INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
+    VALUES (v_cal_id, 'idx-test-uid-1', 'Test Event', now(), now() + interval '1 hour')
+    RETURNING id INTO v_evt_id;
+  PERFORM set_config('app.test_evt_id', v_evt_id::TEXT, TRUE);
+END;
+$$;
+
+-- Insert first attendee — should succeed
+SELECT lives_ok(
+  format($q$ INSERT INTO event_attendees (event_id, email, name)
+     VALUES (%s, 'dup@example.com', 'Test User') $q$,
+    current_setting('app.test_evt_id'))::text,
+  'event_attendees: first insert succeeds'
+);
+
+-- Insert duplicate email for same event — should fail
+SELECT throws_ok(
+  format($q$ INSERT INTO event_attendees (event_id, email, name)
+     VALUES (%s, 'dup@example.com', 'Duplicate User') $q$,
+    current_setting('app.test_evt_id'))::text,
+  '23505', NULL,
+  'event_attendees: duplicate email for same event rejected'
+);
+
+-- Case-insensitivity: different case same email should also fail
+SELECT throws_ok(
+  format($q$ INSERT INTO event_attendees (event_id, email, name)
+     VALUES (%s, 'DUP@example.com', 'Case Duplicate') $q$,
+    current_setting('app.test_evt_id'))::text,
+  '23505', NULL,
+  'event_attendees: case-insensitive duplicate email rejected'
+);
+
+-- ============================================================================
+-- 2c — identity_sync_log missing indexes
+-- ============================================================================
+
+SELECT has_index('identity_sync_log', 'identity_sync_log_time_idx',
+  'identity_sync_log_time_idx exists for time-range queries');
+
+SELECT has_index('identity_sync_log', 'identity_sync_log_source_idx',
+  'identity_sync_log_source_idx exists for source+time queries');
+
+-- ============================================================================
+-- 2d — aliases case-insensitive UNIQUE (from V054)
+-- ============================================================================
+
+SELECT has_index('aliases', 'aliases_email_lower_idx',
+  'aliases_email_lower_idx exists for case-insensitive email lookup');
+
+ROLLBACK;

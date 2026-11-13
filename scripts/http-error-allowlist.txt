@@ -1,0 +1,70 @@
+# http-error-allowlist.txt — sites exempt from check-http-error-shape.sh.
+#
+# The RFC 7807 standard (docs/standards/API_ERROR_SHAPE.md) requires every
+# app-JSON-API error response to be application/problem+json via
+# httputil.WriteProblem / WriteProblemStatus (WriteError is a deprecated
+# alias that now forwards to WriteProblemStatus). Plain-text http.Error(...)
+# is the deprecated pre-conversion emitter — new call sites almost always
+# mean a handler was added/edited without following the standard.
+#
+# A small number of handlers are genuinely NOT app-JSON-API surfaces (a
+# health probe, a WebDAV/CalDAV/CardDAV protocol response, an OAuth2/OIDC
+# discovery document, a click-through redirect) and legitimately return
+# plain text or nothing. Those sites are allowlisted here — narrowly, by
+# exact file path or directory prefix (trailing /) — instead of the guard
+# being weakened. Do not add an entry to silence a real leftover site; fix
+# the handler to use httputil.WriteProblem instead.
+#
+# Format: one path per line, repo-root-relative. A trailing "/" allowlists
+# every .go file under that directory (recursively). No trailing "/" means
+# an exact file match. "#" starts a comment; blank lines ignored.
+
+# Health/ready/liveness probes — plain-text/no-body responses are the norm
+# for infra health checks (HAProxy, Kubernetes probes), not app JSON API.
+mailserver/internal/health/
+
+# WebDAV/CalDAV/CardDAV protocol handlers — RFC 4918/4791/6352 responses are
+# XML/protocol-status based, not JSON API.
+mailserver/internal/webdav/
+mailserver/internal/caldav/
+mailserver/internal/carddav/
+
+# OAuth2/OIDC discovery surfaces — JWKS (RFC 7517) is a public key set, not
+# an app JSON API error shape.
+authserver/internal/handlers/jwks.go
+
+# Click-through redirect handlers — link-protect verifies an HMAC token at
+# click time and returns a 302 redirect or an HTML interstitial, never JSON.
+mailserver/internal/linkprotect/handler.go
+mailserver/internal/smtp/link_protect_handler.go
+
+# Composition-root inline handlers that are provably non-JSON at today's
+# call sites (audited below; re-audit if either file grows a new inline
+# http.Error near a JSON handler instead of an existing exempt one):
+#   authserver/cmd/authserverd/main.go   — inline GET /ready liveness probe.
+#   mailserver/cmd/mailserverd/main.go   — inline GET /downloads/asset/{asset}
+#                                          redirect proxy to the download mirror.
+authserver/cmd/authserverd/main.go
+mailserver/cmd/mailserverd/main.go
+
+# .well-known/discovery redirect handlers — add specific files here if/when
+# one is introduced (none exist in the tree today; do not pre-allowlist a
+# directory for a handler that doesn't exist yet).
+
+# Binary/file-transfer + browser surfaces (documented carve-outs from the RFC 7807
+# conversion — not app JSON API; plain-text/redirect/HTML by design):
+mailserver/internal/updates/airgap.go
+mailserver/internal/blob/handler.go
+mailserver/internal/downloads/handler.go
+mailserver/internal/ws/handler.go
+mailserver/internal/ws/eventsource.go
+mailserver/internal/approval/email_page.go
+# M365 migration OAuth admin-consent flow — http.Redirect on success; errors render
+# to the operator's browser, not a JSON client.
+mailserver/internal/user/migration.go
+
+# shared/middleware/csrf.go — CANNOT use httputil: shared/httputil imports
+# shared/middleware (problem.go -> middleware.GetRequestID), so a call back would
+# be an import cycle. A CSRF 403 is a pre-handler gate; plain text is acceptable
+# (the SPA authors the message by status). Layering constraint, not an oversight.
+shared/middleware/csrf.go

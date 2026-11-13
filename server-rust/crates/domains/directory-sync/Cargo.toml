@@ -1,0 +1,29 @@
+[package]
+name = "setjoin-directory-sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-config-secret = { path = "../../config-secret" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
+mailparse = "=0.16.1"
+getrandom = "=0.2.17"
+# LDAP wire client (#380): audited, MIT/Apache-2.0, rustls with the ring provider and
+# the platform root store (honours SSL_CERT_FILE like Go's crypto/tls).
+ldap3 = { version = "=0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+# AD SRV discovery (#381): MIT/Apache-2.0, system resolv.conf like Go net.LookupSRV.
+hickory-resolver = { version = "=0.26.3", default-features = false, features = ["system-config", "tokio"] }
+tokio = { version = "=1.54.1", features = ["time", "rt", "sync", "macros"] }
+
+[dev-dependencies]
+# paused virtual time for the catalog stop tests (no real 5 s waits)
+tokio = { version = "=1.54.1", features = ["test-util"] }
+setjoin-conformance = { path = "../../../tests/conformance" }

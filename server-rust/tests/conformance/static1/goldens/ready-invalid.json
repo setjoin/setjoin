@@ -1,0 +1,33 @@
+{
+  "case": "ready-invalid",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/ready"
+    },
+    "response": {
+      "body_length": 16,
+      "body_sha256": "6489d6d7a33c5d40e18fc61eeb6c34c341279ee61816394dde5189aa4ad8fae5",
+      "body_text": "{\"status\":\"ok\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-ready_invalid"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /ready"
+}

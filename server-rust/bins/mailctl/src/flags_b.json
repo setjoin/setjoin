@@ -1,0 +1,1060 @@
+{
+  "mailbox suspend": {
+    "flags": {
+      "generation": "String",
+      "reason": "String",
+      "target-user": "String",
+      "evidence-kind": "String",
+      "identity-link": "String",
+      "link-generation": "String",
+      "source-key-digest": "String",
+      "delivery": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid mailbox suspend flags"
+  },
+  "mailbox resume": {
+    "flags": {
+      "generation": "String",
+      "reason": "String",
+      "target-user": "String",
+      "evidence-kind": "String",
+      "identity-link": "String",
+      "link-generation": "String",
+      "source-key-digest": "String",
+      "delivery": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid mailbox resume flags"
+  },
+  "mailbox detach-retain": {
+    "flags": {
+      "generation": "String",
+      "reason": "String",
+      "target-user": "String",
+      "evidence-kind": "String",
+      "identity-link": "String",
+      "link-generation": "String",
+      "source-key-digest": "String",
+      "delivery": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid mailbox detach-retain flags"
+  },
+  "mailbox reconnect": {
+    "flags": {
+      "generation": "String",
+      "reason": "String",
+      "target-user": "String",
+      "evidence-kind": "String",
+      "identity-link": "String",
+      "link-generation": "String",
+      "source-key-digest": "String",
+      "delivery": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid mailbox reconnect flags"
+  },
+  "mailbox purge-schedule": {
+    "flags": {
+      "generation": "String",
+      "preview-digest": "String",
+      "approver-user": "String",
+      "reason": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid purge-schedule flags"
+  },
+  "mailbox purge-approve": {
+    "flags": {
+      "comment": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid purge approval flags"
+  },
+  "mailbox purge-deny": {
+    "flags": {
+      "comment": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid purge approval flags"
+  },
+  "mailbox purge-cancel": {
+    "flags": {
+      "reason": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid purge-cancel flags"
+  },
+  "mailbox purge-execute": {
+    "flags": {
+      "reason": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "invalid purge-execute flags"
+  },
+  "upgrade watch": {
+    "flags": {
+      "interval": "Duration",
+      "timeout": "Duration"
+    },
+    "mode": "continue",
+    "help": "Usage of upgrade watch:\n  -interval duration\n    \tpoll interval (default 2s)\n  -timeout duration\n    \tmaximum watch duration (default 10m0s)\n",
+    "override_error": "invalid watch interval or timeout"
+  },
+  "upgrade cancel": {
+    "flags": {
+      "generation": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of upgrade cancel:\n  -generation string\n    \texpected decimal state generation\n  -reason string\n    \taudited cancellation reason\n",
+    "override_error": "invalid cancel arguments"
+  },
+  "upgrade diagnostics": {
+    "flags": {
+      "output": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of upgrade diagnostics:\n  -output string\n    \tnew local JSON evidence file\n",
+    "override_error": "--output is required"
+  },
+  "ca create": {
+    "flags": {
+      "name": "String",
+      "desc": "String",
+      "state": "String",
+      "enabled": "String",
+      "scope": "String",
+      "target": "String",
+      "conditions": "String",
+      "actions": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of ca create:\n  -actions string\n    \tActions JSON (default \"{}\")\n  -conditions string\n    \tConditions JSON (default \"{}\")\n  -desc string\n    \tDescription\n  -enabled string\n    \tDEPRECATED: use --state. true→on, false→off\n  -name string\n    \tPolicy name (required)\n  -scope string\n    \tScope type: user, group, domain, global (default \"user\")\n  -state string\n    \tPolicy state: report_only, on, off (default \"report_only\")\n  -target string\n    \tScope target\n",
+    "override_error": null
+  },
+  "ca update": {
+    "flags": {
+      "id": "Int",
+      "name": "String",
+      "desc": "String",
+      "state": "String",
+      "enabled": "String",
+      "scope": "String",
+      "target": "String",
+      "conditions": "String",
+      "actions": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of ca update:\n  -actions string\n    \tActions JSON\n  -conditions string\n    \tConditions JSON\n  -desc string\n    \tDescription\n  -enabled string\n    \tDEPRECATED: use --state. true→on, false→off\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -scope string\n    \tScope type\n  -state string\n    \tPolicy state: report_only, on, off\n  -target string\n    \tScope target\n",
+    "override_error": null
+  },
+  "ca validate": {
+    "flags": {
+      "strict": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of ca validate:\n  -strict\n    \ttreat warnings as errors\n",
+    "override_error": null
+  },
+  "": {
+    "flags": {
+      "f": "String"
+    },
+    "mode": "continue",
+    "help": "Usage:\n  -f string\n    \tPolicy document file (- for stdin)\n",
+    "override_error": null
+  },
+  "ca import": {
+    "flags": {
+      "f": "String",
+      "mode": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of ca import:\n  -f string\n    \tPolicy document file\n  -mode string\n    \tImport mode: merge, replace, prune (default \"merge\")\n",
+    "override_error": null
+  },
+  "ca apply": {
+    "flags": {
+      "f": "String",
+      "prune": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of ca apply:\n  -f string\n    \tPolicy document file\n  -prune\n    \tUse prune mode (removes policies not in doc)\n",
+    "override_error": null
+  },
+  "ca promote": {
+    "flags": {
+      "id": "Int",
+      "yes": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of ca promote:\n  -id int\n    \tPolicy ID (required)\n  -yes\n    \tSkip would-block confirmation\n",
+    "override_error": null
+  },
+  "ca why": {
+    "flags": {
+      "correlation": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of ca why:\n  -correlation string\n    \tCorrelation ID of a specific sign-in event\n",
+    "override_error": null
+  },
+  "ca simulate": {
+    "flags": {
+      "user": "String",
+      "ip": "String",
+      "device-trust": "String",
+      "expect": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of ca simulate:\n  -device-trust string\n    \tDevice trust tier\n  -expect string\n    \tExpected decision (fails if mismatch)\n  -ip string\n    \tSource IP address\n  -user string\n    \tUser email or ID (required)\n",
+    "override_error": null
+  },
+  "ca coverage": {
+    "flags": {
+      "fail-on-gap": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of ca coverage:\n  -fail-on-gap\n    \tExit non-zero if any gaps found\n",
+    "override_error": null
+  },
+  "ca doctor": {
+    "flags": {
+      "json": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of ca doctor:\n  -json\n    \tOutput raw JSON\n",
+    "override_error": null
+  },
+  "ca signin-log": {
+    "flags": {
+      "limit": "Int",
+      "user": "String",
+      "correlation": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of ca signin-log:\n  -correlation string\n    \tFilter by correlation id\n  -limit int\n    \tMax rows to return (default 50)\n  -user string\n    \tFilter by numeric user id\n",
+    "override_error": null
+  },
+  "eap create": {
+    "flags": {
+      "name": "String",
+      "primary": "String",
+      "additional": "String",
+      "enabled": "Bool",
+      "overwrite": "Bool",
+      "cond-department": "String",
+      "cond-domain-ids": "String",
+      "cond-mailbox-type": "String",
+      "cond-ad-ou": "String",
+      "duplicate-resolution": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of eap create:\n  -additional string\n    \tAdditional templates JSON array, e.g. '[\"a@{domain}\"]'\n  -cond-ad-ou string\n    \tAD OU condition JSON array, e.g. '[\"OU=Sales\"]'\n  -cond-department string\n    \tDepartment condition JSON array, e.g. '[\"Sales\"]'\n  -cond-domain-ids string\n    \tDomain IDs condition JSON array, e.g. '[5,6]'\n  -cond-mailbox-type string\n    \tMailbox type condition JSON array, e.g. '[\"personal\"]'\n  -duplicate-resolution string\n    \tDuplicate resolution strategy (numeric_suffix, …)\n  -enabled\n    \tEnable policy (default true)\n  -name string\n    \tPolicy name (required)\n  -overwrite\n    \tOverwrite existing directory address\n  -primary string\n    \tPrimary address template, e.g. {given_name}.{surname}@{domain} (required)\n",
+    "override_error": null
+  },
+  "eap update": {
+    "flags": {
+      "id": "Int64",
+      "name": "String",
+      "primary": "String",
+      "additional": "String",
+      "enabled": "Bool",
+      "overwrite": "String",
+      "cond-department": "String",
+      "cond-domain-ids": "String",
+      "cond-mailbox-type": "String",
+      "cond-ad-ou": "String",
+      "duplicate-resolution": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of eap update:\n  -additional string\n    \tAdditional templates JSON array\n  -cond-ad-ou string\n    \tAD OU condition JSON array\n  -cond-department string\n    \tDepartment condition JSON array\n  -cond-domain-ids string\n    \tDomain IDs condition JSON array\n  -cond-mailbox-type string\n    \tMailbox type condition JSON array\n  -duplicate-resolution string\n    \tDuplicate resolution strategy\n  -enabled\n    \tEnable/disable policy\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -overwrite string\n    \tOverwrite directory address (true/false)\n  -primary string\n    \tPrimary address template\n",
+    "override_error": null
+  },
+  "eap apply": {
+    "flags": {
+      "id": "Int64"
+    },
+    "mode": "exit",
+    "help": "Usage of eap apply:\n  -id int\n    \tPolicy ID to apply (omit to apply all enabled policies)\n",
+    "override_error": null
+  },
+  "device wipe": {
+    "flags": {
+      "level": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of device wipe:\n  -level string\n    \tWipe level: account or device (default \"account\")\n",
+    "override_error": null
+  },
+  "quarantine list": {
+    "flags": {
+      "status": "String",
+      "q": "String",
+      "limit": "Int",
+      "offset": "Int"
+    },
+    "mode": "exit",
+    "help": "Usage of quarantine list:\n  -limit int\n    \tPage size (default 50, max 100)\n  -offset int\n    \tPage offset\n  -q string\n    \tSearch subject/from\n  -status string\n    \tFilter: active, released, rejected, all\n",
+    "override_error": null
+  },
+  "identity source validate": {
+    "flags": {
+      "file": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source validate:\n  -file string\n    \tidentity source JSON document\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity source plan": {
+    "flags": {
+      "file": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source plan:\n  -file string\n    \tidentity source JSON document\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity source apply": {
+    "flags": {
+      "file": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source apply:\n  -file string\n    \tidentity source JSON document\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source dry-run": {
+    "flags": {
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source dry-run:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source activate": {
+    "flags": {
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source activate:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source pause": {
+    "flags": {
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source pause:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source resume": {
+    "flags": {
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source resume:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source retire": {
+    "flags": {
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source retire:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity source set-secret": {
+    "flags": {
+      "name": "String",
+      "stdin": "Bool",
+      "file": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source set-secret:\n  -file string\n    \tread secret bytes from a mode-0600 regular file\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -name string\n    \tclosed-catalog secret name\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -stdin\n    \tread secret bytes from stdin\n",
+    "override_error": null
+  },
+  "identity source rotate-secret": {
+    "flags": {
+      "name": "String",
+      "stdin": "Bool",
+      "file": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source rotate-secret:\n  -file string\n    \tread secret bytes from a mode-0600 regular file\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -name string\n    \tclosed-catalog secret name\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -stdin\n    \tread secret bytes from stdin\n",
+    "override_error": null
+  },
+  "identity conflict decide": {
+    "flags": {
+      "decision": "String",
+      "person": "String",
+      "generation": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity conflict decide:\n  -decision string\n    \tlink, create, reject, or defer\n  -generation string\n    \texact candidate generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -person string\n    \tevidenced person ID (link only)\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity doctor": {
+    "flags": {
+      "source": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity doctor:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -source string\n    \toptional normalized source key\n",
+    "override_error": null
+  },
+  "identity inventory export": {
+    "flags": {
+      "output": "String",
+      "yes": "Bool",
+      "y": "Bool",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity inventory export:\n  -json\n    \tJSON output\n  -output string\n    \t0600 JSON output file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\n",
+    "override_error": null
+  },
+  "identity diagnostics": {
+    "flags": {
+      "source": "String",
+      "transition": "String",
+      "since": "String",
+      "reason": "String",
+      "output": "String",
+      "idempotency-key": "String",
+      "timeout": "String",
+      "yes": "Bool",
+      "y": "Bool",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity diagnostics:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -output string\n    \t0600 ZIP output file\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -since string\n    \tevidence lookback, at most 24h\n  -source string\n    \tsource key scope\n  -timeout string\n    \twatch timeout (default \"30m\")\n  -transition string\n    \ttransition UUID scope\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\n",
+    "override_error": null
+  },
+  "identity job watch": {
+    "flags": {
+      "timeout": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity job watch:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -timeout string\n    \twatch timeout (default \"30m\")\n",
+    "override_error": null
+  },
+  "identity job results": {
+    "flags": {
+      "after": "Int64",
+      "limit": "Int",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity job results:\n  -after int\n    \texclusive result sequence cursor\n  -json\n    \tJSON output\n  -limit int\n    \tresult page size, 1..500 (default 100)\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity transition preview": {
+    "flags": {
+      "person": "String",
+      "user": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition preview:\n  -idempotency-key string\n    \tUUID idempotency key\n  -json\n    \tJSON output\n  -person string\n    \ttarget person id\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -user string\n    \tdeprecated alias for --person\n",
+    "override_error": null
+  },
+  "identity transition request": {
+    "flags": {
+      "id": "String",
+      "preview-digest": "String",
+      "elevation": "String",
+      "reason": "String",
+      "approval-request": "Int64",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition request:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition execute": {
+    "flags": {
+      "id": "String",
+      "preview-digest": "String",
+      "elevation": "String",
+      "reason": "String",
+      "approval-request": "Int64",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition execute:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition approve": {
+    "flags": {
+      "id": "String",
+      "preview-digest": "String",
+      "elevation": "String",
+      "reason": "String",
+      "approval-request": "Int64",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition approve:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition deny": {
+    "flags": {
+      "id": "String",
+      "preview-digest": "String",
+      "elevation": "String",
+      "reason": "String",
+      "approval-request": "Int64",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition deny:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition rollback": {
+    "flags": {
+      "id": "String",
+      "preview-digest": "String",
+      "elevation": "String",
+      "reason": "String",
+      "approval-request": "Int64",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition rollback:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition authorize": {
+    "flags": {
+      "preview-digest": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition authorize:\n  -idempotency-key string\n    \tstable challenge UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity transition show": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition show:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity transition watch": {
+    "flags": {
+      "timeout": "Duration",
+      "interval": "Duration",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition watch:\n  -interval duration\n    \tpoll interval (250ms..30s) (default 2s)\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -timeout duration\n    \tmaximum wait (1s..30m) (default 5m0s)\n",
+    "override_error": null
+  },
+  "identity transition cancel": {
+    "flags": {
+      "expected-generation": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition cancel:\n  -expected-generation string\n    \tstrong transition generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition rollback-preview": {
+    "flags": {
+      "expected-generation": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition rollback-preview:\n  -expected-generation string\n    \tstrong transition generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition retry": {
+    "flags": {
+      "effect": "String",
+      "expected-generation": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition retry:\n  -effect string\n    \texact failed effect UUID\n  -expected-generation string\n    \tstrong transition generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity transition export": {
+    "flags": {
+      "output": "String",
+      "yes": "Bool",
+      "y": "Bool",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition export:\n  -json\n    \tJSON output\n  -output string\n    \t0600 JSON output file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\n",
+    "override_error": null
+  },
+  "identity upgrade preflight": {
+    "flags": {
+      "output": "String",
+      "yes": "Bool",
+      "y": "Bool",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade preflight:\n  -json\n    \tJSON output\n  -output string\n    \toptional 0600 JSON evidence file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\n",
+    "override_error": null
+  },
+  "identity upgrade backfill start": {
+    "flags": {
+      "preflight-checksum": "String",
+      "reason": "String",
+      "idempotency-key": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade backfill start:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preflight-checksum string\n    \texact preflight SHA-256\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n",
+    "override_error": null
+  },
+  "identity upgrade shadow": {
+    "flags": {
+      "source": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade shadow:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -source string\n    \tnormalized source key\n",
+    "override_error": null
+  },
+  "identity upgrade canary": {
+    "flags": {
+      "source": "String",
+      "expected-generation": "String",
+      "enabled": "Bool",
+      "users": "String",
+      "reason": "String",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade canary:\n  -enabled\n    \tserve normalized reads for this source\n  -expected-generation string\n    \texact source generation\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -source string\n    \tnormalized source key\n  -users string\n    \tcomma-separated linked user IDs (required when enabled)\n",
+    "override_error": null
+  },
+  "identity upgrade rollback": {
+    "flags": {
+      "reason": "String",
+      "yes": "Bool",
+      "y": "Bool",
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade rollback:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -y\tskip local confirmation\n  -yes\n    \tskip local confirmation\n",
+    "override_error": null
+  },
+  "identity conflict list": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity conflict list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity conflict show": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity conflict show:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity events list": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity events list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity people list": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity people list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity people show": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity people show:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity source list": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity source show": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity source show:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity transition list": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity transition list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity upgrade retirement-check": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade retirement-check:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "identity upgrade status": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of identity upgrade status:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "office doctor": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of office doctor:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "office diagnostics": {
+    "flags": {
+      "json": "Bool",
+      "quiet": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of office diagnostics:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n",
+    "override_error": null
+  },
+  "office recover": {
+    "flags": {
+      "operation": "String",
+      "generation": "Int64",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of office recover:\n  -generation int\n    \texpected operation generation\n  -operation string\n    \tpaused operation UUID\n  -reason string\n    \taudit reason\n",
+    "override_error": "usage: mailctl office recover --operation UUID --generation N --reason TEXT --yes"
+  },
+  "office configure": {
+    "flags": {
+      "provider": "String",
+      "generation": "Int64",
+      "profile": "String",
+      "entitlement-state": "String",
+      "build-id": "String",
+      "discovery-url": "String",
+      "wopi-base-url": "String",
+      "editor-url": "String",
+      "allow-hosts": "String",
+      "allow-cidrs": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of office configure:\n  -allow-cidrs string\n    \tcomma-separated private target CIDRs\n  -allow-hosts string\n    \tcomma-separated exact private target hosts\n  -build-id string\n    \tprovider build identifier\n  -discovery-url string\n    \tHTTPS discovery URL\n  -editor-url string\n    \tHTTPS editor launch URL\n  -entitlement-state string\n    \tsupport entitlement state (default \"unknown\")\n  -generation int\n    \texpected provider generation; zero creates (default -1)\n  -profile string\n    \treadiness profile (default \"existing-provider\")\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\n  -wopi-base-url string\n    \tHTTPS public Setjoin WOPI base URL\n",
+    "override_error": "usage: mailctl office configure --generation N --discovery-url URL --wopi-base-url URL --editor-url URL --reason TEXT [--profile existing-provider]"
+  },
+  "office qualify": {
+    "flags": {
+      "provider": "String",
+      "generation": "Int64",
+      "synthetic-receipt": "Int64",
+      "build-digest": "String",
+      "route-revision": "Int64",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of office qualify:\n  -build-digest string\n    \tmanaged image digest when applicable\n  -generation int\n    \texpected provider generation\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\n  -route-revision int\n    \tingress route revision (default 1)\n  -synthetic-receipt int\n    \taccepted synthetic Office save receipt ID\n",
+    "override_error": "usage: mailctl office qualify --generation N --synthetic-receipt ID --reason TEXT [--build-digest sha256:...]"
+  },
+  "office activate": {
+    "flags": {
+      "provider": "String",
+      "generation": "Int64",
+      "qualification": "String",
+      "scope": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of office activate:\n  -generation int\n    \texpected provider generation\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -qualification string\n    \tqualification UUID\n  -reason string\n    \taudit reason\n  -scope string\n    \trouting scope JSON (default \"{}\")\n",
+    "override_error": "usage: mailctl office activate --generation N --qualification UUID --scope JSON --reason TEXT --yes"
+  },
+  "office install": {
+    "flags": {
+      "provider": "String",
+      "generation": "Int64",
+      "profile": "String",
+      "ingress": "String",
+      "reason": "String",
+      "idempotency-key": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of office install:\n  -generation int\n    \texpected inactive provider generation\n  -idempotency-key string\n    \tcanonical UUID; generated when omitted\n  -ingress string\n    \tingress configuration JSON (default \"{}\")\n  -profile string\n    \tmanaged ingress profile (default \"managed-customer-proxy\")\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\n",
+    "override_error": "usage: mailctl office install --generation N --profile managed-customer-proxy --ingress JSON --reason TEXT --yes"
+  },
+  "audit export": {
+    "flags": {
+      "out": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of audit export:\n  -out string\n    \tWrite CSV to this file instead of stdout\n",
+    "override_error": null
+  },
+  "audit verify-chain": {
+    "flags": {
+      "from": "Int64",
+      "to": "Int64"
+    },
+    "mode": "continue",
+    "help": "Usage of audit verify-chain:\n  -from int\n    \tStart row ID (inclusive; 0 = from the beginning)\n  -to int\n    \tEnd row ID (inclusive; 0 = to the end)\n",
+    "override_error": null
+  },
+  "approval list": {
+    "flags": {
+      "consumer-type": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of approval list:\n  -consumer-type string\n    \tFilter by consumer type: rbac.jit_activation, mail.external_send, mail.group_moderation\n",
+    "override_error": null
+  },
+  "approval create": {
+    "flags": {
+      "consumer-type": "String",
+      "name": "String",
+      "enabled": "Bool",
+      "conditions": "String",
+      "requires-approval": "Bool",
+      "approver-spec": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of approval create:\n  -approver-spec string\n    \tApprover spec JSON object (default \"{}\")\n  -conditions string\n    \tConditions JSON object (default \"{}\")\n  -consumer-type string\n    \tConsumer type: rbac.jit_activation, mail.external_send, mail.group_moderation (required)\n  -enabled\n    \tEnable policy (default true)\n  -name string\n    \tPolicy name (required)\n  -requires-approval\n    \tRequire approval (false = auto-allow on match) (default true)\n",
+    "override_error": null
+  },
+  "approval update": {
+    "flags": {
+      "id": "Int64",
+      "name": "String",
+      "enabled": "Bool",
+      "conditions": "String",
+      "requires-approval": "Bool",
+      "approver-spec": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of approval update:\n  -approver-spec string\n    \tApprover spec JSON object\n  -conditions string\n    \tConditions JSON object\n  -enabled\n    \tEnable/disable policy\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -requires-approval\n    \tRequire approval\n",
+    "override_error": null
+  },
+  "approval reorder": {
+    "flags": {
+      "consumer-type": "String"
+    },
+    "mode": "exit",
+    "help": "Usage of approval reorder:\n  -consumer-type string\n    \tConsumer type (required)\n",
+    "override_error": null
+  },
+  "approval export": {
+    "flags": {
+      "consumer-type": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of approval export:\n  -consumer-type string\n    \tFilter by consumer type\n",
+    "override_error": null
+  },
+  "approval apply": {
+    "flags": {
+      "f": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of approval apply:\n  -f string\n    \tPolicy document file (JSON array; - for stdin)\n",
+    "override_error": null
+  },
+  "approval audit": {
+    "flags": {
+      "limit": "Int",
+      "offset": "Int"
+    },
+    "mode": "continue",
+    "help": "Usage of approval audit:\n  -limit int\n    \tMax rows to return (default 50)\n  -offset int\n    \tRow offset\n",
+    "override_error": null
+  },
+  "role create": {
+    "flags": {
+      "name": "String",
+      "desc": "String",
+      "permissions": "String",
+      "domain-scope": "Int64",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role create:\n  -desc string\n    \tDescription\n  -domain-scope int\n    \tDomain scope ID (0 = global)\n  -name string\n    \tRole name (required)\n  -permissions string\n    \tComma-separated permission keys (required)\n  -reason string\n    \tAudit reason (required)\n",
+    "override_error": null
+  },
+  "role update": {
+    "flags": {
+      "id": "Int64",
+      "name": "String",
+      "desc": "String",
+      "permissions": "String",
+      "domain-scope": "Int64",
+      "sod-class": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role update:\n  -desc string\n    \tDescription\n  -domain-scope int\n    \tDomain scope ID (<=0 clears to global)\n  -id int\n    \tRole ID (required)\n  -name string\n    \tRole name\n  -permissions string\n    \tComma-separated permission keys\n  -reason string\n    \tAudit reason (required)\n  -sod-class string\n    \tSoD class (empty clears)\n",
+    "override_error": null
+  },
+  "role delete": {
+    "flags": {
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role delete:\n  -reason string\n    \tAudit reason (required)\n",
+    "override_error": null
+  },
+  "role grant": {
+    "flags": {
+      "role": "String",
+      "expires": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role grant:\n  -expires string\n    \tExpiry (RFC3339) for a time-boxed grant\n  -reason string\n    \tAudit reason (required)\n  -role string\n    \tRole name (required)\n",
+    "override_error": null
+  },
+  "role revoke": {
+    "flags": {
+      "role": "String",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role revoke:\n  -reason string\n    \tAudit reason (required)\n  -role string\n    \tRole name (required)\n",
+    "override_error": null
+  },
+  "role apply": {
+    "flags": {
+      "f": "String",
+      "prune": "Bool",
+      "reason": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of role apply:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tDelete live roles/members absent from the document\n  -reason string\n    \tAudit reason (required)\n",
+    "override_error": null
+  },
+  "role diff": {
+    "flags": {
+      "f": "String",
+      "prune": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of role diff:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tInclude deletions (roles/members absent from the document)\n",
+    "override_error": null
+  }
+}

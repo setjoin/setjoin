@@ -1,0 +1,85 @@
+package testutil
+
+import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"setjoin.com/shared/release"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Test-only overlay; frozen production Go is never edited. Never overwrite goldens.
+func TestREL2ManifestPolicyRecord(t *testing.T) {
+	now := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	raw, key, err := SignedManifest(now, release.ChannelCommunity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []map[string]any{}
+	for _, name := range []string{"fixture-success", "wrong-key-id", "wrong-public-key", "tampered-manifest", "metadata-rollback", "metadata-equivocation", "wrong-channel", "wrong-architecture", "production-threshold"} {
+		trusted := key
+		input := append([]byte(nil), raw...)
+		options := release.VerifyManifestOptions{Now: now, MinimumThreshold: 1}
+		flags := []string{"--allow-test-roots", "--now", now.Format(time.RFC3339), "--minimum-threshold", "1"}
+		switch name {
+		case "wrong-key-id":
+			trusted.ID = "wrong-key"
+		case "wrong-public-key":
+			trusted.PublicKey = ed25519.NewKeyFromSeed([]byte(strings.Repeat("w", 32))).Public().(ed25519.PublicKey)
+		case "tampered-manifest":
+			input = []byte(strings.Replace(string(input), `"version":"2.1.0"`, `"version":"9.9.9"`, 1))
+		case "metadata-rollback":
+			options.LastMetadataVersion = 2
+			flags = append(flags, "--last-metadata-version", "2")
+		case "metadata-equivocation":
+			options.LastMetadataVersion = 1
+			options.LastMetadataDigest = strings.Repeat("f", 64)
+			flags = append(flags, "--last-metadata-version", "1", "--last-metadata-digest", options.LastMetadataDigest)
+		case "wrong-channel":
+			options.Channel = release.ChannelEnterprise
+			flags = append(flags, "--channel", "enterprise")
+		case "wrong-architecture":
+			options.Architecture = "arm64"
+			flags = append(flags, "--architecture", "arm64")
+		case "production-threshold":
+			options.MinimumThreshold = 2
+			flags = flags[:len(flags)-2]
+			flags = append(flags, "--minimum-threshold", "2")
+		}
+		store, err := release.NewTrustStore([]release.TrustedKey{trusted}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verified, verifyErr := store.VerifyManifest(input, options)
+		output := map[string]any{"accepted": verifyErr == nil}
+		if verifyErr != nil {
+			output["error"] = verifyErr.Error()
+		} else {
+			output["canonical"] = string(verified.CanonicalBytes)
+			output["sha256"] = verified.Digest
+			output["signer_key_ids"] = verified.SignerKeyIDs
+		}
+		roots := map[string]any{"schema_version": 1, "purpose": "release", "keys": []any{map[string]any{"id": trusted.ID, "algorithm": "ed25519", "public_key": base64.RawStdEncoding.EncodeToString(trusted.PublicKey), "test_only": true}}}
+		cases = append(cases, map[string]any{"name": name, "manifest": json.RawMessage(input), "roots": roots, "flags": flags, "output": output})
+	}
+	data, err := json.MarshalIndent(map[string]any{"go_source": os.Getenv("GOFREE_GO_SOURCE"), "cases": cases}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := os.Getenv("REL2_RECORD_DIR")
+	if dir == "" {
+		t.Fatal("REL2_RECORD_DIR required")
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "manifest-policy.json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err = f.Write(append(data, '\n')); err != nil {
+		t.Fatal(err)
+	}
+}

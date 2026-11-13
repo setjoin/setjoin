@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl exchange assess sample --output <new-dir> [--json]\n",
+  "exit": 2
+}

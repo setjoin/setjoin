@@ -1,0 +1,11 @@
+package federation
+import("encoding/json";"os";"path/filepath";"testing")
+// Exported wire-frame seam with the frozen production ephemeral payload codec.
+func TestRecordTypingFrames(t *testing.T) {
+ out:=map[string]string{}
+ for name,payload:=range map[string]ephemeralPayload{"dm":{Op:"typing",FromAddr:"alice@zulu.test",ToAddr:"bob@alpha.test"},"room":{Op:"typing",RoomID:"room@zulu.test"}} {
+  b,e:=json.Marshal(Frame{Kind:KindEphemeral,Payload:mustJSON(payload)});if e!=nil{t.Fatal(e)};out[name]=string(b)
+ }
+ b,e:=json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"frames":out},"","  ");if e!=nil{t.Fatal(e)}
+ f,e:=os.OpenFile(filepath.Join(os.Getenv("FED_ORACLE_DIR"),"typing-go.json"),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0644);if e!=nil{t.Fatal(e)};defer f.Close();_,e=f.Write(append(b,'\n'));if e!=nil{t.Fatal(e)}
+}

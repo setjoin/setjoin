@@ -1,0 +1,44 @@
+{
+  "case": "worker-unfurl-image_wrong_type",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "http": [
+      {
+        "method": "GET",
+        "uri": "/image_wrong_type/<actor>"
+      },
+      {
+        "method": "GET",
+        "uri": "/cover.png"
+      }
+    ],
+    "notify": [
+      {
+        "channelId": "<channel>",
+        "event": "message_edited",
+        "messageId": "<message>",
+        "seq": null
+      }
+    ],
+    "preview": {
+      "description": null,
+      "image": null,
+      "status": "ok",
+      "title": "Picture article"
+    },
+    "row": {
+      "changeSeq": 1,
+      "payload": {
+        "preview": {
+          "appliedBy": "chat_message_unfurl_apply",
+          "description": null,
+          "imageSha256": null,
+          "title": "Picture article",
+          "url": "<url>"
+        }
+      },
+      "seq": 1
+    }
+  }
+}

@@ -1,0 +1,223 @@
+{
+  "case": "foreign",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "devices": [
+            {
+              "attachment_prefetch_pref": "never",
+              "automatic_network_pref": "unmetered",
+              "background_sync_enabled": true,
+              "device_id": 985010,
+              "device_name": "Own desktop",
+              "fingerprint_hash": "\\x66696e6765727072696e74",
+              "id": 986001,
+              "last_seen_at": "<timestamp>",
+              "last_seen_ip": null,
+              "offline_approval": "pending",
+              "offline_approval_at": null,
+              "offline_approval_by": null,
+              "offline_opt_in": false,
+              "offline_window_days": null,
+              "platform": "desktop",
+              "push_provider": null,
+              "push_token_enc": null,
+              "registered_at": "<timestamp>",
+              "user_id": "<admin>",
+              "wipe_acked_at": null,
+              "wipe_at": null,
+              "wipe_requested": false,
+              "wipe_type": null
+            },
+            {
+              "attachment_prefetch_pref": "never",
+              "automatic_network_pref": "unmetered",
+              "background_sync_enabled": true,
+              "device_id": 985011,
+              "device_name": "Other desktop",
+              "fingerprint_hash": "\\x6f746865722d66696e6765727072696e74",
+              "id": 986002,
+              "last_seen_at": "<timestamp>",
+              "last_seen_ip": null,
+              "offline_approval": "pending",
+              "offline_approval_at": null,
+              "offline_approval_by": null,
+              "offline_opt_in": false,
+              "offline_window_days": null,
+              "platform": "desktop",
+              "push_provider": null,
+              "push_token_enc": null,
+              "registered_at": "<timestamp>",
+              "user_id": "<other>",
+              "wipe_acked_at": null,
+              "wipe_at": null,
+              "wipe_requested": false,
+              "wipe_type": null
+            }
+          ],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "devices": [
+            {
+              "attachment_prefetch_pref": "never",
+              "automatic_network_pref": "unmetered",
+              "background_sync_enabled": true,
+              "device_id": 985010,
+              "device_name": "Own desktop",
+              "fingerprint_hash": "\\x66696e6765727072696e74",
+              "id": 986001,
+              "last_seen_at": "<timestamp>",
+              "last_seen_ip": null,
+              "offline_approval": "pending",
+              "offline_approval_at": null,
+              "offline_approval_by": null,
+              "offline_opt_in": false,
+              "offline_window_days": null,
+              "platform": "desktop",
+              "push_provider": null,
+              "push_token_enc": null,
+              "registered_at": "<timestamp>",
+              "user_id": "<admin>",
+              "wipe_acked_at": null,
+              "wipe_at": null,
+              "wipe_requested": false,
+              "wipe_type": null
+            },
+            {
+              "attachment_prefetch_pref": "never",
+              "automatic_network_pref": "unmetered",
+              "background_sync_enabled": true,
+              "device_id": 985011,
+              "device_name": "Other desktop",
+              "fingerprint_hash": "\\x6f746865722d66696e6765727072696e74",
+              "id": 986002,
+              "last_seen_at": "<timestamp>",
+              "last_seen_ip": null,
+              "offline_approval": "pending",
+              "offline_approval_at": null,
+              "offline_approval_by": null,
+              "offline_opt_in": false,
+              "offline_window_days": null,
+              "platform": "desktop",
+              "push_provider": null,
+              "push_token_enc": null,
+              "registered_at": "<timestamp>",
+              "user_id": "<other>",
+              "wipe_acked_at": null,
+              "wipe_at": null,
+              "wipe_requested": false,
+              "wipe_type": null
+            }
+          ],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "offline_policies+feature_toggles+user_devices"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/offline/devices/pending",
+      "method": "GET",
+      "path": "/admin/offline/devices/pending"
+    },
+    "response": {
+      "body": "[{\"id\": 986002, \"user_id\": \"<other>\", \"platform\": \"desktop\", \"device_name\": \"Other desktop\", \"last_seen_at\": \"<timestamp>\", \"offline_approval\": \"pending\"}, {\"id\": 986001, \"user_id\": \"<admin>\", \"platform\": \"desktop\", \"device_name\": \"Own desktop\", \"last_seen_at\": \"<timestamp>\", \"offline_approval\": \"pending\"}]",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "308"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/offline/devices/pending"
+}

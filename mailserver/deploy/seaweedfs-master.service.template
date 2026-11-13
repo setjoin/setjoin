@@ -1,0 +1,53 @@
+[Unit]
+Description=SeaweedFS Master + Volume + Filer + S3
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=seaweedfs
+Group=seaweedfs
+ExecStart=/usr/local/bin/weed server \
+  -master.peers={{.Peers}} \
+  -master.port=9333 \
+  -master.defaultReplication=001 \
+  -volume.port=8080 \
+  -volume.max=100 \
+  -dir=/data/seaweedfs \
+  -filer \
+  -s3 \
+  -s3.port=9000 \
+  -s3.config=/etc/mail/seaweedfs-s3.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Security hardening — same sandbox floor as the sibling units in this
+# directory (mailserver.service.template, authserver.service.template).
+#
+# Network exposure: master/volume/S3 listen on 9333/8080/9000. The weed flags
+# that restrict binds/advertised addresses differ across SeaweedFS releases;
+# before internet-facing use, (a) pin the release's bind flags (e.g. -ip.bind
+# / -volume.bindIp / -s3.bindIp where supported) to the cluster interface or
+# loopback, and (b) firewall 9333/8080/tcp (cluster peers only), 8888 (filer,
+# when enabled), and 9000/tcp (S3, loopback on the single-node track) — see
+# docs/guides/HA_OVERVIEW.md for the HA firewall table.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# weed needs no Linux capabilities on its own seaweedfs-owned data dir (all
+# its ports are unprivileged): drop the set entirely.
+CapabilityBoundingSet=
+ReadWritePaths=/data/seaweedfs /var/log/seaweedfs /tmp
+
+[Install]
+WantedBy=multi-user.target

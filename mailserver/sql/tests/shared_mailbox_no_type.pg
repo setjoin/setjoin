@@ -1,0 +1,67 @@
+-- pgTAP: shared_mailbox_no_type.pg
+-- Regression guard: shared mailboxes use mailbox_delegates, not mailboxes.type.
+-- Proves send-as delegation works with a personal-type shared mailbox.
+BEGIN;
+SELECT plan(2);
+
+SET LOCAL app.skip_rules='true';
+SET LOCAL app.skip_dlp='true';
+SET LOCAL app.skip_retention='true';
+SET LOCAL app.skip_journaling='true';
+
+INSERT INTO domains (name, is_local) VALUES ('shared.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('ext.shared.test', FALSE);
+
+-- ADR-003: DIVERGENT ids. send(p_user_id, p_mailbox_id, …) takes the sender USER
+-- id then the sending MAILBOX id. Owner user 108001 owns mailbox 8001; delegate
+-- user 108002 owns mailbox 8002; the shared mailbox 8003 has user_id NULL. The
+-- delegate grant + the send() call carry the real USER ids (not the mailbox ids),
+-- so a user/mailbox swap in the send path is no longer masked.
+-- Owner user + primary mailbox
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (108001, 'owner_shared', (SELECT id FROM domains WHERE name = 'shared.test'),
+          'owner@shared.test', 'Owner', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8001, 108001, (SELECT id FROM domains WHERE name = 'shared.test'),
+          'owner@shared.test', 'Owner', 'personal', TRUE);
+
+-- Delegate user + primary mailbox
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (108002, 'delegate_shared', (SELECT id FROM domains WHERE name = 'shared.test'),
+          'delegate@shared.test', 'Delegate', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8002, 108002, (SELECT id FROM domains WHERE name = 'shared.test'),
+          'delegate@shared.test', 'Delegate', 'personal', TRUE);
+
+-- Shared mailbox: personal-type, user_id NULL (shared mailbox signal is mailbox_delegates, not type)
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8003, NULL, (SELECT id FROM domains WHERE name = 'shared.test'),
+          'shared@shared.test', 'Shared Mailbox', 'personal', FALSE);
+
+-- Grant delegate send_as on the shared mailbox (granted_by = owner)
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (8003, 108002, 'send_as', 108001);
+
+-- Test 1: delegate can send from the shared mailbox (send-as via mailbox_delegates, not type)
+SELECT lives_ok(
+  $$ SELECT send(
+       108002,
+       8003,
+       'ref_shared_1', '<msg-shared-1@shared.test>',
+       'shared@shared.test',
+       '[{"email":"ext@ext.shared.test"}]'::JSONB,
+       '[]'::JSONB,
+       '[]'::JSONB,
+       'Test Send-As', NULL, NULL, 'body text', NULL, 100, FALSE, NULL) $$,
+  'delegate can send from personal-type shared mailbox via mailbox_delegates'
+);
+
+-- Test 2: outbound queue has the external recipient queued
+SELECT is(
+  (SELECT COUNT(*) FROM outbound_queue_hot WHERE 'ext@ext.shared.test' = ANY(rcpt_addrs)),
+  1::BIGINT,
+  'external recipient queued in outbound_queue_hot after shared mailbox send-as'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

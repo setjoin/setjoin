@@ -1,0 +1,23 @@
+{
+  "case": "on-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "enabled": true,
+          "key": "dengbao.sod_mode"
+        }
+      ],
+      "before": [
+        {
+          "enabled": true,
+          "key": "dengbao.sod_mode"
+        }
+      ],
+      "table": "feature_toggles"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/dengbao/sod-mode"
+}

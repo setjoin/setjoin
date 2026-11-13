@@ -1,0 +1,293 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "action": "office.provider.remove",
+          "after_state": {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": null,
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "not_permitted",
+            "generation": 3,
+            "provider_id": "office1",
+            "removed_at": "<timestamp>",
+            "route_state": "active_for_scope",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          },
+          "before_state": {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": true,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "active_for_scope",
+            "updated_at": "<timestamp>",
+            "updated_by": null
+          },
+          "id": "<audit:0>",
+          "ip": null,
+          "notes": "Office1 parity",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "office_provider",
+          "user_id": "<actor>"
+        },
+        {
+          "action": "office.provider.remove",
+          "after_state": {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": null,
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "not_permitted",
+            "generation": 4,
+            "provider_id": "office1",
+            "removed_at": "<timestamp>",
+            "route_state": "active_for_scope",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          },
+          "before_state": {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": null,
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "not_permitted",
+            "generation": 3,
+            "provider_id": "office1",
+            "removed_at": "<timestamp>",
+            "route_state": "active_for_scope",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          },
+          "id": "<audit:1>",
+          "ip": null,
+          "notes": "Office1 parity",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "office_provider",
+          "user_id": "<actor>"
+        }
+      ],
+      "before": [],
+      "table": "core_audit"
+    },
+    {
+      "after": [
+        {
+          "action": "edit_online",
+          "actor_user_id": "<actor>",
+          "created_at": "<timestamp>",
+          "device_id": "device1",
+          "expires_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<launch:0>",
+          "provenance_confidence": "actor",
+          "revocation_generation": 2,
+          "revoked_at": "<timestamp>",
+          "session_id": "<session:0>",
+          "space_id": "<space>",
+          "token_hash": "<launch-hash>"
+        }
+      ],
+      "before": [
+        {
+          "action": "edit_online",
+          "actor_user_id": "<actor>",
+          "created_at": "<timestamp>",
+          "device_id": "device1",
+          "expires_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<launch:0>",
+          "provenance_confidence": "actor",
+          "revocation_generation": 1,
+          "revoked_at": null,
+          "session_id": "<session:0>",
+          "space_id": "<space>",
+          "token_hash": "<launch-hash>"
+        }
+      ],
+      "table": "launches"
+    },
+    {
+      "after": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": null,
+          "config": {},
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": false,
+          "entitlement_ref": null,
+          "entitlement_state": "not_permitted",
+          "generation": 4,
+          "provider_id": "office1",
+          "removed_at": "<timestamp>",
+          "route_state": "active_for_scope",
+          "updated_at": "<timestamp>",
+          "updated_by": "<actor>"
+        }
+      ],
+      "before": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/launch",
+            "proofMode": "test_disabled",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": true,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 2,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "active_for_scope",
+          "updated_at": "<timestamp>",
+          "updated_by": null
+        }
+      ],
+      "table": "providers"
+    },
+    {
+      "after": [
+        {
+          "base_version_id": "<version:0>",
+          "branch_id": null,
+          "cohort_key": "cohort1",
+          "created_at": "<timestamp>",
+          "fence_generation": 2,
+          "file_node_id": "<file>",
+          "id": "<session:0>",
+          "lease_expires_at": "<timestamp>",
+          "lock_epoch": 1,
+          "provider_id": "office1",
+          "space_id": "<space>",
+          "status": "revoked",
+          "terminal_reason": "provider_removed",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "before": [
+        {
+          "base_version_id": "<version:0>",
+          "branch_id": null,
+          "cohort_key": "cohort1",
+          "created_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<session:0>",
+          "lease_expires_at": "<timestamp>",
+          "lock_epoch": 1,
+          "provider_id": "office1",
+          "space_id": "<space>",
+          "status": "active",
+          "terminal_reason": null,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "table": "sessions"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "DELETE /admin/office/providers/{providerId}"
+}

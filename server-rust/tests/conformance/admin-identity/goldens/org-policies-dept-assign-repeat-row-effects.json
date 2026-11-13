@@ -1,0 +1,303 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "assignments": [
+          {
+            "department": "admin10-eng",
+            "user": "target"
+          }
+        ],
+        "departments": [
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940004,
+            "ldap_ou": "ou=empty",
+            "name": "admin10-empty",
+            "parent_id": null,
+            "path": "admin10-empty",
+            "sort_order": 3,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940001,
+            "ldap_ou": "ou=eng",
+            "name": "admin10-eng",
+            "parent_id": null,
+            "path": "admin10-eng",
+            "sort_order": 1,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940002,
+            "ldap_ou": "ou=sub",
+            "name": "admin10-sub",
+            "parent_id": 940001,
+            "path": "admin10-eng/admin10-sub",
+            "sort_order": 1,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940003,
+            "ldap_ou": "ou=ops",
+            "name": "admin10-ops",
+            "parent_id": null,
+            "path": "admin10-ops",
+            "sort_order": 2,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940005,
+            "ldap_ou": "ou=used",
+            "name": "admin10-used",
+            "parent_id": null,
+            "path": "admin10-used",
+            "sort_order": 4,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ],
+        "jobs": [
+          {
+            "applied": 5,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": null,
+            "id": 960001,
+            "policy_id": 950001,
+            "status": "done",
+            "total": 5,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "applied": 1,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": "boom <&> failed",
+            "id": 960002,
+            "policy_id": null,
+            "status": "error",
+            "total": 2,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "applied": 0,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": null,
+            "id": 960003,
+            "policy_id": 950002,
+            "status": "queued",
+            "total": null,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ],
+        "policies": [
+          {
+            "additional_templates": [
+              "{first_initial}{surname}@{domain}"
+            ],
+            "cond_ad_ou": null,
+            "cond_department": [
+              "admin10-eng"
+            ],
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": true,
+            "id": 950001,
+            "name": "admin10-policy-one",
+            "overwrite_directory_address": false,
+            "primary_template": "{given_name}.{surname}@{domain}",
+            "priority": 10,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "additional_templates": null,
+            "cond_ad_ou": null,
+            "cond_department": null,
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": false,
+            "id": 950003,
+            "name": "admin10-policy-three",
+            "overwrite_directory_address": false,
+            "primary_template": "{given_name}@{domain}",
+            "priority": 20,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "additional_templates": null,
+            "cond_ad_ou": null,
+            "cond_department": null,
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": true,
+            "id": 950002,
+            "name": "admin10-policy-two",
+            "overwrite_directory_address": false,
+            "primary_template": "{user_name}@{domain}",
+            "priority": 20,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ]
+      },
+      "before": {
+        "assignments": [
+          {
+            "department": "admin10-eng",
+            "user": "target"
+          }
+        ],
+        "departments": [
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940004,
+            "ldap_ou": "ou=empty",
+            "name": "admin10-empty",
+            "parent_id": null,
+            "path": "admin10-empty",
+            "sort_order": 3,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940001,
+            "ldap_ou": "ou=eng",
+            "name": "admin10-eng",
+            "parent_id": null,
+            "path": "admin10-eng",
+            "sort_order": 1,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940002,
+            "ldap_ou": "ou=sub",
+            "name": "admin10-sub",
+            "parent_id": 940001,
+            "path": "admin10-eng/admin10-sub",
+            "sort_order": 1,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940003,
+            "ldap_ou": "ou=ops",
+            "name": "admin10-ops",
+            "parent_id": null,
+            "path": "admin10-ops",
+            "sort_order": 2,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "id": 940005,
+            "ldap_ou": "ou=used",
+            "name": "admin10-used",
+            "parent_id": null,
+            "path": "admin10-used",
+            "sort_order": 4,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ],
+        "jobs": [
+          {
+            "applied": 5,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": null,
+            "id": 960001,
+            "policy_id": 950001,
+            "status": "done",
+            "total": 5,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "applied": 1,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": "boom <&> failed",
+            "id": 960002,
+            "policy_id": null,
+            "status": "error",
+            "total": 2,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "applied": 0,
+            "created_at": "2026-10-01 12:00:00+00",
+            "error": null,
+            "id": 960003,
+            "policy_id": 950002,
+            "status": "queued",
+            "total": null,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ],
+        "policies": [
+          {
+            "additional_templates": [
+              "{first_initial}{surname}@{domain}"
+            ],
+            "cond_ad_ou": null,
+            "cond_department": [
+              "admin10-eng"
+            ],
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": true,
+            "id": 950001,
+            "name": "admin10-policy-one",
+            "overwrite_directory_address": false,
+            "primary_template": "{given_name}.{surname}@{domain}",
+            "priority": 10,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "additional_templates": null,
+            "cond_ad_ou": null,
+            "cond_department": null,
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": false,
+            "id": 950003,
+            "name": "admin10-policy-three",
+            "overwrite_directory_address": false,
+            "primary_template": "{given_name}@{domain}",
+            "priority": 20,
+            "updated_at": "2026-10-01 12:00:00+00"
+          },
+          {
+            "additional_templates": null,
+            "cond_ad_ou": null,
+            "cond_department": null,
+            "cond_domain_ids": null,
+            "cond_mailbox_type": null,
+            "created_at": "2026-10-01 12:00:00+00",
+            "duplicate_resolution": "numeric_suffix",
+            "enabled": true,
+            "id": 950002,
+            "name": "admin10-policy-two",
+            "overwrite_directory_address": false,
+            "primary_template": "{user_name}@{domain}",
+            "priority": 20,
+            "updated_at": "2026-10-01 12:00:00+00"
+          }
+        ]
+      },
+      "table": "org-policies"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/departments/assign-user"
+}

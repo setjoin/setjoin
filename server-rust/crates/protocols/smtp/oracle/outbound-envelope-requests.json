@@ -1,0 +1,32 @@
+[
+  {
+    "name": "from-crlf",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nUPDATE outbound_queue SET from_addr=E'sender\\r\\nRSET@dest.test' WHERE id=9350011;",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1
+  },
+  {
+    "name": "recipient-control",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nUPDATE outbound_queue SET rcpt_addrs=ARRAY[E'bad\\001@dest.test'] WHERE id=9350011;",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1
+  },
+  {
+    "name": "recipient-del",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nUPDATE outbound_queue SET rcpt_addrs=ARRAY[E'bad\\177@dest.test'] WHERE id=9350011;",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1
+  }
+]

@@ -1,0 +1,33 @@
+{
+  "case": "mailbox-lifecycle-media-transport",
+  "format": 1,
+  "go_source": "127ef4112217d39b31ef84c8ecbe4d38f54a3915",
+  "observation": {
+    "calls": [],
+    "effects": [
+      [
+        "failed",
+        1,
+        "twirp error internal: failed to do request: Post \"<livekit>/twirp/livekit.RoomService/RemoveParticipant\": dial tcp <livekit-address>: connect: connection refused",
+        false
+      ]
+    ],
+    "targets": [
+      [
+        "a-room",
+        "u:one",
+        false
+      ],
+      [
+        "completed-room",
+        "u:gone",
+        true
+      ],
+      [
+        "z-room",
+        "u:two",
+        false
+      ]
+    ]
+  }
+}

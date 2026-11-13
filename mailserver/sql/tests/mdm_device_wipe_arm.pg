@@ -1,0 +1,259 @@
+-- mdm_device_wipe_arm.pg: MDM admin wipe arming — the reducer-authoritative
+-- destructive-state transition. Proves the arm lands state + core-tier audit
+-- row + durable device_events row + device_policy NOTIFY in ONE transaction
+-- (all-or-none, via an arm-then-abort probe), that retries are idempotent
+-- without duplicate evidence, that conflicts/executed fail with BZ054, that
+-- unknown AND out-of-scope targets fail closed with BZ053 (no existence
+-- oracle), that an owner moved OUT of the actor's domain scope after the
+-- device came into view is rejected with ZERO partial audit/event/notify
+-- effects (the Astra med-shard3-014 fix: the mutation re-checks the same
+-- owner-derived scope predicate its scoped SELECT used — the device row lock
+-- freezes wipe_requested/user_id but NOT the owner's users.domain_id), and
+-- that the NOTIFY carries the MAM-console registry id (parity with
+-- lock/unlock device_events/notify semantics).
+-- Requires: mdm_device_wipe_arm, audit_write, app_notify, _fixtures (capture
+-- helpers), mdm_device_state, admin_audit_log, device_events, device_registry.
+BEGIN;
+SELECT plan(39);
+
+-- ── fixtures (rolled back with the test transaction) ─────────────────────
+INSERT INTO domains (name, is_local) VALUES ('mdm-wipe.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO domains (name, is_local) VALUES ('mdm-wipe-b.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_a FROM domains WHERE name = 'mdm-wipe.test' \gset
+SELECT id AS dom_b FROM domains WHERE name = 'mdm-wipe-b.test' \gset
+
+-- 92199 = arming admin (audit actor); 92151/92152 = device owners;
+-- 92153 = the owner whose domain move the Phase 6 race case replays.
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (92199,'mdm-wipe-admin',:'dom_a','wipe-admin@mdm-wipe.test','Wipe Admin',crypt('x',gen_salt('bf')),FALSE),
+       (92151,'mdm-wipe-owner',:'dom_a','wipe-owner@mdm-wipe.test','Wipe Owner',crypt('x',gen_salt('bf')),FALSE),
+       (92152,'mdm-wipe-owner-b',:'dom_b','wipe-owner-b@mdm-wipe-b.test','Wipe Owner B',crypt('x',gen_salt('bf')),FALSE),
+       (92153,'mdm-wipe-owner-moved',:'dom_a','wipe-owner-moved@mdm-wipe.test','Wipe Owner Moved',crypt('x',gen_salt('bf')),FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+\set dev_a '41111111-1111-1111-1111-111111111111'
+\set dev_c '41333333-3333-3333-3333-333333333333'
+\set dev_e '41555555-5555-5555-5555-555555555555'
+\set dev_f '41666666-6666-6666-6666-666666666666'
+\set dev_g '41777777-7777-7777-7777-777777777777'
+
+INSERT INTO mdm_device_state (device_id, user_id, platform, device_name, os_version, app_version,
+                              compliance_status, wipe_requested, wipe_level)
+VALUES (:'dev_a'::uuid, 92151, 'ios', 'Wipe A', '17.0', '1.0', 'compliant', 'none', NULL),
+       (:'dev_c'::uuid, 92151, 'android', 'Wipe C', '14', '1.0', 'compliant', 'none', NULL),
+       (:'dev_e'::uuid, 92152, 'ios', 'Wipe E', '17.1', '1.0', 'compliant', 'none', NULL),
+       (:'dev_f'::uuid, 92151, 'ios', 'Wipe F', '17.2', '1.0', 'compliant', 'none', NULL),
+       (:'dev_g'::uuid, 92153, 'ios', 'Wipe G', '17.3', '1.0', 'compliant', 'none', NULL);
+
+-- MAM console registry projection for dev_c: the numeric id the notify
+-- payload carries (resolved the same way the console list joins).
+INSERT INTO device_registry (user_id, device_hash, device_fingerprint)
+VALUES (92151, 'mdm-wipe-c-registry', :'dev_c'::uuid);
+SELECT id AS reg_c FROM device_registry WHERE device_hash = 'mdm-wipe-c-registry' \gset
+
+-- ══ Phase 1: device A — state + audit + events land together ══════════════
+
+-- 1: the arm reports armed.
+SELECT is(
+  (mdm_device_wipe_arm(:'dev_a'::uuid, 'account', 0, 92199))->>'result',
+  'armed', 'arm from none reports armed');
+
+-- 2-3: the state transition landed (none → pending, level + timestamp).
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id = :'dev_a'::uuid),
+          'pending', 'wipe state transitioned to pending');
+SELECT isnt((SELECT wipe_requested_at FROM mdm_device_state WHERE device_id = :'dev_a'::uuid),
+            NULL, 'wipe_requested_at written by the arm');
+
+-- 4-6: durable audit evidence (core tier, actor identity, device, level).
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND user_id = 92199
+              AND notes = :'dev_a'),
+          1::bigint, 'exactly one core audit row for the arm');
+SELECT is((SELECT target_type FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_a'),
+          'mdm_device', 'audit row targets mdm_device');
+SELECT is((SELECT after_state->>'wipe_level' FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_a'),
+          'account', 'audit after_state carries the armed level');
+
+-- 7-9: durable device_events evidence (lock/unlock parity, FK-honest).
+SELECT is((SELECT count(*) FROM device_events
+            WHERE event_type = 'wipe_requested' AND details->>'mdm_device_id' = :'dev_a'),
+          1::bigint, 'exactly one device_events wipe row');
+SELECT is((SELECT severity FROM device_events
+            WHERE details->>'mdm_device_id' = :'dev_a'),
+          'critical', 'device_events wipe row is critical');
+SELECT is((SELECT device_id IS NULL FROM device_events WHERE details->>'mdm_device_id' = :'dev_a'),
+          TRUE, 'device_events.device_id stays NULL (no canonical devices.id for an MDM uuid)');
+
+-- 10-13: idempotent same-level retry — no second transition, no duplicate
+-- evidence, no timestamp rewrite.
+SELECT is(
+  (mdm_device_wipe_arm(:'dev_a'::uuid, 'account', 0, 92199))->>'result',
+  'already_armed', 'same-level retry reports already_armed');
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_a'),
+          1::bigint, 'idempotent retry wrote NO second audit row');
+SELECT is((SELECT count(*) FROM device_events
+            WHERE event_type = 'wipe_requested' AND details->>'mdm_device_id' = :'dev_a'),
+          1::bigint, 'idempotent retry wrote NO second device_events row');
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm'
+              AND after_state->>'wipe_level' = 'device' AND notes = :'dev_a'),
+          0::bigint, 'no evidence of a level the device was never armed at');
+
+-- 14-16: different-level mid-flight conflict (BZ054) — state untouched, no
+-- partial evidence for the rejected arm.
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41111111-1111-1111-1111-111111111111'::uuid, 'device', 0, 92199) $$,
+  'BZ054', NULL, 'different-level mid-flight arm raises BZ054');
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_a'),
+          1::bigint, 'rejected arm wrote NO audit row');
+SELECT is((SELECT count(*) FROM device_events
+            WHERE event_type = 'wipe_requested' AND details->>'mdm_device_id' = :'dev_a'),
+          1::bigint, 'rejected arm wrote NO device_events row');
+
+-- 17: executed is terminal (BZ054).
+UPDATE mdm_device_state SET wipe_requested = 'executed' WHERE device_id = :'dev_a'::uuid;
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41111111-1111-1111-1111-111111111111'::uuid, 'account', 0, 92199) $$,
+  'BZ054', NULL, 're-arming an executed wipe raises BZ054');
+
+-- ══ Phase 2: device C — the device_policy NOTIFY (lock/unlock channel) ════
+SET LOCAL app.capture_notify = 'on';
+SELECT mdm_device_wipe_arm(:'dev_c'::uuid, 'device', 0, 92199);
+
+-- 18-19: exactly one notify, with the verbatim wipe_armed action.
+SELECT is(notify_count('device_policy'), 1,
+          'arming pushes exactly once on the device_policy channel');
+SELECT is((last_notify_payload('device_policy')::jsonb->>'action'),
+          'wipe_armed', 'the device_policy push carries action wipe_armed');
+
+-- 20: the push carries the MAM-console registry id (console parity).
+SELECT is((last_notify_payload('device_policy')::jsonb->>'device_id'),
+          :'reg_c', 'the device_policy push carries the device_registry id');
+
+-- ══ Phase 3: scoping — fail-closed, no existence oracle ═══════════════════
+
+-- 21: a domain-B-scoped admin cannot arm (or detect) domain-A's device —
+-- BZ053, byte-identical to unknown.
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41333333-3333-3333-3333-333333333333'::uuid, 'account',
+                                (SELECT id FROM domains WHERE name = 'mdm-wipe-b.test'), 92199) $$,
+  'BZ053', NULL, 'out-of-scope arm fails closed with BZ053');
+
+-- 22: the same device IS armable by its own domain scope (predicate is
+-- owner-derived, not a hard off-switch).
+SELECT is(
+  (mdm_device_wipe_arm(:'dev_e'::uuid, 'account',
+                       (SELECT id FROM domains WHERE name = 'mdm-wipe-b.test'), 92199))->>'result',
+  'armed', 'same-domain scoped admin arms the device');
+
+-- ══ Phase 4: unknown target + invalid level ═══════════════════════════════
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41ffffff-ffff-ffff-ffff-ffffffffffff'::uuid, 'account', 0, 92199) $$,
+  'BZ053', NULL, 'unknown device fails closed with BZ053');
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41333333-3333-3333-3333-333333333333'::uuid, 'nuclear', 0, 92199) $$,
+  'BZ057', NULL, 'invalid wipe level raises BZ057');
+
+-- ══ Phase 5: ATOMICITY — all effects land, or none do ═════════════════════
+-- A caller transaction that aborts after the arm loses EVERY effect: the
+-- state change, the audit row, the device_events row and the (captured)
+-- notify were all written inside the caller's one transaction.
+CREATE OR REPLACE FUNCTION pg_temp.arm_then_fail() RETURNS VOID AS $$
+BEGIN
+  PERFORM mdm_device_wipe_arm('41666666-6666-6666-6666-666666666666'::uuid, 'account', 0, 92198);
+  RAISE EXCEPTION 'atomicity probe: intentional abort';
+END;
+$$ LANGUAGE plpgsql;
+SELECT throws_ok(
+  'SELECT pg_temp.arm_then_fail()',
+  'P0001', NULL, 'aborting after the arm rolls back the whole transaction');
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id = :'dev_f'::uuid),
+          'none', 'aborted arm left NO state change');
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_f'),
+          0::bigint, 'aborted arm left NO audit row');
+SELECT is((SELECT count(*) FROM device_events
+            WHERE event_type = 'wipe_requested' AND details->>'mdm_device_id' = :'dev_f'),
+          0::bigint, 'aborted arm left NO device_events row');
+SELECT is(notify_count('device_policy'), 2,
+          'aborted arm left NO device_policy notify (only the two real arms)');
+
+-- 31: a rejected (conflicting) re-arm of C fires no notify either.
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41333333-3333-3333-3333-333333333333'::uuid, 'account', 0, 92199) $$,
+  'BZ054', NULL, 'conflicting re-arm of C raises BZ054');
+SELECT is(notify_count('device_policy'), 2,
+          'a rejected arm pushes nothing on device_policy');
+
+-- ══ Phase 6: the owner's domain moved out of the actor's scope ════════════
+-- The Astra med-shard3-014 fix: the device row lock freezes wipe_requested
+-- and user_id but NOT the owner's users.domain_id, so a scope held at arm
+-- time can go stale (mid-call in production; pre-call here — the observable
+-- contract is the same: rejection with ZERO partial audit/event/notify
+-- effects). dev_g's owner 92153 starts in the actor's domain, then moves out;
+-- arming with the now-stale domain scope must fail CLOSED (BZ053,
+-- indistinguishable from unknown) having written NOTHING.
+UPDATE users SET domain_id = :'dom_b' WHERE id = 92153;
+
+-- 32: the stale-scope arm fails closed with the not-found code.
+SELECT throws_ok(
+  $$ SELECT mdm_device_wipe_arm('41777777-7777-7777-7777-777777777777'::uuid, 'account',
+                                (SELECT id FROM domains WHERE name = 'mdm-wipe.test'), 92199) $$,
+  'BZ053', NULL, 'arming through a stale domain scope (owner moved out) raises BZ053');
+
+-- 33-36: ZERO partial effects from the rejected arm.
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id = :'dev_g'::uuid),
+          'none', 'stale-scope rejection left the wipe state untouched');
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm' AND notes = :'dev_g'),
+          0::bigint, 'stale-scope rejection wrote NO audit row');
+SELECT is((SELECT count(*) FROM device_events
+            WHERE event_type = 'wipe_requested' AND details->>'mdm_device_id' = :'dev_g'),
+          0::bigint, 'stale-scope rejection wrote NO device_events row');
+SELECT is(notify_count('device_policy'), 2,
+          'stale-scope rejection pushed NOTHING on device_policy');
+
+-- 37: the rejection is scope-shaped, not device-shaped — under the owner's
+-- NEW domain scope the same device arms (the predicate is owner-derived).
+SELECT is(
+  (mdm_device_wipe_arm(:'dev_g'::uuid, 'account',
+                       (SELECT id FROM domains WHERE name = 'mdm-wipe-b.test'), 92199))->>'result',
+  'armed', 'the moved device arms under the owner''s new domain scope');
+
+-- ══ Phase 7: the MUTATION carries the ownership predicate (shape pin) ═════
+-- Same pin style as ca_reachability_serialization.pg: the scoped SELECT and
+-- the UPDATE are byte-stable in this reducer, and the mid-call race itself
+-- cannot be serialized from SQL (a trigger's mid-statement change is not
+-- visible to the outer UPDATE's snapshot), so the mutation-side predicate is
+-- pinned at the source-shape level: the UPDATE's own WHERE re-checks owner
+-- domain scope, and the post-mutation guard classifies the scope loss as
+-- BZ053 BEFORE the locking-regression BZ054 (no existence oracle once the
+-- target has left the caller's scope).
+SELECT prosrc AS v_arm_src FROM pg_proc
+ WHERE oid = 'mdm_device_wipe_arm(uuid,text,bigint,bigint,inet)'::regprocedure \gset
+-- The owner-derived scope predicate must appear TWICE: once in the scoped
+-- SELECT ... FOR UPDATE and once in the none→pending mutation's own WHERE
+-- (the guard's v_cur re-check is intentionally a different string and does
+-- not count). Dropping the mutation-side copy drops the count to 1.
+SELECT is(
+  (length(:'v_arm_src')
+   - length(replace(:'v_arm_src',
+       'user_id IN (SELECT id FROM users WHERE domain_id = p_domain_scope)', '')))
+  / length('user_id IN (SELECT id FROM users WHERE domain_id = p_domain_scope)'),
+  2, 'the scoped SELECT AND the none→pending mutation BOTH re-check owner-domain scope');
+SELECT ok(
+  position('BZ053' IN substring(:'v_arm_src'
+             FROM position('UPDATE mdm_device_state' IN :'v_arm_src')))
+  <
+  position('BZ054' IN substring(:'v_arm_src'
+             FROM position('UPDATE mdm_device_state' IN :'v_arm_src'))),
+  'post-mutation guard classifies a mid-call scope loss as BZ053 before the locking-regression BZ054');
+
+SELECT * FROM finish();
+ROLLBACK;

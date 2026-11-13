@@ -1,0 +1,44 @@
+-- pgTAP: signature_default.pg
+-- A1 — set_signature_default(): the atomic new-vs-reply default flip for
+-- user_signatures. At most one signature holds each role (new / reply) per user;
+-- cross-user writes are rejected by ownership (BZ071).
+BEGIN;
+SELECT plan(5);
+
+-- Fixtures: a domain + a user with two signatures.
+INSERT INTO domains (id, name, created_at) VALUES (9001, 'sig-test.example', now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, display_name, email, domain_id, created_at)
+  VALUES (9001, 'sig9001', 'Sig User', 'sig@sig-test.example', 9001, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO user_signatures (id, user_id, alias_email, signature_html, signature_text, default_for)
+VALUES (8001, 9001, 'sig@sig-test.example', '<p>A</p>', 'A', 'none'),
+       (8002, 9001, 'alt@sig-test.example', '<p>B</p>', 'B', 'new');
+
+-- 1. Function exists.
+SELECT has_function('set_signature_default', ARRAY['bigint','bigint','text']);
+
+-- 2. Setting 8001 as the 'new' default clears 8002's 'new' role.
+SELECT set_signature_default(9001, 8001, 'new');
+SELECT is(
+  (SELECT default_for FROM user_signatures WHERE id = 8001), 'new',
+  'target becomes the new-mail default');
+SELECT is(
+  (SELECT default_for FROM user_signatures WHERE id = 8002), 'none',
+  'previous new-mail default is cleared');
+
+-- 3. Reply default is independent of new default.
+SELECT set_signature_default(9001, 8002, 'reply');
+SELECT is(
+  (SELECT default_for FROM user_signatures WHERE id = 8002), 'reply',
+  'reply default is set independently');
+
+-- 4. Cross-user write is rejected (ownership).
+SELECT throws_ok(
+  $$ SELECT set_signature_default(9999, 8001, 'new') $$,
+  'BZ071',
+  NULL,
+  'rejects a signature the caller does not own');
+
+SELECT finish();
+ROLLBACK;

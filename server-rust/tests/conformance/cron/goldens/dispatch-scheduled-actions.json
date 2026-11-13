@@ -1,0 +1,48 @@
+{
+  "case": "dispatch-scheduled-actions",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "actions": [
+              "gofree-cron-dispatch-1ok:pending:0::false",
+              "gofree-cron-dispatch-2retry:pending:0::false",
+              "gofree-cron-dispatch-3fail:pending:0::false",
+              "gofree-cron-dispatch-4future:pending:0::true"
+            ],
+            "log": []
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "actions": [
+              "gofree-cron-dispatch-1ok:done:1::false",
+              "gofree-cron-dispatch-2retry:pending:1:test hook:true",
+              "gofree-cron-dispatch-3fail:failed:1:test hook:false",
+              "gofree-cron-dispatch-4future:pending:0::true"
+            ],
+            "log": [
+              "gofree-cron-dispatch-1ok:pending>processing:cron:claimed:",
+              "gofree-cron-dispatch-1ok:processing>done:cron:done:test hook",
+              "gofree-cron-dispatch-2retry:pending>processing:cron:claimed:",
+              "gofree-cron-dispatch-2retry:processing>pending:cron:retry:test hook",
+              "gofree-cron-dispatch-3fail:pending>processing:cron:claimed:",
+              "gofree-cron-dispatch-3fail:processing>failed:cron:failed:test hook"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

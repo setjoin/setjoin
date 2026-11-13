@@ -1,0 +1,47 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed_at": null,
+          "error": "legacy secret",
+          "output": "legacy private output",
+          "started_at": null,
+          "status": "running",
+          "step_name": "gofree_plat2b_a"
+        },
+        {
+          "completed_at": null,
+          "error": "",
+          "output": "legacy successful output",
+          "started_at": null,
+          "status": "done",
+          "step_name": "gofree_plat2b_b"
+        }
+      ],
+      "before": [
+        {
+          "completed_at": null,
+          "error": "legacy secret",
+          "output": "legacy private output",
+          "started_at": null,
+          "status": "running",
+          "step_name": "gofree_plat2b_a"
+        },
+        {
+          "completed_at": null,
+          "error": "",
+          "output": "legacy successful output",
+          "started_at": null,
+          "status": "done",
+          "step_name": "gofree_plat2b_b"
+        }
+      ],
+      "table": "deployment_steps"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "GET /admin/deploy/status"
+}

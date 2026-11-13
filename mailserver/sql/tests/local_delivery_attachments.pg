@@ -1,0 +1,119 @@
+-- local_delivery_attachments.pg — W2 e2e regression: local-delivery attachment metadata.
+-- Repro: alice sends herself (any local recipient) a message WITH attachments +
+-- an inline image. jmap_email_submission_set → send() already copies the draft's
+-- message_attachments rows onto the SENT copy (jmap_email_submission.sql), but
+-- send()'s local-delivery fan-out (the deliver() call for a local recipient) never
+-- copied them onto the DELIVERED copy — so the recipient's Inbox message carried
+-- has_attachments=TRUE but zero message_attachments rows: Email/get showed
+-- attachments:[] / inlineImages:null and cid: images rendered as raw text.
+BEGIN;
+SELECT plan(7);
+
+-- ADR-003: DIVERGENT user_id != mailbox_id (user 791001, mailbox 691001) so a
+-- reducer that erroneously scopes by user_id = p_account_id (when the arg is a
+-- mailbox_id) is caught, not masked by coincident ids.
+INSERT INTO domains (name, is_local) VALUES ('lda.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (791001, 'lda-alice', (SELECT id FROM domains WHERE name = 'lda.test'), 'alice@lda.test', 'Alice')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (691001, 791001, (SELECT id FROM domains WHERE name = 'lda.test'), 'alice@lda.test', 'Alice', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(691001);
+
+-- A draft, addressed to the sender's OWN address (local self-send — the reported
+-- repro), with has_attachments=TRUE and two message_attachments rows: one regular
+-- attachment, one inline (content_id set) image.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments,
+    thread_id, raw_ref, received_at)
+VALUES (691010, 691001, 1, '<lda-draft-1@lda.test>', 'LDA subj', 'alice@lda.test', 'Alice',
+    '[{"email":"alice@lda.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'hello body', '<p>hello <img src="cid:img1"></p>', 2560, TRUE,
+    'thread-lda-1', 'raw/lda-draft-1', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 691010, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 691010 AND t.mailbox_id = 691001 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+VALUES ('ldasha1', 'b/ldasha1', 2048, 'application/pdf', 0),
+       ('ldasha2', 'b/ldasha2', 512, 'image/png', 0)
+ON CONFLICT (sha256) DO NOTHING;
+
+INSERT INTO message_attachments (message_id, received_at, blob_sha256, content_type, filename, content_id, disposition, size_bytes)
+SELECT 691010, m.received_at, 'ldasha1', 'application/pdf', 'f.pdf', NULL, 'attachment', 2048
+FROM messages m WHERE m.id = 691010;
+INSERT INTO message_attachments (message_id, received_at, blob_sha256, content_type, filename, content_id, disposition, size_bytes)
+SELECT 691010, m.received_at, 'ldasha2', 'image/png', 'inline.png', 'img1', 'inline', 512
+FROM messages m WHERE m.id = 691010;
+
+-- Send it (immediate, local self-send).
+SELECT lives_ok(
+  $$ SELECT jmap_email_submission_set(691001, 791001, jsonb_build_object('c1', jsonb_build_object('emailId', '691010'))) $$,
+  'submission set of a self-addressed draft with attachments does not crash');
+
+CREATE TEMP TABLE _lda_sent AS
+SELECT m.id FROM messages m
+JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+JOIN tags t ON t.id = mt.tag_id
+WHERE m.mailbox_id = 691001 AND m.message_id = '<lda-draft-1@lda.test>' AND t.name = 'Sent';
+
+CREATE TEMP TABLE _lda_inbox AS
+SELECT m.id FROM messages m
+JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+JOIN tags t ON t.id = mt.tag_id
+WHERE m.mailbox_id = 691001 AND m.message_id = '<lda-draft-1@lda.test>' AND t.name = 'Inbox';
+
+-- Control (already worked pre-fix): the Sent copy got both attachment rows copied
+-- by jmap_email_submission_set.
+SELECT is(
+  (SELECT count(*)::INT FROM message_attachments ma, messages m
+    WHERE ma.message_id = m.id AND ma.received_at = m.received_at
+      AND m.id = (SELECT id FROM _lda_sent)),
+  2,
+  'control: the Sent copy carries both message_attachments rows');
+
+-- THE BUG: the locally-delivered Inbox copy (created by send()'s deliver() call)
+-- must carry the SAME two message_attachments rows.
+SELECT is(
+  (SELECT count(*)::INT FROM message_attachments ma, messages m
+    WHERE ma.message_id = m.id AND ma.received_at = m.received_at
+      AND m.id = (SELECT id FROM _lda_inbox)),
+  2,
+  'the locally-delivered Inbox copy carries both message_attachments rows');
+
+-- Sanity: has_attachments was already correctly threaded onto the delivered row
+-- (only the satellite-table copy was missing) — isolates the bug to the join table.
+SELECT is(
+  (SELECT has_attachments FROM messages WHERE id = (SELECT id FROM _lda_inbox)),
+  TRUE,
+  'sanity: the delivered copy already had has_attachments=TRUE (column, not join, was fine)');
+
+-- Email/get projection (jmap_email_get → message_to_jmap_email + the attachments/
+-- inlineImages joins) on the Inbox copy shows the attachment...
+SELECT is(
+  jsonb_array_length(jmap_email_get(691001, ARRAY[(SELECT id FROM _lda_inbox)],
+    ARRAY['attachments'])->'list'->0->'attachments'),
+  2,
+  'Email/get on the delivered Inbox copy projects both attachments (not [])');
+
+SELECT is(
+  (jmap_email_get(691001, ARRAY[(SELECT id FROM _lda_inbox)], ARRAY['attachments'])
+    ->'list'->0->'attachments' @> jsonb_build_array(jsonb_build_object('blobId', 'ldasha1'))),
+  TRUE,
+  'Email/get on the delivered Inbox copy includes the ldasha1 attachment');
+
+-- ...and inlineImages resolves cid:img1 → the inline blob (not null), so the
+-- reading pane can rewrite <img src="cid:img1"> instead of showing raw cid: text.
+SELECT is(
+  jmap_email_get(691001, ARRAY[(SELECT id FROM _lda_inbox)], ARRAY['inlineImages'])
+    ->'list'->0->'inlineImages'->>'cid:img1',
+  'ldasha2',
+  'Email/get on the delivered Inbox copy resolves cid:img1 via inlineImages (not null)');
+
+SELECT * FROM finish();
+ROLLBACK;

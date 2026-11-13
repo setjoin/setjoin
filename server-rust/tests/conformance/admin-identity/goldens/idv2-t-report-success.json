@@ -1,0 +1,479 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "approvals": [],
+          "challenges": [
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest13>",
+              "generation": 2,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000013",
+              "invalidated": false
+            },
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest13>",
+              "generation": 3,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000033",
+              "invalidated": false
+            }
+          ],
+          "effects": [
+            {
+              "attempts": 1,
+              "error": null,
+              "kind": "auth_sessions",
+              "state": "completed",
+              "user_id": "<target>",
+              "worker": false
+            },
+            {
+              "attempts": 1,
+              "error": "admin8_livekit",
+              "kind": "livekit_sessions",
+              "state": "failed",
+              "user_id": "<target>",
+              "worker": false
+            },
+            {
+              "attempts": 0,
+              "error": null,
+              "kind": "subscriber_notice",
+              "state": "pending",
+              "user_id": "<target>",
+              "worker": false
+            }
+          ],
+          "elevations": [
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": true,
+              "factor_digest": "<digest14>",
+              "generation": 2,
+              "idempotency_key": "95400000-0000-4000-8000-000000000513",
+              "invalidated": false,
+              "session_digest": "<digest15>"
+            },
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": true,
+              "factor_digest": "<digest16>",
+              "generation": 3,
+              "idempotency_key": "95400000-0000-4000-8000-000000000533",
+              "invalidated": false,
+              "session_digest": "<digest15>"
+            }
+          ],
+          "events": [
+            {
+              "action": "transition_previewed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "expiresAt": "<timestamp>",
+                "previewVersion": 1,
+                "protected": false
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_requested",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "approvalRequired": false,
+                "transitionGeneration": 3
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_committed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "kind": "directory_to_local",
+                "lifecycleGeneration": 2,
+                "linkGeneration": 1,
+                "personPreserved": true,
+                "sourceGeneration": 1,
+                "targetLinkId": null,
+                "targetSourceId": null
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_failed",
+              "actor_user_id": null,
+              "metadata": {
+                "effectId": "<uuid4>",
+                "effectKind": "livekit_sessions",
+                "errorCode": "admin8_livekit"
+              },
+              "reason": "identity transition effect failed",
+              "user_id": "<target>"
+            }
+          ],
+          "steps": [
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 1,
+              "stage": "preview",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 2,
+              "stage": "request",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 4,
+              "stage": "authority_commit",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 5,
+              "stage": "auth_sessions",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": "admin8_livekit",
+              "ordinal": 6,
+              "stage": "livekit_sessions",
+              "state": "failed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 0,
+              "error": null,
+              "ordinal": 7,
+              "stage": "subscriber_notice",
+              "state": "pending",
+              "user_id": "<target>"
+            }
+          ],
+          "transitions": [
+            {
+              "actor_user_id": "<admin>",
+              "approver_elevation": false,
+              "authorized_generation": 3,
+              "boundary": "reversible",
+              "committed": true,
+              "completed": false,
+              "decided_by": null,
+              "execution_elevation": true,
+              "failure": "admin8_livekit",
+              "generation": 7,
+              "has_approval": false,
+              "has_rollback_approval": false,
+              "kind": "directory_to_local",
+              "preview_digest": "<digest13>",
+              "protected": false,
+              "reason": "admin8 reason <&>",
+              "requester_elevation": true,
+              "rollback_digest": null,
+              "rollback_execution_elevation": false,
+              "rollback_reason": null,
+              "rollback_requester_elevation": false,
+              "state": "failed_recoverable",
+              "user_id": "<target>"
+            }
+          ]
+        },
+        "before": {
+          "approvals": [],
+          "challenges": [
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest13>",
+              "generation": 2,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000013",
+              "invalidated": false
+            },
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest13>",
+              "generation": 3,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000033",
+              "invalidated": false
+            }
+          ],
+          "effects": [
+            {
+              "attempts": 1,
+              "error": null,
+              "kind": "auth_sessions",
+              "state": "completed",
+              "user_id": "<target>",
+              "worker": false
+            },
+            {
+              "attempts": 1,
+              "error": "admin8_livekit",
+              "kind": "livekit_sessions",
+              "state": "failed",
+              "user_id": "<target>",
+              "worker": false
+            },
+            {
+              "attempts": 0,
+              "error": null,
+              "kind": "subscriber_notice",
+              "state": "pending",
+              "user_id": "<target>",
+              "worker": false
+            }
+          ],
+          "elevations": [
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": true,
+              "factor_digest": "<digest14>",
+              "generation": 2,
+              "idempotency_key": "95400000-0000-4000-8000-000000000513",
+              "invalidated": false,
+              "session_digest": "<digest15>"
+            },
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": true,
+              "factor_digest": "<digest16>",
+              "generation": 3,
+              "idempotency_key": "95400000-0000-4000-8000-000000000533",
+              "invalidated": false,
+              "session_digest": "<digest15>"
+            }
+          ],
+          "events": [
+            {
+              "action": "transition_previewed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "expiresAt": "<timestamp>",
+                "previewVersion": 1,
+                "protected": false
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_requested",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "approvalRequired": false,
+                "transitionGeneration": 3
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_committed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "kind": "directory_to_local",
+                "lifecycleGeneration": 2,
+                "linkGeneration": 1,
+                "personPreserved": true,
+                "sourceGeneration": 1,
+                "targetLinkId": null,
+                "targetSourceId": null
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_failed",
+              "actor_user_id": null,
+              "metadata": {
+                "effectId": "<uuid4>",
+                "effectKind": "livekit_sessions",
+                "errorCode": "admin8_livekit"
+              },
+              "reason": "identity transition effect failed",
+              "user_id": "<target>"
+            }
+          ],
+          "steps": [
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 1,
+              "stage": "preview",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 2,
+              "stage": "request",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 4,
+              "stage": "authority_commit",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 5,
+              "stage": "auth_sessions",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": "admin8_livekit",
+              "ordinal": 6,
+              "stage": "livekit_sessions",
+              "state": "failed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 0,
+              "error": null,
+              "ordinal": 7,
+              "stage": "subscriber_notice",
+              "state": "pending",
+              "user_id": "<target>"
+            }
+          ],
+          "transitions": [
+            {
+              "actor_user_id": "<admin>",
+              "approver_elevation": false,
+              "authorized_generation": 3,
+              "boundary": "reversible",
+              "committed": true,
+              "completed": false,
+              "decided_by": null,
+              "execution_elevation": true,
+              "failure": "admin8_livekit",
+              "generation": 7,
+              "has_approval": false,
+              "has_rollback_approval": false,
+              "kind": "directory_to_local",
+              "preview_digest": "<digest13>",
+              "protected": false,
+              "reason": "admin8 reason <&>",
+              "requester_elevation": true,
+              "rollback_digest": null,
+              "rollback_execution_elevation": false,
+              "rollback_reason": null,
+              "rollback_requester_elevation": false,
+              "state": "failed_recoverable",
+              "user_id": "<target>"
+            }
+          ]
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/v2/transitions/{id}/report",
+      "method": "GET",
+      "path": "/admin/identity/v2/transitions/{id}/report"
+    },
+    "response": {
+      "body": "{\"events\": [{\"action\": \"transition_previewed\", \"reason\": \"admin8 reason <&>\", \"metadata\": {\"expiresAt\": \"<timestamp>\", \"protected\": false, \"previewVersion\": 1}, \"occurredAt\": \"<timestamp>\", \"correlationId\": \"<uuid1>\"}, {\"action\": \"transition_requested\", \"reason\": \"admin8 reason <&>\", \"metadata\": {\"approvalRequired\": false, \"transitionGeneration\": 3}, \"occurredAt\": \"<timestamp>\", \"correlationId\": \"<uuid2>\"}, {\"action\": \"transition_committed\", \"reason\": \"admin8 reason <&>\", \"metadata\": {\"kind\": \"directory_to_local\", \"targetLinkId\": null, \"linkGeneration\": 1, \"targetSourceId\": null, \"personPreserved\": true, \"sourceGeneration\": 1, \"lifecycleGeneration\": 2}, \"occurredAt\": \"<timestamp>\", \"correlationId\": \"<uuid3>\"}, {\"action\": \"transition_failed\", \"reason\": \"identity transition effect failed\", \"metadata\": {\"effectId\": \"<uuid4>\", \"errorCode\": \"admin8_livekit\", \"effectKind\": \"livekit_sessions\"}, \"occurredAt\": \"<timestamp>\", \"correlationId\": \"<uuid5>\"}], \"effects\": [{\"state\": \"completed\", \"effect_id\": \"<uuid6>\", \"worker_id\": null, \"updated_at\": \"<timestamp>\", \"effect_kind\": \"auth_sessions\", \"completed_at\": \"<timestamp>\", \"attempt_count\": 1, \"transition_id\": \"<uuid7>\", \"last_error_code\": null, \"next_attempt_at\": \"<timestamp>\", \"lease_expires_at\": null}, {\"state\": \"failed\", \"effect_id\": \"<uuid4>\", \"worker_id\": null, \"updated_at\": \"<timestamp>\", \"effect_kind\": \"livekit_sessions\", \"completed_at\": null, \"attempt_count\": 1, \"transition_id\": \"<uuid7>\", \"last_error_code\": \"admin8_livekit\", \"next_attempt_at\": \"<timestamp>\", \"lease_expires_at\": null}, {\"state\": \"pending\", \"effect_id\": \"<uuid8>\", \"worker_id\": null, \"updated_at\": \"<timestamp>\", \"effect_kind\": \"subscriber_notice\", \"completed_at\": null, \"attempt_count\": 0, \"transition_id\": \"<uuid7>\", \"last_error_code\": null, \"next_attempt_at\": \"<timestamp>\", \"lease_expires_at\": null}], \"transition\": {\"id\": \"<uuid7>\", \"kind\": \"directory_to_local\", \"state\": \"failed_recoverable\", \"reason\": \"admin8 reason <&>\", \"link_id\": \"<link_id>\", \"user_id\": \"<target>\", \"protected\": false, \"source_id\": \"<source_id>\", \"created_at\": \"<timestamp>\", \"started_at\": \"<timestamp>\", \"updated_at\": \"<timestamp>\", \"approved_at\": null, \"committed_at\": \"<timestamp>\", \"completed_at\": null, \"failure_code\": \"admin8_livekit\", \"requested_at\": \"<timestamp>\", \"actor_user_id\": \"<admin>\", \"authorized_at\": \"<timestamp>\", \"correlation_id\": \"<uuid9>\", \"request_digest\": \"\\\\x<digest10>\", \"target_link_id\": null, \"idempotency_key\": \"95400000-0000-4000-8000-000000000003\", \"link_generation\": 1, \"preview_version\": 1, \"rollback_reason\": null, \"authority_before\": {\"grantIds\": [], \"linkState\": \"active\", \"syncSource\": \"scim\", \"linkPurposes\": [\"provision\"], \"authorityKind\": \"source\", \"linkGeneration\": \"1\", \"attributeFields\": [\"display_name\", \"email\", \"enabled\"], \"authorityLinkId\": \"<authorityLinkId>\", \"targetLinkState\": null, \"mailboxInvariant\": {\"userId\": \"<target>\", \"mailboxes\": [{\"id\": \"<id>\", \"type\": \"personal\", \"email\": \"admin8-target-1@host-t.test\", \"primary\": true}], \"addressClaims\": [{\"state\": \"active\", \"address\": \"admin8-target-1@host-t.test\", \"mailboxId\": \"<mailboxId>\"}]}, \"authorityGeneration\": \"2\", \"targetLinkGeneration\": null}, \"preview_snapshot\": {\"type\": \"directory_to_local\", \"version\": 1, \"personId\": \"<target>\", \"sessions\": {\"webSessions\": 0, \"oauthFamilies\": 0, \"livekitTargets\": 0}, \"expiresAt\": \"<timestamp>\", \"oldLinkId\": \"<oldLinkId>\", \"protected\": false, \"generations\": {\"link\": \"1\", \"source\": \"1\", \"mapping\": \"1\", \"lifecycle\": \"2\"}, \"oldSourceId\": \"<oldSourceId>\", \"recoveryReady\": true, \"sourceGrantIds\": [], \"attributeChanges\": [{\"field\": \"display_name\", \"generation\": \"1\", \"localOverride\": \"none\"}, {\"field\": \"email\", \"generation\": \"1\", \"localOverride\": \"none\"}, {\"field\": \"enabled\", \"generation\": \"1\", \"localOverride\": \"none\"}], \"ownershipIdsPreserved\": true}, \"target_source_id\": null, \"rollback_boundary\": \"reversible\", \"source_generation\": 1, \"preview_expires_at\": \"<timestamp>\", \"approval_request_id\": null, \"approved_by_user_id\": null, \"lifecycle_generation\": 2, \"requested_generation\": 2, \"rollback_approved_at\": null, \"approver_elevation_id\": null, \"authorized_generation\": 3, \"rollback_requested_at\": null, \"transition_generation\": 7, \"execution_elevation_id\": \"<uuid11>\", \"requester_elevation_id\": \"<uuid12>\", \"target_link_generation\": null, \"rollback_preview_digest\": null, \"target_source_generation\": null, \"committed_link_generation\": 2, \"rollback_preview_snapshot\": null, \"rollback_preview_expires_at\": null, \"rollback_approval_request_id\": null, \"rollback_approved_by_user_id\": null, \"rollback_requested_generation\": null, \"committed_lifecycle_generation\": 3, \"rollback_approver_elevation_id\": null, \"rollback_authorized_generation\": null, \"rollback_execution_elevation_id\": null, \"rollback_requester_elevation_id\": null, \"committed_target_link_generation\": null}, \"generatedAt\": \"<timestamp>\", \"schemaVersion\": 1}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"identity-transition-<uuid7>.json\""
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "\"<digest17>\""
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin8-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/identity/v2/transitions/{id}/report"
+}

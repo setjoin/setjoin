@@ -1,0 +1,99 @@
+-- pgTAP: admin_role_activate.pg
+--
+-- 8 tests covering admin_role_activate() + admin_role_deactivate().
+-- BZ104: JIT disabled / no eligible assignment for actor.
+-- BZ105: justification required but missing/blank.
+
+BEGIN;
+SELECT plan(11);
+
+UPDATE feature_toggles SET enabled=true WHERE key='rbac.jit';
+
+-- seed: domain + two test users; 95210 holds an eligible Super Admin (role 1)
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (95200, 'jit-test.example', true);
+INSERT INTO users (id, username, domain_id, email, display_name) OVERRIDING SYSTEM VALUE
+VALUES (95210, 'jit_tester1', 95200, 'jit1@jit-test.example', 'JIT Tester 1'),
+       (95211, 'jit_tester2', 95200, 'jit2@jit-test.example', 'JIT Tester 2');
+
+INSERT INTO admin_role_assignments(user_id, role_group_id, eligible, granted_by)
+VALUES (95210, 1, true, NULL);
+
+INSERT INTO admin_role_activation_policy(role_group_id, max_duration_minutes, require_justification)
+VALUES (1, 60, true);
+
+-- 1: happy path — own eligible role, within max, justification provided
+SELECT ok(admin_role_activate(95210, 1, 30, 'audit pull') > now(), 'activate sets a future window');
+
+-- 2: window written to the assignment row
+SELECT ok(
+  (SELECT activated_until FROM admin_role_assignments WHERE user_id=95210 AND role_group_id=1) > now(),
+  'window persisted'
+);
+
+-- 3: justification required but NULL → BZ105
+SELECT throws_ok(
+  $$ SELECT admin_role_activate(95210, 1, 30, NULL) $$,
+  'BZ105', NULL,
+  'missing required justification rejected'
+);
+
+-- 4: over policy max → clamped to 60 (result <= 61 min out)
+SELECT ok(
+  admin_role_activate(95210, 1, 999, 'x') <= now() + interval '61 min',
+  'duration clamped to policy max'
+);
+
+-- 5: actor 95211 has no eligible row → BZ104
+SELECT throws_ok(
+  $$ SELECT admin_role_activate(95211, 1, 30, 'x') $$,
+  'BZ104', NULL,
+  'cannot activate a role you do not hold eligible'
+);
+
+-- 6: toggle OFF → BZ104 (activation is meaningless when JIT off)
+UPDATE feature_toggles SET enabled=false WHERE key='rbac.jit';
+SELECT throws_ok(
+  $$ SELECT admin_role_activate(95210, 1, 30, 'x') $$,
+  'BZ104', NULL,
+  'activate rejected when JIT off'
+);
+
+-- 7: deactivate clears the window
+UPDATE feature_toggles SET enabled=true WHERE key='rbac.jit';
+SELECT admin_role_activate(95210, 1, 30, 'x');
+SELECT admin_role_deactivate(95210, 1);
+SELECT is(
+  (SELECT activated_until FROM admin_role_assignments WHERE user_id=95210 AND role_group_id=1),
+  NULL,
+  'deactivate clears window'
+);
+
+-- 8: expires_at cap — 20-min hard expiry beats 60-min requested duration
+UPDATE admin_role_assignments
+   SET expires_at = now() + interval '20 min'
+ WHERE user_id=95210 AND role_group_id=1;
+SELECT ok(
+  admin_role_activate(95210, 1, 60, 'x') <= now() + interval '21 min',
+  'activated_until capped at expires_at (20 min hard expiry beats 60 min request)'
+);
+
+-- 9 & 10: a no-op deactivate (actor 95211 holds no eligible assignment for role 1)
+-- must NOT write a 'role_deactivated' audit row. Pre-fix audit_write fired
+-- unconditionally after a 0-row UPDATE, recording a deactivation that never happened.
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log WHERE user_id=95211 AND action='role_deactivated'),
+  0, 'pre-call: 95211 has no role_deactivated audit row');
+SELECT admin_role_deactivate(95211, 1);
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log WHERE user_id=95211 AND action='role_deactivated'),
+  0, 'no-op deactivate does NOT record a role_deactivated audit row');
+
+-- 11: a real deactivate (95210 holds the eligible role) IS audited.
+SELECT admin_role_activate(95210, 1, 10, 'x');
+SELECT admin_role_deactivate(95210, 1);
+SELECT cmp_ok(
+  (SELECT count(*)::int FROM admin_audit_log WHERE user_id=95210 AND action='role_deactivated'),
+  '>', 0, 'a real deactivate records a role_deactivated audit row');
+
+SELECT finish();
+ROLLBACK;

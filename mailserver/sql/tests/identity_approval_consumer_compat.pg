@@ -1,0 +1,23 @@
+-- pgTAP: adding identity.transition must preserve every prior approval-engine
+-- consumer. A drop/re-add CHECK migration that forgets an older consumer is a
+-- cross-feature outage even though the identity transition itself still works.
+BEGIN;
+SELECT plan(1);
+
+SELECT lives_ok($$
+    INSERT INTO approval_policies(
+        consumer_type,name,priority,conditions,requires_approval,approver_spec
+    ) VALUES
+        ('rbac.jit_activation','identity compat rbac',9090,'{}',false,'{"kind":"manager"}'),
+        ('mail.external_send','identity compat external send',9090,'{}',false,'{"kind":"manager"}'),
+        ('mail.group_moderation','identity compat moderation',9090,'{}',false,'{"kind":"manager"}'),
+        ('hr.leave','identity compat leave',9090,'{}',false,'{"kind":"manager"}'),
+        ('hr.expense','identity compat expense',9090,'{}',false,'{"kind":"manager"}'),
+        ('drive.share','identity compat drive share',9090,'{}',false,'{"kind":"manager"}'),
+        ('drive.export','identity compat drive export',9090,'{}',false,'{"kind":"manager"}'),
+        ('guest.invite','identity compat guest invite',9090,'{}',false,'{"kind":"manager"}'),
+        ('identity.transition','identity compat transition',9090,'{}',false,'{"kind":"manager"}')
+$$, 'identity approval migration preserves every existing consumer type');
+
+SELECT * FROM finish();
+ROLLBACK;

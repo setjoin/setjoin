@@ -1,0 +1,62 @@
+{
+  "case": "scoped-own",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "domain_signing_keys"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/dns/records",
+      "method": "GET",
+      "path": "/admin/dns/records",
+      "query": "?domain=HOST-A.test"
+    },
+    "response": {
+      "body": "{\"domain\":\"HOST-A.test\",\"mx\":\"HOST-A.test IN MX 10 mail.HOST-A.test.\",\"spf\":\"HOST-A.test IN TXT \\\"v=spf1 mx ~all\\\"\",\"dkim\":[{\"selector\":\"default\",\"record\":\"default._domainkey.HOST-A.test IN TXT \\\"v=DKIM1; k=rsa; p=\\u003cpublic-key\\u003e\\\"\"}],\"dmarc\":\"_dmarc.HOST-A.test IN TXT \\\"v=DMARC1; p=quarantine; rua=mailto:dmarc@HOST-A.test; pct=100\\\"\",\"mtasts\":\"_mta-sts.HOST-A.test IN TXT \\\"v=STSv1; id=<stamp>\\\"\",\"tlsa\":\"_25._tcp.mail.HOST-A.test IN TLSA 3 1 1 (\\u003csha256-hex-of-server-cert\\u003e)\",\"reverseDns\":\"\\u003cyour-server-ip\\u003e.in-addr.arpa IN PTR mail.HOST-A.test.\",\"recommendedA\":\"mail.HOST-A.test IN A \\u003cyour-server-ip\\u003e\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "643"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/dns/records"
+}

@@ -1,0 +1,134 @@
+-- mailserver/sql/tests/drive_notify_fanout.pg — Task 8 notify fan-out:
+-- deliver()-based inbox messages for conflict/review/break, watcher
+-- ops-filter, folder-admin observers, dedupe, and the RLS-blind fix
+-- (AUTOPLAN batch-1 #4 — drive_event_recipients must be SECURITY DEFINER
+-- so a non-owner caller still fans out to every watcher, not just its own
+-- watch row).
+BEGIN;
+SELECT plan(19);
+
+-- M=manager/owner, Bob=second saver(conflict actor), Anna=main-head author
+-- (not a watcher), W=plain watcher(ops=NULL), W2=ops-filtered([trash]),
+-- WD=watcher AND folder-admin(dedupe target), FA=folder-admin only,
+-- H=lock holder, Carl=branch creator(distinct from actor),
+-- NM=watcher with NO primary mailbox.
+SELECT mk_account('dnfa') AS mba \gset
+SELECT mk_account('dnfb') AS mbb \gset
+SELECT mk_account('dnfc') AS mbc \gset
+SELECT mk_account('dnfd') AS mbd \gset
+SELECT mk_account('dnfe') AS mbe \gset
+SELECT mk_account('dnff') AS mbf \gset
+SELECT mk_account('dnfg') AS mbg \gset
+SELECT mk_account('dnfh') AS mbh \gset
+SELECT mk_account('dnfi') AS mbi \gset
+
+SELECT user_id AS m    FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS bob  FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS anna FROM mailboxes WHERE id = :mbc \gset
+SELECT user_id AS w    FROM mailboxes WHERE id = :mbd \gset
+SELECT user_id AS w2   FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS wd   FROM mailboxes WHERE id = :mbf \gset
+SELECT user_id AS fa   FROM mailboxes WHERE id = :mbg \gset
+SELECT user_id AS h    FROM mailboxes WHERE id = :mbh \gset
+SELECT user_id AS carl FROM mailboxes WHERE id = :mbi \gset
+
+-- NM: a bare `users` row with NO mailboxes row at all (mailboxes.is_primary
+-- is trigger-enforced to always have exactly one per user with a mailbox —
+-- the mk_account genre — so "no reachable primary mailbox" is modeled as
+-- "no mailbox exists for this user", which is exactly what deliver()'s
+-- recipient lookup sees for a directory-only/never-provisioned account).
+INSERT INTO domains (name, is_local) VALUES ('mk.test', TRUE) ON CONFLICT (name) DO NOTHING;
+SELECT id AS nm_domain FROM domains WHERE name = 'mk.test' \gset
+SELECT nextval('mk_account_user_seq') AS nm \gset
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (:nm, 'dnfj-' || :nm, :nm_domain, 'dnfj-' || :nm || '@mk.test', 'dnfj', 'x');
+
+SELECT drive_space_create(:m, 'NF', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :bob,  'editor');
+SELECT drive_member_grant(:m, :sid, :anna, 'editor');
+SELECT drive_member_grant(:m, :sid, :w,    'editor');
+SELECT drive_member_grant(:m, :sid, :w2,   'editor');
+SELECT drive_member_grant(:m, :sid, :wd,   'editor');
+SELECT drive_member_grant(:m, :sid, :fa,   'editor');
+SELECT drive_member_grant(:m, :sid, :h,    'editor');
+SELECT drive_member_grant(:m, :sid, :carl, 'editor');
+SELECT drive_member_grant(:m, :sid, :nm,   'editor');
+
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'P') AS p \gset
+SELECT drive_node_create(:m, :sid, :p, 'file', 'f1.docx') AS f \gset
+SELECT drive_folder_admin_grant(:m, :p, :fa);
+SELECT drive_folder_admin_grant(:m, :p, :wd);   -- WD: folder-admin AND (below) watcher
+
+SELECT drive_watch_set(:w,  :f, NULL);
+SELECT drive_watch_set(:w2, :f, ARRAY['trash']);
+SELECT drive_watch_set(:wd, :f, NULL);
+SELECT drive_watch_set(:nm, :f, NULL);
+
+-- ── Event 1: Bob's conflicting save (auto-branch, §5.2) ──────────────────
+SELECT drive_chunk_register(:anna, :sid, repeat('1',64), 10);
+SELECT drive_chunk_register(:anna, :sid, repeat('2',64), 10);
+SELECT drive_chunk_register(:bob,  :sid, repeat('3',64), 10);
+SELECT (drive_file_put_version(:anna, :f, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 'anna')->>'versionId')::bigint AS v1 \gset
+SELECT (drive_file_put_version(:anna, :f, repeat('b',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 'anna')->>'versionId')::bigint AS v2 \gset
+SELECT drive_file_put_version(:bob, :f, repeat('c',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, NULL, 'bob') AS conflict_result \gset
+
+SELECT ok((:'conflict_result'::jsonb->>'conflict')::boolean AND (:'conflict_result'::jsonb->>'versionId') IS NOT NULL,
+  'the conflicting save lands cleanly despite NM having no reachable mailbox (best-effort fan-out never unwinds the write)');
+
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbb)::int, 1, 'Bob (the saver) gets exactly ONE actor-directed message');
+SELECT (:'conflict_result'::jsonb->>'branchId')::bigint AS abid \gset
+SELECT ok((SELECT subject FROM messages WHERE mailbox_id=:mbb) LIKE '%f1.docx%'
+      AND (SELECT subject FROM messages WHERE mailbox_id=:mbb) LIKE
+          '%' || (SELECT name FROM drive_file_branches WHERE id=:abid) || '%',
+  'Bob''s subject names both the file and the auto-branch');
+SELECT ok((SELECT body_text FROM messages WHERE mailbox_id=:mbb) LIKE '%kept as branch%',
+  'Bob''s message body names the conflict/branch outcome');
+
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbd)::int, 1, 'W (plain watcher) gets the observer message');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbe)::int, 0, 'W2 (ops=[trash]) is NOT notified of a branch event');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbf)::int, 1, 'WD (watcher AND folder-admin) gets exactly ONE message (deduped)');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbg)::int, 1, 'FA (folder-admin) gets the observer message');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbc)::int, 0, 'Anna (author, non-watcher) gets nothing');
+
+-- ── AUTOPLAN batch-1 #4: drive_event_recipients under a NON-owner, RLS-
+-- restricted caller (Bob). drive_watches' own SELECT policy is own-rows-
+-- only and drive_folder_admins' read is member-only — a plain invoker-
+-- rights read here would see nothing of W/WD/FA's rows. SECURITY DEFINER
+-- must still resolve the full recipient set.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :bob::text, true);
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.conflict', :bob) r WHERE r = :w)::int, 1,
+  'RLS-blind fix: setjoin_app-scoped Bob still resolves W as a recipient (drive_watches DEFINER bypass)');
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.conflict', :bob) r WHERE r = :wd)::int, 1,
+  '...and WD via drive_folder_admins (DEFINER bypass) too');
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.conflict', :bob) r WHERE r = :w2)::int, 0,
+  '...but NOT W2 (ops-filtered, even under the DEFINER path)');
+RESET ROLE;
+
+-- ── Event 2: branch review (Carl creates, FA reviews — creator != actor) ─
+SELECT drive_branch_create(:carl, :f, 'review-branch', :v1) AS rbid \gset
+SELECT drive_branch_set_status(:fa, :rbid, 'review');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbi)::int, 1, 'branch creator Carl is notified when someone ELSE requests review');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbd)::int, 2, 'W gets the review observer message too (2 total)');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbg)::int, 1, 'FA (the actor here) is NOT notified of their own review request');
+
+-- creator-is-actor: Carl reviews his OWN second branch — no self-notify
+SELECT drive_branch_create(:carl, :f, 'review-branch-2', :v1) AS rbid2 \gset
+SELECT drive_branch_set_status(:carl, :rbid2, 'review');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbi)::int, 1, 'creator reviewing their OWN branch does not self-notify (still 1)');
+-- W is STILL a plain watcher of the file, so this second (genuine, distinct)
+-- branch.review event legitimately reaches them too — 2 -> 3.
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbd)::int, 3, 'W (unconditional watcher) is notified of this second review too (3 total)');
+
+-- ── Event 3: lock break — exactly the holder is notified ────────────────
+SELECT drive_file_lock(:h, :f, 'hard');
+SELECT drive_file_unlock(:m, :f, true);
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbh)::int, 1, 'the lock holder H is notified of the break');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id=:mbd)::int, 3, 'lock break does not notify unrelated watchers (W stays at 3)');
+
+SELECT * FROM finish();
+ROLLBACK;

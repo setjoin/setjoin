@@ -1,0 +1,360 @@
+-- pgTAP: calendar_itip.sql — iTIP RSVP + invitation processing with ownership checks
+BEGIN;
+SELECT plan(30);
+
+-- Test data: organizer (user 4001, MAILBOX 6001) owns the calendar/event.
+-- DIVERGENT IDS (regression guard): user_id != mailbox_id, so an ownership predicate that
+-- mistakes p_account_id (a mailbox id) for a users.id cannot pass coincidentally. RSVP and
+-- send_invite are called with the MAILBOX id (6001/6002), the JMAP accountId convention.
+INSERT INTO domains (name, is_local) VALUES ('cal.test', TRUE), ('cal-sister.test', TRUE);
+
+-- ADR-004: the organizer also carries a sister-domain alias + a UPN, so an iMIP REPLY
+-- arriving from either address still resolves them as the local owner-attendee.
+INSERT INTO users (id, username, domain_id, email, display_name, ad_upn) VALUES
+  (4001, 'organizer', (SELECT id FROM domains WHERE name = 'cal.test'), 'org@cal.test', 'Org', 'org.upn@corp.local'),
+  (4002, 'otheruser', (SELECT id FROM domains WHERE name = 'cal.test'), 'other@cal.test', 'Other', NULL);
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (6001, 4001, (SELECT id FROM domains WHERE name = 'cal.test'), 'org@cal.test', 'personal', 'Org Mailbox', TRUE),
+  (6002, 4002, (SELECT id FROM domains WHERE name = 'cal.test'), 'other@cal.test', 'personal', 'Other Mailbox', TRUE);
+
+-- Organizer's sister-domain alias on their primary mailbox (6001).
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (6001, 'org.alias@cal-sister.test', (SELECT id FROM domains WHERE name = 'cal-sister.test'), FALSE);
+
+INSERT INTO calendars (id, mailbox_id, name) VALUES
+  (6001, 6001, 'Default'),
+  (6002, 6002, 'Default');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting)
+VALUES
+  (6001, 6001, 'evt-001', 'Test Event', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE),
+  (6002, 6001, 'evt-002', 'Meeting 2', now(), now() + '2h'::INTERVAL, 'org@cal.test', TRUE),
+  (6003, 6001, 'evt-003', 'Meeting 3', now(), now() + '3h'::INTERVAL, 'org@cal.test', FALSE),
+  -- An event on the owner's calendar where the LOCAL owner is themselves an
+  -- attendee — exercises the iMIP REPLY-by-alias/UPN authorization path.
+  (6004, 6001, 'evt-local', 'Local attendee', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE);
+
+INSERT INTO event_attendees (event_id, email, name, role, status)
+VALUES
+  (6001, 'guest@ext.com', 'Guest', 'required', 'needs-action'),
+  (6002, 'guest2@ext.com', 'Guest 2', 'required', 'needs-action'),
+  -- Two local-attendee rows: one addressed by the owner's ALIAS, one by their UPN.
+  -- The matching REPLY arrives at the same address, so each exercises the
+  -- address-aware AUTHORIZATION gate (resolve_identity) on the UPDATE path.
+  (6004, 'org.alias@cal-sister.test', 'Org', 'required', 'needs-action'),
+  (6004, 'org.upn@corp.local',        'Org', 'required', 'needs-action');
+
+-- ============================================================
+-- Tests 1-3: jmap_calendar_event_rsvp ownership checks
+-- ============================================================
+
+-- Test 1: RSVP with correct ownership (account_id = mailbox owner) succeeds
+SELECT results_eq(
+  $$ SELECT jmap_calendar_event_rsvp(6001, 6001, 'guest@ext.com', 'accepted')->>'type' $$,
+  $$ SELECT NULL::TEXT $$,
+  'rsvp with correct ownership returns no error type'
+);
+
+-- Test 2: RSVP with wrong ownership (different user) returns notFound
+SELECT results_eq(
+  $$ SELECT jmap_calendar_event_rsvp(6002, 6001, 'guest@ext.com', 'accepted')->>'type' $$,
+  $$ SELECT 'notFound'::TEXT $$,
+  'rsvp with wrong ownership returns notFound'
+);
+
+-- Test 3: Invalid status still rejected
+SELECT results_eq(
+  $$ SELECT jmap_calendar_event_rsvp(6001, 6001, 'guest@ext.com', 'maybe') $$,
+  $$ SELECT '{"type":"invalidArguments","description":"status must be accepted, tentative, or declined"}'::JSONB $$,
+  'invalid status returns error'
+);
+
+-- ============================================================
+-- Tests 4-6: calendar_send_invite ownership checks
+-- ============================================================
+
+-- Test 4: send_invite with correct p_account_id succeeds
+SELECT results_eq(
+  $$ SELECT calendar_send_invite(6001, 'org@cal.test', 6001::BIGINT)->>'uid' $$,
+  $$ SELECT 'evt-001'::TEXT $$,
+  'send_invite with correct ownership returns event data'
+);
+
+-- Test 5: send_invite with wrong p_account_id raises BZ001
+SELECT throws_ok(
+  $$ SELECT calendar_send_invite(6001, 'org@cal.test', 6002::BIGINT) $$,
+  'BZ001',
+  'Organizer mailbox not found',
+  'send_invite with wrong ownership raises BZ001'
+);
+
+-- Test 6: send_invite with NULL p_account_id works (backward compat)
+SELECT results_eq(
+  $$ SELECT calendar_send_invite(6001, 'org@cal.test') IS NOT NULL $$,
+  $$ SELECT TRUE $$,
+  'send_invite with NULL p_account_id works for backward compat'
+);
+
+-- ============================================================
+-- Tests 7-9: calendar_process_itip_reply ownership checks
+-- ============================================================
+
+-- Test 7: process_itip_reply with correct p_account_id succeeds
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_reply('evt-001', 'guest@ext.com', 'Guest', 'accepted', 0, 6001::BIGINT))->>'processed' $$,
+  $$ SELECT 'true'::TEXT $$,
+  'process_itip_reply with correct ownership returns processed=true'
+);
+
+-- Test 8: process_itip_reply with wrong p_account_id raises BZ001
+SELECT throws_ok(
+  $$ SELECT calendar_process_itip_reply('evt-001', 'guest@ext.com', 'Guest', 'accepted', 0, 6002::BIGINT) $$,
+  'BZ001',
+  'Event not found',
+  'process_itip_reply with wrong ownership raises BZ001'
+);
+
+-- Test 9: process_itip_reply with NULL p_account_id and external attendee returns forbidden.
+-- The SMTP iMIP delivery path (NULL account_id) requires the attendee to be a local user
+-- whose mailbox is the calendar owner. External attendees (guest2@ext.com) are rejected.
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_reply('evt-002', 'guest2@ext.com', 'Guest 2', 'tentative'))->>'type' $$,
+  $$ SELECT 'forbidden'::TEXT $$,
+  'process_itip_reply with NULL p_account_id and external attendee returns forbidden'
+);
+
+-- ============================================================
+-- Tests 10-12: calendar_process_itip_cancel ownership checks
+-- ============================================================
+
+-- Test 10: process_itip_cancel with correct p_account_id succeeds
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_cancel('evt-002', 6001::BIGINT))->>'cancelled' $$,
+  $$ SELECT 'true'::TEXT $$,
+  'process_itip_cancel with correct ownership returns cancelled=true'
+);
+
+-- Test 11: process_itip_cancel with wrong p_account_id raises BZ001
+-- (evt-002 is already cancelled, so use evt-001)
+SELECT throws_ok(
+  $$ SELECT calendar_process_itip_cancel('evt-001', 6002::BIGINT) $$,
+  'BZ001',
+  'Event not found',
+  'process_itip_cancel with wrong ownership raises BZ001'
+);
+
+-- Test 12: process_itip_cancel on the iMIP path (NULL p_account_id) works when the
+-- verified organizer is supplied. (evt-001 was already used above — test that the
+-- organizer-scoped iMIP path still finds the event.) Round 4: the iMIP path also
+-- requires the authenticated SIGNER domain; the sweep only cancels copies whose
+-- calendar owner mailbox belongs to it (all fixture mailboxes are in cal.test).
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_cancel('evt-001', NULL, 'org@cal.test', 'cal.test'))->>'cancelled' $$,
+  $$ SELECT 'true'::TEXT $$,
+  'process_itip_cancel on the iMIP path works with the verified organizer + signer domain'
+);
+
+-- ============================================================
+-- Tests 13-14: ADR-004 — iMIP REPLY (NULL p_account_id) authorizes a LOCAL
+-- attendee resolved by an ALIAS or UPN, not just by users.email.
+-- ============================================================
+
+-- Test 13: a REPLY from the owner's sister-domain ALIAS is authorized (the bug
+-- class: previously refused as "not authorized" because the lookup matched
+-- users.email only). processed=true proves the attendee resolved + status flipped.
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_reply('evt-local', 'org.alias@cal-sister.test', 'Org', 'accepted'))->>'processed' $$,
+  $$ SELECT 'true'::TEXT $$,
+  'iMIP REPLY from a local attendee addressed by a sister-domain alias is authorized (ADR-004)'
+);
+
+-- Test 14: a REPLY whose From is the owner's UPN resolves the local attendee and
+-- is authorized (processed=true). The UPN resolves user 4001 → primary mailbox
+-- 6001 = the event owner; previously the lookup matched users.email only and the
+-- reply was refused as "not authorized".
+SELECT results_eq(
+  $$ SELECT (calendar_process_itip_reply('evt-local', 'org.upn@corp.local', 'Org', 'tentative'))->>'processed' $$,
+  $$ SELECT 'true'::TEXT $$,
+  'iMIP REPLY whose From is the local attendee UPN is authorized (ADR-004)'
+);
+
+-- ============================================================
+-- Tests 15-19: iMIP CANCEL (NULL p_mailbox_id) cancels every copy of the UID that
+-- shares the verified organizer_email, and ONLY those.
+-- A meeting the organizer cancels has a copy on each local attendee's calendar (same
+-- UID; RFC 5545 *intends* UIDs globally unique but nothing enforces it across tenants).
+-- The old LIMIT-1-without-ORDER-BY cancelled an arbitrary storage-order copy, leaving
+-- the rest active; the unscoped multi-emit then cancelled a colliding event in another
+-- org. The fix cancels every copy sharing the organizer_email and leaves collisions be.
+-- ============================================================
+-- A separate tenant (user/mailbox/calendar) to host the UID collision. The unique key
+-- is (calendar_id, uid, recurrence_override), so the colliding copy needs its own calendar.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (4003, 'tenant2', (SELECT id FROM domains WHERE name = 'cal.test'), 'evil@evil.test', 'Tenant2');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (6003, 4003, (SELECT id FROM domains WHERE name = 'cal.test'), 'evil@evil.test', 'personal', 'Tenant2 Mailbox', TRUE);
+INSERT INTO calendars (id, mailbox_id, name) VALUES (6003, 6003, 'Default');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting)
+VALUES
+  (6005, 6001, 'evt-multi', 'Shared', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE),   -- organizer copy
+  (6006, 6002, 'evt-multi', 'Shared', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE),   -- attendee copy
+  -- Cross-tenant UID collision: an unrelated event in another tenant sharing the UID
+  -- but owned by a DIFFERENT organizer. It must survive org@cal.test's CANCEL.
+  (6007, 6003, 'evt-multi', 'Collision', now(), now() + '1h'::INTERVAL, 'attacker@evil.test', TRUE);
+
+-- Test 15: the iMIP path reports it cancelled the TWO organizer-matched copies (not the collision).
+SELECT is(
+  (SELECT (calendar_process_itip_cancel('evt-multi', NULL, 'org@cal.test', 'cal.test'))->>'count'),
+  '2',
+  'iMIP CANCEL cancels every same-domain copy sharing the organizer_email (organizer + attendee)');
+
+-- Test 16: both organizer-matched copies are actually marked cancelled.
+SELECT is(
+  (SELECT count(*)::INT FROM calendar_events
+    WHERE uid = 'evt-multi' AND organizer_email = 'org@cal.test' AND status = 'cancelled'),
+  2,
+  'both copies sharing the organizer_email are cancelled');
+
+-- Test 17: the cross-tenant collision (different organizer) is NOT cancelled.
+SELECT is(
+  (SELECT status FROM calendar_events WHERE id = 6007),
+  'confirmed',
+  'a UID-colliding event with a different organizer is left untouched (no cross-tenant blast)');
+
+-- Test 18: re-running the same CANCEL now matches no live copies → notFound.
+SELECT is(
+  (SELECT (calendar_process_itip_cancel('evt-multi', NULL, 'org@cal.test', 'cal.test'))->>'type'),
+  'notFound',
+  'a second CANCEL for the organizer finds no remaining live copy');
+
+-- Test 19: the iMIP path REQUIRES the verified organizer — a NULL organizer raises BZ002
+-- rather than fanning an unscoped global cancel across every copy of the UID.
+SELECT throws_ok(
+  $$ SELECT calendar_process_itip_cancel('evt-001', NULL, NULL, 'cal.test') $$,
+  'BZ002',
+  'iMIP CANCEL requires the verified organizer email',
+  'iMIP CANCEL with a NULL organizer raises BZ002 (no unscoped global cancel)');
+
+-- ============================================================
+-- Tests 20-24: round 4 tenant binding — the iMIP sweep is bound to the
+-- SIGNER's trust domain. A signer authenticated under one tenant's evidence
+-- (S/MIME anchors / DKIM key / SPF) must not cancel copies owned by another
+-- tenant, even when both tenants hold copies with the SAME uid+organizer.
+-- ============================================================
+
+-- Test 20: the signer domain is REQUIRED — NULL p_signer_domain raises BZ002
+-- (fail closed) instead of sweeping every tenant's copies.
+SELECT throws_ok(
+  $$ SELECT calendar_process_itip_cancel('evt-001', NULL, 'org@cal.test', NULL) $$,
+  'BZ002',
+  'iMIP CANCEL requires the authenticated signer domain',
+  'iMIP CANCEL with a NULL signer domain raises BZ002 (no cross-tenant sweep)');
+
+-- A second tenant (cal-elsewhere.test) holding a copy of the SAME meeting
+-- (same uid, SAME organizer_email) that org@cal.test's CANCEL must NOT reach.
+INSERT INTO domains (name, is_local) VALUES ('cal-elsewhere.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (4004, 'elsewhere', (SELECT id FROM domains WHERE name = 'cal-elsewhere.test'), 'peer@cal-elsewhere.test', 'Elsewhere');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (6004, 4004, (SELECT id FROM domains WHERE name = 'cal-elsewhere.test'), 'peer@cal-elsewhere.test', 'personal', 'Elsewhere Mailbox', TRUE);
+INSERT INTO calendars (id, mailbox_id, name) VALUES (6004, 6004, 'Default');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting)
+VALUES
+  (6009, 6001, 'evt-xtenant', 'Shared X', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE),           -- cal.test copy
+  (6010, 6004, 'evt-xtenant', 'Shared X', now(), now() + '1h'::INTERVAL, 'org@cal.test', TRUE);           -- OTHER-tenant copy
+
+-- Test 21: org@cal.test's CANCEL (signer domain cal.test) cancels ONLY the
+-- cal.test-owned copy.
+SELECT is(
+  (SELECT (calendar_process_itip_cancel('evt-xtenant', NULL, 'org@cal.test', 'cal.test'))->>'count'),
+  '1',
+  'the signer-domain sweep cancels only the copy owned by the signer tenant');
+
+-- Test 22: the other tenant's copy (same uid + organizer) SURVIVES — a valid
+-- signer from domain cal.test must not authorize cancelling events in
+-- cal-elsewhere.test (zero cancellations there).
+SELECT is(
+  (SELECT status FROM calendar_events WHERE id = 6010),
+  'confirmed',
+  'the cross-tenant copy sharing uid+organizer is NOT cancelled by the other tenant signer');
+
+-- Test 23: the signer for cal-elsewhere.test itself CAN cancel its own copy —
+-- the predicate is a domain binding, not a blanket deny.
+SELECT is(
+  (SELECT (calendar_process_itip_cancel('evt-xtenant', NULL, 'org@cal.test', 'cal-elsewhere.test'))->>'count'),
+  '1',
+  'the other tenant signer cancels its own tenant copy under its own domain');
+
+-- Test 24: an UNKNOWN signer domain matches nothing (fail closed, notFound).
+SELECT is(
+  (SELECT (calendar_process_itip_cancel('evt-counter', NULL, 'org@cal.test', 'no-such.test'))->>'type'),
+  'notFound',
+  'an unknown signer domain matches no copy (fail closed)');
+
+-- ============================================================
+-- Tests 20-25: jmap_calendar_event_counter — an INVITEE proposes new times to the
+-- organizer (outbound iTIP COUNTER). Owner-scoped, attendee-gated, and NON-MUTATING.
+-- The invitee here is other@cal.test (mailbox 6002); the event copy lives on THEIR
+-- calendar (6002) with the organizer stored as org@cal.test.
+-- ============================================================
+INSERT INTO calendar_events
+  (id, calendar_id, uid, title, start_at, end_at, organizer_email, organizer_name, is_meeting, sequence, jmap_state)
+VALUES
+  (6008, 6002, 'evt-counter', 'Counter Me', '2026-07-01T09:00:00Z', '2026-07-01T09:30:00Z',
+   'org@cal.test', 'Org', TRUE, 3, 7);
+
+INSERT INTO event_attendees (event_id, email, name, role, status)
+VALUES (6008, 'other@cal.test', 'Other', 'required', 'needs-action');
+
+-- Test 20: ownership gate — a FOREIGN mailbox (6001) for an event on mailbox 6002's
+-- calendar is not found → BZ001 (same code as jmap_calendar_event_send_update).
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_event_counter(6001, 6008,
+       '2026-07-02T14:00:00Z'::timestamptz, '2026-07-02T14:30:00Z'::timestamptz,
+       'other@cal.test', 'Other') $$,
+  'BZ001',
+  NULL,
+  'counter from a foreign mailbox raises BZ001 (ownership gate)');
+
+-- Test 21: attendee gate — a non-attendee email on the owner's own event → BZ002 forbidden.
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_event_counter(6002, 6008,
+       '2026-07-02T14:00:00Z'::timestamptz, '2026-07-02T14:30:00Z'::timestamptz,
+       'stranger@ext.com', 'Stranger') $$,
+  'BZ002',
+  NULL,
+  'counter by a non-attendee raises BZ002 (attendee gate)');
+
+-- Test 22: payload carries the PROPOSED start (tz-robust: cast back to timestamptz).
+SELECT is(
+  ((jmap_calendar_event_counter(6002, 6008,
+      '2026-07-02T14:00:00Z'::timestamptz, '2026-07-02T14:30:00Z'::timestamptz,
+      'other@cal.test', 'Other'))->>'start')::timestamptz,
+  '2026-07-02T14:00:00Z'::timestamptz,
+  'counter payload returns the proposed start');
+
+-- Test 23: payload identity fields (uid + organizer + attendee) are the stored values.
+SELECT is(
+  (jmap_calendar_event_counter(6002, 6008,
+     '2026-07-02T14:00:00Z'::timestamptz, '2026-07-02T14:30:00Z'::timestamptz,
+     'other@cal.test', 'Other'))->>'uid',
+  'evt-counter',
+  'counter payload carries the stored event uid');
+
+-- Test 24: NON-mutation — sequence is UNCHANGED after countering (was 3).
+SELECT is(
+  (SELECT sequence FROM calendar_events WHERE id = 6008),
+  3,
+  'counter does NOT bump the event sequence (non-mutating)');
+
+-- Test 25: NON-mutation — jmap_state is UNCHANGED after countering (was 7).
+SELECT is(
+  (SELECT jmap_state FROM calendar_events WHERE id = 6008),
+  7::BIGINT,
+  'counter does NOT bump the event jmap_state (non-mutating)');
+
+SELECT * FROM finish();
+ROLLBACK;

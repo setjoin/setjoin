@@ -1,0 +1,95 @@
+-- pgTAP: ContactGroup/set update (rename) + destroy reducers (P2 — create is
+-- covered by contact_groups.pg; this pins the update + destroy paths).
+--
+-- DIVERGENT, NAMESPACED IDS (regression guard): users.id (73001) != mailbox id
+-- (93001). p_account_id is the JMAP accountId = the primary MAILBOX id; every
+-- ownership join is mailbox_id = p_account_id, so coincident ids would mask a
+-- re-scoping regression.
+--
+-- "jmap_contact_state" is the contacts/groups DOMAIN token: notify_contact_state
+-- bumps addressbooks.jmap_state for the mailbox, and the readers take MAX over it
+-- (see notify_contact_state.sql). A successful update/destroy must advance that
+-- MAX by EXACTLY ONE (guarded by IF v_changed → one bump call).
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (name, is_local) VALUES ('cgud.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (73001, 'cguduser', (SELECT id FROM domains WHERE name='cgud.test'),
+          'cgud@cgud.test', 'CGUD User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (93001, 73001, (SELECT id FROM domains WHERE name='cgud.test'),
+          'cgud@cgud.test', 'CGUD User', 'personal', TRUE);
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (93001, 93001, 'Default', TRUE);
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, emails)
+  VALUES (93001, 93001, 'cgud-u1', 'Carol',
+          '[{"type":"work","address":"carol@cgud.test","is_primary":true}]'::JSONB);
+
+-- create the group, then pin its (serial) id in a temp table so we can keep
+-- referencing it after the rename (when the name changes) and after destroy.
+SELECT lives_ok($$ SELECT jmap_contact_group_set_create(93001,
+  '{"ck":{"name":"Squad"}}'::JSONB) $$, 'create group Squad');
+CREATE TEMP TABLE cgud_g AS
+  SELECT id FROM contact_groups WHERE mailbox_id=93001 AND name='Squad';
+
+-- seed two member rows (one saved contact + one free email) so destroy's cascade
+-- has something to remove.
+SELECT lives_ok($$ SELECT contact_group_members_set(93001,
+  (SELECT id FROM cgud_g),
+  '[{"contactId":93001},{"email":"ext@cgud.test"}]'::JSONB, '[]'::JSONB) $$,
+  'seed two members');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_group_members WHERE group_id=(SELECT id FROM cgud_g)),
+  2, 'group has 2 member rows before destroy');
+
+-- ── UPDATE (rename) ──────────────────────────────────────────────────────────
+-- snapshot the contacts-domain state immediately before the rename.
+CREATE TEMP TABLE cgud_pre_upd AS
+  SELECT COALESCE(MAX(jmap_state),0) AS s FROM addressbooks WHERE mailbox_id=93001;
+
+-- rename via the update path; the response reports the id in `updated`.
+SELECT is(
+  (SELECT jmap_contact_group_set_update(93001,
+     jsonb_build_object((SELECT id FROM cgud_g)::TEXT,
+       jsonb_build_object('name','Squad Renamed')))->'updated'),
+  to_jsonb(ARRAY[(SELECT id FROM cgud_g)]),
+  'update returns the id in `updated`');
+
+-- new name is persisted on the same row.
+SELECT is(
+  (SELECT name FROM contact_groups WHERE id=(SELECT id FROM cgud_g)),
+  'Squad Renamed', 'group row renamed to "Squad Renamed"');
+
+-- contacts-domain state advanced by EXACTLY ONE (not 0, not 2).
+SELECT is(
+  (SELECT COALESCE(MAX(jmap_state),0) FROM addressbooks WHERE mailbox_id=93001),
+  (SELECT s + 1 FROM cgud_pre_upd),
+  'rename bumps contacts-domain state by exactly one');
+
+-- ── DESTROY ──────────────────────────────────────────────────────────────────
+CREATE TEMP TABLE cgud_pre_del AS
+  SELECT COALESCE(MAX(jmap_state),0) AS s FROM addressbooks WHERE mailbox_id=93001;
+
+SELECT is(
+  (jmap_contact_group_set_destroy(93001, ARRAY[(SELECT id FROM cgud_g)]::BIGINT[])->'destroyed'),
+  to_jsonb(ARRAY[(SELECT id FROM cgud_g)]),
+  'destroy returns the id in `destroyed`');
+
+-- the group row is gone.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_groups WHERE id=(SELECT id FROM cgud_g)),
+  0, 'group row removed after destroy');
+
+-- its member junction rows are gone (ON DELETE CASCADE).
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_group_members WHERE group_id=(SELECT id FROM cgud_g)),
+  0, 'member junction rows cascade-removed after destroy');
+
+-- contacts-domain state advanced by EXACTLY ONE.
+SELECT is(
+  (SELECT COALESCE(MAX(jmap_state),0) FROM addressbooks WHERE mailbox_id=93001),
+  (SELECT s + 1 FROM cgud_pre_del),
+  'destroy bumps contacts-domain state by exactly one');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of role grant:\n  -expires string\n    \tExpiry (RFC3339) for a time-boxed grant\n  -reason string\n    \tAudit reason (required)\n  -role string\n    \tRole name (required)\nError: flag: help requested\n",
+  "exit": 1
+}

@@ -1,0 +1,8 @@
+{
+  "accept_encoding": "gzip",
+  "blocks": [
+    "198.51.100.0/24|spamhaus-drop"
+  ],
+  "request_line": "GET /drop/drop.txt",
+  "user_agent": "Go-http-client/1.1"
+}

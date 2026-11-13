@@ -1,0 +1,45 @@
+{
+  "case": "login-force-change",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@<domain>\",\"password\":\"Password1!\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"force_password_change\":true,\"force_token\":\"<force_token>\",\"reason\":\"Administrator requires a password change before access is granted.\",\"status\":\"force_password_change\"}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 403,
+      "tokens": [
+        {
+          "claims": {
+            "aud": [
+              "mailserver-gateway"
+            ],
+            "email": "actor@<domain>",
+            "exp": "<expiry>",
+            "iat": "<time>",
+            "iss": "mailserver",
+            "nbf": "<time>",
+            "sub": "<actor>",
+            "typ": "force_pw_change",
+            "uid": "<actor>"
+          },
+          "field": "force_token"
+        }
+      ]
+    }
+  },
+  "route": "POST /auth/login"
+}

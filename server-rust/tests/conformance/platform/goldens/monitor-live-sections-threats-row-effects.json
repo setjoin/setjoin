@@ -1,0 +1,13 @@
+{
+  "case": "sections-threats-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "none"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/monitor/live"
+}

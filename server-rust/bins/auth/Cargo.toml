@@ -1,0 +1,58 @@
+[package]
+name = "setjoin-auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+oracle-mutants = ["setjoin-contracts/oracle-mutants", "setjoin-authz/oracle-mutants", "setjoin-identity/oracle-mutants"]
+
+[dependencies]
+setjoin-threat = { path = "../../crates/threat" }
+base64 = "=0.22.1"
+cookie = { version = "=0.18.2", default-features = false }
+sha2 = "=0.10.9"
+setjoin-contracts = { path = "../../crates/contracts" }
+setjoin-schema = { path = "../../crates/schema" }
+setjoin-identity = { path = "../../crates/domains/identity" }
+setjoin-authz = { path = "../../crates/authz" }
+setjoin-pg = { path = "../../crates/pg" }
+setjoin-config-secret = { path = "../../crates/config-secret" }
+uuid = { version = "=1.29.0", features = ["v4"] }
+bytes = "=1.12.1"
+hyper = { version = "=1.12.0", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "=0.1.21", features = ["client-legacy", "http1", "http2", "server-auto", "tokio"] }
+http-body-util = "=0.1.5"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time", "sync"] }
+
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }
+humantime = "=2.3.0"
+
+ipnet = "=2.12.2"
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+
+percent-encoding = "=2.3.2"
+form_urlencoded = "=1.2.2"
+
+[dev-dependencies]
+openssl = { version = "=0.10.82", features = ["vendored"] }
+bergshamra-c14n = "=0.11.1"
+bergshamra-xml = "=0.11.1"
+bergshamra-dsig = { version = "=0.11.1", default-features = false, features = ["rustcrypto"] }
+bergshamra-keys = { version = "=0.11.1", default-features = false, features = ["rustcrypto"] }
+html-escape = "=0.3.0"
+flate2 = "=1.1.9"
+aes = "=0.8.4"
+cfb-mode = "=0.8.2"
+p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std", "ecdh", "pkcs8", "ecdsa"] }
+ring = "=0.17.14"
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+setjoin-gateway = { path = "../gateway" }
+setjoin-conformance = { path = "../../tests/conformance" }
+bcrypt = "=0.17.1"
+tokio-postgres = "=0.7.18"
+serde_cbor_2 = "=0.13.0"
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots"] }

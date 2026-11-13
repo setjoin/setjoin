@@ -1,0 +1,162 @@
+{
+  "case": "rtc-sub-member-cookie",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "SFU host masked; websocket key masked"
+  ],
+  "observation": {
+    "audit": [],
+    "client": {
+      "frames": [
+        {
+          "text": "echo:hello"
+        },
+        {
+          "binary": [
+            3,
+            2,
+            1
+          ]
+        },
+        {
+          "ping": [
+            9,
+            9
+          ]
+        },
+        {
+          "close": {
+            "code": 1000,
+            "reason": "client done"
+          }
+        }
+      ],
+      "handshake": "ok",
+      "headers": {
+        "connection": [
+          "upgrade"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "sec-websocket-protocol": [
+          "livekit"
+        ],
+        "upgrade": [
+          "websocket"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "meet5-rtc"
+        ],
+        "x-sfu-node": [
+          "node-1"
+        ]
+      },
+      "status": 101
+    },
+    "effects": {},
+    "notify": [],
+    "request": {
+      "actual": "/rtc/rtc/v1?access_token=good",
+      "method": "*",
+      "path": "/rtc/"
+    },
+    "response": {
+      "status": 101
+    },
+    "sfu": [
+      {
+        "request": {
+          "body": "",
+          "headers": {
+            "accept-encoding": [
+              "gzip"
+            ],
+            "connection": [
+              "Upgrade"
+            ],
+            "cookie": [
+              "access_token=<jwt>"
+            ],
+            "host": [
+              "<sfu>"
+            ],
+            "origin": [
+              "http://mail.test"
+            ],
+            "sec-websocket-key": [
+              "<key>"
+            ],
+            "sec-websocket-protocol": [
+              "livekit"
+            ],
+            "sec-websocket-version": [
+              "13"
+            ],
+            "upgrade": [
+              "websocket"
+            ],
+            "x-forwarded-for": [
+              "127.0.0.1"
+            ],
+            "x-forwarded-host": [
+              "mail.test"
+            ],
+            "x-forwarded-proto": [
+              "http"
+            ],
+            "x-request-id": [
+              "meet5-rtc"
+            ]
+          },
+          "method": "GET",
+          "target": "/rtc/v1?access_token=good"
+        }
+      },
+      {
+        "sfu_received": {
+          "text": "hello"
+        }
+      },
+      {
+        "sfu_received": {
+          "binary": [
+            1,
+            2,
+            3
+          ]
+        }
+      },
+      {
+        "sfu_received": {
+          "text": "ping-me"
+        }
+      },
+      {
+        "sfu_received": {
+          "close": {
+            "code": 1000,
+            "reason": "client done"
+          }
+        }
+      }
+    ]
+  },
+  "route": "* /rtc/"
+}

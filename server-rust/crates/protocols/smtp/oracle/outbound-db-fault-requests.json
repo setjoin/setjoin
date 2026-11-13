@@ -1,0 +1,46 @@
+[
+  {
+    "name": "sending-connection-lost",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nCREATE FUNCTION public.gofree_smtp3_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.status='sending' THEN PERFORM pg_terminate_backend(pg_backend_pid()); END IF; RETURN NEW; END$$; CREATE TRIGGER gofree_smtp3_fault BEFORE UPDATE ON outbound_queue FOR EACH ROW EXECUTE FUNCTION public.gofree_smtp3_fault();",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "teardown_sql": "DROP TRIGGER IF EXISTS gofree_smtp3_fault ON outbound_queue; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON delivery_attempts; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON message_trace; DROP FUNCTION IF EXISTS public.gofree_smtp3_fault();"
+  },
+  {
+    "name": "attempt-log-connection-lost",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nCREATE FUNCTION public.gofree_smtp3_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF true THEN PERFORM pg_terminate_backend(pg_backend_pid()); END IF; RETURN NEW; END$$; CREATE TRIGGER gofree_smtp3_fault BEFORE INSERT ON delivery_attempts FOR EACH ROW EXECUTE FUNCTION public.gofree_smtp3_fault();",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "teardown_sql": "DROP TRIGGER IF EXISTS gofree_smtp3_fault ON outbound_queue; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON delivery_attempts; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON message_trace; DROP FUNCTION IF EXISTS public.gofree_smtp3_fault();"
+  },
+  {
+    "name": "delivered-update-connection-lost",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nCREATE FUNCTION public.gofree_smtp3_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.status='delivered' THEN PERFORM pg_terminate_backend(pg_backend_pid()); END IF; RETURN NEW; END$$; CREATE TRIGGER gofree_smtp3_fault BEFORE UPDATE ON outbound_queue FOR EACH ROW EXECUTE FUNCTION public.gofree_smtp3_fault();",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "teardown_sql": "DROP TRIGGER IF EXISTS gofree_smtp3_fault ON outbound_queue; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON delivery_attempts; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON message_trace; DROP FUNCTION IF EXISTS public.gofree_smtp3_fault();"
+  },
+  {
+    "name": "trace-connection-lost",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nCREATE FUNCTION public.gofree_smtp3_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF true THEN PERFORM pg_terminate_backend(pg_backend_pid()); END IF; RETURN NEW; END$$; CREATE TRIGGER gofree_smtp3_fault BEFORE INSERT ON message_trace FOR EACH ROW EXECUTE FUNCTION public.gofree_smtp3_fault();",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "teardown_sql": "DROP TRIGGER IF EXISTS gofree_smtp3_fault ON outbound_queue; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON delivery_attempts; DROP TRIGGER IF EXISTS gofree_smtp3_fault ON message_trace; DROP FUNCTION IF EXISTS public.gofree_smtp3_fault();"
+  }
+]

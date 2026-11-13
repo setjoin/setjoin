@@ -1,0 +1,38 @@
+-- mailserver/sql/tests/drive_members.pg
+BEGIN;
+SELECT plan(12);
+SELECT mk_account('dmA') AS mba \gset
+SELECT mk_account('dmB') AS mbb \gset
+SELECT mk_account('dmC') AS mbc \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS uc FROM mailboxes WHERE id = :mbc \gset
+SELECT drive_space_create(:ua, 'M', 'regular') AS sid \gset
+
+SELECT is(drive_member_grant(:ua, :sid, :ub, 'editor')->>'status', 'granted', 'manager grants editor');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id=:sid AND user_id=:ub), 'editor', 'member row upserted');
+SELECT is(drive_member_grant(:ua, :sid, :ub, 'viewer')->>'status', 'granted', 're-grant downgrades role (upsert)');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id=:sid AND user_id=:ub), 'viewer', 'role updated in place');
+SELECT throws_ok(format($$ SELECT drive_member_grant(%s, %s, %s, 'editor') $$, :ub, :sid, :uc),
+  'BZ140', NULL, 'non-manager cannot grant');
+SELECT throws_ok(format($$ SELECT drive_member_grant(%s, %s, %s, 'editor') $$, :uc, :sid, :uc),
+  'BZ139', NULL, 'outsider gets BZ139 (no membership oracle)');
+SELECT throws_ok(format($$ SELECT drive_member_grant(%s, %s, %s, 'admiral') $$, :ua, :sid, :ub),
+  'BZ141', NULL, 'bad role → BZ141');
+
+-- share=approval now routes through the drive.share consumer (P5 — R4 lands):
+-- no policy configured → fail-closed manager resolution → pending, never a
+-- direct grant, no member row inserted yet.
+UPDATE drive_spaces SET export_policy = '{"share":"approval"}' WHERE id = :sid;
+SELECT is(drive_member_grant(:ua, :sid, :uc, 'editor')->>'status', 'pending',
+  'share approval policy → pending (P5 drive.share routing)');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id=:sid AND user_id=:uc), NULL,
+  'no member row inserted while pending');
+UPDATE drive_spaces SET export_policy = '{}' WHERE id = :sid;
+
+SELECT lives_ok(format($$ SELECT drive_member_revoke(%s, %s, %s) $$, :ub, :sid, :ub), 'member removes THEMSELVES');
+SELECT throws_ok(format($$ SELECT drive_member_revoke(%s, %s, %s) $$, :ua, :sid, :ua),
+  'BZ141', NULL, 'the owner row cannot be revoked');
+SELECT is((SELECT op FROM drive_changes WHERE space_id=:sid ORDER BY seq DESC LIMIT 1), 'member', 'revoke journals op=member');
+SELECT * FROM finish();
+ROLLBACK;

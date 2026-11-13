@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of upgrade diagnostics:\n  -output string\n    \tnew local JSON evidence file\nError: --output is required\n",
+  "exit": 1
+}

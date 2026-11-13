@@ -1,0 +1,15 @@
+{
+  "case": "reset-commit-after",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": 1,
+    "body": "{\"error\":\"internal error\"}\n",
+    "changed": true,
+    "consumed": true,
+    "cookie": false,
+    "revoked": 1,
+    "status": 500
+  },
+  "route": "POST /auth/forgot-password/reset"
+}

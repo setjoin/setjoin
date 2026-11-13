@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -domain-scope: parse error\nUsage of role create:\n  -desc string\n    \tDescription\n  -domain-scope int\n    \tDomain scope ID (0 = global)\n  -name string\n    \tRole name (required)\n  -permissions string\n    \tComma-separated permission keys (required)\n  -reason string\n    \tAudit reason (required)\nError: invalid value \"not-an-integer\" for flag -domain-scope: parse error\n",
+  "exit": 1
+}

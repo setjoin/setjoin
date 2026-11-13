@@ -1,0 +1,25 @@
+// Recording-only overlay (#408): runs frozen Go's real notifyjobs.Worker.Run
+// for exactly one tick (the ticker fires at 1 s; the context ends at 1.5 s).
+package notifyjobs
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeNotifyDrainTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 1, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	runCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	NewWorker(pgxutil.WorkerPool{Pool: pool}, slog.Default()).Run(runCtx)
+}

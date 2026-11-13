@@ -1,0 +1,283 @@
+-- pgTAP: the ADR-004 address-to-person admission and backfill contract (V249,
+-- med-identity-resolution-001). One address is admissible to exactly ONE enabled
+-- person (the anchor: users.id). Same-person overlap (UPN + aliases on the
+-- person's own mailboxes) is legitimate and resolves from every address;
+-- cross-person overlap is unwritable (BZ328 admission triggers) — the users
+-- trigger validates the COMPLETE prospective set (own email + UPN + every live
+-- alias on the person's mailboxes, so a re-enable cannot revive a dormant alias
+-- into a live UPN claim) — and, when overlap is injected by bypassing admission
+-- (legacy data), the one-time backfill quarantines it with an operator-visible
+-- report — a quarantined address resolves for NO ONE from either co-evolving
+-- twin, under the OWNER identity and under the RUNTIME role (setjoin_app: the
+-- FORCE-RLS ledger stays invisible, but its fact binds through the worker-owned
+-- SECURITY DEFINER helper). Divergent ids by construction (ADR-003): user ids in
+-- 14NNNN, mailbox ids in 24NNNN.
+BEGIN;
+SELECT plan(52);
+
+SELECT has_table('public', 'identity_address_quarantine',
+    'cross-person quarantine ledger exists');
+SELECT col_is_pk('public', 'identity_address_quarantine', ARRAY['address'],
+    'the quarantine ledger is keyed by (case-folded) address');
+SELECT is(
+    (SELECT relrowsecurity::text || ':' || relforcerowsecurity::text
+     FROM pg_class WHERE oid = 'identity_address_quarantine'::regclass),
+    'true:true',
+    'quarantine ledger is FORCE RLS');
+SELECT is(
+    (SELECT rolname FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner
+     WHERE c.oid = 'identity_address_quarantine'::regclass),
+    'setjoin_owner',
+    'quarantine ledger has isolated ownership');
+SELECT has_function('public', 'identity_address_claims', ARRAY['text'],
+    'claim substrate (the one ADR-004 union) exists');
+SELECT has_function('public', 'identity_address_claim_count', ARRAY['text'],
+    'claim-count substrate exists');
+SELECT has_function('public', 'identity_address_overlap_backfill', ARRAY[]::text[],
+    'the re-runnable backfill report exists');
+SELECT has_function('public', 'identity_address_quarantined', ARRAY['text'],
+    'the quarantine FACT helper exists (runtime-role visibility)');
+SELECT is(
+    (SELECT rolname FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+     WHERE p.oid = 'identity_address_quarantined(text)'::regprocedure),
+    'setjoin_worker',
+    'the quarantine helper is worker-owned (BYPASSRLS reads the FORCE-RLS ledger)');
+SELECT is(
+    (SELECT prosecdef::text FROM pg_proc
+     WHERE oid = 'identity_address_quarantined(text)'::regprocedure),
+    'true',
+    'the quarantine helper is SECURITY DEFINER (ARCH-018 recipe)');
+SELECT has_trigger('public', 'users', 'trg_identity_address_admission_users',
+    'users writes pass admission control');
+SELECT has_trigger('public', 'aliases', 'trg_identity_address_admission_aliases',
+    'alias writes pass admission control');
+SELECT has_trigger('public', 'mailboxes', 'trg_identity_address_admission_mailboxes',
+    'mailbox (re)assignment passes admission control');
+SELECT has_index('users', 'users_ad_upn_lower_idx',
+    'the previously unindexed ad_upn union member is indexed');
+
+-- ── Same-person fixture: one person, full address set ─────────────────────
+INSERT INTO domains (name, is_local)
+VALUES ('idresadm.test', TRUE), ('idres-sister.test', TRUE);
+
+-- Alice: primary email, then (under admission control) a DISTINCT UPN, a
+-- sister-domain alias and a self-alias of her own primary — all one person.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (140001, 'alice-idres', (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'alice@idresadm.test', 'Alice', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (240001, 140001, (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'alice@idresadm.test', 'Alice', 'personal', TRUE);
+SELECT lives_ok(
+    'UPDATE users SET ad_upn = ''alice.upn@corp.local'' WHERE id = 140001',
+    'same-person admission: a UPN distinct from the primary email inserts cleanly');
+SELECT lives_ok(
+    'INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES '
+    '(240001, ''alice@idres-sister.test'', (SELECT id FROM domains WHERE name = ''idres-sister.test''), FALSE)',
+    'same-person admission: a sister-domain alias on the person''s own mailbox inserts cleanly');
+SELECT lives_ok(
+    'INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES '
+    '(240001, ''alice@idresadm.test'', (SELECT id FROM domains WHERE name = ''idresadm.test''), FALSE)',
+    'same-person admission: an alias repeating the person''s own primary is legitimate');
+
+SELECT is((SELECT user_id FROM resolve_identity('alice@idresadm.test')), 140001::BIGINT,
+    'resolves the anchor person by primary email');
+SELECT is((SELECT user_id FROM resolve_identity('alice.upn@corp.local')), 140001::BIGINT,
+    'resolves the SAME person by their UPN');
+SELECT is((SELECT user_id FROM resolve_identity('alice@idres-sister.test')), 140001::BIGINT,
+    'resolves the SAME person by a sister-domain alias');
+SELECT is((SELECT user_id FROM resolve_identity('ALICE.UPN@CORP.LOCAL')), 140001::BIGINT,
+    'resolution stays case-insensitive');
+SELECT is((SELECT primary_mailbox FROM resolve_identity('alice.upn@corp.local')), 240001::BIGINT,
+    'primary_mailbox is the person''s is_primary mailbox');
+
+-- ── Bob: the cross-person counterparty ─────────────────────────────────────
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (140002, 'bob-idres', (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'bob@idresadm.test', 'Bob', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (240002, 140002, (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'bob@idresadm.test', 'Bob', 'personal', TRUE);
+
+-- ── Admission control: a NEW cross-person overlap fails (BZ328) ────────────
+SELECT throws_ok(
+    'UPDATE users SET ad_upn = ''bob@idresadm.test'' WHERE id = 140001',
+    'BZ328', NULL,
+    'admission: A''s UPN may not become B''s email (UPN x email overlap)');
+SELECT throws_ok(
+    'UPDATE users SET ad_upn = ''alice.upn@corp.local'' WHERE id = 140002',
+    'BZ328', NULL,
+    'admission: two enabled persons cannot share a UPN');
+SELECT throws_ok(
+    'INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES '
+    '(240002, ''alice@idres-sister.test'', (SELECT id FROM domains WHERE name = ''idres-sister.test''), FALSE)',
+    'BZ328', NULL,
+    'admission: an alias on B''s mailbox may not duplicate A''s alias');
+SELECT throws_ok(
+    'INSERT INTO users (id, username, domain_id, email, display_name, ad_upn, enabled) VALUES '
+    '(140009, ''dave-idres'', (SELECT id FROM domains WHERE name = ''idresadm.test''), '
+    '''dave@idresadm.test'', ''Dave'', ''alice@idres-sister.test'', TRUE)',
+    'BZ328', NULL,
+    'admission: a new person''s UPN may not duplicate an existing person''s alias');
+SELECT throws_ok(
+    'INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES '
+    '(140009, ''dave-idres'', (SELECT id FROM domains WHERE name = ''idresadm.test''), '
+    '''alice.upn@corp.local'', ''Dave'', TRUE)',
+    'BZ328', NULL,
+    'admission: a JIT-shaped insert whose primary duplicates another person''s UPN fails rather than resolves');
+-- (the shared mailbox + its conflicting alias for the reassignment test below: the
+-- alias lands on an OWNERLESS mailbox, which admission correctly lets through — it
+-- claims nobody until the mailbox is assigned to a person.)
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (240003, NULL, (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'shared-idres@idresadm.test', 'Shared', 'personal', FALSE);
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (240003, 'alice.upn@corp.local', (SELECT id FROM domains WHERE name = 'idresadm.test'), FALSE);
+SELECT throws_ok(
+    'UPDATE mailboxes SET user_id = 140002 WHERE id = 240003',
+    'BZ328', NULL,
+    'admission: reassigning the shared mailbox would claim A''s primary for B — refused');
+
+-- ── Disabled persons never block, but re-enabling into a claim is refused ──
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (140003, 'carol-idres', (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'carol@idresadm.test', 'Carol', FALSE);
+SELECT lives_ok(
+    'INSERT INTO users (id, username, domain_id, email, display_name, ad_upn, enabled) VALUES '
+    '(140004, ''erin-idres'', (SELECT id FROM domains WHERE name = ''idresadm.test''), '
+    '''erin@idresadm.test'', ''Erin'', ''carol@idresadm.test'', TRUE)',
+    'admission: a DISABLED person''s address never blocks a live claim');
+SELECT throws_ok(
+    'UPDATE users SET enabled = TRUE WHERE id = 140003',
+    'BZ328', NULL,
+    'admission: re-enabling into an address another enabled person now holds is refused');
+
+-- ── Backfill: injected (admission-bypassed) overlap quarantines ────────────
+-- Simulate legacy data that predates the contract: disable ONLY the admission
+-- trigger and give A a UPN equal to B's primary email. B has the LOWER id, so
+-- the pre-contract ORDER-BY-LIMIT pick would have bound this address to A.
+ALTER TABLE users DISABLE TRIGGER trg_identity_address_admission_users;
+UPDATE users SET ad_upn = 'bob@idresadm.test' WHERE id = 140001;
+ALTER TABLE users ENABLE TRIGGER trg_identity_address_admission_users;
+
+SELECT is((SELECT identity_address_claim_count('bob@idresadm.test')), 2::BIGINT,
+    'the injected overlap is genuinely claimed by two enabled persons');
+SELECT is((SELECT count(*)::int FROM resolve_identity('bob@idresadm.test')), 0,
+    'an ambiguous address resolves to ZERO rows — never a lowest-id pick');
+SELECT is((SELECT coalesce((SELECT user_id FROM resolve_identity('bob@idresadm.test')), 0::BIGINT)), 0::BIGINT,
+    'the resolver does NOT silently bind the overlap to the lower-id person (140001)');
+
+SELECT is((SELECT count(*)::int FROM identity_address_overlap_backfill()), 1,
+    'the backfill reports exactly one new cross-person overlap');
+SELECT is(
+    (SELECT address FROM identity_address_quarantine
+      WHERE address = 'bob@idresadm.test'),
+    'bob@idresadm.test',
+    'the overlapping address is quarantined');
+SELECT is(
+    (SELECT owners FROM identity_address_quarantine WHERE address = 'bob@idresadm.test'),
+    ARRAY[140001, 140002]::BIGINT[],
+    'the quarantine report records BOTH competing enabled persons');
+SELECT is(
+    (SELECT reason FROM identity_address_quarantine WHERE address = 'bob@idresadm.test'),
+    'cross_person_overlap',
+    'the quarantine row carries the cross-person reason');
+SELECT is((SELECT count(*)::int FROM identity_address_overlap_backfill()), 0,
+    'the SECOND backfill run is empty — the contract reaches convergence');
+
+-- Quarantine and claim-count are INDEPENDENT exclusions: with the overlap
+-- source removed exactly ONE person claims the address again, but it still
+-- resolves for no one until an operator releases the quarantine row.
+UPDATE users SET ad_upn = NULL WHERE id = 140001;
+SELECT is((SELECT identity_address_claim_count('bob@idresadm.test')), 1::BIGINT,
+    'after the fix only one enabled person claims the address');
+SELECT is((SELECT count(*)::int FROM resolve_identity('bob@idresadm.test')), 0,
+    'a QUARANTINED address resolves for no one even with a single claimant');
+DELETE FROM identity_address_quarantine WHERE address = 'bob@idresadm.test';
+SELECT is((SELECT user_id FROM resolve_identity('bob@idresadm.test')), 140002::BIGINT,
+    'operator release (fix + delete quarantine row) restores anchor-faithful resolution');
+
+-- ── Re-enable checks the COMPLETE prospective set (live aliases too) ──────
+-- The r2 HOLD scenario: disable Gwen, assign one of Gwen's ALIAS addresses as
+-- Henry's UPN (legal — a disabled person claims nothing), then re-enable Gwen.
+-- Checking only NEW.email/NEW.ad_upn would admit it: the re-enable revives
+-- Gwen's alias claims without touching aliases.email, leaving the alias
+-- claimed by TWO enabled persons. The alias arm of the users admission
+-- trigger must refuse.
+-- (Placed AFTER the backfill section deliberately: this block performs
+-- successful `enabled` updates, and the CA reachability constraint trigger
+-- (V2xx, DEFERRABLE INITIALLY DEFERRED on UPDATE OF enabled) keeps those
+-- events pending until COMMIT — the backfill section's mid-transaction
+-- `ALTER TABLE users DISABLE TRIGGER` cannot run once one is queued.)
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (140005, 'gwen-idres', (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'gwen@idresadm.test', 'Gwen', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (240005, 140005, (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'gwen@idresadm.test', 'Gwen', 'personal', TRUE);
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (240005, 'gwen@idres-sister.test', (SELECT id FROM domains WHERE name = 'idres-sister.test'), FALSE);
+UPDATE users SET enabled = FALSE WHERE id = 140005;
+INSERT INTO users (id, username, domain_id, email, display_name, ad_upn, enabled) VALUES
+  (140006, 'henry-idres', (SELECT id FROM domains WHERE name = 'idresadm.test'),
+   'henry@idresadm.test', 'Henry', 'gwen@idres-sister.test', TRUE);
+SELECT is((SELECT identity_address_claim_count('gwen@idres-sister.test')), 1::BIGINT,
+    'a disabled person''s dormant alias may sit on exactly one enabled claimant (Henry''s UPN)');
+SELECT throws_ok(
+    'UPDATE users SET enabled = TRUE WHERE id = 140005',
+    'BZ328', NULL,
+    'admission: re-enabling Gwen validates her LIVE ALIASES — the dormant alias now lives on Henry''s UPN');
+SELECT is((SELECT enabled FROM users WHERE id = 140005), FALSE,
+    'the refused re-enable left Gwen disabled (the second claim never landed)');
+SELECT is((SELECT identity_address_claim_count('gwen@idres-sister.test')), 1::BIGINT,
+    'still exactly one enabled claimant — admission refused BEFORE the overlap materialized');
+UPDATE users SET ad_upn = NULL WHERE id = 140006;
+SELECT lives_ok(
+    'UPDATE users SET enabled = TRUE WHERE id = 140005',
+    'admission: with the alias conflict removed the ordinary re-enable succeeds');
+
+-- ── Isolation posture: the ledger hides from the runtime role, its FACT cannot ──
+-- FORCE RLS + zero policies keeps the ledger itself invisible and unwritable to
+-- setjoin_app — but the twins' exclusion must still BIND under the runtime role,
+-- or removing one competing claim would silently resume resolution WITHOUT an
+-- operator release (the exact hole a direct `NOT EXISTS (… FROM quarantine)`
+-- twin leaves once the runtime role is RLS-constrained). The fact flows through
+-- the worker-owned SECURITY DEFINER helper; both twins call it, so owner and
+-- runtime connections reach the same resolution verdict.
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+    (SELECT count(*)::int FROM identity_address_quarantine),
+    0, 'setjoin_app sees no quarantine evidence (FORCE RLS, zero policies)');
+SELECT throws_ok(
+    'INSERT INTO identity_address_quarantine (address, owners) VALUES (''rls-probe@idresadm.test'', ARRAY[140001]::BIGINT[])',
+    '42501', NULL,
+    'setjoin_app cannot write quarantine evidence directly');
+RESET ROLE;
+-- Re-quarantine the now-SINGLE-claimant address (the operator-pending state)
+-- and prove the runtime role keeps it dead until release.
+INSERT INTO identity_address_quarantine (address, owners, reason)
+VALUES ('bob@idresadm.test', ARRAY[140002]::BIGINT[], 'cross_person_overlap');
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+    (SELECT identity_address_quarantined('bob@idresadm.test')),
+    TRUE,
+    'setjoin_app reads the quarantine FACT through the SECURITY DEFINER helper');
+SELECT is(
+    (SELECT count(*)::int FROM resolve_identity('bob@idresadm.test')),
+    0,
+    'runtime role: a RETAINED quarantine resolves for no one even with one claimant');
+SELECT is(
+    (SELECT user_id FROM resolve_identity('alice@idresadm.test')),
+    140001::BIGINT,
+    'runtime role: an unquarantined address still resolves — the denial is not vacuous');
+RESET ROLE;
+DELETE FROM identity_address_quarantine WHERE address = 'bob@idresadm.test';
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+    (SELECT user_id FROM resolve_identity('bob@idresadm.test')),
+    140002::BIGINT,
+    'runtime role: operator release restores anchor-faithful resolution');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

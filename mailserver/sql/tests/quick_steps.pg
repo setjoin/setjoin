@@ -1,0 +1,82 @@
+-- pgTAP: quick_steps.sql — Quick Steps macro store, allowlist enforcement, and
+-- the LINK-PROTECT forward sanitization rail (A2).
+BEGIN;
+SELECT plan(17);
+
+-- ── Fixtures: a mailbox (auto-creates system tags incl. Inbox), one Inbox msg ──
+INSERT INTO domains (name, is_local) VALUES ('qs.test', TRUE);
+INSERT INTO mailboxes (id, domain_id, email, display_name, type)
+VALUES (900, (SELECT id FROM domains WHERE name = 'qs.test'), 'qs@qs.test', 'QS', 'personal');
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (5001, 900, get_tag_id('Inbox', 900), '<qs1@qs.test>', 'Receipt', 'shop@ext.com', 100, 'thr-5001', 's3://raw-5001', now(), FALSE);
+SELECT tag_message(5001, (SELECT received_at FROM messages WHERE id = 5001), 'Inbox', 900, 'deliver', TRUE);
+
+-- ── list is empty initially ──
+SELECT is(jsonb_array_length(quick_step_list(900)), 0, 'no quick steps yet');
+
+-- ── create a quick step: mark read + categorize Receipts ──
+SELECT lives_ok($$
+  SELECT quick_step_set(900, NULL, 'File receipt', 'FileText',
+    '[{"type":"mark_read"},{"type":"categorize","params":{"category":"Receipts"}}]'::jsonb)
+$$, 'create quick step');
+
+SELECT is(jsonb_array_length(quick_step_list(900)), 1, 'one quick step listed');
+
+-- ── apply it to message 5001 ──
+-- Capture jmap_email_state before apply: quick_step_apply ends with
+-- notify_state_change(p_mailbox_id, NULL) (quick_steps.sql), so the mailbox
+-- state MUST strictly increase — confirm the bump is real (not a no-op).
+CREATE TEMP TABLE _pre_qs AS
+  SELECT jmap_email_state AS s FROM mailboxes WHERE id = 900;
+
+SELECT lives_ok($$ SELECT quick_step_apply(900,
+  (SELECT id FROM quick_steps WHERE mailbox_id = 900 LIMIT 1), 5001,
+  (SELECT received_at FROM messages WHERE id = 5001)) $$, 'apply runs');
+
+SELECT cmp_ok(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = 900),
+  '>',
+  (SELECT s FROM _pre_qs),
+  'jmap_email_state strictly bumped after quick_step_apply (notify_state_change)'
+);
+
+SELECT is((SELECT is_read FROM messages WHERE id = 5001), TRUE, 'message marked read by macro');
+SELECT ok(EXISTS (SELECT 1 FROM messages WHERE id = 5001 AND 'Receipts' = ANY(categories)),
+  'categorize action applied');
+
+-- ── ENFORCEMENT INVARIANT: each ALLOWED action type is accepted at set time ──
+SELECT lives_ok($$ SELECT quick_step_set(900, NULL, 'mv',  'Zap', '[{"type":"move_to","params":{"role":"Trash"}}]'::jsonb) $$, 'allow move_to');
+SELECT lives_ok($$ SELECT quick_step_set(900, NULL, 'cat', 'Zap', '[{"type":"categorize","params":{"category":"X"}}]'::jsonb) $$, 'allow categorize');
+SELECT lives_ok($$ SELECT quick_step_set(900, NULL, 'flg', 'Zap', '[{"type":"flag"}]'::jsonb) $$, 'allow flag');
+SELECT lives_ok($$ SELECT quick_step_set(900, NULL, 'mr',  'Zap', '[{"type":"mark_read"}]'::jsonb) $$, 'allow mark_read');
+SELECT lives_ok($$ SELECT quick_step_set(900, NULL, 'fwd', 'Zap', '[{"type":"forward_to","params":{"address":"x@ext.com"}}]'::jsonb) $$, 'allow forward_to');
+
+-- ── ENFORCEMENT INVARIANT: each PRIVILEGED action type is REJECTED (BZ043), not
+--    silently passed through to apply_action's more-permissive rule behaviour ──
+SELECT throws_ok($$ SELECT quick_step_set(900, NULL, 'bad', 'Zap', '[{"type":"add_header","params":{"value":"x"}}]'::jsonb) $$,
+  'BZ043', NULL, 'reject add_header');
+SELECT throws_ok($$ SELECT quick_step_set(900, NULL, 'bad', 'Zap', '[{"type":"discard"}]'::jsonb) $$,
+  'BZ043', NULL, 'reject discard');
+SELECT throws_ok($$ SELECT quick_step_set(900, NULL, 'bad', 'Zap', '[{"type":"delete"}]'::jsonb) $$,
+  'BZ043', NULL, 'reject delete');
+
+-- ── LINK-PROTECT rail: a forward macro queues an outbound row flagged for
+--    link-protect un-rewriting so the recipient's protected redirects/tokens are
+--    not leaked to the forward target ──
+SELECT lives_ok($$
+  WITH qs AS (
+    SELECT quick_step_set(900, NULL, 'Forward to assistant', 'Forward',
+      '[{"type":"forward_to","params":{"address":"assistant@ext.com"}}]'::jsonb) AS id
+  )
+  SELECT quick_step_apply(900, (SELECT id FROM qs), 5001,
+    (SELECT received_at FROM messages WHERE id = 5001))
+$$, 'forward quick step applies');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM outbound_queue
+          WHERE 'assistant@ext.com' = ANY(rcpt_addrs) AND forward_unwrap_links = TRUE),
+  'forwarded copy is flagged for link-protect un-rewriting (no token leak)');
+
+SELECT * FROM finish();
+ROLLBACK;

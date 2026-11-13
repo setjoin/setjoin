@@ -1,0 +1,106 @@
+[
+  {
+    "baseline": "goldens/migration-start-folded-imap-rows.json",
+    "expectation": "security/migration-start-folded-imap-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): an IMAP migration start with tls_mode none is refused with 400 and creates no job (plaintext source credentials); frozen Go sealed the config and started the job (201).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "be35acf0b31334b57ed0579889d06f8df63e9ecd67ddf0564973ebcc4e52bcf7"
+  },
+  {
+    "baseline": "goldens/migration-start-folded-imap.json",
+    "expectation": "security/migration-start-folded-imap.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): an IMAP migration start with tls_mode none is refused with 400 and creates no job (plaintext source credentials); frozen Go sealed the config and started the job (201).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "fd155826a383d441431117c8cd7baed7317ab336be2613c1c7ca526c8ac113ce"
+  },
+  {
+    "baseline": "goldens/migration-start-imap-rows.json",
+    "expectation": "security/migration-start-imap-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): an IMAP migration start with tls_mode none is refused with 400 and creates no job (plaintext source credentials); frozen Go sealed the config and started the job (201).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "d7327242f3b30c2cb63ec2f580aefe71081267d8192690e6aa8385f6df6aa7b5"
+  },
+  {
+    "baseline": "goldens/migration-start-imap.json",
+    "expectation": "security/migration-start-imap.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): an IMAP migration start with tls_mode none is refused with 400 and creates no job (plaintext source credentials); frozen Go sealed the config and started the job (201).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "6bfbbfba3c1223016e509fdf6b488672a42d09b537ded4e006d366dbe32bbcb2"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-bad-password.json",
+    "expectation": "security/migration-test-imap-bad-password.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "78e2174ac8d8cc57bab3a602736e26256f26e1204c17f532877371fc9ed6a462"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-cross-tenant.json",
+    "expectation": "security/migration-test-imap-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "20127252e798526fdaf7515c2032114e2918908d86c261154e9cc63a02d4686f"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-folded-body.json",
+    "expectation": "security/migration-test-imap-folded-body.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "008e2907ba4be3e584a048de34d367c15cf70b686a3713b2261e1a2348df65ff"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-ipv6-loopback.json",
+    "expectation": "security/migration-test-imap-ipv6-loopback.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "ed220fc9cc5fafa656c322ecd9498a3ccd460ff8514742cf45f2bc89273900eb"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-link-local.json",
+    "expectation": "security/migration-test-imap-link-local.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "e159da68e0daa1572a9ce69a1b5e7514019ac9b7e20a12330d93fb94f6eddbb7"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-loopback.json",
+    "expectation": "security/migration-test-imap-loopback.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "a10a2385ae117ec460515d7ac94948a6555053f7eceea06fbf78e02e5129a354"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-no-host.json",
+    "expectation": "security/migration-test-imap-no-host.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "7bd56da572c475d58b5f37e0a75eda6185cb506ed695aa6b8f87c8613af70dc2"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-no-mailbox.json",
+    "expectation": "security/migration-test-imap-no-mailbox.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "73786344ce40015586e819f095f1d03c89bab97a37122a60f4d7a985f4fdd688"
+  },
+  {
+    "baseline": "goldens/migration-test-imap-success.json",
+    "expectation": "security/migration-test-imap-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): IMAP test-connection requests with tls_mode none are refused with 400 before any dial (a user's source password never travels in clear on the self-service routes); frozen Go dialed the plaintext source and answered 200 with the sanitized result.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "9a4e0dc940ce1e8725e9218b709d3d41e747e35f3cef649af478b3e3db7b4f49"
+  }
+]

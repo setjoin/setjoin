@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "route": "POST /admin/ediscovery/cases/{id}/close",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "cases": [
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "Scope <42>",
+            "id": 970001,
+            "name": "Investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "",
+            "id": 970002,
+            "name": "Closed investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "results": [],
+        "searches": []
+      },
+      "before": {
+        "cases": [
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "Scope <42>",
+            "id": 970001,
+            "name": "Investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "",
+            "id": 970002,
+            "name": "Closed investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "results": [],
+        "searches": []
+      },
+      "table": "ediscovery_cases"
+    }
+  ]
+}

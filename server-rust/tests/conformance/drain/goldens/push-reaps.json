@@ -1,0 +1,19 @@
+{
+  "case": "push-reaps",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "object_puts": [],
+    "requests": [],
+    "rows": {
+      "chat_intents": [
+        "old-pending:pending",
+        "new-done:done"
+      ],
+      "guest_intents": [
+        "gofree-drain-h:2:2:true",
+        "gofree-drain-i:4:4:true"
+      ]
+    }
+  }
+}

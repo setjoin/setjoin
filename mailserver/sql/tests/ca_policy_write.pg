@@ -1,0 +1,127 @@
+-- pgTAP: ca_policy_write.pg — CA-0a write reducers (guard + in-txn audit + F2 notify).
+BEGIN;
+SELECT plan(16);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (95200, 'pw.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (82001, 'pw_actor', 95200, 'actor@pw.test', 'Actor', TRUE);
+
+-- CREATE (p_id NULL): a user-scoped off policy (no guard interaction).
+SELECT lives_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, NULL,
+       '{"name":"pw-1","description":"d","state":"off","scope_type":"user","scope_target":"82001","conditions":{},"actions":{"action":"block"}}'::jsonb) $$,
+  'ca_policy_upsert create succeeds');
+
+-- audit row written, action=ca_policy_create, target_type=conditional_access_policy
+SELECT is(
+  (SELECT action FROM admin_audit_log WHERE target_type='conditional_access_policy' ORDER BY id DESC LIMIT 1),
+  'ca_policy_create', 'create writes a ca_policy_create audit row');
+
+-- after_state never carries a caller-supplied enabled (trigger-derived only)
+SELECT ok(
+  NOT ((SELECT after_state FROM admin_audit_log WHERE target_type='conditional_access_policy' ORDER BY id DESC LIMIT 1) ? 'enabled'),
+  'after_state has no enabled key (state-only writes)');
+
+-- F2: PERFORM ca_notify_policy_change fires pg_notify on the conditional_access channel
+-- (the CA-F choke point; not a bespoke app_notify call).
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'upsert fires ca_notify_policy_change → pg_notify on conditional_access channel');
+
+-- UPDATE captures before + after.
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  SELECT id INTO v_id FROM conditional_access_policies WHERE name='pw-1';
+  PERFORM ca_policy_upsert(82001, '203.0.113.5'::inet, v_id,
+    ('{"name":"pw-1b","description":"d2","state":"report_only","scope_type":"user","scope_target":"82001","conditions":{},"actions":{"action":"block"}}')::jsonb);
+END $$;
+SELECT is(
+  (SELECT action FROM admin_audit_log WHERE target_type='conditional_access_policy' ORDER BY id DESC LIMIT 1),
+  'ca_policy_update', 'update writes a ca_policy_update audit row');
+SELECT ok(
+  (SELECT before_state IS NOT NULL FROM admin_audit_log WHERE action='ca_policy_update' ORDER BY id DESC LIMIT 1),
+  'update captures before_state');
+
+-- the guard fires through the upsert: on+global+block excluding no admin → BZ080.
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (91201, 'pw-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES (82001, 91201, NULL);
+SELECT throws_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, NULL,
+       '{"name":"pw-lock","state":"on","scope_type":"global","conditions":{},"actions":{"action":"block"},"exclude_users":[],"exclude_groups":[]}'::jsonb) $$,
+  'BZ080', NULL, 'upsert routes through ca_lockout_guard (BZ080)');
+
+-- DELETE writes a delete audit row.
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  SELECT id INTO v_id FROM conditional_access_policies WHERE name='pw-1b';
+  PERFORM ca_policy_delete(82001, '203.0.113.5'::inet, v_id);
+END $$;
+SELECT is(
+  (SELECT action FROM admin_audit_log WHERE target_type='conditional_access_policy' ORDER BY id DESC LIMIT 1),
+  'ca_policy_delete', 'delete writes a ca_policy_delete audit row');
+
+-- REORDER writes one summary audit row.
+INSERT INTO conditional_access_policies (id, priority, name, enabled, scope_type, conditions, actions)
+  VALUES (700301, 10, 'ro-a', FALSE, 'user', '{}', '{"action":"allow"}'),
+         (700302, 20, 'ro-b', FALSE, 'user', '{}', '{"action":"allow"}');
+SELECT lives_ok(
+  $$ SELECT ca_policy_reorder(82001, '203.0.113.5'::inet, ARRAY[700302,700301]::bigint[]) $$,
+  'ca_policy_reorder succeeds and writes a summary audit row');
+
+-- F2: verify ca_notify_policy_change is the choke point (payload contains "reason" key).
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM _test_notify_log
+    WHERE channel = 'conditional_access'
+      AND payload::jsonb ? 'reason'
+  ),
+  'ca_notify_policy_change payload has a "reason" key (F2 choke-point contract)');
+
+-- valid-exclude SUCCESS: on+global+block with admin in exclude_users → guard passes via SECURITY DEFINER
+-- (proves the SECURITY DEFINER SET search_path pin lets the guard see ugm rows; exclude_users path).
+-- Uses the admin (82001) already in admin_role_assignments from the BZ080 arm above.
+SELECT lives_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, NULL,
+       '{"name":"pw-excl","state":"on","scope_type":"global","conditions":{},"actions":{"action":"block"},"exclude_users":[82001],"exclude_groups":[]}'::jsonb) $$,
+  'on+global+block excluding the active admin via exclude_users succeeds (SECURITY DEFINER guard sees exclusion)');
+
+-- not-found (upsert update branch): BZ081, not BZ080, so handler maps → 404.
+SELECT throws_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, 9999999,
+       '{"name":"nf","state":"off","scope_type":"global","conditions":{},"actions":{"action":"allow"}}'::jsonb) $$,
+  'BZ081', NULL, 'upsert update of missing policy raises BZ081 (not-found, not lockout)');
+
+-- not-found (delete): BZ081.
+SELECT throws_ok(
+  $$ SELECT ca_policy_delete(82001, '203.0.113.5'::inet, 9999999) $$,
+  'BZ081', NULL, 'delete of missing policy raises BZ081 (not-found, not lockout)');
+
+-- V032 lockstep: device_platform + country_in are now in the SQL allow-list.
+-- A policy with both conditions must pass ca_validate_policy_document and persist.
+SELECT lives_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, NULL,
+       '{"name":"pw-platform-country","state":"off","scope_type":"user","scope_target":"82001",
+         "conditions":{"device_platform":"ios","country_in":["US","DE"]},
+         "actions":{"action":"block"}}'::jsonb) $$,
+  'policy with device_platform + country_in conditions persists via ca_policy_upsert (V032 lockstep)');
+
+-- V142: scope_type='role' is a real, allowed scope (shared/threat/policy.go
+-- scopeMatches implements it fully; the DB CHECK previously rejected it).
+-- Reuses admin_role_groups id=91201 ('pw-rg') inserted for the BZ080 arm above.
+SELECT lives_ok(
+  $$ SELECT ca_policy_upsert(82001, '203.0.113.5'::inet, NULL,
+       '{"name":"pw-role","state":"off","scope_type":"role","scope_target":"91201","conditions":{},"actions":{"action":"block"}}'::jsonb) $$,
+  'role-scoped policy persists via ca_policy_upsert post-V142');
+
+-- V142: 'domain' stays rejected — offered nowhere in scopeMatches, deliberately
+-- not added to the CHECK (the webmail editor's dead option was removed instead).
+SELECT throws_ok(
+  $$ INSERT INTO conditional_access_policies (priority, name, enabled, scope_type, conditions, actions)
+       VALUES (900, 'pw-domain', FALSE, 'domain', '{}', '{"action":"allow"}') $$,
+  '23514', NULL, 'scope_type=domain still rejected by the CHECK');
+
+SELECT finish();
+ROLLBACK;

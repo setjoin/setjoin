@@ -1,0 +1,115 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit_rows": 0,
+        "config": [],
+        "policies": [
+          {
+            "action": "block",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": true,
+            "is_pattern": true,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "ssn",
+            "priority": 0,
+            "regex_patterns": [
+              "\\d{3}"
+            ]
+          },
+          {
+            "action": "quarantine",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": false,
+            "is_pattern": true,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "card",
+            "priority": 1,
+            "regex_patterns": [
+              "\\d{16}"
+            ]
+          },
+          {
+            "action": "block",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": true,
+            "is_pattern": false,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "policy-not-pattern",
+            "priority": 6,
+            "regex_patterns": [
+              "x"
+            ]
+          }
+        ],
+        "violations": 0
+      },
+      "before": {
+        "audit_rows": 0,
+        "config": [],
+        "policies": [
+          {
+            "action": "block",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": true,
+            "is_pattern": true,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "ssn",
+            "priority": 0,
+            "regex_patterns": [
+              "\\d{3}"
+            ]
+          },
+          {
+            "action": "quarantine",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": false,
+            "is_pattern": true,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "card",
+            "priority": 1,
+            "regex_patterns": [
+              "\\d{16}"
+            ]
+          },
+          {
+            "action": "block",
+            "applies_to_all": true,
+            "blocked_file_types": [],
+            "enabled": true,
+            "is_pattern": false,
+            "keywords": [],
+            "max_attachment_size": 0,
+            "min_confidence": 0.7,
+            "name": "policy-not-pattern",
+            "priority": 6,
+            "regex_patterns": [
+              "x"
+            ]
+          }
+        ],
+        "violations": 0
+      },
+      "table": "dlp"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/dlp/patterns"
+}

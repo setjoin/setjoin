@@ -1,0 +1,2342 @@
+[
+  {
+    "action": "personal-list",
+    "method": "GET",
+    "path": "/settings/rules-list",
+    "label": "success",
+    "test": "personal_list_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "personal-list",
+    "method": "GET",
+    "path": "/settings/rules-list",
+    "label": "foreign",
+    "test": "personal_list_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "personal-list",
+    "method": "GET",
+    "path": "/settings/rules-list",
+    "label": "invalid",
+    "test": "personal_list_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "personal-list",
+    "method": "GET",
+    "path": "/settings/rules-list",
+    "label": "program",
+    "test": "personal_list_program",
+    "kind": "program",
+    "mutator": false
+  },
+  {
+    "action": "personal-list",
+    "method": "GET",
+    "path": "/settings/rules-list",
+    "label": "transport",
+    "test": "personal_list_transport",
+    "kind": "transport",
+    "mutator": false
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "success",
+    "test": "personal_create_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "foreign",
+    "test": "personal_create_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "invalid",
+    "test": "personal_create_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "repeat",
+    "test": "personal_create_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "all-states",
+    "test": "personal_create_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "empty-body",
+    "test": "personal_create_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "null-body",
+    "test": "personal_create_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "bad-type",
+    "test": "personal_create_bad_type",
+    "kind": "bad-type",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "trailing",
+    "test": "personal_create_trailing",
+    "kind": "trailing",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "folded",
+    "test": "personal_create_folded",
+    "kind": "folded",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "duplicate",
+    "test": "personal_create_duplicate",
+    "kind": "duplicate",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "name-long",
+    "test": "personal_create_name_long",
+    "kind": "name-long",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "name-utf8",
+    "test": "personal_create_name_utf8",
+    "kind": "name-utf8",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "name-200",
+    "test": "personal_create_name_200",
+    "kind": "name-200",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "blank-name",
+    "test": "personal_create_blank_name",
+    "kind": "blank-name",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "body-size",
+    "test": "personal_create_body_size",
+    "kind": "body-size",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "program-size",
+    "test": "personal_create_program_size",
+    "kind": "program-size",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "actions-size",
+    "test": "personal_create_actions_size",
+    "kind": "actions-size",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "many-actions",
+    "test": "personal_create_many_actions",
+    "kind": "many-actions",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "many-conditions",
+    "test": "personal_create_many_conditions",
+    "kind": "many-conditions",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "object-conditions",
+    "test": "personal_create_object_conditions",
+    "kind": "object-conditions",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "object-actions",
+    "test": "personal_create_object_actions",
+    "kind": "object-actions",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "scalar-entry",
+    "test": "personal_create_scalar_entry",
+    "kind": "scalar-entry",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "type-number",
+    "test": "personal_create_type_number",
+    "kind": "type-number",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "null-entry",
+    "test": "personal_create_null_entry",
+    "kind": "null-entry",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "null-program",
+    "test": "personal_create_null_program",
+    "kind": "null-program",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "missing-program",
+    "test": "personal_create_missing_program",
+    "kind": "missing-program",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "bad-run-on",
+    "test": "personal_create_bad_run_on",
+    "kind": "bad-run-on",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "bad-priority",
+    "test": "personal_create_bad_priority",
+    "kind": "bad-priority",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "huge-priority",
+    "test": "personal_create_huge_priority",
+    "kind": "huge-priority",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "rule-limit",
+    "test": "personal_create_rule_limit",
+    "kind": "rule-limit",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "raw-surrogate",
+    "test": "personal_create_raw_surrogate",
+    "kind": "raw-surrogate",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "string-surrogate",
+    "test": "personal_create_string_surrogate",
+    "kind": "string-surrogate",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "block-forward_to",
+    "test": "personal_create_block_forward_to",
+    "kind": "block-forward_to",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "block-redirect",
+    "test": "personal_create_block_redirect",
+    "kind": "block-redirect",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "block-bcc",
+    "test": "personal_create_block_bcc",
+    "kind": "block-bcc",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "block-append_footer",
+    "test": "personal_create_block_append_footer",
+    "kind": "block-append_footer",
+    "mutator": true
+  },
+  {
+    "action": "personal-create",
+    "method": "POST",
+    "path": "/settings/rules",
+    "label": "block-add_header",
+    "test": "personal_create_block_add_header",
+    "kind": "block-add_header",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "success",
+    "test": "personal_update_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "foreign",
+    "test": "personal_update_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "invalid",
+    "test": "personal_update_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "repeat",
+    "test": "personal_update_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "all-states",
+    "test": "personal_update_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "empty-body",
+    "test": "personal_update_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "null-body",
+    "test": "personal_update_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "trailing",
+    "test": "personal_update_trailing",
+    "kind": "trailing",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "folded",
+    "test": "personal_update_folded",
+    "kind": "folded",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "transport",
+    "test": "personal_update_transport",
+    "kind": "transport",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "missing",
+    "test": "personal_update_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "encoded-id",
+    "test": "personal_update_encoded_id",
+    "kind": "encoded-id",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "bad-run-on",
+    "test": "personal_update_bad_run_on",
+    "kind": "bad-run-on",
+    "mutator": true
+  },
+  {
+    "action": "personal-update",
+    "method": "PUT",
+    "path": "/settings/rules/{id}",
+    "label": "object-conditions",
+    "test": "personal_update_object_conditions",
+    "kind": "object-conditions",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "success",
+    "test": "personal_delete_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "foreign",
+    "test": "personal_delete_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "invalid",
+    "test": "personal_delete_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "repeat",
+    "test": "personal_delete_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "all-states",
+    "test": "personal_delete_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "transport",
+    "test": "personal_delete_transport",
+    "kind": "transport",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "missing",
+    "test": "personal_delete_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "personal-delete",
+    "method": "DELETE",
+    "path": "/settings/rules/{id}",
+    "label": "encoded-id",
+    "test": "personal_delete_encoded_id",
+    "kind": "encoded-id",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "success",
+    "test": "retro_apply_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "foreign",
+    "test": "retro_apply_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "invalid",
+    "test": "retro_apply_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "repeat",
+    "test": "retro_apply_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "all-states",
+    "test": "retro_apply_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "empty-body",
+    "test": "retro_apply_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "null-body",
+    "test": "retro_apply_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "bad-type",
+    "test": "retro_apply_bad_type",
+    "kind": "bad-type",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "bad-window",
+    "test": "retro_apply_bad_window",
+    "kind": "bad-window",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "window-all",
+    "test": "retro_apply_window_all",
+    "kind": "window-all",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "window-1y",
+    "test": "retro_apply_window_1y",
+    "kind": "window-1y",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "inflight-limit",
+    "test": "retro_apply_inflight_limit",
+    "kind": "inflight-limit",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "missing",
+    "test": "retro_apply_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "transport",
+    "test": "retro_apply_transport",
+    "kind": "transport",
+    "mutator": true
+  },
+  {
+    "action": "retro-apply",
+    "method": "POST",
+    "path": "/settings/rules/{id}/apply",
+    "label": "encoded-suffix",
+    "test": "retro_apply_encoded_suffix",
+    "kind": "encoded-suffix",
+    "mutator": true
+  },
+  {
+    "action": "retro-status",
+    "method": "GET",
+    "path": "/settings/rules/apply/{actionId}",
+    "label": "success",
+    "test": "retro_status_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "retro-status",
+    "method": "GET",
+    "path": "/settings/rules/apply/{actionId}",
+    "label": "foreign",
+    "test": "retro_status_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "retro-status",
+    "method": "GET",
+    "path": "/settings/rules/apply/{actionId}",
+    "label": "invalid",
+    "test": "retro_status_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "retro-status",
+    "method": "GET",
+    "path": "/settings/rules/apply/{actionId}",
+    "label": "pending",
+    "test": "retro_status_pending",
+    "kind": "pending",
+    "mutator": false
+  },
+  {
+    "action": "retro-status",
+    "method": "GET",
+    "path": "/settings/rules/apply/{actionId}",
+    "label": "bad-payload",
+    "test": "retro_status_bad_payload",
+    "kind": "bad-payload",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "success",
+    "test": "admin_list_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "foreign",
+    "test": "admin_list_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "invalid",
+    "test": "admin_list_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "denied",
+    "test": "admin_list_denied",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "mailbox-own",
+    "test": "admin_list_mailbox_own",
+    "kind": "mailbox-own",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "mailbox-other",
+    "test": "admin_list_mailbox_other",
+    "kind": "mailbox-other",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "program",
+    "test": "admin_list_program",
+    "kind": "program",
+    "mutator": false
+  },
+  {
+    "action": "admin-list",
+    "method": "GET",
+    "path": "/admin/rules",
+    "label": "transport",
+    "test": "admin_list_transport",
+    "kind": "transport",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "success",
+    "test": "admin_get_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "foreign",
+    "test": "admin_get_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "invalid",
+    "test": "admin_get_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "denied",
+    "test": "admin_get_denied",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "missing",
+    "test": "admin_get_missing",
+    "kind": "missing",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "transport",
+    "test": "admin_get_transport",
+    "kind": "transport",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "program",
+    "test": "admin_get_program",
+    "kind": "program",
+    "mutator": false
+  },
+  {
+    "action": "admin-get",
+    "method": "GET",
+    "path": "/admin/rules/{id}",
+    "label": "encoded-id",
+    "test": "admin_get_encoded_id",
+    "kind": "encoded-id",
+    "mutator": false
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "success",
+    "test": "admin_create_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "foreign",
+    "test": "admin_create_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "invalid",
+    "test": "admin_create_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "repeat",
+    "test": "admin_create_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "all-states",
+    "test": "admin_create_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "denied",
+    "test": "admin_create_denied",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "empty-body",
+    "test": "admin_create_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "null-body",
+    "test": "admin_create_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "bad-type",
+    "test": "admin_create_bad_type",
+    "kind": "bad-type",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "folded",
+    "test": "admin_create_folded",
+    "kind": "folded",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "blank-name",
+    "test": "admin_create_blank_name",
+    "kind": "blank-name",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "missing-mailbox",
+    "test": "admin_create_missing_mailbox",
+    "kind": "missing-mailbox",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "transport-body",
+    "test": "admin_create_transport_body",
+    "kind": "transport-body",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "foreign-mailbox",
+    "test": "admin_create_foreign_mailbox",
+    "kind": "foreign-mailbox",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "bad-run-on",
+    "test": "admin_create_bad_run_on",
+    "kind": "bad-run-on",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "huge-priority",
+    "test": "admin_create_huge_priority",
+    "kind": "huge-priority",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "missing-program",
+    "test": "admin_create_missing_program",
+    "kind": "missing-program",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "raw-surrogate",
+    "test": "admin_create_raw_surrogate",
+    "kind": "raw-surrogate",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "expired",
+    "test": "admin_create_expired",
+    "kind": "expired",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "eligible",
+    "test": "admin_create_eligible",
+    "kind": "eligible",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "revoked",
+    "test": "admin_create_revoked",
+    "kind": "revoked",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "success",
+    "test": "admin_update_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "foreign",
+    "test": "admin_update_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "invalid",
+    "test": "admin_update_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "repeat",
+    "test": "admin_update_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "all-states",
+    "test": "admin_update_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "denied",
+    "test": "admin_update_denied",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "empty-body",
+    "test": "admin_update_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "null-body",
+    "test": "admin_update_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "foreign-rule",
+    "test": "admin_update_foreign_rule",
+    "kind": "foreign-rule",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "transport",
+    "test": "admin_update_transport",
+    "kind": "transport",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "missing",
+    "test": "admin_update_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "encoded-id",
+    "test": "admin_update_encoded_id",
+    "kind": "encoded-id",
+    "mutator": true
+  },
+  {
+    "action": "admin-update",
+    "method": "PUT",
+    "path": "/admin/rules/{id}",
+    "label": "bad-run-on",
+    "test": "admin_update_bad_run_on",
+    "kind": "bad-run-on",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "success",
+    "test": "admin_delete_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "foreign",
+    "test": "admin_delete_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "invalid",
+    "test": "admin_delete_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "repeat",
+    "test": "admin_delete_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "all-states",
+    "test": "admin_delete_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "denied",
+    "test": "admin_delete_denied",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "foreign-rule",
+    "test": "admin_delete_foreign_rule",
+    "kind": "foreign-rule",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "transport",
+    "test": "admin_delete_transport",
+    "kind": "transport",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "missing",
+    "test": "admin_delete_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "admin-delete",
+    "method": "DELETE",
+    "path": "/admin/rules/{id}",
+    "label": "encoded-id",
+    "test": "admin_delete_encoded_id",
+    "kind": "encoded-id",
+    "mutator": true
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "success",
+    "test": "admin_test_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "foreign",
+    "test": "admin_test_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "invalid",
+    "test": "admin_test_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "denied",
+    "test": "admin_test_denied",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "missing",
+    "test": "admin_test_missing",
+    "kind": "missing",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "transport",
+    "test": "admin_test_transport",
+    "kind": "transport",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "encoded-suffix",
+    "test": "admin_test_encoded_suffix",
+    "kind": "encoded-suffix",
+    "mutator": false
+  },
+  {
+    "action": "admin-test",
+    "method": "POST",
+    "path": "/admin/rules/{id}/test",
+    "label": "read-console",
+    "test": "admin_test_read_console",
+    "kind": "read-console",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "success",
+    "test": "template_list_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "foreign",
+    "test": "template_list_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "invalid",
+    "test": "template_list_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "scoped",
+    "test": "template_list_scoped",
+    "kind": "scoped",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "empty-list",
+    "test": "template_list_empty_list",
+    "kind": "empty-list",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "null-description",
+    "test": "template_list_null_description",
+    "kind": "null-description",
+    "mutator": false
+  },
+  {
+    "action": "template-list",
+    "method": "GET",
+    "path": "/admin/rule-templates",
+    "label": "schema-missing",
+    "test": "template_list_schema_missing",
+    "kind": "schema-missing",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "success",
+    "test": "template_get_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "foreign",
+    "test": "template_get_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "invalid",
+    "test": "template_get_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "scoped",
+    "test": "template_get_scoped",
+    "kind": "scoped",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "missing",
+    "test": "template_get_missing",
+    "kind": "missing",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "system",
+    "test": "template_get_system",
+    "kind": "system",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "disabled",
+    "test": "template_get_disabled",
+    "kind": "disabled",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "null-description",
+    "test": "template_get_null_description",
+    "kind": "null-description",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "encoded-id",
+    "test": "template_get_encoded_id",
+    "kind": "encoded-id",
+    "mutator": false
+  },
+  {
+    "action": "template-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}",
+    "label": "schema-missing",
+    "test": "template_get_schema_missing",
+    "kind": "schema-missing",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "success",
+    "test": "template_resolve_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "foreign",
+    "test": "template_resolve_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "invalid",
+    "test": "template_resolve_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "scoped",
+    "test": "template_resolve_scoped",
+    "kind": "scoped",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "missing",
+    "test": "template_resolve_missing",
+    "kind": "missing",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "disabled",
+    "test": "template_resolve_disabled",
+    "kind": "disabled",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "null-description",
+    "test": "template_resolve_null_description",
+    "kind": "null-description",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "encoded-suffix",
+    "test": "template_resolve_encoded_suffix",
+    "kind": "encoded-suffix",
+    "mutator": false
+  },
+  {
+    "action": "template-resolve",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/resolve",
+    "label": "schema-missing",
+    "test": "template_resolve_schema_missing",
+    "kind": "schema-missing",
+    "mutator": false
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "success",
+    "test": "template_create_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "foreign",
+    "test": "template_create_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "invalid",
+    "test": "template_create_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "repeat",
+    "test": "template_create_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "all-states",
+    "test": "template_create_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "scoped",
+    "test": "template_create_scoped",
+    "kind": "scoped",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "empty-body",
+    "test": "template_create_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "null-body",
+    "test": "template_create_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "bad-type",
+    "test": "template_create_bad_type",
+    "kind": "bad-type",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "trailing",
+    "test": "template_create_trailing",
+    "kind": "trailing",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "folded",
+    "test": "template_create_folded",
+    "kind": "folded",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "bad-category",
+    "test": "template_create_bad_category",
+    "kind": "bad-category",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "sort-overflow",
+    "test": "template_create_sort_overflow",
+    "kind": "sort-overflow",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "raw-surrogate",
+    "test": "template_create_raw_surrogate",
+    "kind": "raw-surrogate",
+    "mutator": true
+  },
+  {
+    "action": "template-create",
+    "method": "POST",
+    "path": "/admin/rule-templates",
+    "label": "schema-missing",
+    "test": "template_create_schema_missing",
+    "kind": "schema-missing",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "success",
+    "test": "template_update_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "foreign",
+    "test": "template_update_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "invalid",
+    "test": "template_update_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "repeat",
+    "test": "template_update_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "all-states",
+    "test": "template_update_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "scoped",
+    "test": "template_update_scoped",
+    "kind": "scoped",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "empty-body",
+    "test": "template_update_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "null-body",
+    "test": "template_update_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "system",
+    "test": "template_update_system",
+    "kind": "system",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "missing",
+    "test": "template_update_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "folded",
+    "test": "template_update_folded",
+    "kind": "folded",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "bad-category",
+    "test": "template_update_bad_category",
+    "kind": "bad-category",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "sort-overflow",
+    "test": "template_update_sort_overflow",
+    "kind": "sort-overflow",
+    "mutator": true
+  },
+  {
+    "action": "template-update",
+    "method": "PUT",
+    "path": "/admin/rule-templates/{id}",
+    "label": "schema-missing",
+    "test": "template_update_schema_missing",
+    "kind": "schema-missing",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "success",
+    "test": "template_delete_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "foreign",
+    "test": "template_delete_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "invalid",
+    "test": "template_delete_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "repeat",
+    "test": "template_delete_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "all-states",
+    "test": "template_delete_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "scoped",
+    "test": "template_delete_scoped",
+    "kind": "scoped",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "missing",
+    "test": "template_delete_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "system",
+    "test": "template_delete_system",
+    "kind": "system",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "disabled",
+    "test": "template_delete_disabled",
+    "kind": "disabled",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "encoded-id",
+    "test": "template_delete_encoded_id",
+    "kind": "encoded-id",
+    "mutator": true
+  },
+  {
+    "action": "template-delete",
+    "method": "DELETE",
+    "path": "/admin/rule-templates/{id}",
+    "label": "schema-missing",
+    "test": "template_delete_schema_missing",
+    "kind": "schema-missing",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "success",
+    "test": "template_visibility_get_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "foreign",
+    "test": "template_visibility_get_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "invalid",
+    "test": "template_visibility_get_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "scoped",
+    "test": "template_visibility_get_scoped",
+    "kind": "scoped",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "missing",
+    "test": "template_visibility_get_missing",
+    "kind": "missing",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "visibility-many",
+    "test": "template_visibility_get_visibility_many",
+    "kind": "visibility-many",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "encoded-suffix",
+    "test": "template_visibility_get_encoded_suffix",
+    "kind": "encoded-suffix",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-get",
+    "method": "GET",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "schema-missing",
+    "test": "template_visibility_get_schema_missing",
+    "kind": "schema-missing",
+    "mutator": false
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "success",
+    "test": "template_visibility_set_success",
+    "kind": "success",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "foreign",
+    "test": "template_visibility_set_foreign",
+    "kind": "cross-tenant",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "invalid",
+    "test": "template_visibility_set_invalid",
+    "kind": "invalid-input",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "repeat",
+    "test": "template_visibility_set_repeat",
+    "kind": "repeat",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "all-states",
+    "test": "template_visibility_set_all_states",
+    "kind": "state",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "scoped",
+    "test": "template_visibility_set_scoped",
+    "kind": "scoped",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "empty-body",
+    "test": "template_visibility_set_empty_body",
+    "kind": "empty-body",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "null-body",
+    "test": "template_visibility_set_null_body",
+    "kind": "null-body",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "bad-type",
+    "test": "template_visibility_set_bad_type",
+    "kind": "bad-type",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "global-hide",
+    "test": "template_visibility_set_global_hide",
+    "kind": "global-hide",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "global-show",
+    "test": "template_visibility_set_global_show",
+    "kind": "global-show",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "show-user",
+    "test": "template_visibility_set_show_user",
+    "kind": "show-user",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "unknown-user",
+    "test": "template_visibility_set_unknown_user",
+    "kind": "unknown-user",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "missing",
+    "test": "template_visibility_set_missing",
+    "kind": "missing",
+    "mutator": true
+  },
+  {
+    "action": "template-visibility-set",
+    "method": "POST",
+    "path": "/admin/rule-templates/{id}/visibility",
+    "label": "schema-missing",
+    "test": "template_visibility_set_schema_missing",
+    "kind": "schema-missing",
+    "mutator": true
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "success",
+    "test": "template_personal_list_success",
+    "kind": "success",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "foreign",
+    "test": "template_personal_list_foreign",
+    "kind": "cross-tenant",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "invalid",
+    "test": "template_personal_list_invalid",
+    "kind": "invalid-input",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "empty-list",
+    "test": "template_personal_list_empty_list",
+    "kind": "empty-list",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "admin-view",
+    "test": "template_personal_list_admin_view",
+    "kind": "admin-view",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "null-description",
+    "test": "template_personal_list_null_description",
+    "kind": "null-description",
+    "mutator": false
+  },
+  {
+    "action": "template-personal-list",
+    "method": "GET",
+    "path": "/settings/rule-templates",
+    "label": "schema-missing",
+    "test": "template_personal_list_schema_missing",
+    "kind": "schema-missing",
+    "mutator": false
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template",
+    "test": "admin_create_from_template",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-invalid",
+    "test": "admin_create_from_template_invalid",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-type",
+    "test": "admin_create_from_template_type",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-null",
+    "test": "admin_create_from_template_null",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-unresolved",
+    "test": "admin_create_from_template_unresolved",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-missing",
+    "test": "admin_create_from_template_missing",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-bad-id",
+    "test": "admin_create_from_template_bad_id",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-disabled",
+    "test": "admin_create_from_template_disabled",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-spoof",
+    "test": "admin_create_from_template_spoof",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-schema-missing",
+    "test": "admin_create_from_template_schema_missing",
+    "kind": "template-branch",
+    "mutator": true
+  },
+  {
+    "action": "admin-create",
+    "method": "POST",
+    "path": "/admin/rules",
+    "label": "from-template-repeat",
+    "test": "admin_create_from_template_repeat",
+    "kind": "repeat",
+    "mutator": true
+  }
+]

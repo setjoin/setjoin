@@ -1,0 +1,40 @@
+{
+  "case": "name-success",
+  "format": 1,
+  "go_source": "6c1a7fee2c8d147965cc84ed94ea4663488a89c7",
+  "observation": {
+    "effects": {
+      "actor": [
+        {
+          "count": 7,
+          "id": "YWN0b3ItY3JlZGVudGlhbA==",
+          "name": "Renamed <key>",
+          "revoked": false,
+          "used": false,
+          "uv": true
+        }
+      ],
+      "foreign": [
+        {
+          "count": 7,
+          "id": "Zm9yZWlnbi1jcmVkZW50aWFs",
+          "name": "Foreign",
+          "revoked": false,
+          "used": false,
+          "uv": false
+        }
+      ]
+    },
+    "request": {
+      "body": "{\"device_name\":\"Renamed <key>\"}",
+      "method": "PUT",
+      "path": "/auth/webauthn/credential/YWN0b3ItY3JlZGVudGlhbA/name"
+    },
+    "response": {
+      "body": "",
+      "headers": {},
+      "status": 200
+    }
+  },
+  "route": "PUT /auth/webauthn/credential/YWN0b3ItY3JlZGVudGlhbA/name"
+}

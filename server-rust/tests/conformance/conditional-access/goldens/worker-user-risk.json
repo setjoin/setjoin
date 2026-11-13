@@ -1,0 +1,58 @@
+{
+  "case": "user-risk",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": [
+    {
+      "after": {
+        "revocations": [],
+        "user_risk": []
+      },
+      "before": {
+        "revocations": [],
+        "user_risk": []
+      },
+      "phase": "toggle-off"
+    },
+    {
+      "after": {
+        "revocations": [],
+        "user_risk": [
+          {
+            "level": "low",
+            "remediated": false,
+            "score": 50,
+            "signals": "[\"failed_auth_velocity\"]",
+            "user": "risk-velocity"
+          },
+          {
+            "level": "medium",
+            "remediated": false,
+            "score": 60,
+            "signals": "[\"impossible_travel\"]",
+            "user": "risk-travel"
+          },
+          {
+            "level": "high",
+            "remediated": false,
+            "score": 100,
+            "signals": "[\"failed_auth_velocity\", \"impossible_travel\"]",
+            "user": "risk-high"
+          },
+          {
+            "level": "none",
+            "remediated": false,
+            "score": 0,
+            "signals": "[]",
+            "user": "risk-quiet"
+          }
+        ]
+      },
+      "before": {
+        "revocations": [],
+        "user_risk": []
+      },
+      "phase": "toggle-on"
+    }
+  ]
+}

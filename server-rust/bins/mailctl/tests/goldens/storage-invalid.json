@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown storage action: bogus (try: status, migrate, verify)\n",
+  "exit": 1
+}

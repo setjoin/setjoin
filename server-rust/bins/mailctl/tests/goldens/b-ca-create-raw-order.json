@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"actions\":{},\"conditions\":{\"z\":1,\"a\":2},\"description\":\"\",\"name\":\"Example\",\"scope_target\":\"\",\"scope_type\":\"user\",\"state\":\"report_only\"}"
+    }
+  ],
+  "stdout": "Policy created.\n",
+  "stderr": "",
+  "exit": 0
+}

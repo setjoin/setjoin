@@ -1,0 +1,90 @@
+-- pgTAP: m365_consent_complete — the consent-completion mutation persists the
+-- verified tenant binding into system_config AND the m365_consent_completed
+-- audit row in ONE transaction (med-shard2-023, V234). A failing member (e.g.
+-- an invalid audit tier refused by audit_write) rolls back BOTH — no config
+-- without audit, no audit without config.
+-- Requires: m365_consent_complete(), system_config, admin_audit_log,
+--           audit_policy, audit_write, _fixtures.mk_account.
+BEGIN;
+SELECT plan(16);
+
+-- ── Fixture ──────────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _mk AS SELECT mk_account('m365complete') AS mb_id;
+SELECT user_id AS actor_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk) \gset
+
+SELECT has_function('m365_consent_complete');
+
+-- Force the full audit level so the routine-tier consent row is written (the
+-- gateway computes the tier via audit.TierForPerm(PermMailPipeline) = routine).
+UPDATE audit_policy SET level = 'full' WHERE id = 1;
+SELECT is((SELECT level FROM audit_policy WHERE id = 1), 'full', 'audit level forced full for the routine-tier row');
+
+INSERT INTO system_config (key, value, encrypted)
+VALUES ('m365.app', '{"plaintext":"pre"}', false)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = FALSE;
+SELECT is(
+  (SELECT count(*)::int FROM system_config WHERE key = 'm365.app'),
+  1, 'm365.app config row seeded (pre-condition)');
+
+-- ── Completion: config update + audit row land together ─────────────────────
+SELECT lives_ok(
+  format('SELECT m365_consent_complete(%s, ''{"_enc":"QUJD="}'', ''tenant=tap-tenant cloud=china'', ''routine'')',
+         :'actor_id'),
+  'completion reducer succeeds');
+
+SELECT ok(
+  (SELECT value = '{"_enc":"QUJD="}'::jsonb FROM system_config WHERE key = 'm365.app'),
+  'completion persisted the tenant-binding config value');
+SELECT is(
+  (SELECT encrypted FROM system_config WHERE key = 'm365.app'),
+  TRUE, 'completion marks the config encrypted');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log
+     WHERE action = 'm365_consent_completed' AND user_id = :'actor_id'),
+  1, 'exactly one completion audit row was written in the same transaction');
+SELECT is(
+  (SELECT target_type FROM admin_audit_log
+     WHERE action = 'm365_consent_completed' AND user_id = :'actor_id'),
+  'system_config', 'the audit row targets system_config');
+SELECT is(
+  (SELECT notes FROM admin_audit_log
+     WHERE action = 'm365_consent_completed' AND user_id = :'actor_id'),
+  'tenant=tap-tenant cloud=china', 'the audit notes carry tenant and cloud');
+
+-- ── Argument guard ───────────────────────────────────────────────────────────
+SELECT throws_ok(
+  format('SELECT m365_consent_complete(%s, NULL, ''notes'', ''routine'')', :'actor_id'),
+  'BZ040', NULL, 'NULL config value is refused (BZ040 invalidArguments)');
+
+-- ── Atomicity: a failing member rolls back BOTH mutations ───────────────────
+-- audit_write refuses a bad tier (BZ067); the completion call must abort as a
+-- whole — the earlier config value and the single audit row survive untouched.
+SELECT throws_ok(
+  format('SELECT m365_consent_complete(%s, ''{"_enc":"RkFJTA=="}'', ''tenant=rolled-back cloud=global'', ''bogus-tier'')',
+         :'actor_id'),
+  'BZ067', NULL, 'an invalid audit tier aborts the completion');
+SELECT ok(
+  (SELECT value = '{"_enc":"QUJD="}'::jsonb FROM system_config WHERE key = 'm365.app'),
+  'failed completion persisted NO config change');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log
+     WHERE action = 'm365_consent_completed' AND user_id = :'actor_id'),
+  1, 'failed completion wrote NO audit row');
+
+-- ── Tier plumbing: at lean, the routine audit row is suppressed but the config
+--    still updates (the audit_write level gate, unchanged by the reducer) ────
+UPDATE audit_policy SET level = 'lean' WHERE id = 1;
+SELECT lives_ok(
+  format('SELECT m365_consent_complete(%s, ''{"_enc":"TEVBfg=="}'', ''tenant=tap-tenant cloud=global'', ''routine'')',
+         :'actor_id'),
+  'completion at lean still persists the config');
+SELECT ok(
+  (SELECT value = '{"_enc":"TEVBfg=="}'::jsonb FROM system_config WHERE key = 'm365.app'),
+  'config updated at lean');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log
+     WHERE action = 'm365_consent_completed' AND user_id = :'actor_id'),
+  1, 'routine-tier audit row suppressed at lean (still exactly the one full-level row)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,38 @@
+-- pgTAP: A5 Out-of-Office — V086 internal/external columns + set_vacation/get_vacation reducers.
+-- Fixtures use DIVERGENT user_id != mailbox_id (regression guard for the p_mailbox_id-is-a-
+-- mailbox-id confusion: a buggy `user_id = p_mailbox_id` predicate would match zero rows here).
+BEGIN;
+SELECT plan(11);
+
+-- ── Columns added by V086 / schema 020 ──────────────────────────────────────
+SELECT has_column('vacation_settings', 'body_external',      'body_external column exists');
+SELECT has_column('vacation_settings', 'body_external_html', 'body_external_html column exists');
+SELECT has_column('vacation_settings', 'external_audience',  'external_audience column exists');
+SELECT col_default_is('vacation_settings', 'external_audience', 'all', 'external_audience defaults to all');
+
+-- ── Reducers exist ──────────────────────────────────────────────────────────
+SELECT has_function('set_vacation', 'set_vacation reducer exists');
+SELECT has_function('get_vacation', ARRAY['bigint'], 'get_vacation reducer exists');
+
+-- ── Fixtures: divergent ids (user_id 8101 != mailbox_id 8901) ───────────────
+INSERT INTO domains (name, is_local) VALUES ('oof.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (8101, 'oofusr', (SELECT id FROM domains WHERE name='oof.test'), 'oof@oof.test', 'OOF User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8901, 8101, (SELECT id FROM domains WHERE name='oof.test'), 'oof@oof.test', 'OOF User', 'personal', TRUE);
+
+-- ── set_vacation upserts and round-trips (p_mailbox_id = 8901) ──────────────
+SELECT lives_ok(
+  $$ SELECT set_vacation(8901, TRUE, 'Away', 'Internal body', '<p>Internal</p>',
+       'External body', '<p>External</p>', '2026-07-01'::date, '2026-07-10'::date, 'all') $$,
+  'set_vacation upsert succeeds');
+
+SELECT is( (SELECT enabled       FROM vacation_settings WHERE mailbox_id=8901), TRUE,            'enabled persisted');
+SELECT is( (SELECT body_text     FROM vacation_settings WHERE mailbox_id=8901), 'Internal body','internal body persisted');
+SELECT is( (SELECT body_external FROM vacation_settings WHERE mailbox_id=8901), 'External body','external body persisted');
+
+-- get_vacation returns the row for the owner mailbox
+SELECT is( (SELECT (get_vacation(8901)).external_audience), 'all', 'get_vacation returns audience');
+
+SELECT * FROM finish();
+ROLLBACK;

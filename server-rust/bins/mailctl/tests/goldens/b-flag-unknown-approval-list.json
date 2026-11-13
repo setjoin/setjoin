@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of approval list:\n  -consumer-type string\n    \tFilter by consumer type: rbac.jit_activation, mail.external_send, mail.group_moderation\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

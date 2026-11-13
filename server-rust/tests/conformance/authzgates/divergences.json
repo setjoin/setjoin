@@ -1,0 +1,62 @@
+[
+  {
+    "case": "runtime-dpop-ath",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): the runtime DPoP verifier requires ath bound to the access token (the frozen WebCrypto vector without ath is refused)",
+    "secure_test": "crates/authz/tests/runtime_gates.rs::dpop_proof_binds_access_token_uri_and_rejects_replay",
+    "mutant": "dpop-without-ath"
+  },
+  {
+    "case": "policy-invalidate-clears-loaded",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): an invalidation clears the loaded flag, so a failed reload fails closed",
+    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::invalidated_policy_cache_fails_closed_when_the_reload_fails",
+    "mutant": "policy-invalidate-keeps-loaded"
+  },
+  {
+    "case": "legacy-step-up-enforcing",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): legacy step_up policies are classified as enforcing on evaluation errors",
+    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::legacy_step_up_policy_counts_as_enforcing_on_evaluation_errors",
+    "mutant": "step-up-not-enforcing"
+  },
+  {
+    "case": "geo-lookup-error",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): a geo tier lookup error takes the checked failure path instead of low risk",
+    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::geo_tier_lookup_error_takes_the_checked_failure_path",
+    "mutant": "geo-error-is-low-risk"
+  },
+  {
+    "case": "device-nonce-ownership-order",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): device ownership is checked before the single-use nonce is consumed",
+    "secure_test": "crates/authz/tests/device_credential.rs::foreign_device_request_does_not_burn_the_owners_nonce",
+    "mutant": "device-nonce-before-ownership"
+  },
+  {
+    "case": "dpop-replay-cache-eviction",
+    "issue": "#499",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#499): the DPoP replay cache keeps every entry for the full proof window and refuses new proofs when full instead of evicting live entries",
+    "secure_test": "crates/authz/tests/runtime_gates.rs::dpop_replay_cache_refuses_new_proofs_instead_of_evicting_live_ones",
+    "mutant": "dpop-replay-evicts-live"
+  }
+]

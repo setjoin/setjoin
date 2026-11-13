@@ -1,0 +1,45 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "downtime": 120,
+          "id": 9201,
+          "status": "success"
+        },
+        {
+          "downtime": 0,
+          "id": 9202,
+          "status": "failed"
+        },
+        {
+          "downtime": 5,
+          "id": 9203,
+          "status": "rolled_back"
+        }
+      ],
+      "before": [
+        {
+          "downtime": 120,
+          "id": 9201,
+          "status": "success"
+        },
+        {
+          "downtime": 0,
+          "id": 9202,
+          "status": "failed"
+        },
+        {
+          "downtime": 5,
+          "id": 9203,
+          "status": "rolled_back"
+        }
+      ],
+      "table": "upgrade_history"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/system/upgrade/status"
+}

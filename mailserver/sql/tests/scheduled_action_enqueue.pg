@@ -1,0 +1,96 @@
+-- scheduled_action_enqueue.pg: enqueue_scheduled_action / cancel_scheduled_action
+-- (scheduled_action_enqueue.sql) — the single writer for deferred actions.
+--
+-- Contract under test:
+--   * enqueue validates the kind (BZ036 for anything outside send|snooze|remind)
+--     and requires fire_at (BZ037 when NULL).
+--   * the `send` kind DEFAULTS its dedup_key to the action id (egress idempotency);
+--     pure-DB kinds (snooze/remind) leave dedup_key NULL.
+--   * cancel deletes only PENDING rows for THIS owner matching kind + a payload
+--     subset, returning the count (owner-scoped, R3).
+--
+-- ADR-003: accounts from mk_account() → user_id != mailbox_id. enqueue/cancel are
+-- owner-scoped by p_mailbox_id (the mailbox id). The cross-owner cancel test pins
+-- that a foreign mailbox cancels nothing.
+BEGIN;
+SELECT plan(11);
+
+CREATE TEMP TABLE _ea AS
+  SELECT mk_account('eaA') AS mbA, mk_account('eaB') AS mbB;
+
+-- ── Validation ──
+-- Test 1: an unknown kind raises BZ036.
+SELECT throws_ok(
+  $$ SELECT enqueue_scheduled_action('bogus', now() + interval '1 hour', '{}'::JSONB, (SELECT mbA FROM _ea)) $$,
+  'BZ036', NULL,
+  'an unknown action_kind raises BZ036');
+
+-- Test 2: a NULL kind raises BZ036.
+SELECT throws_ok(
+  $$ SELECT enqueue_scheduled_action(NULL, now() + interval '1 hour', '{}'::JSONB, (SELECT mbA FROM _ea)) $$,
+  'BZ036', NULL,
+  'a NULL action_kind raises BZ036');
+
+-- Test 3: a NULL fire_at raises BZ037.
+SELECT throws_ok(
+  $$ SELECT enqueue_scheduled_action('send', NULL, '{}'::JSONB, (SELECT mbA FROM _ea)) $$,
+  'BZ037', NULL,
+  'a NULL fire_at raises BZ037');
+
+-- ── dedup defaulting ──
+-- Test 4: the `send` kind defaults dedup_key to the action id (egress idempotency).
+CREATE TEMP TABLE _sid AS
+  SELECT enqueue_scheduled_action('send', now() + interval '1 hour',
+           jsonb_build_object('message_id', 5551), (SELECT mbA FROM _ea)) AS id;
+SELECT is(
+  (SELECT dedup_key FROM scheduled_actions WHERE id = (SELECT id FROM _sid)),
+  (SELECT id::TEXT FROM _sid),
+  'send kind defaults dedup_key to the action id');
+
+-- Test 5: a pure-DB kind (snooze) leaves dedup_key NULL.
+CREATE TEMP TABLE _zid AS
+  SELECT enqueue_scheduled_action('snooze', now() + interval '1 hour',
+           jsonb_build_object('message_id', 5552), (SELECT mbA FROM _ea)) AS id;
+SELECT ok(
+  (SELECT dedup_key FROM scheduled_actions WHERE id = (SELECT id FROM _zid)) IS NULL,
+  'snooze kind leaves dedup_key NULL (no egress idempotency for pure-DB kinds)');
+
+-- Test 6: an explicit dedup_key is honored (not overwritten).
+CREATE TEMP TABLE _eid AS
+  SELECT enqueue_scheduled_action('send', now() + interval '1 hour',
+           jsonb_build_object('message_id', 5553), (SELECT mbA FROM _ea), 'my-key') AS id;
+SELECT is(
+  (SELECT dedup_key FROM scheduled_actions WHERE id = (SELECT id FROM _eid)),
+  'my-key',
+  'an explicit dedup_key is preserved');
+
+-- the row is pending by default.
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id = (SELECT id FROM _sid)),
+  'pending',
+  'a freshly enqueued action is pending');
+
+-- ── cancel: owner-scope + payload-subset match ──
+-- Test 8: the owner cancels its own pending send by payload subset → 1 cancelled.
+SELECT is(
+  cancel_scheduled_action((SELECT mbA FROM _ea), 'send', jsonb_build_object('message_id', 5551)),
+  1,
+  'owner cancels its matching pending send (1 row)');
+SELECT is(
+  (SELECT count(*)::INT FROM scheduled_actions WHERE id = (SELECT id FROM _sid)),
+  0,
+  'the cancelled action row is gone');
+
+-- Test 10: a FOREIGN mailbox cancels nothing (owner-scoped) — the snooze in A
+-- (message_id 5552) is untouched by B.
+SELECT is(
+  cancel_scheduled_action((SELECT mbB FROM _ea), 'snooze', jsonb_build_object('message_id', 5552)),
+  0,
+  'a foreign mailbox cancels nothing (owner-scoped, R3)');
+SELECT is(
+  (SELECT count(*)::INT FROM scheduled_actions WHERE id = (SELECT id FROM _zid)),
+  1,
+  'the foreign cancel left the owner snooze action in place');
+
+SELECT * FROM finish();
+ROLLBACK;

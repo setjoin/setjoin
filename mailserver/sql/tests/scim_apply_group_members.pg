@@ -1,0 +1,202 @@
+-- scim_apply_group_members.pg: scim_apply_group_members (scim_apply_group_members.sql)
+-- — the SCIM group-membership RECONCILE (PUT semantics: the IdP owns the full
+-- scim-sourced member list).
+--
+-- Contract under test:
+--   * BZ002 when the group external_id is unknown.
+--   * SET-REPLACE: scim-sourced members NOT in the new list are removed; members in
+--     the list are added (source 'scim'); already-present members are not dupd.
+--   * a MANUAL (non-scim) member is NOT removed by a reconcile that omits them —
+--     the reconcile only owns the scim-sourced rows.
+--
+-- Members are matched via users.scim_external_id → their primary mailbox. Users
+-- are created through scim_upsert_user (which provisions a primary mailbox with a
+-- divergent user_id, per provision_account / ADR-003); the group through
+-- scim_upsert_group.
+BEGIN;
+SELECT plan(17);
+
+-- Directory-sync (scim) provisions ONLY into an already-local domain — it no longer
+-- auto-mints one from the IdP-supplied email (trust-escalation fix). Pre-create it.
+INSERT INTO domains (name, is_local) VALUES ('example.com', TRUE) ON CONFLICT (name) DO NOTHING;
+
+CREATE TEMP TABLE _source AS
+SELECT id,generation FROM identity_sources WHERE source_key='legacy:scim';
+
+INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state)
+VALUES(
+  'scim:group-isolation-test','SCIM group isolation test','scim',
+  '{"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,'active'
+);
+CREATE TEMP TABLE _other_source AS
+SELECT id,generation FROM identity_sources WHERE source_key='scim:group-isolation-test';
+
+-- Three SCIM users + one group.
+SELECT scim_upsert_user('sgm-u1', 'sgm1@example.com', 'User One',   'User', 'One',   NULL, NULL, NULL, NULL, TRUE, FALSE);
+SELECT scim_upsert_user('sgm-u2', 'sgm2@example.com', 'User Two',   'User', 'Two',   NULL, NULL, NULL, NULL, TRUE, FALSE);
+SELECT scim_upsert_user('sgm-u3', 'sgm3@example.com', 'User Three', 'User', 'Three', NULL, NULL, NULL, NULL, TRUE, FALSE);
+INSERT INTO user_identity_links(user_id,source_id,external_subject,purposes,state,link_method)
+SELECT u.id,s.id,u.scim_external_id,ARRAY['provision'],'active','hard_anchor'
+  FROM users u CROSS JOIN _source s
+ WHERE u.scim_external_id IN ('sgm-u1','sgm-u2','sgm-u3');
+SELECT scim_upsert_group(
+  (SELECT id FROM _source),(SELECT generation FROM _source),'sgm-g1','Recon Group'
+);
+SELECT scim_upsert_group(
+  (SELECT id FROM _other_source),(SELECT generation FROM _other_source),
+  'sgm-g1','Other Recon Group'
+);
+
+-- handle helpers
+CREATE TEMP TABLE _g AS
+  SELECT (SELECT id FROM distribution_groups
+           WHERE scim_source_id=(SELECT id FROM _source)
+             AND scim_external_id='sgm-g1') AS gid,
+         (SELECT mb.id FROM users u JOIN mailboxes mb ON mb.user_id = u.id WHERE u.scim_external_id = 'sgm-u1' AND mb.is_primary) AS mb1,
+         (SELECT mb.id FROM users u JOIN mailboxes mb ON mb.user_id = u.id WHERE u.scim_external_id = 'sgm-u2' AND mb.is_primary) AS mb2,
+         (SELECT mb.id FROM users u JOIN mailboxes mb ON mb.user_id = u.id WHERE u.scim_external_id = 'sgm-u3' AND mb.is_primary) AS mb3;
+
+-- ── Test 1: unknown group external_id raises BZ002 ──
+SELECT throws_ok(
+  $$ SELECT scim_apply_group_members(
+       (SELECT id FROM _source),(SELECT generation FROM _source),
+       'does-not-exist',ARRAY['sgm-u1']
+     ) $$,
+  'BZ002', NULL,
+  'unknown group external_id raises BZ002');
+
+-- ── Test 2: initial reconcile adds u1 + u2 as scim members ──
+SELECT scim_apply_group_members(
+  (SELECT id FROM _source),(SELECT generation FROM _source),
+  'sgm-g1',ARRAY['sgm-u1','sgm-u2']
+);
+SELECT is(
+  (SELECT count(*)::INT FROM distribution_group_members
+     WHERE group_id = (SELECT gid FROM _g) AND source = 'scim'),
+  2,
+  'initial reconcile inserts the two scim members');
+SELECT ok(
+  EXISTS (SELECT 1 FROM distribution_group_members
+            WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb1 FROM _g)),
+  'u1 is a member after the first reconcile');
+SELECT ok(
+  EXISTS (SELECT 1 FROM distribution_group_members
+            WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb2 FROM _g)),
+  'u2 is a member after the first reconcile');
+
+-- ── Test 3: a manual member is added out-of-band; the IdP must NOT own it ──
+INSERT INTO distribution_group_members (group_id, mailbox_id, source)
+VALUES ((SELECT gid FROM _g), (SELECT mb3 FROM _g), 'manual');
+
+-- ── Test 4: reconcile to {u2, u3-by-scim?} — new list = [u2]. u1 is scim and
+-- omitted → removed. u3 is MANUAL and omitted → KEPT. ──
+SELECT scim_apply_group_members(
+  (SELECT id FROM _source),(SELECT generation FROM _source),
+  'sgm-g1',ARRAY['sgm-u2']
+);
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM distribution_group_members
+                WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb1 FROM _g)),
+  'omitted scim member u1 is removed by the reconcile');
+SELECT ok(
+  EXISTS (SELECT 1 FROM distribution_group_members
+            WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb2 FROM _g) AND source = 'scim'),
+  'still-listed scim member u2 is kept');
+SELECT ok(
+  EXISTS (SELECT 1 FROM distribution_group_members
+            WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb3 FROM _g) AND source = 'manual'),
+  'a MANUAL member is NOT removed by a scim reconcile (IdP owns only scim rows)');
+
+-- ── Test 5: idempotent — re-applying the same list inserts no duplicate ──
+SELECT scim_apply_group_members(
+  (SELECT id FROM _source),(SELECT generation FROM _source),
+  'sgm-g1',ARRAY['sgm-u2']
+);
+SELECT is(
+  (SELECT count(*)::INT FROM distribution_group_members
+     WHERE group_id = (SELECT gid FROM _g) AND mailbox_id = (SELECT mb2 FROM _g)),
+  1,
+  're-applying the same membership is idempotent (no duplicate row)');
+
+UPDATE user_identity_links
+   SET state='suspended'
+ WHERE source_id=(SELECT id FROM _source)
+   AND external_subject='sgm-u2';
+SELECT lives_ok(
+  $$SELECT scim_remove_group_members(
+      (SELECT id FROM _source),(SELECT generation FROM _source),
+      'sgm-g1',ARRAY['sgm-u2']
+  )$$,
+  'membership removal resolves the durable source subject after its link is suspended'
+);
+SELECT ok(
+  NOT EXISTS (
+    SELECT 1 FROM distribution_group_members
+     WHERE group_id=(SELECT gid FROM _g)
+       AND mailbox_id=(SELECT mb2 FROM _g)
+       AND source='scim'
+  ),
+  'a suspended identity link cannot leave a hidden source-owned group membership'
+);
+
+SELECT throws_ok(
+  $$ SELECT scim_apply_group_members(
+       (SELECT id FROM _other_source),(SELECT generation FROM _other_source),
+       'sgm-g1',ARRAY['sgm-u1']
+     ) $$,
+  'BZ002', NULL,
+  'a source cannot reference a user owned only by another source');
+
+SELECT is(
+  (SELECT count(*)::INT FROM distribution_groups
+    WHERE scim_external_id='sgm-g1'),
+  2,
+  'two sources may safely reuse the same external group id');
+
+SELECT is(
+  scim_delete_group(
+    (SELECT id FROM _other_source),
+    (SELECT generation FROM _other_source),
+    (SELECT gid FROM _g)
+  ),
+  FALSE,
+  'a source cannot delete another source group by numeric id');
+
+SELECT throws_ok(
+  $$SELECT scim_apply_group_members(
+      (SELECT id FROM _source),(SELECT generation FROM _source)+1,
+      'sgm-g1',ARRAY['sgm-u2'],TRUE
+  )$$,
+  'BZ229','identity source generation is stale',
+  'membership replace rejects a stale authenticated source generation'
+);
+SELECT throws_ok(
+  $$SELECT scim_remove_group_members(
+      (SELECT id FROM _source),(SELECT generation FROM _source)+1,
+      'sgm-g1',ARRAY['sgm-u2']
+  )$$,
+  'BZ229','identity source generation is stale',
+  'membership remove rejects a stale authenticated source generation'
+);
+UPDATE identity_sources SET state='paused'
+ WHERE id=(SELECT id FROM _source);
+SELECT throws_ok(
+  $$SELECT scim_apply_group_members(
+      (SELECT id FROM _source),(SELECT generation FROM _source),
+      'sgm-g1',ARRAY['sgm-u2'],FALSE
+  )$$,
+  'BZ224','SCIM source is not active',
+  'membership add rejects a paused source'
+);
+SELECT throws_ok(
+  $$SELECT scim_remove_group_members(
+      (SELECT id FROM _source),(SELECT generation FROM _source),
+      'sgm-g1',ARRAY['sgm-u2']
+  )$$,
+  'BZ224','SCIM source is not active',
+  'membership remove rejects a paused source'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

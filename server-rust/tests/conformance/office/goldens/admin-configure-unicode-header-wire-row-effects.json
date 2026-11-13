@@ -1,0 +1,132 @@
+{
+  "case": "unicode-header-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "action": "office.provider.configured",
+          "after_state": {
+            "configSha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+            "generation": 3,
+            "profile": "existing-provider",
+            "providerId": "office1",
+            "routeState": "connected_inactive"
+          },
+          "before_state": {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": null
+          },
+          "id": "<audit:0>",
+          "ip": null,
+          "notes": "Office1 审核原因",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "office_provider",
+          "user_id": "<actor>"
+        }
+      ],
+      "before": [],
+      "table": "core_audit"
+    },
+    {
+      "after": [
+        {
+          "active_qualification_id": null,
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/browser",
+            "proofDiscoveryUrl": "https://editor.test/hosting/discovery",
+            "wopiPublicBaseUrl": "https://mail.test"
+          },
+          "config_sha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+          "default_modes": {},
+          "draining": false,
+          "enabled": false,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 3,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "connected_inactive",
+          "updated_at": "<timestamp>",
+          "updated_by": "<actor>"
+        }
+      ],
+      "before": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/launch",
+            "proofMode": "test_disabled",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": false,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 2,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "connected_inactive",
+          "updated_at": "<timestamp>",
+          "updated_by": null
+        }
+      ],
+      "table": "providers"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "PUT /admin/office/providers/{providerId}"
+}

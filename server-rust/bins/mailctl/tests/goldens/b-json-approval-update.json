@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/approval-policies/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"conditions\":{\"team\":\"Sales\"},\"enabled\":false,\"requiresApproval\":false}"
+    }
+  ],
+  "stdout": "Approval policy 7 updated.\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,14 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- 031_snooze.sql: snooze / scheduled-send timer columns on message_tags.
+--
+-- (A6 — Scheduled Actions) The cron wrappers that once lived here —
+-- process_snoozed_messages() and process_scheduled_messages(), plus the unified
+-- process_message_timers() in message_lifecycle.sql — are GONE. Firing is now the
+-- deferred-action dispatcher (dispatch_scheduled_actions) + the per-kind handlers
+-- (send / snooze / remind). The message_tags.snooze_until / scheduled_at columns
+-- (schema/030_message_tags.sql) are kept as informational mirrors; the
+-- authoritative wake/send instant is a scheduled_actions.fire_at row.
+--
+-- This file is intentionally empty of executable DDL — the snooze/scheduled
+-- columns and their indexes live in schema/030_message_tags.sql, and the timer
+-- machinery moved to scheduled_actions (schema/053_scheduled_actions.sql).

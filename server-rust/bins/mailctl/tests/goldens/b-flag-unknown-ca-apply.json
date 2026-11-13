@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of ca apply:\n  -f string\n    \tPolicy document file\n  -prune\n    \tUse prune mode (removes policies not in doc)\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

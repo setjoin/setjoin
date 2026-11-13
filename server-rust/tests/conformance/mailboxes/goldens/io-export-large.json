@@ -1,0 +1,3326 @@
+{
+  "case": "large",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "mailboxes": [
+            {
+              "email": "mbox5-shared@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 0
+            },
+            {
+              "email": "mbox5-s@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 33270
+            },
+            {
+              "email": "mbox5-t@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 0
+            }
+          ],
+          "messages": [
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-0@example.com>",
+              "raw_ref": "9c7f405a4b54540c62545c9abd9254e1b03588b06879b79a5bb29220b5ec3d74",
+              "received_at": "2026-02-01 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-01 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-1@example.com>",
+              "raw_ref": "0ef45457d79597986d4f6a6feab7b5cbdeeb42724566232bc841203964a39bb2",
+              "received_at": "2026-02-02 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-02 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-2@example.com>",
+              "raw_ref": "2b890fb3f9f875de6ab8398c1c095ab011e3af63aacd29ca1d9522b127524ca2",
+              "received_at": "2026-02-03 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-03 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-3@example.com>",
+              "raw_ref": "e106289033b0d24dc1d4d3a7fd685066eb43eba59c3c368cbe26998139acfa52",
+              "received_at": "2026-02-04 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-04 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-4@example.com>",
+              "raw_ref": "80c465f3f4f9c09525f9d97f0af1752ff41555697668e90bf6cdf34ab886b411",
+              "received_at": "2026-02-05 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-05 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-5@example.com>",
+              "raw_ref": "0416ce88b74f22458fba142804a7c787d9b22f0c11ca23d91f49760c94e64938",
+              "received_at": "2026-02-06 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-06 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-6@example.com>",
+              "raw_ref": "09bf86a12143c54970991f21ea0239c2c4b839dd3996031948774372ff4d8ebc",
+              "received_at": "2026-02-07 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-07 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-7@example.com>",
+              "raw_ref": "ba186a2f5571b7959c5090de4c80e1138dc0a46e643907585a3fa88b0eb98f5a",
+              "received_at": "2026-02-08 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-08 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-8@example.com>",
+              "raw_ref": "8855a9d274bbda639014120b0e0aca9235267a0509a4b36817d07d1a6b2f413c",
+              "received_at": "2026-02-09 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-09 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-9@example.com>",
+              "raw_ref": "0ba306cf9ddead74a03d7cacabdf72d7cb2182326bcd378e291e74f64f6d711c",
+              "received_at": "2026-02-10 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-10 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-10@example.com>",
+              "raw_ref": "1ee7b7629032587e70acdc54f89c1df29f4257f4d8dd35fa022be38f6f4499f7",
+              "received_at": "2026-02-11 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-11 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-11@example.com>",
+              "raw_ref": "848a17038ca5455cfeb86474692d11cef6d46ea1c60fe3836cc81ccb82e75b5b",
+              "received_at": "2026-02-12 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-12 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-12@example.com>",
+              "raw_ref": "f5b52abf7a22c161e40adb9820605c930378faa92f086e47eea3c0901596bc1d",
+              "received_at": "2026-02-13 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-13 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-13@example.com>",
+              "raw_ref": "dab42e018b615b4059a199b046a16fa7fd4e41d69ea6d284d9a05b8b0ed8f93f",
+              "received_at": "2026-02-14 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-14 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-14@example.com>",
+              "raw_ref": "7b879ec5c99dda6231f991d3d0a6ad45d2f4cf746295d9bda1685a7533b87213",
+              "received_at": "2026-02-15 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-15 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-15@example.com>",
+              "raw_ref": "8701fdb7799426c30be1d3ae9098697c1312af837505beaa6f8e8f16cc2e88ee",
+              "received_at": "2026-02-16 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-16 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-16@example.com>",
+              "raw_ref": "2ee4d82a2e912e8bd5c55ef18f407094dcc4cf66081fe8a6121853c48fd93a8e",
+              "received_at": "2026-02-17 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-17 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-17@example.com>",
+              "raw_ref": "1dee3bd423b8741b0f5e4d1e46c71794e6d172bbb5590cd4aadf39951c006d02",
+              "received_at": "2026-02-18 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-18 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-18@example.com>",
+              "raw_ref": "6bfcd3e9df08274f66ab581befd2eadf48e224013f8a8dc9c36a898dd15387f6",
+              "received_at": "2026-02-19 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-19 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-19@example.com>",
+              "raw_ref": "08c851e6e5868a22f774b27b5c5a43cd1bac44eec9446cc0602ded8c7567bfbf",
+              "received_at": "2026-02-20 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-20 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-20@example.com>",
+              "raw_ref": "098e17d8bd7c3b1d114c4845a4f71c21cd50fe7b7cca25bbf769372b76613a4b",
+              "received_at": "2026-02-21 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-21 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-21@example.com>",
+              "raw_ref": "de94eff573c6baac85128f5996fafb85e28dabbfe7c48494a16b809163681e57",
+              "received_at": "2026-02-22 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-22 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-22@example.com>",
+              "raw_ref": "df74b5022102a5eed3747293a0dcc32e471acb8bcb5472045e751c2ec868085f",
+              "received_at": "2026-02-23 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-23 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-23@example.com>",
+              "raw_ref": "dd24f582af644b2eff992cd43534646392130d161c2a9b92e6cb325d0b0a2b4e",
+              "received_at": "2026-02-24 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-24 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-24@example.com>",
+              "raw_ref": "7e27ab4a9e888d845ea07a2725edf317f71aa2423fe5dabacb1f409b9f986774",
+              "received_at": "2026-02-25 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-25 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-25@example.com>",
+              "raw_ref": "62b68f3b440e8c80d6b0b5f7e8329eff07d34d95f238b458e23f268ec73c7f69",
+              "received_at": "2026-02-26 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-26 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-26@example.com>",
+              "raw_ref": "8103ccfbb48c4f34c0b04a5729dcbef70ddfb6e77c2939b98849a3c7fb56dda6",
+              "received_at": "2026-02-27 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-27 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-27@example.com>",
+              "raw_ref": "0f131c0580eb46211552229d473d3b2d2053a7c5b0a59fa22cdc39f73552c4ce",
+              "received_at": "2026-02-28 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-28 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-28@example.com>",
+              "raw_ref": "cd6afabb4b9b1dd6c95dd3238fb00a8d6d0c285a8de7a60b7d43b3133b74d889",
+              "received_at": "2026-03-01 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-01 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-29@example.com>",
+              "raw_ref": "590fa2fa5133476001bf546aecaad294dc185ba397481bf2d19055950513e550",
+              "received_at": "2026-03-02 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-02 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-30@example.com>",
+              "raw_ref": "71118492c30f80166d2ac092315e5437276caf0009fd8a66bca97588e9759e7c",
+              "received_at": "2026-03-03 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-03 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-31@example.com>",
+              "raw_ref": "d8d898c672da050c3c4d205905d5fff46c566cc76eab3c35f84f2c4497d415b2",
+              "received_at": "2026-03-04 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-04 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-32@example.com>",
+              "raw_ref": "2d398e7cd163c196e03787497d0085e95f97a8d39169722f46de32aa1c20b899",
+              "received_at": "2026-03-05 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-05 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-33@example.com>",
+              "raw_ref": "0b69dadf6bde62184c2afcc0d81f980479ed2bec9c5d96ef14603b9d59a4dd33",
+              "received_at": "2026-03-06 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-06 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-34@example.com>",
+              "raw_ref": "1057a54331ec7c4a6e1e1bc88013b5a4714d2eb8ee93c841e4a38ae7f9316845",
+              "received_at": "2026-03-07 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-07 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-35@example.com>",
+              "raw_ref": "5434315d0c0f0dfdd9a95beb38a840f39cad51db59ce3a288e16f7ae04f4a340",
+              "received_at": "2026-03-08 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-08 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-36@example.com>",
+              "raw_ref": "a2a774d2bc761b9a055a373821d3711d6d65244597e4551d41e2f2b196405a5d",
+              "received_at": "2026-03-09 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-09 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-37@example.com>",
+              "raw_ref": "994c6f6a30034f935bed46e5a6165e12e0036074658e7febfe6d82dc1a4ad04c",
+              "received_at": "2026-03-10 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-10 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-38@example.com>",
+              "raw_ref": "2a25ce5f82f5fe00dc08f83bfb0fe11ed3e8a1b4a9cb5387181577a26f1a10d2",
+              "received_at": "2026-03-11 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-11 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-39@example.com>",
+              "raw_ref": "1cfe81dcc7324584dabccb324d404f07d1315c063dab984bcc831bb7fd6c4cc5",
+              "received_at": "2026-03-12 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-12 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            }
+          ],
+          "tags": [
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Inbox",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Inbox",
+              "total": 40,
+              "unread": 40
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Projects",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Inbox",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            }
+          ]
+        },
+        "before": {
+          "mailboxes": [
+            {
+              "email": "mbox5-shared@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 0
+            },
+            {
+              "email": "mbox5-s@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 33270
+            },
+            {
+              "email": "mbox5-t@<domain-a-name>",
+              "email_state": 0,
+              "used_bytes": 0
+            }
+          ],
+          "messages": [
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-0@example.com>",
+              "raw_ref": "9c7f405a4b54540c62545c9abd9254e1b03588b06879b79a5bb29220b5ec3d74",
+              "received_at": "2026-02-01 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-01 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-1@example.com>",
+              "raw_ref": "0ef45457d79597986d4f6a6feab7b5cbdeeb42724566232bc841203964a39bb2",
+              "received_at": "2026-02-02 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-02 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-2@example.com>",
+              "raw_ref": "2b890fb3f9f875de6ab8398c1c095ab011e3af63aacd29ca1d9522b127524ca2",
+              "received_at": "2026-02-03 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-03 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-3@example.com>",
+              "raw_ref": "e106289033b0d24dc1d4d3a7fd685066eb43eba59c3c368cbe26998139acfa52",
+              "received_at": "2026-02-04 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-04 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-4@example.com>",
+              "raw_ref": "80c465f3f4f9c09525f9d97f0af1752ff41555697668e90bf6cdf34ab886b411",
+              "received_at": "2026-02-05 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-05 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-5@example.com>",
+              "raw_ref": "0416ce88b74f22458fba142804a7c787d9b22f0c11ca23d91f49760c94e64938",
+              "received_at": "2026-02-06 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-06 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-6@example.com>",
+              "raw_ref": "09bf86a12143c54970991f21ea0239c2c4b839dd3996031948774372ff4d8ebc",
+              "received_at": "2026-02-07 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-07 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-7@example.com>",
+              "raw_ref": "ba186a2f5571b7959c5090de4c80e1138dc0a46e643907585a3fa88b0eb98f5a",
+              "received_at": "2026-02-08 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-08 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-8@example.com>",
+              "raw_ref": "8855a9d274bbda639014120b0e0aca9235267a0509a4b36817d07d1a6b2f413c",
+              "received_at": "2026-02-09 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-09 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-9@example.com>",
+              "raw_ref": "0ba306cf9ddead74a03d7cacabdf72d7cb2182326bcd378e291e74f64f6d711c",
+              "received_at": "2026-02-10 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-10 10:00:00+00",
+              "size": 831,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-10@example.com>",
+              "raw_ref": "1ee7b7629032587e70acdc54f89c1df29f4257f4d8dd35fa022be38f6f4499f7",
+              "received_at": "2026-02-11 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-11 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-11@example.com>",
+              "raw_ref": "848a17038ca5455cfeb86474692d11cef6d46ea1c60fe3836cc81ccb82e75b5b",
+              "received_at": "2026-02-12 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-12 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-12@example.com>",
+              "raw_ref": "f5b52abf7a22c161e40adb9820605c930378faa92f086e47eea3c0901596bc1d",
+              "received_at": "2026-02-13 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-13 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-13@example.com>",
+              "raw_ref": "dab42e018b615b4059a199b046a16fa7fd4e41d69ea6d284d9a05b8b0ed8f93f",
+              "received_at": "2026-02-14 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-14 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-14@example.com>",
+              "raw_ref": "7b879ec5c99dda6231f991d3d0a6ad45d2f4cf746295d9bda1685a7533b87213",
+              "received_at": "2026-02-15 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-15 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-15@example.com>",
+              "raw_ref": "8701fdb7799426c30be1d3ae9098697c1312af837505beaa6f8e8f16cc2e88ee",
+              "received_at": "2026-02-16 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-16 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-16@example.com>",
+              "raw_ref": "2ee4d82a2e912e8bd5c55ef18f407094dcc4cf66081fe8a6121853c48fd93a8e",
+              "received_at": "2026-02-17 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-17 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-17@example.com>",
+              "raw_ref": "1dee3bd423b8741b0f5e4d1e46c71794e6d172bbb5590cd4aadf39951c006d02",
+              "received_at": "2026-02-18 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-18 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-18@example.com>",
+              "raw_ref": "6bfcd3e9df08274f66ab581befd2eadf48e224013f8a8dc9c36a898dd15387f6",
+              "received_at": "2026-02-19 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-19 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-19@example.com>",
+              "raw_ref": "08c851e6e5868a22f774b27b5c5a43cd1bac44eec9446cc0602ded8c7567bfbf",
+              "received_at": "2026-02-20 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-20 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-20@example.com>",
+              "raw_ref": "098e17d8bd7c3b1d114c4845a4f71c21cd50fe7b7cca25bbf769372b76613a4b",
+              "received_at": "2026-02-21 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-21 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-21@example.com>",
+              "raw_ref": "de94eff573c6baac85128f5996fafb85e28dabbfe7c48494a16b809163681e57",
+              "received_at": "2026-02-22 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-22 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-22@example.com>",
+              "raw_ref": "df74b5022102a5eed3747293a0dcc32e471acb8bcb5472045e751c2ec868085f",
+              "received_at": "2026-02-23 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-23 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-23@example.com>",
+              "raw_ref": "dd24f582af644b2eff992cd43534646392130d161c2a9b92e6cb325d0b0a2b4e",
+              "received_at": "2026-02-24 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-24 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-24@example.com>",
+              "raw_ref": "7e27ab4a9e888d845ea07a2725edf317f71aa2423fe5dabacb1f409b9f986774",
+              "received_at": "2026-02-25 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-25 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-25@example.com>",
+              "raw_ref": "62b68f3b440e8c80d6b0b5f7e8329eff07d34d95f238b458e23f268ec73c7f69",
+              "received_at": "2026-02-26 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-26 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-26@example.com>",
+              "raw_ref": "8103ccfbb48c4f34c0b04a5729dcbef70ddfb6e77c2939b98849a3c7fb56dda6",
+              "received_at": "2026-02-27 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-27 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-27@example.com>",
+              "raw_ref": "0f131c0580eb46211552229d473d3b2d2053a7c5b0a59fa22cdc39f73552c4ce",
+              "received_at": "2026-02-28 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-02-28 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-28@example.com>",
+              "raw_ref": "cd6afabb4b9b1dd6c95dd3238fb00a8d6d0c285a8de7a60b7d43b3133b74d889",
+              "received_at": "2026-03-01 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-01 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-29@example.com>",
+              "raw_ref": "590fa2fa5133476001bf546aecaad294dc185ba397481bf2d19055950513e550",
+              "received_at": "2026-03-02 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-02 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-30@example.com>",
+              "raw_ref": "71118492c30f80166d2ac092315e5437276caf0009fd8a66bca97588e9759e7c",
+              "received_at": "2026-03-03 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-03 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-31@example.com>",
+              "raw_ref": "d8d898c672da050c3c4d205905d5fff46c566cc76eab3c35f84f2c4497d415b2",
+              "received_at": "2026-03-04 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-04 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-32@example.com>",
+              "raw_ref": "2d398e7cd163c196e03787497d0085e95f97a8d39169722f46de32aa1c20b899",
+              "received_at": "2026-03-05 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-05 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-33@example.com>",
+              "raw_ref": "0b69dadf6bde62184c2afcc0d81f980479ed2bec9c5d96ef14603b9d59a4dd33",
+              "received_at": "2026-03-06 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-06 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-34@example.com>",
+              "raw_ref": "1057a54331ec7c4a6e1e1bc88013b5a4714d2eb8ee93c841e4a38ae7f9316845",
+              "received_at": "2026-03-07 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-07 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-35@example.com>",
+              "raw_ref": "5434315d0c0f0dfdd9a95beb38a840f39cad51db59ce3a288e16f7ae04f4a340",
+              "received_at": "2026-03-08 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-08 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-36@example.com>",
+              "raw_ref": "a2a774d2bc761b9a055a373821d3711d6d65244597e4551d41e2f2b196405a5d",
+              "received_at": "2026-03-09 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-09 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-37@example.com>",
+              "raw_ref": "994c6f6a30034f935bed46e5a6165e12e0036074658e7febfe6d82dc1a4ad04c",
+              "received_at": "2026-03-10 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-10 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-38@example.com>",
+              "raw_ref": "2a25ce5f82f5fe00dc08f83bfb0fe11ed3e8a1b4a9cb5387181577a26f1a10d2",
+              "received_at": "2026-03-11 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-11 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            },
+            {
+              "bcc": [],
+              "body_html": null,
+              "body_text": "seed",
+              "cc": [],
+              "from_addr": "seed@example.com",
+              "from_name": "Seed",
+              "in_reply_to": null,
+              "is_read": false,
+              "list_id": null,
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "message_id": "<bulk-39@example.com>",
+              "raw_ref": "1cfe81dcc7324584dabccb324d404f07d1315c063dab984bcc831bb7fd6c4cc5",
+              "received_at": "2026-03-12 10:00:00+00",
+              "references": null,
+              "sent_at": "2026-03-12 10:00:00+00",
+              "size": 832,
+              "subject": "seed",
+              "tags": [
+                "Inbox"
+              ],
+              "to": []
+            }
+          ],
+          "tags": [
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Inbox",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-shared@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Inbox",
+              "total": 40,
+              "unread": 40
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Projects",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-s@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Drafts",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Important",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Inbox",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Muted",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Other",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Scheduled",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Sent",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Snoozed",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Spam",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Starred",
+              "total": 0,
+              "unread": 0
+            },
+            {
+              "mailbox": "mbox5-t@<domain-a-name>",
+              "name": "Trash",
+              "total": 0,
+              "unread": 0
+            }
+          ]
+        },
+        "table": "messages+mailboxes+tags"
+      },
+      {
+        "requests": [
+          {
+            "method": "GET",
+            "path": "1cfe81dcc7324584dabccb324d404f07d1315c063dab984bcc831bb7fd6c4cc5"
+          },
+          {
+            "method": "GET",
+            "path": "2a25ce5f82f5fe00dc08f83bfb0fe11ed3e8a1b4a9cb5387181577a26f1a10d2"
+          },
+          {
+            "method": "GET",
+            "path": "994c6f6a30034f935bed46e5a6165e12e0036074658e7febfe6d82dc1a4ad04c"
+          },
+          {
+            "method": "GET",
+            "path": "a2a774d2bc761b9a055a373821d3711d6d65244597e4551d41e2f2b196405a5d"
+          },
+          {
+            "method": "GET",
+            "path": "5434315d0c0f0dfdd9a95beb38a840f39cad51db59ce3a288e16f7ae04f4a340"
+          },
+          {
+            "method": "GET",
+            "path": "1057a54331ec7c4a6e1e1bc88013b5a4714d2eb8ee93c841e4a38ae7f9316845"
+          },
+          {
+            "method": "GET",
+            "path": "0b69dadf6bde62184c2afcc0d81f980479ed2bec9c5d96ef14603b9d59a4dd33"
+          },
+          {
+            "method": "GET",
+            "path": "2d398e7cd163c196e03787497d0085e95f97a8d39169722f46de32aa1c20b899"
+          },
+          {
+            "method": "GET",
+            "path": "d8d898c672da050c3c4d205905d5fff46c566cc76eab3c35f84f2c4497d415b2"
+          },
+          {
+            "method": "GET",
+            "path": "71118492c30f80166d2ac092315e5437276caf0009fd8a66bca97588e9759e7c"
+          },
+          {
+            "method": "GET",
+            "path": "590fa2fa5133476001bf546aecaad294dc185ba397481bf2d19055950513e550"
+          },
+          {
+            "method": "GET",
+            "path": "cd6afabb4b9b1dd6c95dd3238fb00a8d6d0c285a8de7a60b7d43b3133b74d889"
+          },
+          {
+            "method": "GET",
+            "path": "0f131c0580eb46211552229d473d3b2d2053a7c5b0a59fa22cdc39f73552c4ce"
+          },
+          {
+            "method": "GET",
+            "path": "8103ccfbb48c4f34c0b04a5729dcbef70ddfb6e77c2939b98849a3c7fb56dda6"
+          },
+          {
+            "method": "GET",
+            "path": "62b68f3b440e8c80d6b0b5f7e8329eff07d34d95f238b458e23f268ec73c7f69"
+          },
+          {
+            "method": "GET",
+            "path": "7e27ab4a9e888d845ea07a2725edf317f71aa2423fe5dabacb1f409b9f986774"
+          },
+          {
+            "method": "GET",
+            "path": "dd24f582af644b2eff992cd43534646392130d161c2a9b92e6cb325d0b0a2b4e"
+          },
+          {
+            "method": "GET",
+            "path": "df74b5022102a5eed3747293a0dcc32e471acb8bcb5472045e751c2ec868085f"
+          },
+          {
+            "method": "GET",
+            "path": "de94eff573c6baac85128f5996fafb85e28dabbfe7c48494a16b809163681e57"
+          },
+          {
+            "method": "GET",
+            "path": "098e17d8bd7c3b1d114c4845a4f71c21cd50fe7b7cca25bbf769372b76613a4b"
+          },
+          {
+            "method": "GET",
+            "path": "08c851e6e5868a22f774b27b5c5a43cd1bac44eec9446cc0602ded8c7567bfbf"
+          },
+          {
+            "method": "GET",
+            "path": "6bfcd3e9df08274f66ab581befd2eadf48e224013f8a8dc9c36a898dd15387f6"
+          },
+          {
+            "method": "GET",
+            "path": "1dee3bd423b8741b0f5e4d1e46c71794e6d172bbb5590cd4aadf39951c006d02"
+          },
+          {
+            "method": "GET",
+            "path": "2ee4d82a2e912e8bd5c55ef18f407094dcc4cf66081fe8a6121853c48fd93a8e"
+          },
+          {
+            "method": "GET",
+            "path": "8701fdb7799426c30be1d3ae9098697c1312af837505beaa6f8e8f16cc2e88ee"
+          },
+          {
+            "method": "GET",
+            "path": "7b879ec5c99dda6231f991d3d0a6ad45d2f4cf746295d9bda1685a7533b87213"
+          },
+          {
+            "method": "GET",
+            "path": "dab42e018b615b4059a199b046a16fa7fd4e41d69ea6d284d9a05b8b0ed8f93f"
+          },
+          {
+            "method": "GET",
+            "path": "f5b52abf7a22c161e40adb9820605c930378faa92f086e47eea3c0901596bc1d"
+          },
+          {
+            "method": "GET",
+            "path": "848a17038ca5455cfeb86474692d11cef6d46ea1c60fe3836cc81ccb82e75b5b"
+          },
+          {
+            "method": "GET",
+            "path": "1ee7b7629032587e70acdc54f89c1df29f4257f4d8dd35fa022be38f6f4499f7"
+          },
+          {
+            "method": "GET",
+            "path": "0ba306cf9ddead74a03d7cacabdf72d7cb2182326bcd378e291e74f64f6d711c"
+          },
+          {
+            "method": "GET",
+            "path": "8855a9d274bbda639014120b0e0aca9235267a0509a4b36817d07d1a6b2f413c"
+          },
+          {
+            "method": "GET",
+            "path": "ba186a2f5571b7959c5090de4c80e1138dc0a46e643907585a3fa88b0eb98f5a"
+          },
+          {
+            "method": "GET",
+            "path": "09bf86a12143c54970991f21ea0239c2c4b839dd3996031948774372ff4d8ebc"
+          },
+          {
+            "method": "GET",
+            "path": "0416ce88b74f22458fba142804a7c787d9b22f0c11ca23d91f49760c94e64938"
+          },
+          {
+            "method": "GET",
+            "path": "80c465f3f4f9c09525f9d97f0af1752ff41555697668e90bf6cdf34ab886b411"
+          },
+          {
+            "method": "GET",
+            "path": "e106289033b0d24dc1d4d3a7fd685066eb43eba59c3c368cbe26998139acfa52"
+          },
+          {
+            "method": "GET",
+            "path": "2b890fb3f9f875de6ab8398c1c095ab011e3af63aacd29ca1d9522b127524ca2"
+          },
+          {
+            "method": "GET",
+            "path": "0ef45457d79597986d4f6a6feab7b5cbdeeb42724566232bc841203964a39bb2"
+          },
+          {
+            "method": "GET",
+            "path": "9c7f405a4b54540c62545c9abd9254e1b03588b06879b79a5bb29220b5ec3d74"
+          }
+        ],
+        "table": "object-store"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/mailboxes/{id}/export",
+      "method": "GET",
+      "path": "/admin/mailboxes/{id}/export",
+      "summary": "large"
+    },
+    "response": {
+      "archive": {
+        "length": 8254,
+        "sha256": "ed7a3bd4f8b53bf90c143d68968b738c677715559f6a1a3dae66a3171622c80e"
+      },
+      "body": {
+        "zip_entries": [
+          {
+            "comment_len": 0,
+            "crc32": "becb8774",
+            "crc_matches": true,
+            "data": "Subject: bulk 39\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "1_bulk-39@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "9a660d00",
+            "crc_matches": true,
+            "data": "Subject: bulk 38\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "2_bulk-38@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "9b3befad",
+            "crc_matches": true,
+            "data": "Subject: bulk 37\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "3_bulk-37@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "bf9665d9",
+            "crc_matches": true,
+            "data": "Subject: bulk 36\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "4_bulk-36@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "d260fb45",
+            "crc_matches": true,
+            "data": "Subject: bulk 35\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "5_bulk-35@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "f6cd7131",
+            "crc_matches": true,
+            "data": "Subject: bulk 34\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "6_bulk-34@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "098dc67d",
+            "crc_matches": true,
+            "data": "Subject: bulk 33\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "7_bulk-33@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "2d204c09",
+            "crc_matches": true,
+            "data": "Subject: bulk 32\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "8_bulk-32@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "40d6d295",
+            "crc_matches": true,
+            "data": "Subject: bulk 31\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "9_bulk-31@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "647b58e1",
+            "crc_matches": true,
+            "data": "Subject: bulk 30\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "10_bulk-30@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "e9879fdb",
+            "crc_matches": true,
+            "data": "Subject: bulk 29\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "11_bulk-29@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "cd2a15af",
+            "crc_matches": true,
+            "data": "Subject: bulk 28\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "12_bulk-28@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "cc77f702",
+            "crc_matches": true,
+            "data": "Subject: bulk 27\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "13_bulk-27@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "e8da7d76",
+            "crc_matches": true,
+            "data": "Subject: bulk 26\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "14_bulk-26@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "852ce3ea",
+            "crc_matches": true,
+            "data": "Subject: bulk 25\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "15_bulk-25@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "a181699e",
+            "crc_matches": true,
+            "data": "Subject: bulk 24\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "16_bulk-24@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "5ec1ded2",
+            "crc_matches": true,
+            "data": "Subject: bulk 23\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "17_bulk-23@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "7a6c54a6",
+            "crc_matches": true,
+            "data": "Subject: bulk 22\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "18_bulk-22@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "179aca3a",
+            "crc_matches": true,
+            "data": "Subject: bulk 21\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "19_bulk-21@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "3337404e",
+            "crc_matches": true,
+            "data": "Subject: bulk 20\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "20_bulk-20@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "1053b62a",
+            "crc_matches": true,
+            "data": "Subject: bulk 19\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "21_bulk-19@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "34fe3c5e",
+            "crc_matches": true,
+            "data": "Subject: bulk 18\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "22_bulk-18@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "35a3def3",
+            "crc_matches": true,
+            "data": "Subject: bulk 17\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "23_bulk-17@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "110e5487",
+            "crc_matches": true,
+            "data": "Subject: bulk 16\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "24_bulk-16@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "7cf8ca1b",
+            "crc_matches": true,
+            "data": "Subject: bulk 15\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "25_bulk-15@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "5855406f",
+            "crc_matches": true,
+            "data": "Subject: bulk 14\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "26_bulk-14@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "a715f723",
+            "crc_matches": true,
+            "data": "Subject: bulk 13\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "27_bulk-13@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "83b87d57",
+            "crc_matches": true,
+            "data": "Subject: bulk 12\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "28_bulk-12@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "ee4ee3cb",
+            "crc_matches": true,
+            "data": "Subject: bulk 11\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "29_bulk-11@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "cae369bf",
+            "crc_matches": true,
+            "data": "Subject: bulk 10\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 832,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "30_bulk-10@example.com.eml",
+            "size": 832,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "371b176e",
+            "crc_matches": true,
+            "data": "Subject: bulk 9\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "31_bulk-9@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "13b69d1a",
+            "crc_matches": true,
+            "data": "Subject: bulk 8\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "32_bulk-8@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "12eb7fb7",
+            "crc_matches": true,
+            "data": "Subject: bulk 7\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "33_bulk-7@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "3646f5c3",
+            "crc_matches": true,
+            "data": "Subject: bulk 6\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "34_bulk-6@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "5bb06b5f",
+            "crc_matches": true,
+            "data": "Subject: bulk 5\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "35_bulk-5@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "7f1de12b",
+            "crc_matches": true,
+            "data": "Subject: bulk 4\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "36_bulk-4@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "805d5667",
+            "crc_matches": true,
+            "data": "Subject: bulk 3\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "37_bulk-3@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "a4f0dc13",
+            "crc_matches": true,
+            "data": "Subject: bulk 2\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "38_bulk-2@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "c906428f",
+            "crc_matches": true,
+            "data": "Subject: bulk 1\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "39_bulk-1@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          },
+          {
+            "comment_len": 0,
+            "crc32": "edabc8fb",
+            "crc_matches": true,
+            "data": "Subject: bulk 0\r\n\r\nlorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet \r\n",
+            "dos_date": 0,
+            "dos_time": 0,
+            "external_attrs": 0,
+            "extra_len": 0,
+            "flags": 8,
+            "inflated_size": 831,
+            "local_dos_date": 0,
+            "local_dos_time": 0,
+            "local_flags": 8,
+            "method": 8,
+            "name": "40_bulk-0@example.com.eml",
+            "size": 831,
+            "version_made_by": 20,
+            "version_needed": 20
+          }
+        ]
+      },
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"export.zip\""
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/zip"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/mailboxes/{id}/export"
+}

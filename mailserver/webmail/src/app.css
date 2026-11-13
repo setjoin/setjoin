@@ -1,0 +1,340 @@
+/* ── setjoin design system — app entry + shared legacy classes ─────────
+   Imported by src/routes/+layout.svelte. Two layers below the import:
+   1. Legacy single-dash classes (.btn-primary, .data-table, .card, …)
+      used across ~300 call sites in mail + admin, restyled flat.
+   2. Utility classes carried from the deleted Liquid Glass tokens.css
+      (.btn--*, .input, .chip, .badge, .glass-*, element defaults) —
+      same names, flat rendering.
+   All press effects are colour-state only — no transform scale.
+   TEMPORARY: surfaces migrate to src/lib/components/ui/ primitives in
+   M1–M7; this file shrinks as they do and dies with the bridge in M8. */
+@import './lib/theme/global.css';
+
+/* ── Element defaults ────────────────────────────────────────────── */
+h1, .h1 { font: var(--weight-semibold) var(--text-2xl)/var(--leading-tight) var(--font-sans); letter-spacing: var(--tracking-display); color: var(--text-primary); margin: 0; }
+h2, .h2 { font: var(--weight-semibold) var(--text-xl)/var(--leading-snug) var(--font-sans); letter-spacing: var(--tracking-heading); color: var(--text-primary); margin: 0; }
+h3, .h3 { font: var(--weight-semibold) var(--text-lg)/var(--leading-snug) var(--font-sans); letter-spacing: var(--tracking-heading); color: var(--text-primary); margin: 0; }
+p, .body { font: var(--weight-regular) var(--text-md)/var(--leading-normal) var(--font-sans); color: var(--text-primary); margin: 0; }
+small, .small { font: var(--weight-regular) var(--text-sm)/var(--leading-normal) var(--font-sans); color: var(--text-caption); }
+code, .mono { font: var(--weight-regular) var(--text-sm)/var(--leading-normal) var(--font-mono); color: var(--text-primary); }
+.display { font: var(--weight-bold) var(--text-display)/var(--leading-tight) var(--font-sans); letter-spacing: var(--tracking-display); color: var(--text-primary); }
+
+/* ── Buttons (legacy single-dash) ────────────────────────────────── */
+.btn-primary, .btn-ghost, .btn-ghost-danger, .btn-danger {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: var(--weight-medium) var(--text-sm)/1 var(--font-sans);
+  cursor: pointer; user-select: none;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+.btn-primary:focus-visible, .btn-ghost:focus-visible,
+.btn-ghost-danger:focus-visible, .btn-danger:focus-visible {
+  outline: none; box-shadow: var(--focus-ring);
+}
+.btn-primary:disabled, .btn-ghost:disabled,
+.btn-ghost-danger:disabled, .btn-danger:disabled {
+  opacity: 0.5; cursor: default;
+}
+
+.btn-primary { background: var(--accent); color: var(--text-inverse); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-active); }
+
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--surface-hover); color: var(--text-primary); }
+.btn-ghost:active { background: var(--surface-selected); }
+
+.btn-ghost-danger { background: transparent; color: var(--danger-fg); }
+.btn-ghost-danger:hover { background: var(--danger-bg); }
+
+.btn-danger { background: var(--danger-solid); color: var(--text-inverse); }
+.btn-danger:hover { background: var(--danger-fg); }
+
+.btn-sm { height: var(--control-height-sm); padding: 0 var(--space-2); font-size: var(--text-xs); }
+
+/* ── Data table — 36px rows, caps headers, quiet hover ───────────── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  height: var(--row-height);
+  padding: 0 var(--space-3);
+  text-align: left;
+  font: var(--weight-medium) var(--text-xs)/1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-caption);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+.data-table td {
+  height: var(--row-height);
+  padding: 0 var(--space-3);
+  font: var(--weight-regular) var(--text-sm)/var(--leading-normal) var(--font-sans);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.data-table tr:hover td { background: var(--surface-hover); }
+
+/* ── Cards — border-first, flat ──────────────────────────────────── */
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+.card-header { font: var(--weight-semibold) var(--text-lg)/var(--leading-snug) var(--font-sans); letter-spacing: var(--tracking-heading); color: var(--text-primary); margin-bottom: var(--space-4); }
+.card-body { font: var(--weight-regular) var(--text-md)/var(--leading-normal) var(--font-sans); color: var(--text-primary); }
+
+/* ── Stat cards ──────────────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+}
+.stat-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.stat-label {
+  font: var(--weight-medium) var(--text-xs)/1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-caption);
+  margin-bottom: var(--space-2);
+}
+.stat-value {
+  font: var(--weight-semibold) var(--text-2xl)/1 var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Form ────────────────────────────────────────────────────────── */
+.form-group { display: flex; flex-direction: column; gap: var(--space-2); }
+.form-group label {
+  font: var(--weight-medium) var(--text-xs)/1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-caption);
+}
+.search-bar { display: flex; gap: var(--space-3); align-items: center; }
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: var(--space-12) var(--space-8);
+  text-align: center;
+  color: var(--text-tertiary);
+  gap: var(--space-3);
+}
+.empty-state-icon { font-size: var(--text-3xl); opacity: 0.4; }
+
+/* ── Alert ───────────────────────────────────────────────────────── */
+.alert {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  font: var(--weight-regular) var(--text-sm)/var(--leading-normal) var(--font-sans);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+.alert-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-solid);
+  color: var(--danger-fg);
+}
+.sj-alert-danger {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  font-size: var(--text-sm);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border: 1px solid var(--danger-fg);
+}
+
+/* ── Modal sheet (legacy pattern; Dialog primitive replaces it in M1) ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: var(--scrim);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal-sheet {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  max-width: 640px;
+  width: calc(100% - var(--space-10));
+  animation: sheetIn var(--duration-slow) var(--ease-out);
+}
+.modal-header {
+  font: var(--weight-semibold) var(--text-lg)/var(--leading-snug) var(--font-sans);
+  color: var(--text-primary);
+  margin-bottom: var(--space-5);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-body { font: var(--weight-regular) var(--text-md)/var(--leading-normal) var(--font-sans); color: var(--text-primary); }
+.modal-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-tertiary); padding: var(--space-1);
+}
+.modal-close:hover { color: var(--text-primary); }
+
+@keyframes sheetIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Page header ─────────────────────────────────────────────────── */
+.page-header {
+  display: flex; flex-wrap: wrap; gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+.page-header h1 {
+  font: var(--weight-semibold) var(--text-xl)/var(--leading-snug) var(--font-sans);
+  letter-spacing: var(--tracking-heading);
+  color: var(--text-primary);
+}
+
+/* ── Utility classes carried from the deleted tokens.css (flat) ──── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-height); padding: 0 var(--space-3);
+  border-radius: var(--radius-sm); border: 1px solid transparent;
+  font: var(--weight-medium) var(--text-sm)/1 var(--font-sans);
+  color: var(--text-primary); background: transparent;
+  cursor: pointer; user-select: none;
+  transition: background var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+.btn--primary { background: var(--accent); color: var(--text-inverse); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--primary:active { background: var(--accent-active); }
+
+.btn--secondary { background: var(--surface-card); color: var(--text-primary); border-color: var(--border-default); }
+.btn--secondary:hover { background: var(--surface-hover); }
+.btn--secondary:active { background: var(--surface-sunken); }
+
+.btn--ghost { background: transparent; color: var(--text-secondary); }
+.btn--ghost:hover { background: var(--surface-hover); color: var(--text-primary); }
+.btn--ghost:active { background: var(--surface-selected); }
+
+.btn--destructive { background: var(--danger-solid); color: var(--text-inverse); }
+.btn--destructive:hover { background: var(--danger-fg); }
+
+.btn--glass { background: var(--surface-card); border-color: var(--border-default); }
+.btn--glass:hover { background: var(--surface-hover); }
+
+.btn--sm { height: var(--control-height-sm); padding: 0 var(--space-2); font-size: var(--text-xs); }
+.btn--lg { height: var(--control-height-lg); padding: 0 var(--space-4); }
+
+.input {
+  display: flex; align-items: center;
+  height: var(--control-height); padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: var(--weight-regular) var(--text-sm)/1 var(--font-sans);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+.input::placeholder { color: var(--text-disabled); }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--indigo-100); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  height: 22px; padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font: var(--weight-medium) var(--text-xs)/1 var(--font-sans);
+}
+.chip--accent { background: var(--accent-subtle); border-color: transparent; color: var(--accent-fg-on-subtle); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  height: 18px; padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font: var(--weight-semibold) var(--text-2xs)/1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  background: var(--surface-sunken); color: var(--text-secondary);
+}
+.badge--active  { background: var(--success-bg); color: var(--success-fg); }
+.badge--locked  { background: var(--danger-bg);  color: var(--danger-fg); }
+.badge--syncing { background: var(--info-bg);    color: var(--info-fg); }
+.badge--pending { background: var(--warning-bg); color: var(--warning-fg); }
+
+kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  font: var(--weight-medium) var(--text-2xs)/1 var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--text-disabled); }
+.dot--online  { background: var(--success-solid); }
+.dot--busy    { background: var(--danger-solid); }
+.dot--away    { background: var(--warning-solid); }
+.dot--offline { background: var(--text-disabled); }
+
+.focus-ring:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--radius-full); border: 2px solid transparent; background-clip: content-box; }
+.scroll::-webkit-scrollbar-thumb:hover { background: var(--border-strong); border: 2px solid transparent; background-clip: content-box; }
+
+/* Former glass surfaces — flat panes now */
+.glass-pane, .surface-glass {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+.toolbar {
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-default);
+}
+.glass-popover {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.glass-modal {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.glass-dock {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+/* Former aurora wallpaper (login, setup, downloads routes) — flat page */
+.wallpaper-aurora { background: var(--surface-page); }
+
+/* ── Mobile ──────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .modal-sheet { margin: var(--space-6); max-width: 100%; }
+}

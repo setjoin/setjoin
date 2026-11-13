@@ -1,0 +1,40 @@
+{
+  "case": "mux-invalid-input",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "assertions": [],
+        "sessions": 0,
+        "tokens": 0,
+        "users": 0
+      },
+      "before": {
+        "assertions": [],
+        "sessions": 0,
+        "tokens": 0,
+        "users": 0
+      }
+    },
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "body": "",
+      "method": "*",
+      "path": "/auth/saml/",
+      "wire_method": "PATCH",
+      "wire_path": "/auth/saml/idfed3/missing"
+    },
+    "response": {
+      "body": "404 page not found\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 404
+    }
+  },
+  "route": "* /auth/saml/ mux"
+}

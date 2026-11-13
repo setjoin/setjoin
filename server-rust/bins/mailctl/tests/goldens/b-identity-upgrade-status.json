@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/upgrade/status",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity upgrade status (schema 167)\nGates: master=true normalized_reads=false transitions=false\nSources: total=1 shadow=1 canary=0 normalized=0 cohort_members=0\nBlockers: critical_divergences=0 pending_candidates=0 pending_effects=0\n",
+  "stderr": "",
+  "exit": 0
+}

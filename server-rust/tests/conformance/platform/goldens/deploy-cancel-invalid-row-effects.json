@@ -1,0 +1,95 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed_at": "<timestamp>",
+          "error": "SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: ",
+          "output": "",
+          "started_at": "<timestamp>",
+          "status": "failed",
+          "step_name": "ssh_check"
+        }
+      ],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": {
+        "log": [
+          "[ssh_check] SSH connectivity check",
+          "[ssh_check] FAILED: SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: "
+        ],
+        "nodes": [
+          {
+            "has_inline_key": true,
+            "host": "<node-1>",
+            "role": "primary",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-2>",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-3>",
+            "role": "standby",
+            "ssh_user": "root"
+          }
+        ],
+        "profile": 0,
+        "started_at": "<timestamp>",
+        "status": "failed",
+        "steps": [
+          {
+            "error": "SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: ",
+            "name": "ssh_check",
+            "status": "failed"
+          }
+        ]
+      },
+      "before": {
+        "log": [
+          "[ssh_check] SSH connectivity check"
+        ],
+        "nodes": [
+          {
+            "has_inline_key": true,
+            "host": "<node-1>",
+            "role": "primary",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-2>",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-3>",
+            "role": "standby",
+            "ssh_user": "root"
+          }
+        ],
+        "profile": 0,
+        "started_at": "<timestamp>",
+        "status": "deploying",
+        "steps": [
+          {
+            "name": "ssh_check",
+            "status": "running"
+          }
+        ]
+      },
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/cancel"
+}

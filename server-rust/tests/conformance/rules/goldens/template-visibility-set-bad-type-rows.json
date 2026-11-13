@@ -1,0 +1,249 @@
+{
+  "format": 1,
+  "route": "POST /admin/rule-templates/{id}/visibility",
+  "case": "bad-type-row-effects",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "effects": [
+    {
+      "after": {
+        "rules": [
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961001,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-actor>",
+            "name": "Actor rule",
+            "priority": 1,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          },
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961002,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-other>",
+            "name": "Other rule",
+            "priority": 2,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          }
+        ],
+        "states": [
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-actor>",
+            "tag": 0
+          },
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-other>",
+            "tag": 0
+          }
+        ],
+        "template_tables_present": true,
+        "templates": [
+          {
+            "actions": [
+              {
+                "type": "mark_read"
+              }
+            ],
+            "category": "general",
+            "conditions": [
+              {
+                "field": "subject",
+                "op": "contains",
+                "value": "{{word}}"
+              }
+            ],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description one",
+            "enabled": true,
+            "id": 961011,
+            "is_system": false,
+            "name": "Template one",
+            "parameters": [
+              {
+                "key": "word",
+                "label": "Subject",
+                "type": "text"
+              }
+            ],
+            "sort_order": 1,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          },
+          {
+            "actions": [],
+            "category": "security",
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description system",
+            "enabled": true,
+            "id": 961012,
+            "is_system": true,
+            "name": "System template",
+            "parameters": [],
+            "sort_order": 2,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          },
+          {
+            "actions": [],
+            "category": "general",
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description disabled",
+            "enabled": false,
+            "id": 961013,
+            "is_system": false,
+            "name": "Disabled template",
+            "parameters": [],
+            "sort_order": 3,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          }
+        ],
+        "visibility": [
+          {
+            "hidden": true,
+            "template_id": 961011,
+            "user_id": "<actor>"
+          },
+          {
+            "hidden": true,
+            "template_id": 961012,
+            "user_id": null
+          }
+        ]
+      },
+      "before": {
+        "rules": [
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961001,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-actor>",
+            "name": "Actor rule",
+            "priority": 1,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          },
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961002,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-other>",
+            "name": "Other rule",
+            "priority": 2,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          }
+        ],
+        "states": [
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-actor>",
+            "tag": 0
+          },
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-other>",
+            "tag": 0
+          }
+        ],
+        "template_tables_present": true,
+        "templates": [
+          {
+            "actions": [
+              {
+                "type": "mark_read"
+              }
+            ],
+            "category": "general",
+            "conditions": [
+              {
+                "field": "subject",
+                "op": "contains",
+                "value": "{{word}}"
+              }
+            ],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description one",
+            "enabled": true,
+            "id": 961011,
+            "is_system": false,
+            "name": "Template one",
+            "parameters": [
+              {
+                "key": "word",
+                "label": "Subject",
+                "type": "text"
+              }
+            ],
+            "sort_order": 1,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          },
+          {
+            "actions": [],
+            "category": "security",
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description system",
+            "enabled": true,
+            "id": 961012,
+            "is_system": true,
+            "name": "System template",
+            "parameters": [],
+            "sort_order": 2,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          },
+          {
+            "actions": [],
+            "category": "general",
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "description": "Description disabled",
+            "enabled": false,
+            "id": 961013,
+            "is_system": false,
+            "name": "Disabled template",
+            "parameters": [],
+            "sort_order": 3,
+            "updated_at": "2026-10-01T00:00:00+00:00"
+          }
+        ],
+        "visibility": [
+          {
+            "hidden": true,
+            "template_id": 961011,
+            "user_id": "<actor>"
+          },
+          {
+            "hidden": true,
+            "template_id": 961012,
+            "user_id": null
+          }
+        ]
+      },
+      "table": "rules"
+    }
+  ]
+}

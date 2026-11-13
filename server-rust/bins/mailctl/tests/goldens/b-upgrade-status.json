@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"current\": null,\n  \"history\": []\n}\n",
+  "stderr": "",
+  "exit": 0
+}

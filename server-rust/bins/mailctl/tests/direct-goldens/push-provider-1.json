@@ -1,0 +1,10 @@
+{
+  "stdout": "  [!!] webpush  invalid \u2014 VAPID_PRIVATE_KEY must decode to the 32-byte P-256 private scalar; got 1 bytes\n  [..] apns     absent\n  [..] fcm      absent\n  [..] hms      absent\n",
+  "stderr": "Error: one or more push providers have INVALID config\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,47 @@
+// Recording-only: frozen managed DNS-01 loop, with local provider APIs and recursive DNS.
+package acme
+import (
+ "context"
+ "crypto/tls"
+ "crypto/x509"
+ "encoding/json"
+ "net/http"
+ "net/url"
+ "os"
+ "testing"
+ "github.com/aws/aws-sdk-go-v2/aws"
+ "github.com/aws/aws-sdk-go-v2/service/route53"
+ smithyauth "github.com/aws/smithy-go/auth"
+ smithyhttp "github.com/aws/smithy-go/transport/http"
+ "time"
+ "github.com/go-acme/lego/v4/challenge/dns01"
+)
+type goFreeDNSTransport struct {next http.RoundTripper; endpoint *url.URL}
+func (tr goFreeDNSTransport)RoundTrip(r *http.Request)(*http.Response,error){
+ if r.URL.Host=="api.cloudflare.com" {copy:=r.Clone(r.Context());u:=*r.URL;copy.URL=&u;copy.URL.Scheme=tr.endpoint.Scheme;copy.URL.Host=tr.endpoint.Host;return tr.next.RoundTrip(copy)}
+ return tr.next.RoundTrip(r)
+}
+func TestGoFreeDNSTick(t *testing.T){
+ var c struct{Provider, Config, Cache, Directory, CA, API, Resolver, EndpointsOut string;UseEnv bool;Domains []string}
+ if err:=json.Unmarshal([]byte(os.Getenv("GOFREE_DNS_CASE")),&c);err!=nil {t.Fatal(err)}
+ if c.EndpointsOut!="" {
+    rows:=[]map[string]string{}
+    for _,region:=range []string{"us-east-1","us-west-2","eu-west-1","cn-north-1","us-gov-east-1","us-iso-west-1","us-isob-east-1","eu-isoe-west-1","us-isof-east-1","eusc-de-east-1"} {
+        ep,err:=route53.NewDefaultEndpointResolverV2().ResolveEndpoint(context.Background(),route53.EndpointParameters{Region:aws.String(region),UseFIPS:aws.Bool(false),UseDualStack:aws.Bool(false)});if err!=nil {t.Fatal(err)}
+        opts,ok:=smithyauth.GetAuthOptions(&ep.Properties);if !ok||len(opts)==0 {t.Fatal("missing endpoint auth options")}
+        signing,ok:=smithyhttp.GetSigV4SigningRegion(&opts[0].SignerProperties);if !ok {t.Fatal("missing signing region")}
+        rows=append(rows,map[string]string{"region":region,"endpoint":ep.URI.String(),"signing_region":signing})
+    }
+    b,_:=json.Marshal(rows);if err:=os.WriteFile(c.EndpointsOut,b,0600);err!=nil {t.Fatal(err)};return
+ }
+ if c.UseEnv {t.Setenv("AWS_ACCESS_KEY_ID","public-access");t.Setenv("AWS_SECRET_ACCESS_KEY","public-secret");t.Setenv("AWS_SESSION_TOKEN","")}
+ pem,err:=os.ReadFile(c.CA);if err!=nil {t.Fatal(err)};roots:=x509.NewCertPool();roots.AppendCertsFromPEM(pem)
+ endpoint,_:=url.Parse(c.API);tr:=http.DefaultTransport;http.DefaultTransport=goFreeDNSTransport{tr,endpoint};defer func(){http.DefaultTransport=tr}()
+ t.Setenv("AWS_ENDPOINT_URL_ROUTE_53",c.API)
+ t.Setenv("AWS_ENDPOINT_URL",c.API)
+ if len(c.Domains)==0 {c.Domains=[]string{"*.example.test"}}
+ m,err:=NewLegoManager(LegoConfig{Domains:c.Domains,Email:"ops@example.test",CacheDir:c.Cache,Challenge:ChallengeDNS01,ProviderCfg:ProviderConfig{Provider:c.Provider,Config:c.Config},CADirURL:c.Directory,HTTPClient:&http.Client{Timeout:30*time.Second,Transport:&http.Transport{TLSClientConfig:&tls.Config{RootCAs:roots}}}});if err!=nil {t.Fatal(err)}
+ if err:=dns01.AddRecursiveNameservers([]string{c.Resolver})(nil);err!=nil {t.Fatal(err)}
+ m.backoffFn=func(int)time.Duration{return 50*time.Millisecond}
+ m.renewIfNeeded(context.Background())
+}

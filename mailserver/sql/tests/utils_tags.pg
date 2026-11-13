@@ -1,0 +1,32 @@
+-- pgTAP: utils_tags.sql — tag creation, tag_message, get_tag_id
+BEGIN;
+SELECT plan(3);
+
+INSERT INTO domains (name, is_local) VALUES ('tag.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 105801 != mailbox 5801). Reducers take the MAILBOX id;
+-- message_id 5801 is a messages.id and is unrelated to the mailbox/user ids.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (105801, 'tagusr', (SELECT id FROM domains WHERE name = 'tag.test'), 'u@tag.test', 'User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5801, 105801, (SELECT id FROM domains WHERE name = 'tag.test'), 'u@tag.test', 'User', 'personal', TRUE);
+
+-- Test 1: get_tag_id creates Inbox tag on demand
+SELECT ok(
+  (SELECT get_tag_id('Inbox', 5801) > 0),
+  'get_tag_id returns Inbox tag ID'
+);
+
+-- Test 2: get_tag_id is idempotent
+SELECT ok(
+  (SELECT get_tag_id('Inbox', 5801) = get_tag_id('Inbox', 5801)),
+  'get_tag_id is idempotent'
+);
+
+-- Test 3: tag_message adds a tag to a message
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at)
+  VALUES (5801, 5801, get_tag_id('Inbox', 5801), '<t1@tag.test>', 'Tagged', 'f@ext.com', 100, 'thread-5801', 'raw-5801', now());
+SELECT lives_ok(
+  $$ SELECT tag_message(5801, now(), 'Inbox', 5801, 'system', TRUE) $$,
+  'tag_message succeeds'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

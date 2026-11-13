@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --cert is required (path to PEM certificate file)\n",
+  "exit": 1
+}

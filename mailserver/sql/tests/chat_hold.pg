@@ -1,0 +1,119 @@
+-- chat_hold.pg — Chat A4a Task 5: legal hold set/release + custodian hold
+-- (loop) + the single-homed chat_hold_active() predicate proven via the
+-- V126 trigger (hold beats retention/WORM BY CONSTRUCTION, not by query
+-- predicate).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 5.
+--
+-- Step 3 forward reference (seam-map risk 5): scheduled_actions rows carry
+-- chat_send content in a no-RLS table with no channel FK to hang a trigger
+-- on (chat_schedule.sql:48-53) — there is no trigger to prove here. Hold
+-- protection for them is BY SWEEP PREDICATE: the purge (Task 6) skips a
+-- held channel entirely, scheduled rows included, before touching any
+-- content class. The executable assertion lands with the sweep in Task 6;
+-- there is no sweep to assert against yet.
+BEGIN;
+SELECT plan(26);
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES
+  ('channel', 'hold-c1', 94001),
+  ('channel', 'hold-gxp1', 94001);
+UPDATE chat_channels SET classification = 'gxp', retention_days = 200, worm_mode = 'governance'
+  WHERE name = 'hold-gxp1';
+SELECT id AS ch1   FROM chat_channels WHERE name = 'hold-c1'   \gset
+SELECT id AS gxp1  FROM chat_channels WHERE name = 'hold-gxp1' \gset
+
+-- ── toggle belt: feature.chat_compliance is seeded OFF ───────────────────
+SELECT throws_ok(
+  format($$ SELECT chat_channel_set_hold(94000, %s, true, 'case-42') $$, :ch1),
+  'BZ195', NULL, 'feature.chat_compliance OFF -> BZ195 (compliance disabled)');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+-- ── SET: sets legal_hold + reason, writes a hold.set act (reason in notes) ─
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(94000, %s, true, 'case-42') $$, :ch1),
+  'chat_channel_set_hold(SET) succeeds once compliance is ON');
+SELECT is((SELECT legal_hold FROM chat_channels WHERE id = :ch1), TRUE,
+  'legal_hold is TRUE after SET');
+SELECT is((SELECT legal_hold_reason FROM chat_channels WHERE id = :ch1), 'case-42',
+  'legal_hold_reason is set after SET');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'hold.set')::int,
+  1, 'exactly one hold.set act was written');
+SELECT is((SELECT after_state - '_checksum' FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'hold.set'),
+  '{"legalHold": true}'::jsonb, 'hold.set act after_state carries legalHold true');
+SELECT is((SELECT before_state FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'hold.set'),
+  '{"legalHold": false}'::jsonb, 'hold.set act before_state carries the prior legalHold false');
+SELECT is((SELECT notes FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'hold.set'),
+  'case-42', 'the reason lands in the act notes');
+
+-- ── idempotent re-set (same reason) is a no-op: no duplicate act ─────────
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(94000, %s, true, 'case-42') $$, :ch1),
+  'idempotent re-set with the same reason does not raise');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'hold.set')::int,
+  1, 'idempotent re-set wrote no duplicate hold.set act');
+
+-- ── N8: SET for a different matter on an already-held channel -> BZ195 ───
+SELECT throws_ok(
+  format($$ SELECT chat_channel_set_hold(94000, %s, true, 'case-99') $$, :ch1),
+  'BZ195', NULL, 'SET for a different matter on an already-held channel -> BZ195');
+SELECT is((SELECT legal_hold_reason FROM chat_channels WHERE id = :ch1), 'case-42',
+  'the rejected conflicting SET did not clobber the original reason');
+
+-- ── hold beats retention/WORM BY CONSTRUCTION: the trigger, proven at the
+--    SQL layer, not a query predicate ───────────────────────────────────
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:ch1, 1, 94001, 'held msg');
+SELECT id AS msg1 FROM chat_messages WHERE channel_id = :ch1 AND seq = 1 \gset
+
+SELECT throws_ok(format($$ DELETE FROM chat_messages WHERE id = %s $$, :msg1),
+  'BZ194', NULL, 'a direct DELETE on a held channel raises BZ194');
+SELECT lives_ok(format($$ UPDATE chat_messages SET deleted_at = now() WHERE id = %s $$, :msg1),
+  'a soft-delete (UPDATE deleted_at) on a held REGULAR channel still succeeds — hold blocks destruction, not tombstoning');
+
+-- ── a delete on a held GXP channel also raises BZ194, not BZ193: the
+--    alphabetical trigger-order dependency (trg_chat_message_hold sorts
+--    before trg_chat_message_worm) — pinned here, not just narrated ──────
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:gxp1, 1, 94001, 'gxp held msg');
+SELECT id AS gxpmsg1 FROM chat_messages WHERE channel_id = :gxp1 AND seq = 1 \gset
+
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(94000, %s, true, 'gxp-case') $$, :gxp1),
+  'holding the gxp channel succeeds');
+SELECT throws_ok(format($$ DELETE FROM chat_messages WHERE id = %s $$, :gxpmsg1),
+  'BZ194', NULL, 'a delete on a held gxp channel raises BZ194 (hold), not BZ193 (worm) — trigger firing order');
+
+-- ── RELEASE is reason-scoped: a mismatched reason is a silent no-op ──────
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(94000, %s, false, 'case-99') $$, :ch1),
+  'a release with the wrong reason does not raise');
+SELECT is((SELECT legal_hold FROM chat_channels WHERE id = :ch1), TRUE,
+  'legal_hold is still TRUE after a mismatched-reason release attempt');
+SELECT is((SELECT legal_hold_reason FROM chat_channels WHERE id = :ch1), 'case-42',
+  'legal_hold_reason is unchanged after a mismatched-reason release attempt');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'hold.release')::int,
+  0, 'no hold.release act was written for the no-op release');
+
+-- ── RELEASE with a NULL/blank reason -> BZ195 ─────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_channel_set_hold(94000, %s, false, NULL) $$, :ch1),
+  'BZ195', NULL, 'release with a NULL reason -> BZ195');
+
+-- ── RELEASE with the correct reason clears the hold + reason, writes the act
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(94000, %s, false, 'case-42') $$, :ch1),
+  'release with the matching reason succeeds');
+SELECT is((SELECT legal_hold FROM chat_channels WHERE id = :ch1), FALSE,
+  'legal_hold is FALSE after a correctly-reasoned release');
+SELECT is((SELECT legal_hold_reason FROM chat_channels WHERE id = :ch1), NULL,
+  'legal_hold_reason is cleared after release');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'hold.release')::int,
+  1, 'exactly one hold.release act was written');
+
+-- ── hold on a nonexistent channel -> BZ195 ────────────────────────────────
+SELECT throws_ok($$ SELECT chat_channel_set_hold(94000, 999999999, true, 'x') $$,
+  'BZ195', NULL, 'hold on a nonexistent channel -> BZ195');
+
+-- Custodian (per-user) hold is superseded by A4b's durable chat_case_holds
+-- substrate (chat_case_hold_set/release) — its semantics (snapshot-loop
+-- coverage, N8 conflict-skip, matter-scoped release) are relocated onto
+-- chat_case_hold_set in chat_case_holds.pg (Task 2). chat_custodian_set_hold
+-- is deleted (Task 5); no data migration needed (feature.chat_compliance has
+-- never been ON in a customer).
+
+SELECT * FROM finish(); ROLLBACK;

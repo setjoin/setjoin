@@ -1,0 +1,41 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed": true,
+          "details": [
+            {
+              "issue": "orphaned",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "size": 4
+            },
+            {
+              "issue": "missing",
+              "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            {
+              "issue": "refcount_drift",
+              "refCountActual": 0,
+              "refCountExpected": 1,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ],
+          "drift": 1,
+          "id": 9600,
+          "missing": 1,
+          "orphaned": 1,
+          "reimported": 0,
+          "status": "completed",
+          "total": 2
+        }
+      ],
+      "before": [],
+      "table": "storage_dr_scans"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/storage/dr-scan"
+}

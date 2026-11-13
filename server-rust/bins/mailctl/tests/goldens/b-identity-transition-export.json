@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/report",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity transition report written to $HOME/report.json (mode 0600).\nSHA-256: 63a13e4db640c3a7c801528150810a8af3df611ad5157c7070f4e90100d36875\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "report.json": {
+      "body": "{\n  \"schemaVersion\": 1,\n  \"generatedAt\": \"2026-01-01T00:00:00Z\",\n  \"transition\": {\n    \"state\": \"completed\",\n    \"id\": \"00000000-0000-4000-8000-000000000001\"\n  },\n  \"effects\": [],\n  \"events\": []\n}\n",
+      "mode": 384
+    }
+  }
+}

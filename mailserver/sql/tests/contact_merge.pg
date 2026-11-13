@@ -1,0 +1,142 @@
+-- pgTAP: contact_find_duplicates + contact_merge (Contacts find & merge duplicates).
+--
+-- DIVERGENT IDS (ADR-003): mk_account() gives user_id ∈ 70000+, mailbox_id ∈ 90000+
+-- (disjoint), so a user_id/mailbox_id confusion in the reducer matches zero rows.
+-- p_mailbox_id is the JMAP accountId = the caller's PRIMARY mailbox id. Contacts are
+-- scoped via JOIN addressbooks ON mailbox_id = p_mailbox_id (R1/R3).
+--
+-- Covers: (1) find_duplicates clusters by lower(email address); (2) merge unions
+-- emails (dup lower(address) collapsed, keeper's is_primary wins) + phones +
+-- categories onto the keeper; (3) the loser is gone (notFound); (4) group
+-- memberships re-point drop→keep (de-dup + plain paths); (5) a FOREIGN mailbox
+-- cannot merge (BZ112, no mutation).
+BEGIN;
+SELECT plan(13);
+
+-- Mailbox A (owner) + foreign mailbox B, divergent ids.
+CREATE TEMP TABLE _a AS SELECT mk_account('cmA') AS mb;
+CREATE TEMP TABLE _b AS SELECT mk_account('cmB') AS mb;
+
+-- A's default address book + two duplicate contacts sharing alice@x.com (different
+-- casing + type). Keeper 95011 (work Alice@X.com primary, mobile phone, company,
+-- category work); loser 95012 (home alice@x.com primary + a drop-only alice2@x.com,
+-- home phone, department, category vip).
+INSERT INTO addressbooks (id, mailbox_id, name, is_default)
+  VALUES (95010, (SELECT mb FROM _a), 'A book', TRUE);
+
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, first_name, company, emails, phones, categories)
+  VALUES (95011, 95010, 'uid-keep', 'Alice K', 'Alice', 'Acme',
+    '[{"type":"work","address":"Alice@X.com","is_primary":true}]'::JSONB,
+    '[{"type":"mobile","number":"+1 (555) 111-2222"}]'::JSONB,
+    ARRAY['work']);
+
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, last_name, department, emails, phones, categories)
+  VALUES (95012, 95010, 'uid-drop', 'Alice D', 'Kramer', 'Sales',
+    '[{"type":"home","address":"alice@x.com","is_primary":true},{"type":"other","address":"alice2@x.com"}]'::JSONB,
+    '[{"type":"home","number":"555-333-4444"}]'::JSONB,
+    ARRAY['vip']);
+
+-- Ownership pair (DISTINCT emails so they don't form a second duplicate cluster).
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, emails)
+  VALUES (95013, 95010, 'uid-o1', 'Own1', '[{"type":"work","address":"o1@x.com"}]'::JSONB),
+         (95014, 95010, 'uid-o2', 'Own2', '[{"type":"work","address":"o2@x.com"}]'::JSONB);
+
+-- Group memberships (set up BEFORE the merge): group 95020 has BOTH keep+drop (the
+-- cgm_contact_uniq de-dup path); group 95021 has drop only (the plain re-point path).
+INSERT INTO contact_groups (id, mailbox_id, name)
+  VALUES (95020, (SELECT mb FROM _a), 'G-dedup'), (95021, (SELECT mb FROM _a), 'G-plain');
+INSERT INTO contact_group_members (group_id, contact_id) VALUES (95020, 95011), (95020, 95012);
+INSERT INTO contact_group_members (group_id, contact_id) VALUES (95021, 95012);
+
+-- Test 1: exactly one duplicate cluster (alice@x.com; the o1/o2 pair is distinct).
+SELECT is(
+  jsonb_array_length(contact_find_duplicates((SELECT mb FROM _a))),
+  1,
+  'find_duplicates returns exactly one cluster (email-exact, case-insensitive)');
+
+-- Test 2: that cluster lists BOTH duplicate contact ids.
+SELECT is(
+  (SELECT jsonb_array_length(cl->'contactIds')
+   FROM jsonb_array_elements(contact_find_duplicates((SELECT mb FROM _a))) cl
+   WHERE cl->>'email' = 'alice@x.com'),
+  2,
+  'the alice@x.com cluster contains both duplicate ids');
+
+-- ── Merge 95012 INTO 95011 ────────────────────────────────────────────────────
+SELECT contact_merge((SELECT mb FROM _a), 95011, 95012);
+CREATE TEMP TABLE _card AS
+  SELECT (jmap_contact_get((SELECT mb FROM _a), ARRAY[95011::BIGINT])->'list'->0) AS c;
+
+-- Test 3: emails unioned to 2 (keeper's Alice@X.com kept; drop's alice@x.com is a
+-- lower(address) dup and collapses; alice2@x.com appended).
+SELECT is(
+  (SELECT jsonb_array_length((c)->'emails') FROM _card),
+  2,
+  'emails unioned to 2 (duplicate lower(address) collapsed)');
+
+-- Test 4: the drop-only address is appended.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM _card, jsonb_array_elements((c)->'emails') e
+   WHERE e->>'address' = 'alice2@x.com'),
+  1,
+  'the drop-only address alice2@x.com is appended to the keeper');
+
+-- Test 5: exactly one primary email survives (keeper's; appended drop entries lose
+-- is_primary).
+SELECT is(
+  (SELECT COUNT(*)::INT FROM _card, jsonb_array_elements((c)->'emails') e
+   WHERE (e->>'is_primary')::BOOLEAN = true),
+  1,
+  'keeper is_primary preserved — exactly one primary email after merge');
+
+-- Test 6: phones unioned to 2 (different normalized numbers).
+SELECT is(
+  (SELECT jsonb_array_length((c)->'phones') FROM _card),
+  2,
+  'phones unioned to 2');
+
+-- Test 7: categories unioned (work ∪ vip).
+SELECT is(
+  (SELECT jsonb_array_length((c)->'categories') FROM _card),
+  2,
+  'categories unioned (work ∪ vip)');
+
+-- Test 8: the loser is gone (in notFound).
+SELECT ok(
+  (jmap_contact_get((SELECT mb FROM _a), ARRAY[95012::BIGINT])->'notFound') ? '95012',
+  'the dropped contact is gone (reported in notFound)');
+
+-- Test 9: de-dup path — group 95020 keeps a single keeper membership (no unique
+-- violation; a broken de-dup would have failed the whole merge).
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_group_members WHERE group_id = 95020 AND contact_id = 95011),
+  1,
+  'group 95020: de-dup left exactly one keeper membership');
+
+-- Test 10: no membership anywhere still references the dropped contact.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_group_members WHERE contact_id = 95012),
+  0,
+  'no group membership references the dropped contact');
+
+-- Test 11: plain re-point path — group 95021 membership now references the keeper.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM contact_group_members WHERE group_id = 95021 AND contact_id = 95011),
+  1,
+  'group 95021: membership re-pointed drop→keep');
+
+-- Test 12: OWNERSHIP — a FOREIGN mailbox (B) cannot merge A's contacts (both ids
+-- resolve to zero rows under B's scope) → BZ112.
+SELECT throws_ok(
+  format($$ SELECT contact_merge(%s, 95013, 95014) $$, (SELECT mb FROM _b)),
+  'BZ112', NULL,
+  'contact_merge from a FOREIGN mailbox raises BZ112 (ownership in the WHERE)');
+
+-- Test 13: the foreign merge did NOT mutate — both owner contacts still present.
+SELECT is(
+  jsonb_array_length(jmap_contact_get((SELECT mb FROM _a), ARRAY[95013::BIGINT, 95014::BIGINT])->'list'),
+  2,
+  'the foreign merge merged nothing — both owner contacts remain');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,21 @@
+-- pgTAP: rust_settings_undo_delay.sql (#306) — frozen Go's PUT /settings/undo-send merge.
+BEGIN;
+SELECT plan(6);
+SELECT mk_account('udown') AS mb \gset
+SELECT mk_account('udoth') AS omb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ou FROM mailboxes WHERE id = :omb \gset
+UPDATE users SET view_prefs = '{"readingPane":"left","undoSendDelay":9}'::jsonb WHERE id IN (:u, :ou);
+
+SELECT is(rust_settings_undo_delay_put(:u, 12), 12::bigint, 'returns the stored delay');
+SELECT is((SELECT view_prefs FROM users WHERE id = :u), '{"readingPane":"left","undoSendDelay":12}'::jsonb, 'other keys survive the merge');
+SELECT is((SELECT view_prefs FROM users WHERE id = :ou), '{"readingPane":"left","undoSendDelay":9}'::jsonb, 'another user is untouched (R3)');
+UPDATE users SET view_prefs = '[1,2]'::jsonb WHERE id = :u;
+SELECT rust_settings_undo_delay_put(:u, 7);
+SELECT is((SELECT view_prefs FROM users WHERE id = :u), '{"undoSendDelay":7}'::jsonb, 'a non-object document is replaced');
+UPDATE users SET view_prefs = NULL WHERE id = :u;
+SELECT rust_settings_undo_delay_put(:u, 30);
+SELECT is((SELECT view_prefs FROM users WHERE id = :u), '{"undoSendDelay":30}'::jsonb, 'a NULL document starts from {}');
+SELECT is(rust_settings_undo_delay_put(999999999, 5), 5::bigint, 'a missing user is a no-op');
+SELECT * FROM finish();
+ROLLBACK;

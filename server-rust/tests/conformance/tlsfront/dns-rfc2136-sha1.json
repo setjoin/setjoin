@@ -1,0 +1,83 @@
+{
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "observation": {
+    "events": [
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 255,
+        "ttl": 0,
+        "values": []
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 1,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 254,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 255,
+        "ttl": 0,
+        "values": []
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 1,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 254,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 255,
+        "ttl": 0,
+        "values": []
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 1,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      },
+      {
+        "api": "rfc2136",
+        "name": "_acme-challenge.example.test.",
+        "op": 254,
+        "ttl": 0,
+        "values": [
+          "$CHALLENGE"
+        ]
+      }
+    ],
+    "published": false
+  }
+}

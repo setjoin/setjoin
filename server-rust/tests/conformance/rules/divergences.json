@@ -1,0 +1,32 @@
+[
+  {
+    "case": "authority-lookup-failure",
+    "issue": "#484",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#484): a failed live authority lookup drops signed grants (403) instead of keeping them",
+    "secure_test": "bins/gateway/tests/secfix3_rules.rs::failed_authority_lookup_drops_signed_grants",
+    "mutant": "authority-lookup-keeps-signed-grants"
+  },
+  {
+    "case": "personal-rule-cap",
+    "issue": "#484",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#484): the mailbox row is locked FOR UPDATE and count and write are separate statements of one transaction; the cap of 100 holds under concurrency",
+    "secure_test": "bins/gateway/tests/secfix3_rules.rs::concurrent_personal_creates_cannot_exceed_the_rule_cap",
+    "mutant": "rules-cap-count-then-insert"
+  },
+  {
+    "case": "active-sweep-cap",
+    "issue": "#484",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#484): the mailbox row is locked FOR UPDATE and count and enqueue are separate statements of one transaction; the cap of 3 holds under concurrency",
+    "secure_test": "bins/gateway/tests/secfix3_rules.rs::concurrent_sweeps_cannot_exceed_the_active_sweep_cap",
+    "mutant": "rules-cap-count-then-insert"
+  }
+]

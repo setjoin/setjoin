@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity job results UUID [--after N] [--limit N]\n",
+  "exit": 1
+}

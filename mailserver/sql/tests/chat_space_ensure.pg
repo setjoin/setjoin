@@ -1,0 +1,112 @@
+-- chat_space_ensure.pg: chat A2 Task 2 — lazy org-governed Drive space per
+-- channel, membership-gated (BZ163), rename-synced, race-safe, no ad-hoc
+-- drive_space_members rows (DES-009 D2).
+-- Requires: V119 chat rail, V120 chat-drive binding, chat_space_ensure.sql.
+BEGIN;
+SELECT plan(28);
+
+-- Fixture domain + users FIRST (FK order). 801 = channel owner/creator,
+-- 802 = joined member, 803 = never joined (non-member). 804/805 = DM participants.
+-- 806 = Chat A4a Task 8 gxp-channel owner.
+INSERT INTO domains (id, name, created_at) VALUES (7801, 'a2-space-ensure.example', now())
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (801,'a2s1',7801,'a2s1@a2-space-ensure.example','A2 Sensu'),
+  (802,'a2s2',7801,'a2s2@a2-space-ensure.example','A2 Deuce'),
+  (803,'a2s3',7801,'a2s3@a2-space-ensure.example','A2 Tres'),
+  (804,'a2s4',7801,'a2s4@a2-space-ensure.example','A2 Cuatro'),
+  (805,'a2s5',7801,'a2s5@a2-space-ensure.example','A2 Cinco'),
+  (806,'a2s6',7801,'a2s6@a2-space-ensure.example','A2 Seis')
+  ON CONFLICT DO NOTHING;
+
+SELECT chat_channel_create(801, 'space-ensure-general') AS chan_id \gset
+SELECT chat_member_add(801, :chan_id, 802);
+
+-- ── non-member is rejected BEFORE any space is created (BZ163) ──────────
+SELECT throws_ok(format($$ SELECT chat_space_ensure(803, %s) $$, :chan_id),
+  'BZ163', NULL, 'non-member cannot ensure a space (BZ163)');
+SELECT is((SELECT count(*)::int FROM drive_spaces WHERE chat_channel_id = :chan_id), 0,
+  'no space created by the rejected non-member call');
+
+-- ── first ensure by a member provisions the space ───────────────────────
+SELECT chat_space_ensure(801, :chan_id) AS space_id \gset
+SELECT ok(:space_id IS NOT NULL, 'ensure returns a space id');
+SELECT is((SELECT chat_channel_id FROM drive_spaces WHERE id = :space_id), :chan_id::bigint,
+  'space is bound to the channel');
+SELECT is((SELECT classification FROM drive_spaces WHERE id = :space_id), 'regular',
+  'classification is regular');
+SELECT is((SELECT name FROM drive_spaces WHERE id = :space_id), 'space-ensure-general',
+  'name mirrors the channel name');
+SELECT is((SELECT owner_user_id FROM drive_spaces WHERE id = :space_id), 801::bigint,
+  'owner_user_id is the channel creator (inert-by-enforcement, not by grant)');
+SELECT is((SELECT quota_bytes FROM drive_spaces WHERE id = :space_id), NULL,
+  'quota_bytes is NULL (unlimited server quota)');
+SELECT ok((SELECT export_policy ? 'upload_max_bytes' FROM drive_spaces WHERE id = :space_id),
+  'export_policy carries a default upload_max_bytes cap');
+SELECT is((SELECT count(*)::int FROM drive_space_members WHERE space_id = :space_id), 0,
+  'zero drive_space_members rows — membership is derived, never mirrored (DES-009 D2)');
+
+-- ── audit + notify tail (drive_space_create parity) ─────────────────────
+SELECT is((SELECT action FROM drive_audit_log WHERE space_id = :space_id ORDER BY id LIMIT 1),
+  'space.create', 'audit row: space.create');
+SELECT is((SELECT change_seq FROM drive_spaces WHERE id = :space_id), 1::bigint,
+  'drive_notify_change bumped change_seq to 1');
+SELECT is((SELECT count(*)::int FROM drive_changes WHERE space_id = :space_id), 1,
+  'one drive_changes journal row written');
+
+-- ── second ensure (by a different member) is idempotent, race-safe ─────
+SELECT is(chat_space_ensure(802, :chan_id), :space_id::bigint, 'second ensure returns the SAME space id');
+SELECT is((SELECT count(*)::int FROM drive_spaces WHERE chat_channel_id = :chan_id), 1,
+  'still exactly one space bound to the channel');
+SELECT is((SELECT change_seq FROM drive_spaces WHERE id = :space_id), 1::bigint,
+  'a repeat ensure does not re-notify/re-bump change_seq');
+
+-- ── rename sync: chat_channel_update follows through to the space name ──
+SELECT chat_channel_update(801, :chan_id, 'space-ensure-renamed');
+SELECT is((SELECT name FROM drive_spaces WHERE id = :space_id), 'space-ensure-renamed',
+  'chat_channel_update rename syncs the bound space name');
+
+-- ── whitespace-only rename is rejected (BZ162), not a raw 23514 crash ───
+SELECT throws_ok(format($$ SELECT chat_channel_update(801, %s, '   ') $$, :chan_id),
+  'BZ162', NULL, 'whitespace-only rename raises BZ162, not a raw constraint violation');
+SELECT is((SELECT name FROM drive_spaces WHERE id = :space_id), 'space-ensure-renamed',
+  'space name is untouched after the rejected whitespace rename');
+
+-- ── archive does NOT touch the space (lifecycle: archive != unbind) ─────
+SELECT chat_channel_update(801, :chan_id, NULL, NULL, true);
+SELECT is((SELECT chat_channel_id FROM drive_spaces WHERE id = :space_id), :chan_id::bigint,
+  'archiving the channel leaves the space bound and untouched');
+SELECT is((SELECT name FROM drive_spaces WHERE id = :space_id), 'space-ensure-renamed',
+  'archiving does not touch the space name');
+
+-- ── DM channel: name derived from participant display names ────────────
+SELECT chat_dm_open(804, ARRAY[805]) AS dm_id \gset
+SELECT chat_space_ensure(804, :dm_id) AS dm_space_id \gset
+SELECT is((SELECT chat_channel_id FROM drive_spaces WHERE id = :dm_space_id), :dm_id::bigint,
+  'DM space is bound to the DM channel');
+SELECT isnt((SELECT name FROM drive_spaces WHERE id = :dm_space_id), NULL,
+  'DM space name is derived (non-null) from participants, not the null channel name');
+
+-- ── Chat A4a Task 8: a gxp channel's Drive space is gxp FROM BIRTH ─────────
+-- (spec-delta 2/6) — chat_space_ensure reads the channel's OWN compliance
+-- knobs instead of hard-coding 'regular', so a gxp channel's FIRST attachment
+-- never needs a later re-classification pass.
+INSERT INTO chat_channels (kind, name, created_by, classification, retention_days, worm_mode)
+  VALUES ('channel', 'space-ensure-gxp', 806, 'gxp', 400, 'compliance')
+  RETURNING id AS gxp_chan \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:gxp_chan, 806, 'owner');
+SELECT chat_space_ensure(806, :gxp_chan) AS gxp_space_id \gset
+SELECT is((SELECT classification FROM drive_spaces WHERE id = :gxp_space_id), 'gxp',
+  'a gxp channel''s space is created classification=gxp, not regular');
+SELECT is((SELECT retention_days FROM drive_spaces WHERE id = :gxp_space_id), 400,
+  'the space copies the channel''s retention_days');
+SELECT is((SELECT worm_mode FROM drive_spaces WHERE id = :gxp_space_id), 'compliance',
+  'the space copies the channel''s worm_mode');
+SELECT is((SELECT action FROM drive_audit_log WHERE space_id = :gxp_space_id ORDER BY id LIMIT 1),
+  'space.create', 'gxp space still writes the space.create audit act');
+SELECT is((SELECT after_state ->> 'classification' FROM drive_audit_log
+            WHERE space_id = :gxp_space_id ORDER BY id LIMIT 1),
+  'gxp', 'the space.create act''s classification field matches gxp, not the old hard-coded regular');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,49 @@
+-- pgTAP for V043 CA-3b: ToU + acceptance + user_risk tables and RLS.
+-- Extended (Task 2): record_tou_acceptance reducer assertions (BZ102).
+BEGIN;
+SELECT plan(10);
+
+SELECT has_table('public', 'terms_of_use', 'terms_of_use table exists');
+SELECT has_table('public', 'terms_of_use_acceptance', 'terms_of_use_acceptance table exists');
+SELECT has_table('public', 'user_risk', 'user_risk table exists');
+
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.terms_of_use_acceptance'::regclass),
+  TRUE, 'terms_of_use_acceptance has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.user_risk'::regclass),
+  TRUE, 'user_risk has RLS FORCEd');
+SELECT is(
+  (SELECT enabled FROM public.feature_toggles WHERE key = 'feature.user_risk'),
+  FALSE, 'feature.user_risk seeded default-OFF');
+
+-- ── record_tou_acceptance reducer (Task 2 — BZ102) ──────────────────────────
+-- Seed: a real user (needs domain FK) + a ToU at version 2.
+INSERT INTO public.domains (id, name, is_local) VALUES (97801, 'tou-test.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id, username, domain_id, email, display_name, enabled)
+  VALUES (90001, 'tou_user', 97801, 'tou@tou-test.test', 'ToU User', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO public.terms_of_use (id, name, version, body_md, enabled)
+  OVERRIDING SYSTEM VALUE VALUES (70001, 'AUP', 2, '# Acceptable Use', TRUE) ON CONFLICT DO NOTHING;
+
+-- Test 7: stale version (1 when current is 2) → BZ102.
+SELECT throws_ok(
+  $$ SELECT record_tou_acceptance(90001, 70001, 1, '10.0.0.1'::inet) $$,
+  'BZ102', NULL, 'stale ToU version rejected with BZ102');
+
+-- Test 8: non-existent ToU → BZ102.
+SELECT throws_ok(
+  $$ SELECT record_tou_acceptance(90001, 79999, 1, '10.0.0.1'::inet) $$,
+  'BZ102', NULL, 'missing ToU rejected with BZ102');
+
+-- Test 9: current version (2) accepted.
+SELECT lives_ok(
+  $$ SELECT record_tou_acceptance(90001, 70001, 2, '10.0.0.1'::inet) $$,
+  'current ToU version accepted');
+
+-- Test 10: acceptance row landed with correct version, scoped to the user.
+SELECT is(
+  (SELECT version FROM public.terms_of_use_acceptance WHERE user_id = 90001 AND tou_id = 70001),
+  2, 'acceptance recorded at version 2 for the accepting user');
+
+SELECT * FROM finish();
+ROLLBACK;

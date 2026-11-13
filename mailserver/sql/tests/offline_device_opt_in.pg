@@ -1,0 +1,31 @@
+-- pgTAP: offline_device_opt_in.pg
+BEGIN;
+SELECT plan(5);
+CREATE TEMP TABLE _a AS SELECT mk_account('odoi') AS mb, mk_account('odoi2') AS mb2;
+CREATE TEMP TABLE _d AS SELECT mk_offline_device((SELECT mb FROM _a),'approved') AS id;
+-- Owner can set opt-in.
+SELECT lives_ok($$ SELECT offline_device_opt_in((SELECT mb FROM _a),(SELECT id FROM _d),true,7) $$,
+  'owner sets opt-in');
+SELECT is((SELECT offline_window_days FROM user_devices WHERE id=(SELECT id FROM _d)),
+  7, 'window persisted');
+-- A different user's mailbox cannot touch this device (R3): raises BZ100
+-- (Fix 2: FOUND check — non-owner match zero rows → loud error, not silent success).
+SELECT throws_ok(
+  $$ SELECT offline_device_opt_in((SELECT mb2 FROM _a),(SELECT id FROM _d),false,1) $$,
+  'BZ100', NULL, 'non-owner opt-in raises BZ100 (R3 + Fix 2 FOUND check)');
+-- Group-scoped policy: tighter group cap enforces MIN over a more permissive global.
+-- Seeds enabled global (30 d) + enabled group (3 d); user is in group 42999.
+-- Before fix, MAX(30,3)=30 → LEAST(14,30)=14 (bypass); after fix MIN(30,3)=3 → 3.
+INSERT INTO offline_policies (name, scope_type, scope_id, enabled, max_offline_days, priority)
+  VALUES ('test-global', 'global', NULL, true, 30, 10);
+INSERT INTO offline_policies (name, scope_type, scope_id, enabled, max_offline_days, priority)
+  VALUES ('test-group', 'group', 42999, true, 3, 20);
+INSERT INTO user_group_members (user_id, group_id)
+  SELECT user_id, 42999 FROM mailboxes WHERE id = (SELECT mb FROM _a)
+  ON CONFLICT DO NOTHING;
+SELECT lives_ok($$ SELECT offline_device_opt_in((SELECT mb FROM _a),(SELECT id FROM _d),true,14) $$,
+  'group-scoped policy: call succeeds');
+SELECT is((SELECT offline_window_days FROM user_devices WHERE id=(SELECT id FROM _d)),
+  3, 'group-scoped policy: window clamped to tightest cap (group=3, not global=30)');
+SELECT finish();
+ROLLBACK;

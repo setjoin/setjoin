@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of approval update:\n  -approver-spec string\n    \tApprover spec JSON object\n  -conditions string\n    \tConditions JSON object\n  -enabled\n    \tEnable/disable policy\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -requires-approval\n    \tRequire approval\n",
+  "exit": 0
+}

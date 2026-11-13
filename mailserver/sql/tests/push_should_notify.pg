@@ -1,0 +1,73 @@
+-- pgTAP: push_should_notify.pg (QoL #9, H3) — the mail-push policy gate matrix.
+-- Covers mail_notifications ∈ {all,important,off} × VIP/non × DND in/out × muted,
+-- plus push_enabled off and the no-prefs-row default. Reads user_notification_prefs
+-- + vip_senders (V106) + the Muted tag, exactly as deliver()/the pushjobs worker do.
+--
+-- TZ-hermetic: no default calendar is created, so push_should_notify resolves the
+-- timezone to UTC and evaluates DND against `now() AT TIME ZONE 'UTC'` (session-tz
+-- independent). SET LOCAL timezone is belt-and-suspenders. The DND windows are full
+-- day / zero-day so the verdict never depends on wall-clock time.
+BEGIN;
+SET LOCAL timezone = 'UTC';
+SELECT plan(9);
+
+SELECT mk_account('push') AS mb \gset
+SELECT user_id AS uid FROM mailboxes WHERE id = :mb \gset
+
+-- An inbound message from boss@corp.test on thread 'thr-1'.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr,
+                      to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+  VALUES (910011, :mb, get_tag_id('Inbox', :mb), '<m1@s>', 'Hi', 'boss@corp.test',
+          '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thr-1', 'raw/m1', now())
+  RETURNING received_at AS rcvd \gset
+
+-- Account-level notification prefs: push on, all mail, no DND.
+INSERT INTO user_notification_prefs (user_id, device_fingerprint, push_enabled, mail_notifications)
+  VALUES (:uid, NULL, TRUE, 'all');
+
+-- 1) baseline: all + non-VIP + not-muted + no-DND → notify.
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), TRUE, 'all + plain sender → notify');
+
+-- 2) push_enabled = false → never.
+UPDATE user_notification_prefs SET push_enabled = FALSE WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), FALSE, 'push_enabled off → no notify');
+UPDATE user_notification_prefs SET push_enabled = TRUE WHERE user_id = :uid;
+
+-- 3) mail_notifications = 'off' → never.
+UPDATE user_notification_prefs SET mail_notifications = 'off' WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), FALSE, 'mail_notifications off → no notify');
+
+-- 4) 'important' + sender NOT VIP → suppressed.
+UPDATE user_notification_prefs SET mail_notifications = 'important' WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), FALSE, 'important + non-VIP → no notify');
+
+-- 5) 'important' + sender IS VIP → notify (VIP overrides the important tier).
+INSERT INTO vip_senders (user_id, sender_email) VALUES (:uid, 'boss@corp.test');
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), TRUE, 'important + VIP → notify');
+
+-- Back to 'all' for the remaining cases.
+UPDATE user_notification_prefs SET mail_notifications = 'all' WHERE user_id = :uid;
+
+-- 6) muted thread → never (even for 'all' + VIP).
+SELECT tag_message(910011, :'rcvd', 'Muted', :mb, 'test', FALSE);
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), FALSE, 'muted thread → no notify');
+DELETE FROM message_tags
+ WHERE message_id = 910011 AND received_at = :'rcvd' AND tag_id = get_tag_id('Muted', :mb);
+
+-- 7) DND window covering the whole day, every day → suppressed.
+UPDATE user_notification_prefs
+   SET dnd_start = '00:00:00', dnd_end = '23:59:59', dnd_days = 127
+ WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), FALSE, 'inside DND window → no notify');
+
+-- 8) same window but NO days active in the mask → outside DND → notify.
+UPDATE user_notification_prefs SET dnd_days = 0 WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), TRUE, 'DND day-mask excludes today → notify');
+UPDATE user_notification_prefs SET dnd_start = NULL, dnd_end = NULL WHERE user_id = :uid;
+
+-- 9) no prefs row at all → column defaults (push on, 'all') → notify.
+DELETE FROM user_notification_prefs WHERE user_id = :uid;
+SELECT is(push_should_notify(:mb, 910011, :'rcvd'), TRUE, 'no prefs row → default notify');
+
+SELECT * FROM finish();
+ROLLBACK;

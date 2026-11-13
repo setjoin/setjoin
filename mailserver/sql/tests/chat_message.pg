@@ -1,0 +1,304 @@
+-- chat_message.pg: message mutation + read reducers (Pillar A1 Task 5).
+-- Guards, aggregates, top-level/thread shape. Seq-bump/replay specifics
+-- (edit/delete re-stamp, tombstone replay, revision chronology) live in the
+-- sibling chat_seq_cursor.pg — that file is the load-bearing one for C2/F2.
+-- chat_channel_members has no FK to users (V119), so bare bigint ids suffice.
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql.
+BEGIN;
+SELECT plan(67);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture users: 701 = channel owner, 702 = joined member, 703 = never
+-- joined (non-member). 704 = admin of the announcement channel, 705 = plain
+-- member of it.
+SELECT chat_channel_create(701, 'msg-general') AS gen_id \gset
+SELECT chat_member_add(701, :gen_id, 702);
+
+-- ── chat_message_send: body guards ──────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, '') $$, :gen_id),
+  'BZ168', NULL, 'empty body raises BZ168');
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, '   ') $$, :gen_id),
+  'BZ168', NULL, 'whitespace-only body raises BZ168');
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, repeat('x', 65537)) $$, :gen_id),
+  'BZ168', NULL, 'body over 64KiB raises BZ168');
+SELECT lives_ok(format($$ SELECT chat_message_send(701, %s, repeat('x', 65536)) $$, :gen_id),
+  'body at exactly 64KiB is accepted');
+
+-- ── membership guard ─────────────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_message_send(703, %s, 'hi') $$, :gen_id),
+  'BZ163', NULL, 'non-member cannot send (BZ163)');
+
+-- ── announcement channel: post_permission = admins ──────────────────────
+SELECT chat_channel_create(701, 'msg-announce') AS ann_id \gset
+UPDATE chat_channels SET post_permission = 'admins' WHERE id = :ann_id;
+SELECT chat_member_add(701, :ann_id, 704);
+UPDATE chat_channel_members SET role = 'admin' WHERE channel_id = :ann_id AND user_id = 704;
+SELECT chat_member_add(701, :ann_id, 705);
+SELECT throws_ok(format($$ SELECT chat_message_send(705, %s, 'hi') $$, :ann_id),
+  'BZ164', NULL, 'non-admin cannot post in an announcement channel (BZ164)');
+SELECT lives_ok(format($$ SELECT chat_message_send(704, %s, 'all-hands at 3pm') $$, :ann_id),
+  'admin CAN post in an announcement channel');
+
+-- ── send returns {messageId, seq} matching the channel's change_seq ──────
+SELECT chat_message_send(701, :gen_id, 'hello world') AS send_json \gset
+SELECT ok((:'send_json'::jsonb ? 'messageId'), 'send result has messageId key');
+SELECT ok((:'send_json'::jsonb ? 'seq'), 'send result has seq key');
+SELECT (:'send_json'::jsonb ->> 'messageId')::bigint AS msg1_id \gset
+SELECT (:'send_json'::jsonb ->> 'seq')::bigint AS msg1_seq \gset
+SELECT is(:msg1_seq::bigint, (SELECT change_seq FROM chat_channels WHERE id = :gen_id),
+  'returned seq matches the channel change_seq after the send');
+SELECT is(last_notify_event('chat:702'), 'message_created', 'send notifies message_created');
+
+-- ── broadcast (@channel/@all): owner/admin only ──────────────────────────
+SELECT throws_ok(format($$ SELECT chat_message_send(702, %s, 'urgent', NULL, '{}'::bigint[], 'channel') $$, :gen_id),
+  'BZ166', NULL, 'a plain member cannot @channel-broadcast (BZ166)');
+SELECT lives_ok(format($$ SELECT chat_message_send(701, %s, 'urgent', NULL, '{}'::bigint[], 'channel') $$, :gen_id),
+  'the owner CAN @channel-broadcast');
+
+-- ── broadcast_permission='all' opens @channel to any member (Task 8) ─────
+SELECT chat_channel_update(701, :gen_id, NULL, NULL, NULL, NULL, 'all');
+SELECT lives_ok(format($$ SELECT chat_message_send(702, %s, 'heads up', NULL, '{}'::bigint[], 'channel') $$, :gen_id),
+  'broadcast_permission=all lets a plain member @channel-broadcast');
+SELECT chat_channel_update(701, :gen_id, NULL, NULL, NULL, NULL, 'admins');
+SELECT throws_ok(format($$ SELECT chat_message_send(702, %s, 'urgent again', NULL, '{}'::bigint[], 'channel') $$, :gen_id),
+  'BZ166', NULL, 'switching broadcast_permission back to admins restores BZ166 for a plain member');
+
+-- ── thread parent guards (BZ165: one code, three shapes) ─────────────────
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, 'reply', 999999999) $$, :gen_id),
+  'BZ165', NULL, 'replying to a nonexistent parent raises BZ165');
+SELECT chat_message_send(704, :ann_id, 'in the other channel') AS other_json \gset
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, 'cross-channel reply', %s) $$,
+  :gen_id, (:'other_json'::jsonb ->> 'messageId')),
+  'BZ165', NULL, 'replying to a parent in a DIFFERENT channel raises BZ165');
+SELECT chat_message_send(701, :gen_id, 'will be deleted') AS del_json \gset
+SELECT (:'del_json'::jsonb ->> 'messageId')::bigint AS del_msg_id \gset
+SELECT chat_message_delete(701, :del_msg_id);
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, 'reply to deleted', %s) $$, :gen_id, :del_msg_id),
+  'BZ165', NULL, 'replying to a SOFT-DELETED parent raises BZ165');
+
+-- ── real thread reply + top-level exclusion (Design F8) ──────────────────
+SELECT chat_message_send(702, :gen_id, 'a reply', :msg1_id) AS reply_json \gset
+SELECT (:'reply_json'::jsonb ->> 'messageId')::bigint AS reply_id \gset
+
+-- ── mentions: verified-membership only (F4/L1), silent drop ──────────────
+SELECT chat_message_send(701, :gen_id, 'hey @702', NULL, ARRAY[702, 703]::bigint[]) AS mention_json \gset
+SELECT (:'mention_json'::jsonb ->> 'messageId')::bigint AS mention_msg_id \gset
+SELECT is((SELECT count(*)::int FROM chat_mentions WHERE message_id = :mention_msg_id), 1,
+  'exactly one mention row lands (the member)');
+SELECT is((SELECT count(*)::int FROM chat_mentions
+            WHERE message_id = :mention_msg_id AND mentioned_user_id = 702), 1,
+  'the member mention (702) landed');
+SELECT is((SELECT count(*)::int FROM chat_mentions
+            WHERE message_id = :mention_msg_id AND mentioned_user_id = 703), 0,
+  'the non-member mention (703) was silently dropped, no sentinel row');
+
+-- ── archive = read-only (BZ171): no new posts, by anyone, once archived ───
+SELECT chat_channel_update(701, :gen_id, NULL, NULL, true);
+SELECT throws_ok(format($$ SELECT chat_message_send(702, %s, 'too late') $$, :gen_id),
+  'BZ171', NULL, 'a member cannot post into an archived channel (BZ171)');
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, 'too late') $$, :gen_id),
+  'BZ171', NULL, 'even the owner cannot post into an archived channel (BZ171)');
+SELECT chat_channel_update(701, :gen_id, NULL, NULL, false);
+
+-- ── chat_message_edit: guards ─────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_message_edit(703, %s, 'nope') $$, :msg1_id),
+  'BZ167', NULL, 'a non-author cannot edit (BZ167)');
+SELECT throws_ok(format($$ SELECT chat_message_edit(701, %s, '') $$, :msg1_id),
+  'BZ168', NULL, 'empty edit body raises BZ168');
+SELECT throws_ok(format($$ SELECT chat_message_edit(701, %s, repeat('x', 65537)) $$, :msg1_id),
+  'BZ168', NULL, 'oversized edit body raises BZ168');
+SELECT throws_ok($$ SELECT chat_message_edit(701, 999999999, 'x') $$,
+  'BZ167', NULL, 'editing a nonexistent message id raises BZ167 (no oracle)');
+SELECT throws_ok(format($$ SELECT chat_message_edit(701, %s, 'resurrect') $$, :del_msg_id),
+  'BZ167', NULL, 'editing an already-deleted message raises BZ167');
+
+-- ── chat_message_delete: guards ────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_message_delete(703, %s) $$, :msg1_id),
+  'BZ167', NULL, 'a non-author/non-admin cannot delete (BZ167)');
+-- a message of its OWN (not the reply used for the replyCount assertion
+-- below), so deleting it doesn't disturb msg1's live replyCount.
+SELECT chat_message_send(702, :gen_id, 'delete-me-via-admin') AS admin_del_json \gset
+SELECT lives_ok(format($$ SELECT chat_message_delete(701, %s) $$,
+  (:'admin_del_json'::jsonb ->> 'messageId')),
+  'the CHANNEL OWNER (not the author) can delete via owner/admin authority');
+-- double-delete: :del_msg_id was already soft-deleted above (the BZ165
+-- thread-parent fixture). A second delete must not re-stamp seq, re-fire
+-- notify, or clobber the original deleted_at evidence timestamp.
+SELECT throws_ok(format($$ SELECT chat_message_delete(701, %s) $$, :del_msg_id),
+  'BZ167', NULL, 'deleting an already-deleted message raises BZ167 (no double-delete)');
+
+-- ── removal revokes the right to rewrite/delete your OWN history ─────────
+SELECT chat_message_send(702, :gen_id, 'soon orphaned by removal') AS orphan_json \gset
+SELECT (:'orphan_json'::jsonb ->> 'messageId')::bigint AS orphan_msg_id \gset
+SELECT chat_member_remove(701, :gen_id, 702);
+SELECT throws_ok(format($$ SELECT chat_message_edit(702, %s, 'REWRITTEN AFTER REMOVAL') $$, :orphan_msg_id),
+  'BZ167', NULL, 'a member removed from the channel cannot edit their own old message (BZ167)');
+SELECT throws_ok(format($$ SELECT chat_message_delete(702, %s) $$, :orphan_msg_id),
+  'BZ167', NULL, 'a member removed from the channel cannot delete their own old message (BZ167)');
+SELECT chat_member_add(701, :gen_id, 702);
+
+-- ── chat_messages_list: top-level only, keyset, aggregates ────────────────
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_messages_list(701, :gen_id, NULL, 200),
+             format('$[*] ? (@.messageId == %s)', :reply_id)::jsonpath)),
+  'chat_messages_list never includes a thread reply (top-level only)');
+SELECT ok((SELECT jsonb_path_exists(chat_messages_list(701, :gen_id, NULL, 200),
+             format('$[*] ? (@.messageId == %s)', :msg1_id)::jsonpath)),
+  'chat_messages_list includes the top-level parent');
+SELECT throws_ok(format($$ SELECT chat_messages_list(703, %s) $$, :gen_id),
+  'BZ163', NULL, 'a non-member cannot list messages (BZ163)');
+
+-- reactions/mentionsMe/replyCount aggregate correctly (direct-insert fixture
+-- rows — chat_reaction_toggle is Task 6, not required to exercise the read
+-- side here).
+INSERT INTO chat_message_reactions (message_id, user_id, emoji) VALUES (:msg1_id, 701, '👍'), (:msg1_id, 702, '👍');
+SELECT is((SELECT (elem->'reactions'->0->>'count')::int
+             FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :msg1_id),
+  2, 'reactions aggregate counts both reactors');
+SELECT is((SELECT (elem->'reactions'->0->>'mine')::boolean
+             FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :msg1_id),
+  true, 'reactions aggregate reports mine=true for the requesting user');
+SELECT is((SELECT (elem->>'mentionsMe')::boolean
+             FROM jsonb_array_elements(chat_messages_list(702, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :mention_msg_id),
+  true, 'mentionsMe is true for the mentioned member');
+SELECT is((SELECT (elem->>'mentionsMe')::boolean
+             FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :mention_msg_id),
+  false, 'mentionsMe is false for a non-mentioned member');
+SELECT is((SELECT (elem->>'replyCount')::int
+             FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :msg1_id),
+  1, 'replyCount reflects the live (non-deleted) reply');
+
+-- keyset pagination: page 1 (limit 2) then page 2 must not overlap.
+SELECT chat_messages_list(701, :gen_id, NULL, 2) AS page1 \gset
+SELECT is(jsonb_array_length(:'page1'::jsonb), 2, 'page1 respects limit=2');
+SELECT (:'page1'::jsonb -> 1 ->> 'seq')::bigint AS page1_floor_seq \gset
+SELECT chat_messages_list(701, :gen_id, :page1_floor_seq, 200) AS page2 \gset
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(:'page1'::jsonb) a
+    JOIN jsonb_array_elements(:'page2'::jsonb) b
+      ON (a->>'messageId')::bigint = (b->>'messageId')::bigint
+  ), 'before_seq keyset pagination: page1 and page2 never overlap');
+
+-- ── chat_thread_list: root + replies ascending ────────────────────────────
+SELECT chat_message_send(702, :gen_id, 'second reply', :msg1_id) AS reply2_json \gset
+SELECT chat_thread_list(701, :msg1_id) AS thread \gset
+SELECT is(jsonb_array_length(:'thread'::jsonb), 3, 'thread = root + 2 replies');
+SELECT is((:'thread'::jsonb -> 0 ->> 'messageId')::bigint, :msg1_id::bigint, 'thread root is first (ascending seq)');
+SELECT throws_ok(format($$ SELECT chat_thread_list(703, %s) $$, :msg1_id),
+  'BZ163', NULL, 'a non-member cannot list a thread (BZ163)');
+SELECT throws_ok($$ SELECT chat_thread_list(701, 999999999) $$,
+  'BZ165', NULL, 'chat_thread_list on a nonexistent parent raises BZ165');
+
+-- ── chat_messages_since: includes replies, excludes nothing by kind ───────
+SELECT chat_messages_since(701, :gen_id, 0) AS since_all \gset
+SELECT ok((SELECT jsonb_path_exists(:'since_all'::jsonb,
+             format('$[*] ? (@.messageId == %s)', :reply_id)::jsonpath)),
+  'chat_messages_since includes thread replies (unlike messages_list)');
+SELECT throws_ok(format($$ SELECT chat_messages_since(703, %s, 0) $$, :gen_id),
+  'BZ163', NULL, 'a non-member cannot replay since() (BZ163)');
+
+-- ── chat_message_to_json: attachments key defaults to [] ─────────────────
+-- regression pin — a plain text send (no Chat A2 attachment work at all)
+-- still projects an empty attachments array, not a missing key or NULL.
+SELECT is((SELECT elem->'attachments' FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :msg1_id),
+  '[]'::jsonb, 'a plain-text message projects attachments: []');
+
+-- ── Chat A2 Task 3: attachment-only messages are legal (Design D2) ───────
+-- chat_space_ensure sets drive_spaces.owner_user_id = the CHANNEL'S
+-- created_by, and that column carries a real FK to users(id) (unlike
+-- chat_channel_members, which has none — V119) — so this block needs a
+-- channel created by a real mk_account'd user, not the bare bigint 701
+-- fixture the rest of this file uses.
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+SELECT mk_account('msgatt') AS matt_mb \gset
+SELECT user_id AS matt_uid FROM mailboxes WHERE id = :matt_mb \gset
+SELECT chat_channel_create(:matt_uid, 'msg-attach-only') AS att_chan \gset
+SELECT chat_space_ensure(:matt_uid, :att_chan) AS att_space \gset
+SELECT drive_chunk_register(:matt_uid, :att_space, repeat('7', 64), 4);
+SELECT chat_message_send(:matt_uid, :att_chan, '', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('7', 64) || '","size":4,"name":"note.txt",'
+     || '"manifest":[{"sha256":"' || repeat('7', 64) || '","size":4}]}]')::jsonb) AS att_only \gset
+SELECT ok((:'att_only'::jsonb ? 'messageId'), 'an attachment-only (empty body) send succeeds (BZ168 does not fire)');
+SELECT is((SELECT body FROM chat_messages WHERE id = (:'att_only'::jsonb ->> 'messageId')::bigint), '',
+  'the attachment-only message row stores an empty body');
+
+-- ── A3 Task 6: msg_type/payload send seam ─────────────────────────────────
+-- a plain send (no p_msg_type given) still defaults to 'text', payload NULL.
+SELECT chat_message_send(701, :gen_id, 'plain seam check') AS plain_seam_json \gset
+SELECT (:'plain_seam_json'::jsonb ->> 'messageId')::bigint AS plain_seam_id \gset
+SELECT is((SELECT elem->>'msgType' FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :plain_seam_id),
+  'text', 'a send with no p_msg_type defaults msgType to text');
+SELECT is((SELECT elem->'payload' FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :plain_seam_id),
+  'null'::jsonb, 'a plain-text message projects payload: null');
+
+-- voice send round-trips msg_type + payload through list AND since.
+SELECT chat_message_send(701, :gen_id, 'voice note', NULL, '{}'::bigint[], NULL, '[]'::jsonb,
+    'voice', '{"durationMs":12000}'::jsonb) AS voice_json \gset
+SELECT (:'voice_json'::jsonb ->> 'messageId')::bigint AS voice_msg_id \gset
+SELECT is((SELECT elem->>'msgType' FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :voice_msg_id),
+  'voice', 'chat_messages_list projects msgType=voice');
+SELECT is((SELECT (elem->'payload'->>'durationMs')::int FROM jsonb_array_elements(chat_messages_list(701, :gen_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :voice_msg_id),
+  12000, 'chat_messages_list projects payload.durationMs');
+SELECT is((SELECT elem->>'msgType' FROM jsonb_array_elements(chat_messages_since(701, :gen_id, 0)) elem
+            WHERE (elem->>'messageId')::bigint = :voice_msg_id),
+  'voice', 'chat_messages_since also projects msgType=voice (round-trip via the reconnect path too)');
+
+-- the 5-minute (300000ms) voice duration cap: over raises BZ178, exactly-at is accepted.
+SELECT throws_ok(format($$ SELECT chat_message_send(701, %s, 'voice note', NULL, '{}'::bigint[], NULL, '[]'::jsonb,
+    'voice', '{"durationMs":360000}'::jsonb) $$, :gen_id),
+  'BZ178', NULL, 'voice duration over the 5-minute cap raises BZ178');
+SELECT lives_ok(format($$ SELECT chat_message_send(701, %s, 'voice note', NULL, '{}'::bigint[], NULL, '[]'::jsonb,
+    'voice', '{"durationMs":300000}'::jsonb) $$, :gen_id),
+  'voice duration at exactly the 5-minute cap is accepted');
+
+-- soft-delete blanks payload exactly like body/attachments (Task 6 projection rule).
+SELECT chat_message_delete(701, :voice_msg_id);
+SELECT is((SELECT elem->'payload' FROM jsonb_array_elements(chat_messages_since(701, :gen_id, 0)) elem
+            WHERE (elem->>'messageId')::bigint = :voice_msg_id),
+  'null'::jsonb, 'a soft-deleted voice message blanks payload to null');
+
+-- ── A3 QoL Task 10: chat_messages_list p_around_seq — jump-to-message
+-- substrate. A dedicated channel with 5 sequential top-level messages so
+-- window boundaries are unambiguous (the shared :gen_id channel above has
+-- edits/deletes bumping change_seq out from under a naive seq assumption).
+SELECT chat_channel_create(701, 'msg-around') AS around_id \gset
+SELECT chat_member_add(701, :around_id, 702);
+SELECT chat_message_send(701, :around_id, 'around-1') AS a1 \gset
+SELECT chat_message_send(701, :around_id, 'around-2') AS a2 \gset
+SELECT chat_message_send(701, :around_id, 'around-3') AS a3 \gset
+SELECT chat_message_send(701, :around_id, 'around-4') AS a4 \gset
+SELECT chat_message_send(701, :around_id, 'around-5') AS a5 \gset
+SELECT (:'a1'::jsonb ->> 'seq')::bigint AS a1_seq \gset
+SELECT (:'a3'::jsonb ->> 'seq')::bigint AS a3_seq \gset
+SELECT (:'a3'::jsonb ->> 'messageId')::bigint AS a3_id \gset
+
+SELECT chat_messages_list(701, :around_id, NULL, 2, :a3_seq) AS around_mid \gset
+SELECT is(jsonb_array_length(:'around_mid'::jsonb), 5,
+  'around_seq(target=3, limit=2) stitches 2 before + target + 2 after = 5');
+SELECT ok((SELECT jsonb_path_exists(:'around_mid'::jsonb,
+             format('$[*] ? (@.messageId == %s)', :a3_id)::jsonpath)),
+  'the stitched window includes the target message itself');
+SELECT is((:'around_mid'::jsonb -> 0 ->> 'body'), 'around-1', 'window is ascending by seq, oldest element first');
+SELECT is((:'around_mid'::jsonb -> 4 ->> 'body'), 'around-5', 'window''s last element is the newest in range');
+
+-- a target near the HEAD of the channel gets no phantom padding on the
+-- "before" side — only what actually exists.
+SELECT chat_messages_list(701, :around_id, NULL, 2, :a1_seq) AS around_head \gset
+SELECT is(jsonb_array_length(:'around_head'::jsonb), 3,
+  'around_seq near the head returns target + 2 after only, no before-side padding');
+SELECT is((:'around_head'::jsonb -> 0 ->> 'body'), 'around-1', 'head window starts at the target itself');
+
+SELECT throws_ok(format($$ SELECT chat_messages_list(703, %s, NULL, 50, %s) $$, :around_id, :a3_seq),
+  'BZ163', NULL, 'a non-member cannot use around_seq either (BZ163)');
+
+SELECT * FROM finish();
+ROLLBACK;

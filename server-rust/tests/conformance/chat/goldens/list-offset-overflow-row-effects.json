@@ -1,0 +1,33 @@
+{
+  "case": "list-offset-overflow-row-effects",
+  "effects": [
+    {
+      "acts": [],
+      "chainValid": true,
+      "channel": {
+        "changeSeq": 0,
+        "classification": "regular",
+        "lastPurgedSeq": 0,
+        "legalHold": false,
+        "legalHoldReason": null,
+        "retentionDays": null,
+        "wormMode": null
+      }
+    },
+    [
+      {
+        "action": "chat_channel_admin_list",
+        "after": null,
+        "before": null,
+        "ip": "127.0.0.1",
+        "notes": "",
+        "targetId": null,
+        "targetType": "chat_channel"
+      }
+    ],
+    []
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "GET /admin/chat-channels"
+}

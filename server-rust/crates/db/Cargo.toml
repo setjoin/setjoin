@@ -1,0 +1,16 @@
+[package]
+name = "setjoin-db"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "setjoin_db"
+path = "src/lib.rs"
+
+[dependencies]
+setjoin-contracts = { path = "../contracts" }

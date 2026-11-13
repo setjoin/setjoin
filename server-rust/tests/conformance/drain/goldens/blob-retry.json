@@ -1,0 +1,57 @@
+{
+  "case": "blob-retry",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "blobs": [],
+    "orphans": [],
+    "queue": [],
+    "s3": {
+      "keys": [
+        "<stuck>"
+      ],
+      "requests": [
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<fine>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky-once>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky-once>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky-twice>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky-twice>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky-twice>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<stuck>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<stuck>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<stuck>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<stuck>"
+        }
+      ]
+    }
+  }
+}

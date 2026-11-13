@@ -1,0 +1,29 @@
+-- Public seam for the F01 user-lifecycle transactions (#282): every refusal is a
+-- status (nothing written), update names only supplied columns, the sign-in read
+-- is scoped to the target through app.current_user_id.
+BEGIN;
+SELECT plan(16);
+CREATE TEMP TABLE adm6_acc(kind text,mailbox_id bigint,user_id bigint,domain_id bigint,email text);
+INSERT INTO adm6_acc(kind,mailbox_id) VALUES('admin',mk_account('adm6-admin')),('target',mk_account('adm6-target'));
+UPDATE adm6_acc a SET user_id=m.user_id,domain_id=m.domain_id,email=m.email FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE adm6_role AS WITH r AS (INSERT INTO admin_role_groups(name,permissions) VALUES('adm6-role','{users.create,users.suspend,users.delete}') RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm6_role),a.user_id FROM adm6_acc a WHERE a.kind='admin';
+SELECT is(rust_admin_user_create((SELECT user_id FROM adm6_acc WHERE kind='admin'),'adm6-x@nowhere.invalid','adm6-x@nowhere.invalid','X','h',false,0)->>'status','400','a non-local domain is 400');
+SELECT is(rust_admin_user_create((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT email FROM adm6_acc WHERE kind='target'),(SELECT email FROM adm6_acc WHERE kind='target'),'X','h',false,0)->>'status','409','an existing address is 409 and nothing is written');
+SELECT is(rust_admin_user_create((SELECT user_id FROM adm6_acc WHERE kind='admin'),'adm6-n@'||split_part((SELECT email FROM adm6_acc WHERE kind='admin'),'@',2),'adm6-n@'||split_part((SELECT email FROM adm6_acc WHERE kind='admin'),'@',2),'N','h',false,(SELECT domain_id FROM adm6_acc WHERE kind='admin')+1)->>'status','403','another domain scope is refused');
+SELECT is(rust_admin_user_create((SELECT user_id FROM adm6_acc WHERE kind='admin'),'adm6-n@'||split_part((SELECT email FROM adm6_acc WHERE kind='admin'),'@',2),'adm6-n@'||split_part((SELECT email FROM adm6_acc WHERE kind='admin'),'@',2),'N','h',false,0)->>'status','201','create provisions the account');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='account_provision' AND notes='local' AND after_state->>'email'='adm6-n@'||split_part((SELECT email FROM adm6_acc WHERE kind='admin'),'@',2)),1,'provisioning audits the actor');
+SELECT is(rust_admin_user_update((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),0,NULL,NULL,NULL)->>'status','400','no fields is 400');
+SELECT is(rust_admin_user_update((SELECT user_id FROM adm6_acc WHERE kind='admin'),99999999,0,'Z',NULL,NULL)->>'status','404','a missing user is 404');
+SELECT is(rust_admin_user_update((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),(SELECT domain_id FROM adm6_acc WHERE kind='target')+1,'Z',NULL,NULL)->>'status','404','another domain scope never matches');
+SELECT is(rust_admin_user_update((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),0,'Renamed',NULL,true)->>'status','204','update succeeds');
+SELECT is((SELECT display_name||':'||is_local_admin::text||':'||enabled::text FROM users WHERE id=(SELECT user_id FROM adm6_acc WHERE kind='target')),'Renamed:true:true','only the named columns change');
+SELECT is(rust_admin_app_password_revoke((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),99999999,0,'','a@b'),false,'a missing app password revokes nothing');
+INSERT INTO login_events(user_id,success,occurred_at) VALUES((SELECT user_id FROM adm6_acc WHERE kind='target'),true,now()),((SELECT user_id FROM adm6_acc WHERE kind='admin'),true,now());
+SELECT is((SELECT count(*)::int FROM rust_admin_user_sign_ins((SELECT user_id FROM adm6_acc WHERE kind='target'),0)),1,'sign-ins return only the target');
+SELECT is((SELECT count(*)::int FROM rust_admin_user_sign_ins((SELECT user_id FROM adm6_acc WHERE kind='target'),(SELECT domain_id FROM adm6_acc WHERE kind='target')+1)),0,'another domain scope reads nothing');
+SELECT throws_ok(format('SELECT rust_admin_user_secure(%s,%s,''127.0.0.1'',%s)',(SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),(SELECT domain_id FROM adm6_acc WHERE kind='target')+1),'BZ084',NULL,'secure outside the domain scope is refused');
+SELECT is(rust_admin_user_delete((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),(SELECT domain_id FROM adm6_acc WHERE kind='target')+1)->>'status','404','delete outside the domain scope is 404');
+SELECT is(rust_admin_user_delete((SELECT user_id FROM adm6_acc WHERE kind='admin'),(SELECT user_id FROM adm6_acc WHERE kind='target'),0)->>'status','204','delete removes the account and its mailboxes');
+SELECT * FROM finish();
+ROLLBACK;

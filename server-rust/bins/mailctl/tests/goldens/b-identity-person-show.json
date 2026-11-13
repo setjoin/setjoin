@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/people/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Person 7 <a@example.test>\nEnabled: true  Protected: false  Authority: local (generation 1)\nLinks: 0  Field authorities: 0  Entitlements: 0\n",
+  "stderr": "",
+  "exit": 0
+}

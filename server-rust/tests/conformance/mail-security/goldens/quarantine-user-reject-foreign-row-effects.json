@@ -1,0 +1,161 @@
+{
+  "case": "foreign-row-effects",
+  "effects": [
+    {
+      "after": {
+        "mailboxes": [
+          {
+            "journal": [],
+            "state": [
+              {
+                "email_state": 0,
+                "tag_state": 0
+              }
+            ],
+            "tags": [
+              {
+                "name": "Inbox",
+                "state": 2,
+                "total": 2,
+                "unread": 2
+              },
+              {
+                "name": "Oracle Label",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "journal": [],
+            "state": [
+              {
+                "email_state": 0,
+                "tag_state": 0
+              }
+            ],
+            "tags": [
+              {
+                "name": "Inbox",
+                "state": 4,
+                "total": 2,
+                "unread": 2
+              },
+              {
+                "name": "Oracle Label",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              },
+              {
+                "name": "Quarantined",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "quarantine": [
+          {
+            "is_deleted": false,
+            "mailbox_id": "<mailbox-other>",
+            "message_exists": true,
+            "message_id": "<msg-qb1>",
+            "qm_id": "<qb1>",
+            "rejected_at": null,
+            "rejected_by": null,
+            "released_at": null,
+            "released_by": null,
+            "seed": "qb1",
+            "tags": [
+              "Quarantined"
+            ]
+          }
+        ]
+      },
+      "before": {
+        "mailboxes": [
+          {
+            "journal": [],
+            "state": [
+              {
+                "email_state": 0,
+                "tag_state": 0
+              }
+            ],
+            "tags": [
+              {
+                "name": "Inbox",
+                "state": 2,
+                "total": 2,
+                "unread": 2
+              },
+              {
+                "name": "Oracle Label",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "journal": [],
+            "state": [
+              {
+                "email_state": 0,
+                "tag_state": 0
+              }
+            ],
+            "tags": [
+              {
+                "name": "Inbox",
+                "state": 4,
+                "total": 2,
+                "unread": 2
+              },
+              {
+                "name": "Oracle Label",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              },
+              {
+                "name": "Quarantined",
+                "state": 1,
+                "total": 1,
+                "unread": 1
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "quarantine": [
+          {
+            "is_deleted": false,
+            "mailbox_id": "<mailbox-other>",
+            "message_exists": true,
+            "message_id": "<msg-qb1>",
+            "qm_id": "<qb1>",
+            "rejected_at": null,
+            "rejected_by": null,
+            "released_at": null,
+            "released_by": null,
+            "seed": "qb1",
+            "tags": [
+              "Quarantined"
+            ]
+          }
+        ]
+      },
+      "table": "quarantine"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /quarantine/{id}/reject"
+}

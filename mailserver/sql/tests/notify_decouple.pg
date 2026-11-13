@@ -1,0 +1,36 @@
+-- notify_decouple.pg — the NOTIFY-decouple seam (V088 + app_notify).
+-- INERT proof: with feature.notify_decouple OFF (the seeded default),
+-- app_notify behaves byte-identically to today — the _test_notify_log capture
+-- tee fires and NO durable intent row is written. With the toggle ON, the push
+-- becomes a durable notify_intents row (drained by the Go notifyjobs worker on
+-- its own short txns) and the direct pg_notify is suppressed; the capture tee
+-- still fires on both branches so "did this reducer push?" stays assertable.
+BEGIN;
+SELECT plan(7);
+
+SELECT set_config('app.capture_notify', 'on', false);
+
+-- The V088 seed: toggle row exists, OFF.
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'feature.notify_decouple'),
+  FALSE, 'feature.notify_decouple is seeded OFF (V088)');
+
+-- ── Toggle OFF (default): byte-identical to the direct path ─────────────
+SELECT lives_ok($$SELECT app_notify('nd_test:1', '{"e":"off"}')$$,
+  'app_notify runs with the toggle off');
+SELECT is((SELECT payload FROM _test_notify_log WHERE channel = 'nd_test:1'),
+  '{"e":"off"}', 'toggle off → capture tee unchanged');
+SELECT is((SELECT count(*)::int FROM notify_intents WHERE channel LIKE 'nd_test:%'),
+  0, 'toggle off → no durable intent row');
+
+-- ── Toggle ON: durable intent instead of the hot-commit pg_notify ───────
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.notify_decouple';
+SELECT lives_ok($$SELECT app_notify('nd_test:2', '{"e":"on"}')$$,
+  'app_notify runs with the toggle on');
+SELECT is((SELECT count(*)::int FROM notify_intents
+            WHERE channel = 'nd_test:2' AND payload = '{"e":"on"}'),
+  1, 'toggle on → exactly one intent row, verbatim channel+payload');
+SELECT is((SELECT payload FROM _test_notify_log WHERE channel = 'nd_test:2'),
+  '{"e":"on"}', 'toggle on → capture tee still fires (push stays assertable)');
+
+SELECT * FROM finish();
+ROLLBACK;

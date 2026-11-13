@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/intents/7/diagnostics",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: write diagnostics output: publish new private artifact: link $HOME/.mailctl-private-artifact-$TEMP $HOME/report.json: file exists\n",
+  "exit": 1,
+  "files": {
+    "report.json": {
+      "body": "keep original\n",
+      "mode": 384
+    }
+  }
+}

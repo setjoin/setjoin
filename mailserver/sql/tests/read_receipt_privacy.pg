@@ -1,0 +1,75 @@
+-- pgTAP: read_receipt_privacy.pg
+-- Track A — the privacy guarantee (centerpiece). The RECIPIENT controls whether a
+-- read receipt (MDN) is ever sent. send_read_receipt() enforces the per-user policy
+-- read_receipt_policy ∈ {ask, always, never} as a hard gate ("logic where the data is"):
+--   never  → NO MDN, even with consent=true.
+--   always → sent, regardless of the consent flag.
+--   ask    → sent only with explicit recipient consent (consent=true).
+-- Each of the three values is enforced AND tested here.
+BEGIN;
+SELECT plan(7);
+
+-- Fixture: domain + user 90001 + mailbox 90901 + an inbound message that requested
+-- a read receipt. IDs are DIVERGENT on purpose (user_id 90001 != mailbox_id 90901).
+-- ADR-003: send_read_receipt is MAILBOX-keyed — p_account_id is the account MAILBOX id
+-- (90901), not the users.id. Ownership scopes by mb.id = p_account_id; the reducer then
+-- resolves the sender user (90001) behind that mailbox via account_scope() to read the
+-- privacy policy (which is keyed by user_id). Passing the mailbox id where the old buggy
+-- signature expected a user id is the exact de-masking this ADR forces: coincident ids
+-- (or passing the user id) would let a mb.user_id = p_account_id predicate pass by accident.
+INSERT INTO domains (id, name, created_at) VALUES (90001, 'mdn-test.example', now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, display_name, email, password_hash, domain_id, created_at)
+  VALUES (90001, 'rcpt90001', 'Recipient 90001', 'rcpt@mdn-test.example', 'x', 90001, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, created_at, type)
+  VALUES (90901, 90001, 90001, 'rcpt@mdn-test.example', 'Recipient 90001', TRUE, now(), 'personal')
+  ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(90901);
+
+DO $$
+DECLARE
+  v_inbox_tag BIGINT;
+  v_now TIMESTAMPTZ := now();
+BEGIN
+  v_inbox_tag := get_tag_id('Inbox', 90901);
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr,
+                        to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at,
+                        read_receipt_requested)
+    VALUES (90001, 90901, v_inbox_tag, '<orig@s>', 'hi', 'sender@ex.test',
+            '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-90001', 'raw/90001', v_now, TRUE);
+END;
+$$;
+
+-- helper: did an MDN get recorded for our message?
+CREATE OR REPLACE FUNCTION _mdn_count() RETURNS BIGINT AS
+  $$ SELECT count(*) FROM read_receipts WHERE message_id = 90001 $$ LANGUAGE sql;
+
+-- 1) policy = 'never' -> suppressed, even with consent=true
+DELETE FROM user_notification_prefs WHERE user_id = 90001;
+INSERT INTO user_notification_prefs (user_id, device_fingerprint, read_receipt_policy)
+  VALUES (90001, NULL, 'never');
+SELECT is( (send_read_receipt(90901, 90001, 'rcpt@mdn-test.example', TRUE)->>'status'), 'suppressed',
+  'never policy suppresses the MDN even with consent');
+SELECT is( _mdn_count(), 0::BIGINT, 'never policy records no read_receipt' );
+
+-- 2) policy = 'always' -> sent even with consent=false
+DELETE FROM read_receipts WHERE message_id = 90001;
+UPDATE user_notification_prefs SET read_receipt_policy = 'always' WHERE user_id = 90001;
+SELECT is( (send_read_receipt(90901, 90001, 'rcpt@mdn-test.example', FALSE)->>'status'), 'sent',
+  'always policy sends regardless of consent flag');
+SELECT is( _mdn_count(), 1::BIGINT, 'always policy records the read_receipt' );
+
+-- 3) policy = 'ask' + consent=false -> declined (suppressed)
+DELETE FROM read_receipts WHERE message_id = 90001;
+UPDATE user_notification_prefs SET read_receipt_policy = 'ask' WHERE user_id = 90001;
+SELECT is( (send_read_receipt(90901, 90001, 'rcpt@mdn-test.example', FALSE)->>'status'), 'declined',
+  'ask + no consent does not send');
+SELECT is( _mdn_count(), 0::BIGINT, 'ask + no consent records nothing' );
+
+-- 4) ask + consent=true -> sent
+SELECT is( (send_read_receipt(90901, 90001, 'rcpt@mdn-test.example', TRUE)->>'status'), 'sent',
+  'ask + consent sends the MDN');
+
+SELECT * FROM finish();
+ROLLBACK;

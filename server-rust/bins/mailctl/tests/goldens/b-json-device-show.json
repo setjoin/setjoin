@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/mdm/devices/d1",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"events\": [],\n  \"id\": \"d1\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

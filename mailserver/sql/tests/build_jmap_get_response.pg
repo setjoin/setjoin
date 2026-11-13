@@ -1,0 +1,91 @@
+-- pgTAP: build_jmap_get_response.sql — the JMAP get-envelope seam.
+--
+-- The seam assembles {accountId, state, list, notFound} where notFound is a
+-- FOUND-SET DIFF (p_requested minus p_found_ids, in p_requested order) off the
+-- caller's already-owner-scoped found-set — no table read, so it cannot mis-scope.
+-- These tests pin the envelope shape and every NULL/empty/order edge the routed
+-- reducers depend on (the contract that makes the 5 scoped families byte-identical
+-- and the 4 unscoped families correct).
+BEGIN;
+SELECT plan(11);
+
+-- 1) Envelope shape: accountId + state are the args ::TEXT, list is passed through.
+SELECT is(
+  build_jmap_get_response(90123, 7, '[{"id":"1"}]'::JSONB, ARRAY['1'], ARRAY['1'])->>'accountId',
+  '90123',
+  'accountId is p_mailbox_id::TEXT'
+);
+SELECT is(
+  build_jmap_get_response(90123, 7, '[{"id":"1"}]'::JSONB, ARRAY['1'], ARRAY['1'])->>'state',
+  '7',
+  'state is p_state::TEXT'
+);
+SELECT is(
+  build_jmap_get_response(90123, 7, '[{"id":"1"}]'::JSONB, ARRAY['1'], ARRAY['1'])->'list',
+  '[{"id":"1"}]'::JSONB,
+  'list is p_list passed through verbatim'
+);
+
+-- 2) p_requested IS NULL ⇒ notFound is JSON null, key PRESENT (the all-objects
+--    "/get" — today's `CASE WHEN p_ids IS NOT NULL`).
+SELECT ok(
+  (build_jmap_get_response(90123, 7, '[]'::JSONB, ARRAY[]::TEXT[], NULL) ? 'notFound')
+  AND jsonb_typeof(build_jmap_get_response(90123, 7, '[]'::JSONB, ARRAY[]::TEXT[], NULL)->'notFound') = 'null',
+  'p_requested NULL ⇒ notFound key present and JSON null'
+);
+
+-- 3) Requested-but-not-found ⇒ that id appears in notFound.
+SELECT is(
+  build_jmap_get_response(90123, 7, '[]'::JSONB, ARRAY[]::TEXT[], ARRAY['5'])->'notFound',
+  '["5"]'::JSONB,
+  'a requested id with empty found-set lands in notFound'
+);
+
+-- 4) Requested-AND-found ⇒ absent from notFound (empty misses ⇒ JSON null,
+--    matching today's array_agg-over-no-rows behavior; there is NO [] case).
+SELECT ok(
+  jsonb_typeof(build_jmap_get_response(90123, 7, '[{"id":"5"}]'::JSONB, ARRAY['5'], ARRAY['5'])->'notFound') = 'null',
+  'a requested id that was found is absent from notFound (notFound JSON null, no [])'
+);
+
+-- 5) ORDER preservation: misses come back in p_requested order, NOT set/sorted
+--    order. (Today's probe yields ids in unnest(p_ids) order; a set EXCEPT would
+--    reorder — this pins that the seam does not.)
+SELECT is(
+  build_jmap_get_response(90123, 7, '[]'::JSONB, ARRAY['2'], ARRAY['9','1','9' ,'3','5'])->'notFound',
+  '["9","1","9","3","5"]'::JSONB,
+  'notFound preserves p_requested order (incl duplicates), not sorted/EXCEPT order'
+);
+
+-- 6) Mixed found/missing in interleaved order: only the missing ids, in request
+--    order, with the found ones removed in place.
+SELECT is(
+  build_jmap_get_response(90123, 7, '[]'::JSONB, ARRAY['b','d'], ARRAY['a','b','c','d','e'])->'notFound',
+  '["a","c","e"]'::JSONB,
+  'found ids are removed in place; missing ids keep their requested order'
+);
+
+-- 7) Empty-list edge: empty p_list + all requested missing ⇒ list [] and every
+--    requested id in notFound.
+SELECT is(
+  build_jmap_get_response(90123, 0, '[]'::JSONB, ARRAY[]::TEXT[], ARRAY['x','y'])->'list',
+  '[]'::JSONB,
+  'empty list passes through as []'
+);
+SELECT is(
+  build_jmap_get_response(90123, 0, '[]'::JSONB, ARRAY[]::TEXT[], ARRAY['x','y'])->'notFound',
+  '["x","y"]'::JSONB,
+  'empty found-set ⇒ all requested ids are notFound'
+);
+
+-- 8) TEXT-id thread shape: thread ids are arbitrary strings (not numeric), and
+--    the found-set diff works identically (jmap_thread_get's variant).
+SELECT is(
+  build_jmap_get_response(90123, 3, '[{"id":"thr-1"}]'::JSONB,
+    ARRAY['thr-1'], ARRAY['thr-1','thr-missing'])->'notFound',
+  '["thr-missing"]'::JSONB,
+  'TEXT thread ids diff correctly (found thread absent, missing thread present)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

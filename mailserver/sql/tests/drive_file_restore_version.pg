@@ -1,0 +1,82 @@
+-- Server-side restore-as-new: protected originals/manifests never transit the
+-- browser; source/target binding, exact authority, quota, trash atomicity,
+-- lineage, manifest reuse, refcounts, and canonical auditing stay enforced.
+BEGIN;
+SELECT plan(14);
+SELECT mk_account('drv-restore-owner') AS mbo \gset
+SELECT mk_account('drv-restore-outsider') AS mbx \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ux FROM mailboxes WHERE id=:mbx \gset
+SELECT drive_space_create(:uo,'Restore versions','secure') AS sid \gset
+SELECT drive_node_create(:uo,:sid,NULL,'file','history.bin') AS fid \gset
+SELECT drive_node_create(:uo,:sid,NULL,'file','other.bin') AS other_fid \gset
+SELECT drive_chunk_register(:uo,:sid,repeat('1',64),10);
+SELECT drive_chunk_register(:uo,:sid,repeat('2',64),10);
+SELECT (drive_file_put_version(
+  :uo,:fid,repeat('a',64),10,'application/octet-stream',NULL,
+  format('[{"sha256":"%s","size":10}]',repeat('1',64))::jsonb,
+  'v1','test')->>'versionId')::bigint AS v1 \gset
+SELECT (drive_file_put_version(
+  :uo,:fid,repeat('b',64),10,'application/octet-stream',:v1,
+  format('[{"sha256":"%s","size":10}]',repeat('2',64))::jsonb,
+  'v2','test')->>'versionId')::bigint AS v2 \gset
+
+SELECT drive_file_restore_version(
+  :uo,:fid,:v1,:v2,'restore v1','web',NULL) AS restored \gset
+SELECT is((:'restored'::jsonb->>'conflict')::boolean,false,
+  'restore against the observed head stays on main');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:fid),
+  (:'restored'::jsonb->>'versionId')::bigint,'restored version becomes head');
+SELECT is((SELECT content_sha256 FROM drive_file_versions
+            WHERE id=(:'restored'::jsonb->>'versionId')::bigint),
+  repeat('a',64),'restored version reuses the source whole-file digest');
+SELECT is((SELECT parent_version_id FROM drive_file_versions
+            WHERE id=(:'restored'::jsonb->>'versionId')::bigint),
+  :v2::bigint,'restored version records the prior live head as parent');
+SELECT is((SELECT chunk_sha256 FROM drive_version_chunks
+            WHERE version_id=(:'restored'::jsonb->>'versionId')::bigint
+              AND stream='content' AND ordinal=0),
+  repeat('1',64),'restored manifest is cloned server-side');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:sid),30::bigint,
+  'restore uses the canonical version quota charge');
+SELECT is((SELECT ref_count FROM drive_chunks
+            WHERE scope_key='s'||:sid AND sha256=repeat('1',64)),2::bigint,
+  'manifest refcount increases without uploading the chunk again');
+
+SELECT throws_ok(format($q$SELECT drive_file_restore_version(
+  %s,%s,%s,NULL,NULL,NULL,NULL)$q$,:uo,:other_fid,:v1),
+  'BZ139',NULL,'a source version cannot be cloned across file identities');
+SELECT throws_ok(format($q$SELECT drive_file_restore_version(
+  %s,%s,%s,NULL,NULL,NULL,NULL)$q$,:ux,:fid,:v1),
+  'BZ139',NULL,'a non-member receives the opaque source-not-found result');
+
+SELECT drive_node_trash(:uo,:fid);
+-- V255__drive_space_update_rls_backstop.sql: trg_drive_space_no_reassign pins
+-- quota_bytes to a drive.manage admin resolved from app.current_user_id — the
+-- GUC every drive route sets per request via dbscope.RunUserScoped. The two
+-- quota fixtures below write the column directly, so grant :uo the admin role
+-- (role_group 1) and set the envelope GUC the way the production caller does;
+-- the BZ148 quota gate itself has no admin exemption, so the assertions below
+-- are unaffected.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:uo, 1, :uo);
+SELECT set_config('app.current_user_id', :uo::text, true);
+UPDATE drive_spaces SET quota_bytes=30 WHERE id=:sid;
+SELECT throws_ok(format($q$SELECT drive_file_restore_version(
+  %s,%s,%s,NULL,'quota fail','web',NULL)$q$,:uo,:fid,:v1),
+  'BZ148',NULL,'quota failure rejects a time-point restore');
+SELECT ok((SELECT deleted_at IS NOT NULL FROM drive_nodes WHERE id=:fid),
+  'failed version creation rolls the preceding node restore back');
+UPDATE drive_spaces SET quota_bytes=NULL WHERE id=:sid;
+SELECT drive_file_restore_version(
+  :uo,:fid,:v1,NULL,'time-point restore','web',NULL) AS trash_restored \gset
+SELECT ok((SELECT deleted_at IS NULL FROM drive_nodes WHERE id=:fid),
+  'successful time-point restore atomically untrashes the file');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:fid),
+  (:'trash_restored'::jsonb->>'versionId')::bigint,
+  'omitted base snapshots the current head and creates a new main version');
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id=:sid AND action IN ('node.restore','version.create'))::int,
+  5,'canonical node/version audit events are retained; failed restore adds none');
+
+SELECT * FROM finish();
+ROLLBACK;

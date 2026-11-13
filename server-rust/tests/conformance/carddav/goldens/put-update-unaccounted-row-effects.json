@@ -1,0 +1,319 @@
+{
+  "format": 1,
+  "route": "* /carddav/ put-update",
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "case": "unaccounted-row-effects",
+  "effects": [
+    {
+      "after": {
+        "books": [
+          {
+            "description": "Personal & shared",
+            "id": 994271,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL5 Owner"
+          },
+          {
+            "description": "Foreign",
+            "id": 994272,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL5 Other"
+          }
+        ],
+        "contacts": [
+          {
+            "addressbook_id": 994271,
+            "addresses": [
+              {
+                "City": "Paris",
+                "Code": "75001",
+                "Street": "One; Street",
+                "Type": "HOME"
+              }
+            ],
+            "anniversary": "2020-03-04",
+            "avatar_sha256": null,
+            "birthday": "2000-02-29",
+            "categories": [
+              "Friends",
+              "Work"
+            ],
+            "company": "Setjoin",
+            "department": "Platform",
+            "display_name": "CAL5 café, planning",
+            "emails": [
+              {
+                "Type": "WORK",
+                "Value": "alice@example.test"
+              }
+            ],
+            "first_name": "Alice",
+            "id": 2,
+            "instant_msgs": [],
+            "jmap_state": 0,
+            "job_title": "Engineer",
+            "last_name": "Owner",
+            "notes": "first\nsecond",
+            "phones": [
+              {
+                "Type": "WORK",
+                "Value": "+15550100"
+              }
+            ],
+            "urls": [
+              {
+                "Type": "WORK",
+                "Value": "https://example.test"
+              }
+            ],
+            "vcard_uid": "cal5-write"
+          },
+          {
+            "addressbook_id": 994272,
+            "addresses": [],
+            "anniversary": null,
+            "avatar_sha256": null,
+            "birthday": null,
+            "categories": [],
+            "company": "",
+            "department": "",
+            "display_name": "Foreign private contact",
+            "emails": [],
+            "first_name": "",
+            "id": 3,
+            "instant_msgs": [],
+            "jmap_state": 0,
+            "job_title": "",
+            "last_name": "",
+            "notes": "",
+            "phones": [],
+            "urls": [],
+            "vcard_uid": "cal5-write"
+          }
+        ],
+        "journal": [
+          {
+            "collection_id": 994271,
+            "datatype": "ContactCard",
+            "entity_id": 2,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": "cal5-write",
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994271,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": 994272,
+            "datatype": "ContactCard",
+            "entity_id": 3,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": "cal5-write",
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994272,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "state": [
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "ContactCard",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          },
+          {
+            "datatype": "ContactCard",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          }
+        ],
+        "visibility": []
+      },
+      "before": {
+        "books": [
+          {
+            "description": "Personal & shared",
+            "id": 994271,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL5 Owner"
+          },
+          {
+            "description": "Foreign",
+            "id": 994272,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL5 Other"
+          }
+        ],
+        "contacts": [
+          {
+            "addressbook_id": 994271,
+            "addresses": [
+              {
+                "City": "Paris",
+                "Code": "75001",
+                "Street": "One; Street",
+                "Type": "HOME"
+              }
+            ],
+            "anniversary": "2020-03-04",
+            "avatar_sha256": null,
+            "birthday": "2000-02-29",
+            "categories": [
+              "Friends",
+              "Work"
+            ],
+            "company": "Setjoin",
+            "department": "Platform",
+            "display_name": "CAL5 café, planning",
+            "emails": [
+              {
+                "Type": "WORK",
+                "Value": "alice@example.test"
+              }
+            ],
+            "first_name": "Alice",
+            "id": 2,
+            "instant_msgs": [],
+            "jmap_state": 0,
+            "job_title": "Engineer",
+            "last_name": "Owner",
+            "notes": "first\nsecond",
+            "phones": [
+              {
+                "Type": "WORK",
+                "Value": "+15550100"
+              }
+            ],
+            "urls": [
+              {
+                "Type": "WORK",
+                "Value": "https://example.test"
+              }
+            ],
+            "vcard_uid": "cal5-write"
+          },
+          {
+            "addressbook_id": 994272,
+            "addresses": [],
+            "anniversary": null,
+            "avatar_sha256": null,
+            "birthday": null,
+            "categories": [],
+            "company": "",
+            "department": "",
+            "display_name": "Foreign private contact",
+            "emails": [],
+            "first_name": "",
+            "id": 3,
+            "instant_msgs": [],
+            "jmap_state": 0,
+            "job_title": "",
+            "last_name": "",
+            "notes": "",
+            "phones": [],
+            "urls": [],
+            "vcard_uid": "cal5-write"
+          }
+        ],
+        "journal": [
+          {
+            "collection_id": 994271,
+            "datatype": "ContactCard",
+            "entity_id": 2,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": "cal5-write",
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994271,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": 994272,
+            "datatype": "ContactCard",
+            "entity_id": 3,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": "cal5-write",
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994272,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "state": [
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "ContactCard",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          },
+          {
+            "datatype": "ContactCard",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          }
+        ],
+        "visibility": []
+      },
+      "table": "f17-carddav"
+    }
+  ]
+}

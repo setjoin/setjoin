@@ -1,0 +1,14 @@
+{
+  "exit": 0,
+  "stdout": "Restore completed (job 17)\n  Blobs restored:       2\n  Database + config:    restored via pg_restore\n",
+  "stderr": "Re-checking empty target and replacing preloaded public schema...\nDownloading s3://fixture/db-dump.dump ...\nDownloading s3://fixture/db-dump.dump.hmac ...\nRunning pg_restore (--clean --if-exists)...\n",
+  "requests": [
+    {
+      "path": "/setup/restore",
+      "body": "{\"provider\":\"\",\"endpoint\":\"$S3\",\"region\":\"us-east-1\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+      "content-type": "application/json"
+    }
+  ],
+  "all_table_rows_restored": true,
+  "sequence_and_acl_restored": true
+}

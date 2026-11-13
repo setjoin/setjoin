@@ -1,0 +1,156 @@
+-- federation_ordering.pg — Pillar C0 spike Task 2 (E2, THE crux): pins the
+-- one invariant this whole mechanism exists to prove — ordering + exactly-
+-- once semantics on the federation_enqueue / federation_apply_inbound /
+-- federation_ack reducer trio (mailserver/sql/reducers/federation_*.sql).
+-- Requires: federation_enqueue.sql, federation_apply_inbound.sql,
+-- federation_ack.sql (loaded via reducer reload's fixed-point).
+BEGIN;
+SELECT plan(27);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_enqueue: the row-lock seq rail, NOT a bigserial
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_enqueue('bravo.test', 's1', 'text/plain', '{}'),
+  1::bigint, 'first enqueue for a fresh peer is seq 1 (row-lock rail, not bigserial)');
+SELECT is(
+  federation_enqueue('bravo.test', 's2', 'text/plain', '{}'),
+  2::bigint, 'second enqueue for the SAME peer is seq 2');
+
+-- Seq spaces are per-peer, not global: a different peer starts back at 1.
+SELECT is(
+  federation_enqueue('gamma.test', 'g1', 'text/plain', '{}'),
+  1::bigint, 'a DIFFERENT peer domain has its own independent seq space starting at 1');
+
+-- federation_peers/federation_outbox actually hold what enqueue claims.
+SELECT is(
+  (SELECT last_seq FROM federation_peers WHERE peer_domain = 'bravo.test'),
+  2::bigint, 'federation_peers.last_seq reflects the two enqueues');
+SELECT is(
+  (SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'),
+  2, 'federation_outbox holds one row per enqueue');
+SELECT is(
+  (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'bravo.test' AND peer_seq = 1),
+  NULL::timestamptz, 'a freshly enqueued outbox row is not yet acked');
+
+-- Gap-free BY CONSTRUCTION: an aborted enqueue (SAVEPOINT rollback) must NOT
+-- burn a seq value — the load-bearing reason this rail is UPDATE...RETURNING
+-- under the peer row lock and NOT a bigserial (bigserial's nextval() is
+-- non-transactional and would leave a permanent gap here).
+SAVEPOINT before_aborted_enqueue;
+SELECT federation_enqueue('delta.test', 'dX', 'text/plain', '{}'); -- would-be seq 1
+ROLLBACK TO SAVEPOINT before_aborted_enqueue;
+SELECT is(
+  federation_enqueue('delta.test', 'dY', 'text/plain', '{}'),
+  1::bigint, 'rollback-of-enqueue leaves no gap — the next real enqueue still gets seq 1');
+
+-- app_notify wake: enqueue fires ONE notification on federation_outbox:<peer>
+-- per call (the sender's NOTIFY-wake channel, internal/federation/sender.go).
+SET LOCAL app.capture_notify = 'on';
+SELECT federation_enqueue('echo.test', 'e1', 'text/plain', '{}');
+SELECT is(
+  notify_count('federation_outbox:echo.test'), 1,
+  'federation_enqueue fires exactly one app_notify on federation_outbox:<peer>');
+SELECT is(
+  (last_notify_payload('federation_outbox:echo.test')::jsonb) ->> 'peerDomain',
+  'echo.test', 'the notify payload carries the peer domain');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 federation_apply_inbound: gap raises BZ202, in-order applies, dup is
+--     an idempotent no-op (caller still acks — not this reducer's job)
+-- ══════════════════════════════════════════════════════════════════════
+
+-- A gap on a peer with NOTHING applied yet (last_applied_seq starts at 0,
+-- so anything > 1 is a gap).
+SELECT throws_ok(
+  $$ SELECT federation_apply_inbound('foxtrot.test', 4, 's4', 'text/plain', '{}') $$,
+  'BZ202', NULL, 'a seq gap on inbound apply raises BZ202 (receiver pauses + replay_req)'
+);
+-- The failed gap attempt must not have partially applied anything.
+SELECT is(
+  (SELECT count(*)::int FROM federation_inbox WHERE peer_domain = 'foxtrot.test'),
+  0, 'a gap-rejected apply writes nothing to federation_inbox');
+-- The RAISE unwinds the WHOLE function call, including its own upsert of
+-- federation_inbox_cursor — no row exists at all, not merely one stuck at 0.
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'foxtrot.test'),
+  NULL::bigint, 'a gap-rejected apply does not even leave a federation_inbox_cursor row behind');
+
+SELECT is(
+  federation_apply_inbound('foxtrot.test', 1, 's1', 'text/plain', '{}'),
+  true, 'in-order apply (seq 1 with nothing applied yet) returns true');
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'foxtrot.test'),
+  1::bigint, 'a successful apply advances federation_inbox_cursor');
+SELECT is(
+  (SELECT payload FROM federation_inbox WHERE peer_domain = 'foxtrot.test' AND peer_seq = 1),
+  '{}'::jsonb, 'the applied row is actually stored in federation_inbox');
+
+SELECT is(
+  federation_apply_inbound('foxtrot.test', 1, 's1', 'text/plain', '{}'),
+  false, 'a DUPLICATE apply (same peer_seq again) is an idempotent no-op — caller STILL acks');
+SELECT is(
+  (SELECT count(*)::int FROM federation_inbox WHERE peer_domain = 'foxtrot.test' AND peer_seq = 1),
+  1, 'a duplicate apply does not create a second row');
+
+-- Continue in order after the dup — proves the dup didn't corrupt the cursor.
+SELECT is(
+  federation_apply_inbound('foxtrot.test', 2, 's2', 'text/plain', '{}'),
+  true, 'apply resumes in order (seq 2) after an intervening duplicate');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 federation_ack: advances last_acked_seq + marks the outbox row acked;
+--    refuses forged/future and negative seqs (ER6 residual belt-and-braces
+--    to the sender-side occ_642310 guard in sender.go applyAck)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT federation_ack('bravo.test', 1);
+SELECT is(
+  (SELECT last_acked_seq FROM federation_peers WHERE peer_domain = 'bravo.test'),
+  1::bigint, 'federation_ack advances federation_peers.last_acked_seq');
+SELECT is(
+  (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'bravo.test' AND peer_seq = 1) IS NOT NULL,
+  true, 'federation_ack marks the outbox row acked_at');
+
+-- Idempotent: re-acking the same seq (a redundant/late ack, or the ack for a
+-- receiver-side duplicate — the wire.go KindAck contract "dup still acks")
+-- must never regress last_acked_seq nor error.
+SELECT federation_ack('bravo.test', 1);
+SELECT is(
+  (SELECT last_acked_seq FROM federation_peers WHERE peer_domain = 'bravo.test'),
+  1::bigint, 'a redundant re-ack of the same seq is a harmless no-op (no regression, no error)');
+
+-- Future-ack refusal: bravo.test's enqueued window tops out at seq 2 (§1), so
+-- an ack naming anything beyond it is a forgery — a future ack would mark
+-- unsent outbox rows acked (every reconnect resumes PAST them: silent loss)
+-- and must raise BZ202, the federation family's out-of-window code.
+SELECT throws_ok(
+  $$ SELECT federation_ack('bravo.test', 999) $$,
+  'BZ202', NULL, 'a future ack beyond the enqueued window raises BZ202 (belt-and-braces to sender.go applyAck)'
+);
+-- The refusal is whole-call: nothing was marked acked and the cursor did not
+-- move — the poisoned-cursor outcome the guard exists to prevent.
+SELECT is(
+  (SELECT last_acked_seq FROM federation_peers WHERE peer_domain = 'bravo.test'),
+  1::bigint, 'a refused future ack advances no cursor');
+SELECT is(
+  (SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test' AND acked_at IS NOT NULL),
+  1, 'a refused future ack marks no outbox row acked');
+
+-- A negative seq names no real frame on a gap-free rail; same refusal class.
+SELECT throws_ok(
+  $$ SELECT federation_ack('bravo.test', -1) $$,
+  'BZ202', NULL, 'a negative ack seq is refused with the same out-of-window code'
+);
+
+-- The legitimate advance still works after the refusals: seq 2 is inside the
+-- window, advances the cursor, and marks its row acked.
+SELECT federation_ack('bravo.test', 2);
+SELECT is(
+  (SELECT last_acked_seq FROM federation_peers WHERE peer_domain = 'bravo.test'),
+  2::bigint, 'a legitimate in-window ack still advances last_acked_seq after refusals');
+SELECT is(
+  (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'bravo.test' AND peer_seq = 2) IS NOT NULL,
+  true, 'the legitimate ack marks the seq-2 outbox row acked');
+
+SELECT * FROM finish();
+ROLLBACK;

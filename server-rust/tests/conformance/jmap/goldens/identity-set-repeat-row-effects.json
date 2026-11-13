@@ -1,0 +1,47 @@
+{
+  "case": "identity-set-repeat-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "display_name": {
+          "after": "New Alias",
+          "before": "Alias Name"
+        },
+        "reply_to": {
+          "after": "new@oracle.example",
+          "before": "reply@oracle.example"
+        },
+        "signature": {
+          "after": "New signature",
+          "before": "Old signature"
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "<alias>",
+      "table": "aliases"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "<user>",
+      "table": "users"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Identity/set"
+}

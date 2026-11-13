@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "support.json": {
+      "body": "{\n  \"diagnosticCounts\": {\n    \"SAMPLE-001\": 31\n  },\n  \"originDigest\": \"8c2a3f6795c2402adc34362b5bc9a830609a29e1a2b84a95bf668ffd5aa257c1\",\n  \"redaction\": \"raw facts, identities, credentials and documents excluded\",\n  \"schemaVersion\": \"setjoin.exchange.support/v1\",\n  \"versions\": {\n    \"catalog\": 1,\n    \"collector\": \"1\",\n    \"registry\": 1\n  }\n}\n",
+      "mode": 384
+    }
+  }
+}

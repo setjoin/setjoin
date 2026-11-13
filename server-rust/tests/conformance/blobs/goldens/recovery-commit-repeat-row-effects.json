@@ -1,0 +1,23 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "object_ref": {
+          "after": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+          "before": null
+        },
+        "status": {
+          "after": "verified",
+          "before": "uploading"
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_items"
+    }
+  ],
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "route": "POST /recovery/uploads/{sessionId}/items/{itemId}/commit"
+}

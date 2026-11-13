@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of role revoke:\n  -reason string\n    \tAudit reason (required)\n  -role string\n    \tRole name (required)\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

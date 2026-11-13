@@ -1,0 +1,25 @@
+-- #547: OIDC link completion hold/take. A verified link-purpose assertion is held for the
+-- same session's same-site completion request: bound to provider and flow, single use, short.
+BEGIN;
+SELECT plan(11);
+SELECT is(rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000001',digest('token-1','sha256'),'https://idp.pgtap547.test','subject-1','["eng"]')->>'status','held','a verified assertion is held');
+SELECT is(rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000001','\x00','https://idp.pgtap547.test','subject-1',NULL)->>'status','invalid','a malformed token hash is refused');
+SELECT is((SELECT count(*) FROM oidc_link_completions WHERE provider_key='oidc:pgtap547'),1::bigint,'the refusal stored nothing');
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000001',digest('token-2','sha256'))->>'status','none','another token takes nothing');
+SELECT is(rust_identity_rp_link_take('oidc:other','54700000-0000-4000-8000-000000000001',digest('token-1','sha256'))->>'status','none','another provider takes nothing');
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000002',digest('token-1','sha256'))->>'status','none','another link flow takes nothing');
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000001',digest('token-1','sha256')),
+  jsonb_build_object('status','taken','issuer','https://idp.pgtap547.test','subject','subject-1','groups','["eng"]'::jsonb),'the right provider, flow and token take the assertion');
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000001',digest('token-1','sha256'))->>'status','none','a held assertion is single use');
+SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000003',digest('token-3','sha256'),'https://idp.pgtap547.test','subject-3',NULL);
+UPDATE oidc_link_completions SET expires_at=now()-interval '1 second' WHERE flow_id='54700000-0000-4000-8000-000000000003';
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000003',digest('token-3','sha256'))->>'status','none','an expired assertion is not released');
+SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000004',digest('token-4a','sha256'),'https://idp.pgtap547.test','subject-4a',NULL);
+SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000004',digest('token-4b','sha256'),'https://idp.pgtap547.test','subject-4b',NULL);
+SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000004',digest('token-4a','sha256'))->>'status','none','a newer assertion replaces the older one of the same flow');
+SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000005',digest('token-5','sha256'),'https://idp.pgtap547.test','subject-5',NULL);
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM oidc_link_completions),0::bigint,'the request credential sees no held assertion (FORCE RLS, worker-only policy)');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

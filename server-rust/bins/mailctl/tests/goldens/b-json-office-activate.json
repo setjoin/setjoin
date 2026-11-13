@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/office/providers/collabora/activate",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"expectedGeneration\":1,\"qualificationId\":\"00000000-0000-4000-8000-000000000001\",\"scope\":{\"domainIds\":[7]}}"
+    }
+  ],
+  "stdout": "{\n  \"active\": true\n}\n",
+  "stderr": "",
+  "exit": 0
+}

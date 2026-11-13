@@ -1,0 +1,183 @@
+-- pgTAP: admin_protection_check.pg
+--
+-- 13 tests covering:
+--   Brief (9):
+--     1. Super Admin dominates the 等保 audit admin (REAL seeded role 11; audit.export-silo regression)
+--     2. Super Admin dominates a non-admin
+--     3. Low admin manages a non-admin in its domain
+--     4. Low admin blocked from Super Admin (target holds perms beyond actor → BZ065)
+--     5. Domain-scoped admin blocked from global admin with equal perms (scope → BZ065)
+--     6. Self-delete blocked (BZ066)
+--     7. Self password-reset allowed
+--     8. Removing the last Super Admin role raises BZ064
+--     9. Removing a non-last Super Admin role is allowed (second SA = 95108)
+--   Added (4):
+--    10. Equal-peer actor→target (reflexive <@): 95102→95106 lives_ok
+--    11. Equal-peer reverse direction: 95106→95102 lives_ok (scope non-over-fire)
+--    12. Disabled-SA delete allowed (TC-1: proves <> p_target_id exclusion)
+--    13. Low admin blocked from the audit admin (short-circuit negative — BZ065)
+--
+-- Seeded audit admin role: id=11 (审计管理员, permissions @> ARRAY['audit.export']).
+-- Confirmed via: SELECT id,name FROM admin_role_groups WHERE permissions @> ARRAY['audit.export'];
+--
+-- NOTE on test ordering: test 9 grants a SEPARATE user (95108) role 1 — NOT 95102 — so
+-- 95102 stays a plain domain-scoped low admin throughout all 13 tests.
+
+BEGIN;
+SELECT plan(14);
+
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('admin_protection_check(bigint,bigint,text,bigint)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM admin_authority_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('admin_protection_check(bigint,bigint,text,bigint)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM admin_authority_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('admin_protection_check(bigint,bigint,text,bigint)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'FOR UPDATE'),
+  'loaded protection reducer fences before locking the target principal');
+
+-- ── Seed ──────────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95101, 'apg-chk.test', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95101, 'chk_super',  95101, 'super@apg-chk.test',  'S', TRUE),   -- Super Admin (role 1)
+  (95102, 'chk_help',   95101, 'help@apg-chk.test',   'H', TRUE),   -- domain-scoped low admin
+  (95103, 'chk_audit',  95101, 'audit@apg-chk.test',  'A', TRUE),   -- 等保 audit admin (role 11)
+  (95104, 'chk_user',   95101, 'user@apg-chk.test',   'U', TRUE),   -- non-admin
+  (95105, 'chk_glob',   95101, 'glob@apg-chk.test',   'G', TRUE),   -- global low admin
+  (95106, 'chk_peer',   95101, 'peer@apg-chk.test',   'P', TRUE),   -- equal peer to chk_help
+  (95107, 'chk_disabl', 95101, 'disabl@apg-chk.test', 'D', FALSE),  -- disabled Super Admin
+  (95108, 'chk_sa2',    95101, 'sa2@apg-chk.test',    '2', TRUE);   -- second SA (for test 9 only)
+
+-- domain-scoped help role (scope=95101) + global help role (scope=NULL)
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (95101, 'chk-help',     ARRAY['users.password_reset'], 95101),
+  (95102, 'chk-globhelp', ARRAY['users.password_reset'], NULL);
+
+-- Assignments:
+--   95101 → role 1     (Super Admin; group-membership short-circuit)
+--   95102 → role 95101 (domain-scoped low admin; stays plain throughout all tests)
+--   95103 → role 11    (seeded 等保 audit admin; holds audit.export)
+--   95105 → role 95102 (global low admin; same perms as 95102 but scope=NULL)
+--   95106 → role 95101 (equal peer to 95102; same domain scope 95101)
+--   95107 → role 1     (DISABLED Super Admin; for test 12)
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES
+  (95101, 1,     95101),
+  (95102, 95101, 95101),
+  (95103, 11,    95101),
+  (95105, 95102, 95101),
+  (95106, 95101, 95101),
+  (95107, 1,     95101);
+
+-- ── Tests ─────────────────────────────────────────────────────────────────────
+
+-- 1. Super Admin dominates the 等保 audit admin (REAL seeded role 11).
+--    The audit.export-silo regression: role 1's raw perm array is NOT a superset
+--    of role 11's perms, so without the group-membership short-circuit this would
+--    raise BZ065. The short-circuit MUST fire and allow it.
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95101, 95103, 'password_reset', NULL) $$,
+  'Super Admin dominates the 等保 audit admin (audit.export-silo regression)');
+
+-- 2. Super Admin dominates a non-admin.
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95101, 95104, 'delete', NULL) $$,
+  'SA dominates non-admin');
+
+-- 3. Low (domain-scoped) admin manages a non-admin in its domain.
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95102, 95104, 'password_reset', NULL) $$,
+  'low admin manages a non-admin');
+
+-- 4. Low admin blocked from Super Admin (target holds perms beyond actor → BZ065).
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95102, 95101, 'password_reset', NULL) $$,
+  'BZ065', NULL,
+  'low admin blocked from Super Admin (perms)');
+
+-- 5. Domain-scoped admin blocked from global admin with equal perms (scope → BZ065).
+--    95102 (scope=95101, perms=['users.password_reset'])
+--    vs 95105 (scope=NULL, perms=['users.password_reset']).
+--    Perms are equal subset (passes perm check) but target scope NULL > actor scope 95101.
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95102, 95105, 'password_reset', NULL) $$,
+  'BZ065', NULL,
+  'domain admin blocked from global admin (scope)');
+
+-- 6. Self-delete blocked (BZ066).
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95102, 95102, 'delete', NULL) $$,
+  'BZ066', NULL,
+  'self-delete blocked');
+
+-- 7. Self password-reset allowed (self-protection only covers delete/suspend).
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95102, 95102, 'password_reset', NULL) $$,
+  'self password-reset allowed');
+
+-- 8. Removing the last (and only enabled) Super Admin role raises BZ064.
+--    95101 is the only ENABLED SA; 95107 is DISABLED (doesn't count).
+--    Removing role 1 from 95101 would leave 0 usable SAs → BZ064.
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95101, 95101, 'remove_role', 1) $$,
+  'BZ064', NULL,
+  'removing the last Super Admin role raises BZ064');
+
+-- 9. With a second enabled SA (95108 now holds role 1), removing role 1 from
+--    95101 is allowed (at least one other usable SA remains).
+--    NOTE: we grant role 1 to 95108 (not 95102) so 95102 stays a plain
+--    domain-scoped low admin throughout tests 10–13.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95108, 1, 95101);
+
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95101, 95101, 'remove_role', 1) $$,
+  'removing a non-last Super Admin role is allowed');
+
+-- ── 4 Additional cases ────────────────────────────────────────────────────────
+
+-- 10. Equal-peer actor→target: 95102 and 95106 share role 95101
+--     (identical perms ['users.password_reset'], identical non-NULL scope 95101).
+--     Reflexive <@: target.perms <@ actor.perms is TRUE; scope check does NOT
+--     fire because both scopes are non-NULL (actor.scope IS NOT NULL is TRUE,
+--     but target.scope IS NULL is FALSE → condition short-circuits).
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95102, 95106, 'password_reset', NULL) $$,
+  'equal-peer (actor→target) reflexive subset: allowed');
+
+-- 11. Equal-peer reverse direction: 95106→95102.
+--     Pins the reflexive case AND proves scope test does NOT over-fire when
+--     both sides carry the same non-NULL scope (95101).
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95106, 95102, 'password_reset', NULL) $$,
+  'equal-peer (target→actor) reflexive subset: allowed (scope non-over-fire)');
+
+-- 12. Disabled-SA delete is allowed (TC-1: reducer↔trigger agreement).
+--     95107 is DISABLED and holds role 1. 95101 and 95108 are ENABLED SAs.
+--     Deleting 95107: count of OTHER enabled SAs excludes 95107 (user_id <> p_target_id)
+--     and finds 95101 + 95108 → v_enabled_sa = 2 → NOT the last usable SA → lives_ok.
+--     This proves the <> p_target_id exclusion: a disabled SA's removal never
+--     spuriously triggers BZ064.
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95101, 95107, 'delete', NULL) $$,
+  'deleting a disabled Super Admin is allowed (disabled-SA exclusion, <> p_target_id)');
+
+-- 13. Low admin blocked from the audit admin (the short-circuit's negative — M1).
+--     95102 (low admin: perms=['users.password_reset'], no Super Admin group membership)
+--     vs 95103 (audit admin: role 11 perms include audit.export, audit.read, mam.read,
+--               compliance.read, users.read — a superset of 95102's perms).
+--     audit.export ∉ actor.perms → NOT (target.perms <@ actor.perms) → BZ065.
+--     (The Super Admin actor DOES pass via the group-membership short-circuit — test 1.)
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95102, 95103, 'password_reset', NULL) $$,
+  'BZ065', NULL,
+  'low admin blocked from audit admin (short-circuit negative — BZ065)');
+
+SELECT * FROM finish();
+ROLLBACK;

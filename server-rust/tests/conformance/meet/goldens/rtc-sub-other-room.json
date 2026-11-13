@@ -1,0 +1,87 @@
+{
+  "case": "rtc-sub-other-room",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "SFU host masked; websocket key masked"
+  ],
+  "observation": {
+    "audit": [],
+    "client": {
+      "body": "{\"path\":\"/rtc/validate\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "meet5-rtc"
+        ],
+        "x-sfu-node": [
+          "node-3"
+        ]
+      },
+      "status": 200
+    },
+    "effects": {},
+    "notify": [],
+    "request": {
+      "actual": "/rtc/rtc/validate?access_token=room-b",
+      "method": "*",
+      "path": "/rtc/"
+    },
+    "response": {
+      "status": 200
+    },
+    "sfu": [
+      {
+        "request": {
+          "body": "",
+          "headers": {
+            "accept-encoding": [
+              "gzip"
+            ],
+            "host": [
+              "<sfu>"
+            ],
+            "x-forwarded-for": [
+              "127.0.0.1"
+            ],
+            "x-forwarded-host": [
+              "mail.test"
+            ],
+            "x-forwarded-proto": [
+              "http"
+            ],
+            "x-request-id": [
+              "meet5-rtc"
+            ]
+          },
+          "method": "GET",
+          "target": "/rtc/validate?access_token=room-b"
+        }
+      }
+    ]
+  },
+  "route": "* /rtc/"
+}

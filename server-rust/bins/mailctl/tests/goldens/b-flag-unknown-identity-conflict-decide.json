@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity conflict decide:\n  -decision string\n    \tlink, create, reject, or defer\n  -generation string\n    \texact candidate generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -person string\n    \tevidenced person ID (link only)\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

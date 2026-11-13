@@ -1,0 +1,201 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_a",
+            "value": "x"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_b",
+            "value": 5
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_big",
+            "value": 12345678901234567000
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_c",
+            "value": true
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_d",
+            "value": null
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_e",
+            "value": {
+              "a": [
+                1.5e300,
+                "<&>"
+              ],
+              "z": 1
+            }
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_exp",
+            "value": 1e21
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_neg",
+            "value": -0.5
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_small",
+            "value": 1e-7
+          }
+        ],
+        "files": []
+      },
+      "before": {
+        "config": [
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_a",
+            "value": "x"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_b",
+            "value": 5
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_big",
+            "value": 12345678901234567000
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_c",
+            "value": true
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_d",
+            "value": null
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_e",
+            "value": {
+              "a": [
+                1.5e300,
+                "<&>"
+              ],
+              "z": 1
+            }
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_exp",
+            "value": 1e21
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_neg",
+            "value": -0.5
+          },
+          {
+            "description": "TLS configuration",
+            "encrypted": false,
+            "key": "tls_small",
+            "value": 1e-7
+          }
+        ],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/tls/config"
+}

@@ -1,0 +1,18 @@
+{
+  "scenario": "graceful-stop",
+  "steps": [
+    {
+      "name": "sigterm",
+      "request": {
+        "env": "listening"
+      },
+      "response": {
+        "exit_code": 0,
+        "stdout": [
+          "{\"addr\":\"127.0.0.1:<port>\",\"funasr_url\":\"ws://funasr.example:10096\",\"level\":\"INFO\",\"livekit_url\":\"ws://livekit.example:7880\",\"max_active_tracks\":5,\"max_meetings\":3,\"msg\":\"asrbotd listening\"}",
+          "{\"level\":\"INFO\",\"msg\":\"shutting down\"}"
+        ]
+      }
+    }
+  ]
+}

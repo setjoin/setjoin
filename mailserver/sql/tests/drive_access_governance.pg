@@ -1,0 +1,256 @@
+-- V189/A5 Drive access request/approval/emergency/use-lease lifecycle.
+BEGIN;
+SELECT plan(52);
+
+SELECT has_table('public',t,'Drive access governance table exists: '||t)
+FROM unnest(ARRAY[
+  'drive_access_request_policies','drive_access_request_details',
+  'drive_access_use_leases'
+]) t;
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'drive_access_request_policies'::regclass,
+  'drive_access_request_details'::regclass,
+  'drive_access_use_leases'::regclass) AND relrowsecurity AND relforcerowsecurity),3,
+  'all Drive governance state is FORCE RLS');
+SELECT is((SELECT count(*)::int FROM feature_toggles WHERE key IN (
+  'feature.drive_access_governance','feature.drive_emergency_access')
+  AND NOT enabled),2,'governance and emergency behavior seed OFF');
+
+SELECT mk_account('acl5-owner') AS mbo \gset
+SELECT mk_account('acl5-requester') AS mbr \gset
+SELECT mk_account('acl5-approver') AS mba \gset
+SELECT mk_account('acl5-outside') AS mbx \gset
+SELECT mk_account('acl5-emergency') AS mbe \gset
+SELECT mk_account('acl5-stale') AS mbs \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ur FROM mailboxes WHERE id=:mbr \gset
+SELECT user_id AS ua FROM mailboxes WHERE id=:mba \gset
+SELECT user_id AS ux FROM mailboxes WHERE id=:mbx \gset
+SELECT user_id AS ue FROM mailboxes WHERE id=:mbe \gset
+SELECT user_id AS us FROM mailboxes WHERE id=:mbs \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:uo,1,:uo);
+SELECT drive_space_create(:uo,'ACL A5','regular') AS sid \gset
+SELECT drive_member_grant(:uo,:sid,:ur,'viewer');
+SELECT drive_node_create(:uo,:sid,NULL,'folder','Root') AS root \gset
+SELECT drive_node_create(:uo,:sid,:root,'folder','Governed') AS folder \gset
+SELECT drive_node_create(:uo,:sid,:folder,'file','Forecast') AS file \gset
+SELECT drive_node_create(:uo,:sid,:root,'file','Outside policy') AS outside_file \gset
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:sid;
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.drive_node_acl_reads','feature.drive_node_acl_writes');
+
+INSERT INTO approval_policies(
+  consumer_type,name,priority,conditions,requires_approval,approver_spec
+) VALUES('drive.access','A5 governed subtree',10,'{}',true,
+  jsonb_build_object('kind','named','user_id',:ua::bigint))
+RETURNING id AS approval_policy \gset
+SELECT drive_access_request_policy_set(
+  :uo,NULL,:approval_policy,:sid,:folder,'user',
+  ARRAY['modify_content','rename','preview','download'],'self',120,2,true,true
+) AS request_policy \gset
+SELECT ok(:request_policy::bigint>0,'admin creates a Drive consumer policy');
+
+SELECT is((drive_access_request_preview(
+  :ur,:file,'user',:ur,ARRAY['modify_content','rename'],'self',60,2,false,NULL,
+  'Need to update the quarterly forecast')->>'requestable')::boolean,false,
+  'governance DEFAULT-OFF suppresses requestability without an oracle');
+SELECT is(drive_access_request_preview(
+  :ur,:file,'user',:ur,ARRAY['modify_content'],'self',60,1,false,NULL,
+  'Compare a known target while disabled'),
+  drive_access_request_preview(
+  :ur,9223372036854775807,'user',:ur,ARRAY['modify_content'],'self',60,1,false,NULL,
+  'Compare a known target while disabled'),
+  'governance OFF returns the exact anti-oracle result before target lookup');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.drive_access_governance';
+SELECT is((drive_access_request_preview(
+  :ur,:file,'user',:ur,ARRAY['modify_content','rename'],'self',60,2,false,NULL,
+  'Need to update the quarterly forecast')->>'requestable')::boolean,true,
+  'reachable denied action is requestable under a matching policy');
+SELECT is((drive_access_request_preview(
+  :ur,:outside_file,'user',:ur,ARRAY['modify_content'],'self',60,1,false,NULL,
+  'Need to edit an unrelated document')->>'requestable')::boolean,false,
+  'node outside the policy anchor is not requestable');
+SELECT is((drive_access_request_preview(
+  :ux,:file,'user',:ux,ARRAY['preview'],'self',30,1,false,NULL,
+  'Remembered hidden node attempt')->>'requestable')::boolean,false,
+  'foreign remembered id and missing policy are indistinguishable');
+
+SELECT (drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['modify_content','rename'],'self',60,2,false,NULL,
+  'Need to update the quarterly forecast','acl5-request-0001')->>'requestId')::bigint AS req \gset
+SELECT is((SELECT status FROM approval_requests WHERE id=:req),'pending',
+  'request enters the existing approval-engine pending state');
+SELECT is((drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['modify_content','rename'],'self',60,2,false,NULL,
+  'Need to update the quarterly forecast','acl5-request-0001')->>'requestId')::bigint,
+  :req::bigint,'request commit-before-response retry returns the same row');
+SELECT is((SELECT count(*)::int FROM drive_access_request_details
+            WHERE request_id=:req),1,'one request has exactly one immutable detail row');
+SELECT throws_ok(format($q$UPDATE drive_access_request_details
+  SET requested_propagation='subtree' WHERE request_id=%s$q$,:req),
+  'BZ254',NULL,'requested payload cannot be rewritten after creation');
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','self',NULL,NULL,NULL,NULL,0)$q$,:req,:ur),
+  'BZ106',NULL,'requester cannot approve their own access');
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','outside',NULL,NULL,NULL,NULL,0)$q$,:req,:ux),
+  'BZ107',NULL,'unassigned actor cannot approve access');
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','broaden',ARRAY['modify_content','delete'],NULL,NULL,NULL,0)$q$,
+  :req,:ua),'BZ252',NULL,'approver cannot broaden requested capabilities');
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','broaden scope',NULL,'subtree',NULL,NULL,0)$q$,
+  :req,:ua),'BZ252',NULL,'approver cannot broaden requested propagation');
+SELECT is((SELECT status FROM approval_requests WHERE id=:req),'pending',
+  'rejected applied payload leaves the request pending atomically');
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','stale epoch',ARRAY['modify_content'],'self',NULL,2,99)$q$,
+  :req,:ua),'BZ254',NULL,'stale ACL epoch leaves approval unapplied');
+
+SELECT (drive_access_approval_decide(
+  :req,:ua,'approve','Approved one operation',ARRAY['modify_content'],'self',
+  (SELECT requested_expires_at-interval '1 minute'
+     FROM drive_access_request_details WHERE request_id=:req),2,0
+)->>'grantId')::bigint AS approved_grant \gset
+SELECT is((SELECT status FROM approval_requests WHERE id=:req),'applied',
+  'approved request reaches applied terminal state');
+SELECT is((SELECT source FROM drive_acl_grants WHERE id=:approved_grant),'approval',
+  'approval creates one provenance-linked ACL grant');
+SELECT is((SELECT capabilities FROM drive_acl_grants WHERE id=:approved_grant),
+  ARRAY['modify_content']::text[],'approver narrowing is the applied authority');
+SELECT is((SELECT count(*)::int FROM drive_acl_grants
+            WHERE approval_request_id=:req),1,
+  'database uniqueness enforces one approval to one grant');
+SELECT is((drive_access_approval_decide(
+  :req,:ua,'approve','Approved one operation',ARRAY['modify_content'],'self',
+  NULL,2,0)->>'grantId')::bigint,:approved_grant::bigint,
+  'approval retry returns the already-applied grant');
+
+SELECT (drive_access_use_lease_reserve(
+  :ur,:approved_grant,'modify_content','acl5-lease-0001')->>'leaseId')::uuid AS lease1 \gset
+SELECT is(drive_access_use_lease_reserve(
+  :ur,:approved_grant,'modify_content','acl5-lease-0001')->>'replayed','true',
+  'Range/resume retry reuses the same bounded-use lease');
+SELECT is(drive_access_use_lease_consume(:ur,:'lease1')->>'remainingUses','1',
+  'first consume burns one use atomically');
+SELECT is(drive_access_use_lease_consume(:ur,:'lease1')->>'replayed','true',
+  'consume retry cannot double-burn the lease');
+SELECT (drive_access_use_lease_reserve(
+  :ur,:approved_grant,'modify_content','acl5-lease-0002')->>'leaseId')::uuid AS lease2 \gset
+SELECT is(drive_access_use_lease_consume(:ur,:'lease2')->>'remainingUses','0',
+  'second distinct lease exhausts the approved use bound');
+SELECT is(drive_runtime_has_node_capability(:ur,:file,'modify_content'),false,
+  'exhausted grant fails closed and advances access invalidation');
+SELECT throws_ok(format($q$SELECT drive_access_use_lease_reserve(
+  %s,%s,'modify_content','acl5-lease-0003')$q$,:ur,:approved_grant),
+  'BZ254',NULL,'no lease can be reserved after use exhaustion');
+
+SELECT (drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['rename'],'self',30,1,false,NULL,
+  'Need a one-time rename approval','acl5-deny-0002')->>'requestId')::bigint AS deny_req \gset
+SELECT is(drive_access_approval_decide(
+  :deny_req,:ua,'deny','Not justified',NULL,NULL,NULL,NULL,2)->>'status','denied',
+  'denial uses the existing approval terminal state');
+SELECT is((SELECT count(*)::int FROM drive_acl_grants
+            WHERE approval_request_id=:deny_req),0,
+  'denied request creates no grant');
+SELECT is(drive_access_approval_decide(
+  :deny_req,:ua,'deny','Not justified',NULL,NULL,NULL,NULL,2)->>'replayed','true',
+  'denial retry is idempotent');
+
+SELECT (drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['rename'],'self',30,1,false,NULL,
+  'Cancel this pending access request','acl5-cancel-0003')->>'requestId')::bigint AS cancel_req \gset
+SELECT is(approval_request_cancel(:cancel_req,:ur),'cancelled',
+  'generic approval cancellation closes Drive request');
+SELECT is((SELECT count(*)::int FROM drive_acl_grants
+            WHERE approval_request_id=:cancel_req),0,
+  'cancelled request creates no grant');
+SELECT (drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['rename'],'self',30,1,false,NULL,
+  'Allow this request to expire safely','acl5-expire-0004')->>'requestId')::bigint AS expire_req \gset
+UPDATE approval_requests SET expires_at=now()-interval '1 second' WHERE id=:expire_req;
+SELECT ok(approval_expire_due()>=1,'generic expiry sweep drains pending Drive request');
+SELECT is((SELECT count(*)::int FROM drive_acl_grants
+            WHERE approval_request_id=:expire_req),0,
+  'expired request creates no grant');
+
+-- The request-time epoch is immutable.  Supplying the newer current epoch
+-- must not revive a request after any intervening ACL change.
+SELECT (drive_access_request(
+  :ur,:file,'user',:ur,ARRAY['rename'],'self',30,1,false,NULL,
+  'Prove immutable request epoch fencing','acl5-stale-request-0005'
+)->>'requestId')::bigint AS immutable_req \gset
+SELECT epoch AS immutable_request_epoch FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT drive_acl_grant(
+  :uo,:file,'user',:us,'custom',ARRAY['traverse'],'self',NULL,NULL,NULL,
+  'intervening ACL change',:immutable_request_epoch,'acl5-intervening-grant');
+SELECT epoch AS newer_current_epoch FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT throws_ok(format($q$SELECT drive_access_approval_decide(
+  %s,%s,'approve','must remain stale',NULL,NULL,NULL,NULL,%s)$q$,
+  :immutable_req,:ua,:newer_current_epoch),
+  'BZ254',NULL,'newer current epoch cannot replace the immutable request epoch');
+SELECT is((SELECT status FROM approval_requests WHERE id=:immutable_req),'pending',
+  'stale approval rolls back without changing request state');
+
+-- Emergency path: only a fresh MFA session plus independent approval may mint.
+SELECT epoch AS emergency_epoch FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT drive_acl_grant(
+  :uo,:folder,'user',:ue,'custom',ARRAY['traverse'],'subtree',NULL,NULL,NULL,
+  'Path-only emergency eligibility',:emergency_epoch,'acl5-emergency-path-01');
+INSERT INTO sessions(id,user_id,created_at,expires_at,last_seen_at,auth_method)
+VALUES('acl5-mfa',:ue,now(),now()+interval '1 hour',now(),'totp');
+SELECT is((drive_access_request_preview(
+  :ue,:file,'user',:ue,ARRAY['preview'],'self',30,1,true,'acl5-mfa',
+  'Incident response requires temporary preview')->>'requestable')::boolean,false,
+  'emergency access stays closed while its independent flag is OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.drive_emergency_access';
+SELECT is((drive_access_request_preview(
+  :ue,:file,'user',:ue,ARRAY['preview'],'self',30,1,true,'acl5-mfa',
+  'Incident response requires temporary preview')->>'requestable')::boolean,true,
+  'fresh MFA and bounded policy make emergency access requestable');
+SELECT (drive_access_request(
+  :ue,:file,'user',:ue,ARRAY['preview'],'self',30,1,true,'acl5-mfa',
+  'Incident response requires temporary preview','acl5-emergency-0005')->>'requestId')::bigint AS emergency_req \gset
+SELECT epoch AS emergency_decide_epoch FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT (drive_access_approval_decide(
+  :emergency_req,:ua,'approve','Incident verified',NULL,NULL,NULL,NULL,
+  :emergency_decide_epoch)->>'grantId')::bigint AS emergency_grant \gset
+SELECT is((SELECT source FROM drive_acl_grants WHERE id=:emergency_grant),'emergency',
+  'emergency approval receives explicit high-risk provenance');
+SELECT ok(EXISTS(SELECT 1 FROM drive_audit_log WHERE space_id=:sid
+  AND action='acl.emergency.grant' AND target_id=:emergency_grant),
+  'emergency elevation emits a high-severity chain event');
+SELECT (drive_access_use_lease_reserve(
+  :ue,:emergency_grant,'preview','acl5-emergency-lease')->>'leaseId')::uuid AS emergency_lease \gset
+UPDATE drive_access_use_leases SET created_at=now()-interval '10 minutes',
+  expires_at=now()-interval '1 second'
+ WHERE id=:'emergency_lease';
+SELECT is(drive_access_use_lease_abandon_due(100),1,
+  'bounded sweeper abandons an unconsumed expired lease');
+SELECT is((SELECT state FROM drive_access_use_leases WHERE id=:'emergency_lease'),'abandoned',
+  'abandoned lease state is durable and cannot be consumed');
+
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:ux::text,true);
+SELECT is((SELECT count(*)::int FROM drive_access_request_policies),0,
+  'non-admin cannot read Drive access request policies under FORCE RLS');
+SELECT is((SELECT count(*)::int FROM drive_access_request_details),0,
+  'outsider cannot read another principal Drive access request details');
+SELECT is((SELECT count(*)::int FROM drive_access_use_leases),0,
+  'outsider cannot read another principal bounded-use leases');
+SELECT set_config('app.current_user_id',:uo::text,true);
+SELECT is(drive_access_request_policy_set(
+  :uo,:request_policy,:approval_policy,:sid,:folder,'user',
+  ARRAY['modify_content','rename','preview','download'],'self',120,2,true,true
+),:request_policy::bigint,
+  'drive.manage app role updates the request policy under FORCE RLS');
+SELECT is((SELECT count(*)::int FROM drive_access_request_policies
+            WHERE id=:request_policy),1,
+  'drive.manage app role reads the updated request policy under FORCE RLS');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

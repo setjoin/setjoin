@@ -1,0 +1,159 @@
+{
+  "format": 1,
+  "route": "GET /admin/chat-ediscovery/export",
+  "go_source": "f3ff02591aa3decdecec6e87f3c2ecf47df7e82e",
+  "case": "locale-row-effects",
+  "effects": [
+    {
+      "after": {
+        "acts": [],
+        "channel": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": 961001,
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "compl3-channel",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "public",
+            "worm_mode": null
+          }
+        ],
+        "coverage": [],
+        "holds": [],
+        "mailbox_state": {
+          "email": 0,
+          "mailbox": 0,
+          "tag": 0,
+          "thread": 0
+        },
+        "messages": [
+          {
+            "author_id": "<actor>",
+            "body": "Evidence oracle <A>",
+            "broadcast": null,
+            "channel_id": 961001,
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": 966001,
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'evidence':1 'oracle':2",
+            "seq": 1,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "policies": [
+          {
+            "applies_to": "channel",
+            "created_at": "<timestamp>",
+            "duration_days": 90,
+            "effective_at": "<timestamp>",
+            "enabled": true,
+            "id": 962001,
+            "name": "Shield <A>",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "searches": []
+      },
+      "before": {
+        "acts": [],
+        "channel": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": 961001,
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "compl3-channel",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "public",
+            "worm_mode": null
+          }
+        ],
+        "coverage": [],
+        "holds": [],
+        "mailbox_state": {
+          "email": 0,
+          "mailbox": 0,
+          "tag": 0,
+          "thread": 0
+        },
+        "messages": [
+          {
+            "author_id": "<actor>",
+            "body": "Evidence oracle <A>",
+            "broadcast": null,
+            "channel_id": 961001,
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": 966001,
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'evidence':1 'oracle':2",
+            "seq": 1,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "policies": [
+          {
+            "applies_to": "channel",
+            "created_at": "<timestamp>",
+            "duration_days": 90,
+            "effective_at": "<timestamp>",
+            "enabled": true,
+            "id": 962001,
+            "name": "Shield <A>",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "searches": []
+      },
+      "table": "chat_compliance"
+    }
+  ]
+}

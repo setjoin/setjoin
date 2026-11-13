@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // P2 Task 11: main.ts now imports the shared sync engine from
+    // mailserver/webmail/src/lib/drive/sync/ (an ESM package, ".js"-suffixed
+    // relative imports) — node16 module resolution's CJS/ESM interop rules
+    // reject that from this (CJS-by-default) package. tsc no longer emits at
+    // all (esbuild's scripts/bundle.mjs does — see package.json's "build"
+    // script); "bundler" resolution matches that division of labor: tsc only
+    // typechecks the graph esbuild will actually bundle, without policing a
+    // runtime module-format mismatch esbuild resolves at bundle time anyway.
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

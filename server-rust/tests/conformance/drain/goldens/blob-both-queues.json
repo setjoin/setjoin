@@ -1,0 +1,31 @@
+{
+  "case": "blob-both-queues",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "blobs": [],
+    "orphans": [],
+    "queue": [],
+    "s3": {
+      "keys": [],
+      "requests": [
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<alone>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<shared>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<shared>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/inbound/<raw>"
+        }
+      ]
+    }
+  }
+}

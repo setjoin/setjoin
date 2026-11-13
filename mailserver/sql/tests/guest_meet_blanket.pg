@@ -1,0 +1,205 @@
+-- guest_meet_blanket.pg — Guest G3: the G0 blanket is replaced by scoped
+-- Meet authority. Members retain org-open semantics; authenticated guests
+-- require profile/entitlement plus channel membership or an admitted knock.
+BEGIN;
+SELECT plan(46);
+
+UPDATE feature_toggles SET enabled = true
+ WHERE key IN ('feature.guest_accounts', 'feature.meet', 'feature.chat');
+
+INSERT INTO domains (name, is_local) VALUES ('gmb-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gmb-host', d.id, 'gmb-host@gmb-host.example', 'Host', TRUE
+  FROM domains d WHERE d.name = 'gmb-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gmb-member', d.id, 'gmb-member@gmb-host.example', 'Member', TRUE
+  FROM domains d WHERE d.name = 'gmb-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT x.email, d.id, x.email, x.name, TRUE
+  FROM (VALUES
+    ('gmb-allow@ext.example', 'Allowed External'),
+    ('gmb-deny@ext.example', 'Denied External'),
+    ('gmb-null@ext.example', 'No Profile External')
+  ) AS x(email, name)
+  CROSS JOIN domains d WHERE d.name = 'guest.invalid';
+
+INSERT INTO guest_profiles (
+    host_domain_id, name, can_post, history_from_join, allow_download,
+    allow_meet_create, allow_meet_host, apps
+)
+SELECT d.id, 'gmb-allow', true, true, true, true, true, ARRAY['chat','meet']::text[]
+  FROM domains d WHERE d.name = 'gmb-host.example';
+INSERT INTO guest_profiles (
+    host_domain_id, name, can_post, history_from_join, allow_download,
+    allow_meet_create, allow_meet_host, apps
+)
+SELECT d.id, 'gmb-deny', false, true, false, false, false, ARRAY['chat','meet']::text[]
+  FROM domains d WHERE d.name = 'gmb-host.example';
+
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id, profile_id, status
+)
+SELECT u.id, u.email, 'gmb-host@gmb-host.example', d.id, gp.id, 'active'
+  FROM users u
+  JOIN domains d ON d.name = 'gmb-host.example'
+  JOIN guest_profiles gp ON gp.host_domain_id = d.id
+ WHERE (u.email = 'gmb-allow@ext.example' AND gp.name = 'gmb-allow')
+    OR (u.email = 'gmb-deny@ext.example' AND gp.name = 'gmb-deny');
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id, status
+)
+SELECT u.id, u.email, 'gmb-host@gmb-host.example', d.id, 'active'
+  FROM users u, domains d
+ WHERE u.email = 'gmb-null@ext.example' AND d.name = 'gmb-host.example';
+
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+SELECT u.id, 'meet', true FROM users u WHERE u.email LIKE 'gmb-%@ext.example';
+
+SELECT id AS host_id FROM users WHERE email = 'gmb-host@gmb-host.example' \gset
+SELECT id AS member_id FROM users WHERE email = 'gmb-member@gmb-host.example' \gset
+SELECT id AS allow_id FROM users WHERE email = 'gmb-allow@ext.example' \gset
+SELECT id AS deny_id FROM users WHERE email = 'gmb-deny@ext.example' \gset
+SELECT id AS null_id FROM users WHERE email = 'gmb-null@ext.example' \gset
+
+-- Closed-set runtime profile helper.
+SELECT ok(guest_profile_flag(:allow_id, 'allow_meet_create'), 'allow_meet_create resolves true');
+SELECT ok(guest_profile_flag(:allow_id, 'allow_meet_host'), 'allow_meet_host resolves true');
+SELECT ok(guest_profile_flag(:allow_id, 'allow_download'), 'allow_download resolves true');
+SELECT ok(NOT guest_profile_flag(:allow_id, 'unknown'), 'unknown runtime flag is false');
+SELECT ok(NOT guest_profile_flag(:null_id, 'allow_meet_create'), 'NULL profile is most restrictive');
+
+SELECT lives_ok(format($$ SELECT meeting_create(%s, 'G3 scope fixture') $$, :host_id),
+  'member creates the G3 fixture');
+SELECT id AS meeting_id, slug AS meeting_slug, chat_channel_id AS channel_id
+  FROM meetings WHERE owner_user_id = :host_id ORDER BY id DESC LIMIT 1 \gset
+
+SELECT throws_ok(format($$ SELECT meeting_get(%s, %s) $$, :allow_id, :meeting_id),
+  'BZ185', NULL, 'unscoped guest numeric-id read is anti-oracled');
+SELECT is((meeting_get_by_slug(:allow_id, :'meeting_slug')->>'title'), 'G3 scope fixture',
+  'exact high-entropy slug resolves the pre-join projection');
+SELECT throws_ok(format($$ SELECT meeting_join(%s, %s) $$, :allow_id, :meeting_id),
+  'BZ215', NULL, 'unscoped authenticated guest cannot join');
+SELECT throws_ok(format($$ SELECT chat_channel_create(%s, 'guest-user-channel') $$, :allow_id),
+  'BZ215', NULL, 'the user-facing guest channel-create door remains closed');
+
+SELECT lives_ok(format($$ SELECT chat_member_add(%s, %s, %s) $$, :host_id, :channel_id, :allow_id),
+  'a member can grant the guest the bound channel');
+SELECT is((meeting_join(:allow_id, :meeting_id)->>'external')::boolean, true,
+  'current channel membership authorizes join and marks the grant External');
+SELECT is((SELECT can_post FROM chat_channel_members
+            WHERE channel_id = :channel_id AND user_id = :allow_id), true,
+  'guest channel membership carries the profile can_post snapshot');
+SELECT is((SELECT history_floor_seq FROM chat_channel_members
+            WHERE channel_id = :channel_id AND user_id = :allow_id), 0::bigint,
+  'guest channel membership carries the immutable history floor');
+SELECT is((meeting_breakout_join(:allow_id, :meeting_id, NULL)->>'external')::boolean, true,
+  'current channel membership authorizes a breakout/main-room grant');
+SELECT lives_ok(format($$ SELECT chat_member_remove(%s, %s, %s) $$, :host_id, :channel_id, :allow_id),
+  'host revokes the guest channel membership');
+SELECT is((meeting_get(:allow_id, :meeting_id)->>'title'), 'G3 scope fixture',
+  'an existing participant may still read meeting detail by numeric id');
+SELECT throws_ok(format($$ SELECT meeting_join(%s, %s) $$, :allow_id, :meeting_id),
+  'BZ215', NULL, 'historical participant alone does not preserve join authority');
+SELECT throws_ok(format($$ SELECT meeting_breakout_join(%s, %s, NULL) $$, :allow_id, :meeting_id),
+  'BZ215', NULL, 'historical participant cannot bypass join scope through breakout re-mint');
+
+SELECT (meeting_join_request_create(:'meeting_slug', 'Allowed External', :allow_id)) AS knock \gset
+SELECT (:'knock'::jsonb->>'requestId')::bigint AS request_id \gset
+SELECT ok((meeting_get(:allow_id, :meeting_id)->>'meetingId')::bigint = :meeting_id,
+  'an authenticated pending knock scopes numeric-id reads');
+SELECT throws_ok(format($$ SELECT meeting_join(%s, %s) $$, :allow_id, :meeting_id),
+  'BZ215', NULL, 'a pending knock is not join authority');
+SELECT lives_ok(format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :request_id),
+  'host admits the authenticated guest knock');
+SELECT lives_ok(format($$ SELECT chat_member_remove(%s, %s, %s) $$, :host_id, :channel_id, :allow_id),
+  'remove the provisioned chat membership to isolate admitted-knock authority');
+SELECT is((meeting_breakout_join(:allow_id, :meeting_id, NULL)->>'external')::boolean, true,
+  'admitted authenticated knock authorizes a main-room breakout re-mint');
+SELECT (meeting_breakout_open(:host_id, :meeting_id, 1)) AS guest_breakouts \gset
+SELECT (:'guest_breakouts'::jsonb->0->>'breakoutId')::bigint AS guest_breakout_id \gset
+SELECT meeting_breakout_assign(:host_id, :meeting_id, :allow_id, :guest_breakout_id) AS guest_move_room \gset
+SELECT is((meeting_breakout_join(:allow_id, :meeting_id, :guest_breakout_id)->>'external')::boolean, true,
+  'admitted authenticated knock authorizes the guest assigned-breakout grant');
+SELECT is((meeting_join(:allow_id, :meeting_id)->>'external')::boolean, true,
+  'admitted authenticated knock preserves rejoin authority without channel membership');
+SELECT is((SELECT can_post FROM chat_channel_members
+            WHERE channel_id = :channel_id AND user_id = :allow_id), true,
+  'admitted-knock rejoin re-stamps guest can_post instead of a NULL default');
+SELECT is((SELECT history_floor_seq FROM chat_channel_members
+            WHERE channel_id = :channel_id AND user_id = :allow_id),
+          (SELECT change_seq FROM chat_channels WHERE id = :channel_id),
+  'admitted-knock rejoin re-stamps the live history boundary');
+
+SELECT lives_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'cohost') $$,
+  :host_id, :meeting_id, :allow_id), 'allow_meet_host permits cohost promotion');
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND user_id = :allow_id), 'cohost',
+  'allowed guest is now cohost');
+
+SELECT chat_member_add(:host_id, :channel_id, :deny_id) AS setup_add_deny \gset
+SELECT meeting_join(:deny_id, :meeting_id) AS setup_join_deny \gset
+SELECT throws_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'cohost') $$,
+  :host_id, :meeting_id, :deny_id), 'BZ215', NULL,
+  'allow_meet_host=false denies cohost promotion');
+UPDATE user_app_entitlements SET enabled = false
+ WHERE user_id = :deny_id AND app = 'meet';
+SELECT throws_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'member') $$,
+  :host_id, :meeting_id, :deny_id), 'BZ215', NULL,
+  'Meet-denied guest cannot use member assignment as a re-admit bypass');
+UPDATE user_app_entitlements SET enabled = true
+ WHERE user_id = :deny_id AND app = 'meet';
+SELECT lives_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'member') $$,
+  :host_id, :meeting_id, :allow_id), 'member demotion/re-admission stays allowed');
+SELECT throws_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:not-a-number', 'cohost') $$,
+  :host_id, :meeting_id), 'BZ188', NULL, 'role target requires full u:[0-9]+ identity');
+
+SELECT throws_ok(format($$ SELECT meeting_create(%s, 'denied guest meeting') $$, :deny_id),
+  'BZ215', NULL, 'allow_meet_create=false denies guest creation');
+SELECT lives_ok(format($$ SELECT meeting_create(%s, 'allowed guest meeting') $$, :allow_id),
+  'allow_meet_create=true permits guest creation');
+SELECT id AS guest_created_id, chat_channel_id AS guest_created_channel
+  FROM meetings WHERE owner_user_id = :allow_id ORDER BY id DESC LIMIT 1 \gset
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :guest_created_id AND user_id = :allow_id), 'host',
+  'an allowed guest creator is the meeting host');
+SELECT is((SELECT can_post FROM chat_channel_members
+            WHERE channel_id = :guest_created_channel AND user_id = :allow_id), true,
+  'the internal p_system channel carve-out stamps current guest policy');
+SELECT throws_ok(format($$ SELECT chat_member_add(%s, %s, %s) $$,
+  :allow_id, :guest_created_channel, :member_id), 'BZ215', NULL,
+  'guest meeting host gains no arbitrary chat member-add capability');
+
+-- P5 is disclosure/prompt for authenticated guest accounts, not BZ199. The
+-- anonymous model-3 arm remains the original fail-closed recording law.
+SELECT (meeting_create(:host_id, 'G3 recording-law fixture', NULL, NULL, NULL, NULL, true)) AS rec_meeting \gset
+SELECT (:'rec_meeting'::jsonb->>'meetingId')::bigint AS rec_meeting_id,
+       (:'rec_meeting'::jsonb->>'slug') AS rec_slug \gset
+UPDATE meetings SET state = 'live' WHERE id = :rec_meeting_id;
+SELECT meeting_recording_start(:host_id, :rec_meeting_id) AS rec_id \gset
+SELECT (meeting_join_request_create(:'rec_slug', 'Recorded External', :allow_id)) AS rec_guest_knock \gset
+SELECT (:'rec_guest_knock'::jsonb->>'requestId')::bigint AS rec_guest_req,
+       (:'rec_guest_knock'::jsonb->>'secret') AS rec_guest_secret \gset
+SELECT lives_ok(format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :rec_guest_req),
+  'authenticated guest-account admission remains allowed while recording');
+SELECT is((meeting_join_request_poll(:'rec_slug', :rec_guest_req, :'rec_guest_secret')
+           ->'grant'->>'external')::boolean, true,
+  'authenticated knock poll grant is server-marked External');
+SELECT (meeting_join_request_create(:'rec_slug', 'Anonymous Lobby Guest')) AS rec_anon_knock \gset
+SELECT (:'rec_anon_knock'::jsonb->>'requestId')::bigint AS rec_anon_req \gset
+SELECT throws_ok(format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :rec_anon_req),
+  'BZ199', NULL, 'anonymous model-3 admission remains blocked while recording');
+
+UPDATE guest_accounts SET status = 'disabled' WHERE user_id = :allow_id;
+SELECT throws_ok(format($$ SELECT meeting_join(%s, %s) $$, :allow_id, :meeting_id),
+  'BZ219', NULL, 'inactive guest is denied before join authority');
+SELECT throws_ok(format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'member') $$,
+  :host_id, :meeting_id, :allow_id), 'BZ219', NULL,
+  'inactive guest cannot use member assignment as a re-admit bypass');
+
+SELECT is((meeting_join(:member_id, :meeting_id)->>'external')::boolean, false,
+  'ordinary members retain org-open join and external=false');
+SELECT throws_ok(format($$ SELECT meeting_join_request_create(%L, 'Anon', NULL) $$, :'meeting_slug'),
+  'BZ185', NULL, 'anonymous model-3 lobby anti-oracle remains untouched');
+
+SELECT * FROM finish();
+ROLLBACK;

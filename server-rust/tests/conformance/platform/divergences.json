@@ -1,0 +1,222 @@
+[
+  {
+    "baseline": "goldens/updates-summary-scoped.json",
+    "sha256": "b1eb09bc0f42264b5091c5f73561cd3a911e3e686236a8a0514985db0f3ab2ec",
+    "expectation": "security/updates-summary-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#456/#512: domain-scoped system-permission holders see devices only inside their permitted reach; this fixture contains devices outside that reach)",
+    "issue": "#456",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/platform_updates.rs::summary_scoped",
+    "mutant": "updates-devices-unscoped"
+  },
+  {
+    "baseline": "goldens/updates-devices-scoped.json",
+    "sha256": "d8fd9af51c4048747a62d5f44583d5f705012582061351bc74aadd42c7f2b097",
+    "expectation": "security/updates-devices-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#456/#512: domain-scoped system-permission holders see devices only inside their permitted reach; this fixture contains devices outside that reach)",
+    "issue": "#456",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/platform_updates.rs::devices_scoped",
+    "mutant": "updates-devices-unscoped"
+  },
+  {
+    "baseline": "goldens/storage-dr-start-scoped.json",
+    "expectation": "security/storage-dr-start-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/dr-scan (storage scan start) runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "ff4615881d5d80447420fb2b22b5b1fe8e7b85560cc7cf5aafa8f8286f7f25a6"
+  },
+  {
+    "baseline": "goldens/storage-dr-start-scoped-row-effects.json",
+    "expectation": "security/storage-dr-start-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/dr-scan (storage scan start) runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "f70a66ca3c89bf0ab5a5d68bbc74e404edf1b4dae912bca29a862e8004c4b7fc"
+  },
+  {
+    "baseline": "goldens/storage-reconcile-scoped.json",
+    "expectation": "security/storage-reconcile-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/dr-scan/{id}/reconcile runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "6314d9eaba292cdc40cb54f4a12ecc3689ae00a73291e87d37adbce5410bd2fb"
+  },
+  {
+    "baseline": "goldens/storage-reconcile-scoped-row-effects.json",
+    "expectation": "security/storage-reconcile-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/dr-scan/{id}/reconcile runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "78bed54798fad3d77a7781c3030048438ea069931b5f5e0b1cd576e57e98d329"
+  },
+  {
+    "baseline": "goldens/storage-migration-start-scoped.json",
+    "expectation": "security/storage-migration-start-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/migrate runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "3c769978e7225ce8dd7f0fcd0859d190cf95b5d715838aeaab10f91c26556a40"
+  },
+  {
+    "baseline": "goldens/storage-migration-start-scoped-row-effects.json",
+    "expectation": "security/storage-migration-start-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/migrate runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "b0a51b32ebb8f3e9ab77bd3c06bc2a94c773efc3e4e0f3f285de98d08d5c6f05"
+  },
+  {
+    "baseline": "goldens/storage-migration-cancel-scoped.json",
+    "expectation": "security/storage-migration-cancel-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/migrate/{id}/cancel runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "d27516b7aae7310340f267bef3388c1e7f105e30dc72fe8c0864155e2cded01c"
+  },
+  {
+    "baseline": "goldens/storage-migration-cancel-scoped-row-effects.json",
+    "expectation": "security/storage-migration-cancel-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#539): POST /admin/storage/migrate/{id}/cancel runs a server-wide storage operation, so it needs an organization-wide system.config grant (admin_org_wide_grant); frozen Go let a domain-scoped system.config holder run it. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no storage effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c0c4db381bf6b93ca3245f2b2eef0c4e5e80d172ba8257dbbb95a20bbb252e8a"
+  },
+  {
+    "baseline": "goldens/deploy-start-scoped.json",
+    "expectation": "security/deploy-start-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/deploy/start runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder push gateway S3 credentials to nodes and open SSH to any host. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "050311db580c96d73e6499da5a617e59647635b9057ef29de64f88a1bca4f8d4",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_deploy.rs::start_scoped",
+    "mutant": "upgrade-scoped-grant-deploy-start"
+  },
+  {
+    "baseline": "goldens/deploy-start-scoped-row-effects.json",
+    "expectation": "security/deploy-start-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/deploy/start runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder push gateway S3 credentials to nodes and open SSH to any host. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "709aa50e4dcc08244e046e2a471bd50c9113cf641aa5f2e667ca6c68d382976c",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_deploy.rs::start_scoped",
+    "mutant": "upgrade-scoped-grant-deploy-start"
+  },
+  {
+    "baseline": "goldens/deploy-cancel-scoped.json",
+    "expectation": "security/deploy-cancel-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/deploy/cancel runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder cancel (and so fence) the wizard. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "435123f7bd81c5d7c9e7bbcad88cad4587d3c67b8baeff0fb261205122a8ff85",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_deploy.rs::cancel_scoped",
+    "mutant": "upgrade-scoped-grant-deploy-cancel"
+  },
+  {
+    "baseline": "goldens/deploy-cancel-scoped-row-effects.json",
+    "expectation": "security/deploy-cancel-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/deploy/cancel runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder cancel (and so fence) the wizard. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "3fc01b4890592eb8de6fc936dbf07ee80b521c4b34f67a174f5133688d29ed4d",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_deploy.rs::cancel_scoped",
+    "mutant": "upgrade-scoped-grant-deploy-cancel"
+  },
+  {
+    "baseline": "goldens/deploy-status-scoped.json",
+    "expectation": "security/deploy-status-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): GET /admin/deploy/status runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder read the wizard state (node hosts, step output). The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "921c29444eb36476a56390af85d1878ef34c5e6571ec1873d3c22979554c7003",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_deploy.rs::status_scoped",
+    "mutant": "upgrade-scoped-grant-deploy-status"
+  },
+  {
+    "baseline": "goldens/airgap-upload-scoped.json",
+    "expectation": "security/airgap-upload-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/updates/airgap/upload runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder replace signed update bytes served to every device. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (response, audit and effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "06c5523323c716bdac0049c89b34bb6246b5a29f11d7d65b0b6ca9a84ec66b7e",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_airgap.rs::upload_scoped",
+    "mutant": "upgrade-scoped-grant-airgap-upload"
+  },
+  {
+    "baseline": "goldens/airgap-upload-scoped-row-effects.json",
+    "expectation": "security/airgap-upload-scoped-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542): POST /admin/updates/airgap/upload runs the deploy wizard / server-wide update store, so it needs an organization-wide system.upgrade grant (admin_org_wide_grant); frozen Go let a domain-scoped system.upgrade holder replace signed update bytes served to every device. The domain-scoped caller now gets the bare 403 with a console.denied audit row and no effect (row effects).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "fa951aa934e7294fb3987032289db1a8c7a88216b4e4bef43f64a4dff3da7293",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_airgap.rs::upload_scoped",
+    "mutant": "upgrade-scoped-grant-airgap-upload"
+  },
+  {
+    "baseline": "goldens/storage-status-scoped.json",
+    "expectation": "security/storage-status-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542, review of #537): GET /admin/storage/status exposes server-wide storage state, so it needs an organization-wide grant of one of its Mail-console permissions (admin_org_wide_grant); frozen Go let a domain-scoped Mail-console holder read it. The domain-scoped caller now gets the bare 403 with a console.denied audit row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c36b247189e9f08263b794b84c1f43e5f2afff8b1780fec5b6916236cb564c77",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_storage_runtime.rs::status_scoped",
+    "mutant": "storage-read-scoped-status"
+  },
+  {
+    "baseline": "goldens/storage-dr-list-scoped.json",
+    "expectation": "security/storage-dr-list-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542, review of #537): GET /admin/storage/dr-scan exposes server-wide storage state, so it needs an organization-wide grant of one of its Mail-console permissions (admin_org_wide_grant); frozen Go let a domain-scoped Mail-console holder read it. The domain-scoped caller now gets the bare 403 with a console.denied audit row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "d6c0444b3301e371721051c37bec2397363471dc64c09c4aacac0e561eeaba84",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_jobs_storage.rs::dr_list_scoped",
+    "mutant": "storage-read-scoped-scan-list"
+  },
+  {
+    "baseline": "goldens/storage-dr-get-scoped.json",
+    "expectation": "security/storage-dr-get-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542, review of #537): GET /admin/storage/dr-scan/{id} exposes server-wide storage state, so it needs an organization-wide grant of one of its Mail-console permissions (admin_org_wide_grant); frozen Go let a domain-scoped Mail-console holder read it. The domain-scoped caller now gets the bare 403 with a console.denied audit row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "4a7ffe7bc8899ac19129c2d4622e763d1ab998ecf1e6c31849b4ad242eb89967",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_jobs_storage.rs::dr_get_scoped",
+    "mutant": "storage-read-scoped-scan-get"
+  },
+  {
+    "baseline": "goldens/storage-migrate-list-scoped.json",
+    "expectation": "security/storage-migrate-list-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542, review of #537): GET /admin/storage/migrate exposes server-wide storage state, so it needs an organization-wide grant of one of its Mail-console permissions (admin_org_wide_grant); frozen Go let a domain-scoped Mail-console holder read it. The domain-scoped caller now gets the bare 403 with a console.denied audit row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "0fb1dedf57b4f665fca633ed54f47a90cf1995619c861625759e4dbec4dac751",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_jobs_storage.rs::migrate_list_scoped",
+    "mutant": "storage-read-scoped-migrate-list"
+  },
+  {
+    "baseline": "goldens/storage-migrate-get-scoped.json",
+    "expectation": "security/storage-migrate-get-scoped.json",
+    "reason": "owner-approved security fix 2026-11-05 (#542, review of #537): GET /admin/storage/migrate/{id} exposes server-wide storage state, so it needs an organization-wide grant of one of its Mail-console permissions (admin_org_wide_grant); frozen Go let a domain-scoped Mail-console holder read it. The domain-scoped caller now gets the bare 403 with a console.denied audit row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "31f0aa20fe3d0a9f5571f4486ba1f65bc3edf62387608955b348bdcf53da4ada",
+    "issue": "#542",
+    "secure_test": "bins/gateway/tests/platform_jobs_storage.rs::migrate_get_scoped",
+    "mutant": "storage-read-scoped-migrate-get"
+  }
+]

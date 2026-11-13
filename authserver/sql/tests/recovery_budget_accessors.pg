@@ -1,0 +1,130 @@
+-- pgTAP: recovery_budget_accessors.pg — the forgot-password per-account
+-- recovery budget accessor seam (ER5 s07 named residual: forgot-password
+-- per-account recovery budget decoupled from the per-IP login lockout).
+--
+-- The forgot-password budget (authserver/internal/handlers/forgot_password.go)
+-- keeps per-account recovery-attempt state in the SHARED auth_lockouts table
+-- under the recovery_user:{user_id} key. Under the V259 deny-all FORCE flip
+-- that table has zero permissive policies, so this file proves the budget
+-- path's ONLY surface: the two worker-owned SECURITY DEFINER accessors in
+-- authserver/sql/reducers/recovery_budget_accessors.sql, driven in the same
+-- sequence the Go seam drives them (acquire → open/consume under the fixed
+-- window → count-only refusal bumps that never move the anchor → NULL reset
+-- sentinel → expiry → fresh window).
+--
+-- The fixed-window POLICY (30 attempts / 15 minutes, the Go-side decision)
+-- is covered by the DB-backed Go suite
+-- (internal/handlers/forgot_password_er5s07_test.go); this file proves the
+-- accessor mechanics the policy rides on: the row-lock acquire shape, the
+-- key convention, the refusal's anchor-preserving accounting, and the
+-- sentinel/restore conventions.
+--
+-- Role contract per the r12 actual-role form (push_lockout_accessors.pg): the
+-- test connection is the superuser/table owner (bypasses RLS even under
+-- FORCE), so the denial arms run under SET LOCAL ROLE setjoin_app
+-- (NOBYPASSRLS) and the lifecycle runs under setjoin_worker (BYPASSRLS, the
+-- accessors' only EXECUTE holder). NO ACL repair happens here: this file runs
+-- AFTER the provisioning pass (load-test-schema.sh step 4/4), whose
+-- worker-only carve-out in scripts/provision-roles.sql carries both accessor
+-- signatures and owns the denial — so the 42501 arms below verify the actual
+-- shipped post-provisioning ACL state.
+BEGIN;
+SELECT plan(21);
+
+-- ── Setup: a clean key range for this file (data only — no grants). ────────
+DELETE FROM auth_lockouts WHERE lockout_key LIKE 'recovery_user:9200%';
+
+-- ── Shape: the two accessors are installed, SECURITY DEFINER, worker-only ──
+SELECT has_function('public', 'recovery_budget_acquire', ARRAY['bigint'],
+    'recovery_budget_acquire(bigint) is installed');
+SELECT has_function('public', 'recovery_budget_record', ARRAY['bigint','int','timestamptz'],
+    'recovery_budget_record(bigint,int,timestamptz) is installed');
+SELECT is(
+  (SELECT count(*)::int FROM pg_proc
+    WHERE proname IN ('recovery_budget_acquire','recovery_budget_record')
+      AND pronamespace = 'public'::regnamespace
+      AND prosecdef
+      AND (SELECT rolname = 'setjoin_worker' FROM pg_roles WHERE oid = proowner)),
+  2, 'both recovery budget accessors are SECURITY DEFINER owned by setjoin_worker');
+
+-- ── The app credential is denied the whole budget seam ─────────────────────
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$SELECT * FROM recovery_budget_acquire(920001)$$,
+  '42501', NULL,
+  'setjoin_app is denied EXECUTE on recovery_budget_acquire (42501)');
+SELECT throws_ok(
+  $$SELECT recovery_budget_record(920001, 1, NULL)$$,
+  '42501', NULL,
+  'setjoin_app is denied EXECUTE on recovery_budget_record (42501)');
+RESET ROLE;
+
+-- ── The worker drives the Go-seam lifecycle ────────────────────────────────
+SET LOCAL ROLE setjoin_worker;
+
+-- Fresh account: the acquire upsert inserts the count-0 row whose
+-- window_until (= now()) is the "no window open" sentinel.
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 0,
+    'fresh account acquires the count-0 budget row');
+SELECT is((SELECT window_until > now() FROM recovery_budget_acquire(920001)), FALSE,
+    'the fresh-acquire sentinel (window_until = now) opens no window');
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key = 'recovery_user:920001'), 1,
+    'the accessor writes the recovery_user:{id} key (Go recoveryBudgetKey parity)');
+
+-- The first attempt OPENS the fixed window anchored at the explicit horizon
+-- (an absolute timestamp keeps the anchor-unchanged arms below exact).
+SELECT recovery_budget_record(920001, 1, '2030-01-01 00:00:00+00'::timestamptz);
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 1,
+    'the first admitted attempt opens the window at count 1');
+SELECT is((SELECT window_until FROM recovery_budget_acquire(920001)),
+          '2030-01-01 00:00:00+00'::timestamptz,
+    'the window anchor is exactly the horizon the caller passed');
+SELECT is((SELECT window_until > now() FROM recovery_budget_acquire(920001)), TRUE,
+    'the opened window is live');
+
+-- A refusal is COUNT-ONLY accounting under the UNCHANGED anchor: the Go seam
+-- re-passes the prior horizon, so grinding can never extend the window.
+SELECT recovery_budget_record(920001, 30,
+    (SELECT locked_until FROM auth_lockouts WHERE lockout_key = 'recovery_user:920001'));
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 30,
+    'the budget-limit attempt is recorded (count 30)');
+SELECT is((SELECT window_until FROM recovery_budget_acquire(920001)),
+          '2030-01-01 00:00:00+00'::timestamptz,
+    'the limit-crossing record did not move the anchor');
+SELECT recovery_budget_record(920001, 31,
+    (SELECT locked_until FROM auth_lockouts WHERE lockout_key = 'recovery_user:920001'));
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 31,
+    'a refused attempt is count-only accounting (count 31)');
+SELECT is((SELECT window_until FROM recovery_budget_acquire(920001)),
+          '2030-01-01 00:00:00+00'::timestamptz,
+    'a refusal NEVER extends the window — expiry restores on schedule');
+
+-- Reset: NULL re-arms the now() sentinel (the convention lives SQL-side).
+SELECT recovery_budget_record(920001, 0, NULL);
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 0,
+    'the reset zeroes the counter');
+SELECT is((SELECT window_until > now() FROM recovery_budget_acquire(920001)), FALSE,
+    'the NULL reset re-arms the no-window sentinel');
+
+-- Per-account isolation: a second account gets its own row.
+SELECT recovery_budget_acquire(920002);
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key LIKE 'recovery_user:9200%'), 2,
+    'a second account acquires its own budget row (per-account isolation)');
+
+-- ── Window expiry: only time moves the anchor; the next attempt restores ───
+RESET ROLE;
+UPDATE auth_lockouts SET locked_until = now() - interval '1 second'
+ WHERE lockout_key = 'recovery_user:920001';
+SET LOCAL ROLE setjoin_worker;
+SELECT is((SELECT window_until > now() FROM recovery_budget_acquire(920001)), FALSE,
+    'an expired window reads as closed (expiry restores the budget)');
+SELECT recovery_budget_record(920001, 1, now() + interval '15 minutes');
+SELECT is((SELECT attempt_count::int FROM recovery_budget_acquire(920001)), 1,
+    'the first post-expiry attempt opens a fresh window at count 1');
+SELECT is((SELECT window_until > now() FROM recovery_budget_acquire(920001)), TRUE,
+    'the restored window is live');
+
+SELECT * FROM finish();
+ROLLBACK;

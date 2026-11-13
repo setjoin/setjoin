@@ -1,0 +1,28 @@
+{
+  "case": "strict-valid-long-serial-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBxzCCAW2gAwIBAgIgAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEw\nCgYIKoZIzj0EAwIwMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMM\nDnNtaW1lLW9yYWNsZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAw\nWjAyMRcwFQYDVQQKDA5TZXRqb2luIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3Jh\nY2xlLWEwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT4fb9JpjH/70fNGlaeSslf\nZg5BydIW3//gFoG97OEhQVzzfH6fB0lwGfD8ZpGuWX5b4/yOp8PPxyQLccpRt1SF\no1MwUTAdBgNVHQ4EFgQUv3XI97j9HVYFoydt5v60OR2uvCUwHwYDVR0jBBgwFoAU\nv3XI97j9HVYFoydt5v60OR2uvCUwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQD\nAgNIADBFAiBcMpLYn4hbK6DHjwTz1cp9j9El+9rO1jRLYuOmXOI77QIhALOkvW3v\n6s6gLM1AxcB4aFcK0I+ESYDV4uxyYzlIVa0C\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "d78bcb2338b7d935ec91ad4c70476677b7a5200116a289c4a93982206f40c279",
+            "label": "imported",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          }
+        ]
+      },
+      "before": {
+        "anchors": []
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/smime/trust-anchors"
+}

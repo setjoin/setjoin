@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca doctor:\n  -json\n    \tOutput raw JSON\nError: flag: help requested\n",
+  "exit": 1
+}

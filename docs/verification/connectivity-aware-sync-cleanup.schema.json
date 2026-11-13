@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://setjoin.local/schema/connectivity-aware-sync-cleanup-v1.json",
+  "title": "Setjoin connectivity-aware sync cleanup receipt",
+  "description": "Idempotent, schema-version-1 evidence for disposable cleanup of host and test resources.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "utcTime",
+    "actions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "utcTime": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{3})?Z$"
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qdisc",
+        "isolatedDatabase",
+        "portsProcesses",
+        "tempFiles",
+        "firewall"
+      ],
+      "properties": {
+        "qdisc": {
+          "$ref": "#/$defs/action"
+        },
+        "isolatedDatabase": {
+          "$ref": "#/$defs/action"
+        },
+        "portsProcesses": {
+          "$ref": "#/$defs/action"
+        },
+        "tempFiles": {
+          "$ref": "#/$defs/action"
+        },
+        "firewall": {
+          "$ref": "#/$defs/action"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after",
+        "status"
+      ],
+      "properties": {
+        "before": {
+          "$ref": "#/$defs/observation"
+        },
+        "after": {
+          "$ref": "#/$defs/observation"
+        },
+        "status": {
+          "enum": [
+            "cleaned",
+            "already_clean",
+            "failed"
+          ]
+        },
+        "manualRecoveryCommand": {
+          "type": "string",
+          "pattern": "^(?![ \\t\\r\\n])(?!.*[ \\t\\r\\n]$)[^\\r\\n]+$",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "manualRecoveryCommand"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "cleaned",
+                  "already_clean"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "manualRecoveryCommand"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "present",
+            "absent",
+            "unknown"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

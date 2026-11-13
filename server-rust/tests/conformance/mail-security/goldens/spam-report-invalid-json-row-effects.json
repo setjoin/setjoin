@@ -1,0 +1,89 @@
+{
+  "case": "invalid-json-row-effects",
+  "effects": [
+    {
+      "after": {
+        "control_operations": [],
+        "external": [
+          {
+            "user_id": "<actor>",
+            "warning": true
+          },
+          {
+            "user_id": "<other>",
+            "warning": true
+          }
+        ],
+        "list_operations": [],
+        "models": [],
+        "outbox": [],
+        "personal": [],
+        "senders": [],
+        "state": [
+          {
+            "generation": 1,
+            "user_id": "<actor>"
+          },
+          {
+            "generation": 1,
+            "user_id": "<other>"
+          }
+        ],
+        "tags": [
+          {
+            "message_id": "<msg-actor>",
+            "tag": "Inbox"
+          },
+          {
+            "message_id": "<msg-other>",
+            "tag": "Inbox"
+          }
+        ],
+        "trusted": []
+      },
+      "before": {
+        "control_operations": [],
+        "external": [
+          {
+            "user_id": "<actor>",
+            "warning": true
+          },
+          {
+            "user_id": "<other>",
+            "warning": true
+          }
+        ],
+        "list_operations": [],
+        "models": [],
+        "outbox": [],
+        "personal": [],
+        "senders": [],
+        "state": [
+          {
+            "generation": 1,
+            "user_id": "<actor>"
+          },
+          {
+            "generation": 1,
+            "user_id": "<other>"
+          }
+        ],
+        "tags": [
+          {
+            "message_id": "<msg-actor>",
+            "tag": "Inbox"
+          },
+          {
+            "message_id": "<msg-other>",
+            "tag": "Inbox"
+          }
+        ],
+        "trusted": []
+      },
+      "table": "spam"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /report"
+}

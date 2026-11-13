@@ -1,0 +1,11 @@
+-- pgTAP: rust_vip_senders.sql (#307) — wrappers keep frozen Go's missing user GUC.
+BEGIN;
+SELECT plan(3);
+SELECT mk_account('vipw') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO vip_senders(user_id, sender_email) VALUES (:u, 'a@vip.test');
+SELECT is(rust_vip_senders_list(:u)::text, vip_senders_list(:u)::text, 'the list wrapper answers the reducer result when RLS admits the caller');
+SELECT is(rust_vip_sender_set(:u, ' B@VIP.test ', true)->>'email', 'b@vip.test', 'the wrapper delegates to the reducer');
+SELECT is((SELECT count(*) FROM vip_senders WHERE user_id = :u), 2::bigint, 'the owner connection sees both rows');
+SELECT * FROM finish();
+ROLLBACK;

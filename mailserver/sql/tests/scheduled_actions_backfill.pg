@@ -1,0 +1,59 @@
+-- scheduled_actions_backfill.pg: Task 6 — legacy timer migration + side-channel drop.
+-- Asserts (a) tags.timer_type is gone, (b) the subsumed cron wrappers no longer
+-- exist, and (c) backfill_scheduled_actions() materializes a `snooze` action for a
+-- legacy snooze message_tags row that has no corresponding scheduled_action.
+BEGIN;
+SELECT plan(8);
+
+-- (a) the V025 side-channel is dropped.
+SELECT hasnt_column('tags', 'timer_type', 'tags.timer_type side-channel dropped');
+
+-- (b) the subsumed cron wrappers are gone (replaced by the dispatcher + handlers).
+SELECT hasnt_function('process_message_timers',    'process_message_timers removed');
+SELECT hasnt_function('process_snoozed_messages',  'process_snoozed_messages removed');
+SELECT hasnt_function('process_scheduled_messages','process_scheduled_messages removed');
+
+-- (c) backfill shape: a legacy snooze message_tags row with a future snooze_until
+-- and NO matching scheduled_action gets one created.
+INSERT INTO domains (name, is_local) VALUES ('bkf.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (196101, 'bkf', (SELECT id FROM domains WHERE name='bkf.test'),
+        'bkf@bkf.test', 'Bkf', crypt('x', gen_salt('bf')), FALSE) ON CONFLICT (id) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 196101 != mailbox 96101).
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (96101, 196101, (SELECT id FROM domains WHERE name='bkf.test'),
+        'bkf@bkf.test', 'Bkf', 'personal', TRUE) ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(96101);
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (96101, 96101, (SELECT id FROM tags WHERE mailbox_id=96101 AND name='Inbox'),
+    '<bkf-1@bkf.test>', 'Legacy snooze', 'snd@bkf.test', 'Snd',
+    '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'thr-bkf-1', 'raw/96101', now() - interval '1 hour')
+ON CONFLICT (id, received_at) DO NOTHING;
+
+-- A legacy Snoozed message_tag with a future snooze_until and no scheduled_action.
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary, snooze_until)
+SELECT 96101, m.received_at, t.id, 'snooze', FALSE, now() + interval '4 hours'
+FROM tags t, messages m
+WHERE m.id=96101 AND t.mailbox_id=96101 AND t.name='Snoozed' ON CONFLICT DO NOTHING;
+
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='snooze' AND mailbox_id=96101),
+  0::BIGINT, 'no snooze action exists before backfill');
+
+SELECT lives_ok($$ SELECT backfill_scheduled_actions() $$, 'backfill runs');
+
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='snooze' AND mailbox_id=96101
+     AND (payload->>'message_id')::BIGINT = 96101),
+  1::BIGINT, 'legacy snooze backfilled into scheduled_actions');
+
+-- Idempotent: a second backfill does not duplicate.
+SELECT backfill_scheduled_actions();
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='snooze' AND mailbox_id=96101),
+  1::BIGINT, 'backfill is idempotent (no duplicate)');
+
+SELECT * FROM finish();
+ROLLBACK;

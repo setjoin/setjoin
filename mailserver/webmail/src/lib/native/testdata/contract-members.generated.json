@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "authority": "mailserver/webmail/src/lib/native/types.ts",
+  "typescriptVersion": "6.0.3",
+  "capabilities": [
+    "push",
+    "biometric",
+    "secureStore",
+    "vault",
+    "share",
+    "pickFile",
+    "notify",
+    "openExternal",
+    "mailDb",
+    "deviceProof",
+    "driveMirror",
+    "drive",
+    "recoveryBlob"
+  ],
+  "groups": {
+    "SetjoinNativeBridge": {
+      "required": [
+        "biometricUnlock",
+        "capabilities",
+        "deviceProof",
+        "notify",
+        "openExternal",
+        "pickFile",
+        "pushDevicePublicKey",
+        "pushRegister",
+        "secureStore",
+        "share",
+        "vault",
+        "version"
+      ],
+      "optional": [
+        "connectivity",
+        "db",
+        "drive",
+        "driveMirror",
+        "recoveryBlob"
+      ]
+    },
+    "SecureStore": {
+      "required": [
+        "get",
+        "remove",
+        "set"
+      ],
+      "optional": []
+    },
+    "VaultBridge": {
+      "required": [
+        "generateTotp",
+        "isEnrolled",
+        "isUnlocked",
+        "listTotp",
+        "unlock",
+        "unlockBiometric",
+        "unlockPassphrase",
+        "version"
+      ],
+      "optional": []
+    },
+    "OfflineDbBridge": {
+      "required": [
+        "exec",
+        "isOpen",
+        "open",
+        "query",
+        "wipe"
+      ],
+      "optional": [
+        "execSchemaInit",
+        "migrateStore",
+        "transactionBatch"
+      ]
+    },
+    "RecoveryBlobBridge": {
+      "required": [
+        "readChunk",
+        "readClose",
+        "readOpen",
+        "ref",
+        "unref",
+        "writeAbort",
+        "writeBegin",
+        "writeChunk",
+        "writeCommit"
+      ],
+      "optional": []
+    },
+    "DriveMirrorBridge": {
+      "required": [
+        "configure",
+        "officeChoices",
+        "openOffice",
+        "openRoot",
+        "refreshToken",
+        "resync",
+        "setPaused",
+        "status",
+        "version"
+      ],
+      "optional": []
+    },
+    "DriveBridge": {
+      "required": [
+        "deleteChunks",
+        "fetchChunk",
+        "hasChunk",
+        "importFile",
+        "pushChunk",
+        "serveGrant",
+        "serveRevoke",
+        "serveStart"
+      ],
+      "optional": []
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "before": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "table": "trace"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/trace/%3Cout1%40trace.test%3E",
+      "method": "GET",
+      "path": "/admin/trace/{messageId}"
+    },
+    "response": {
+      "body": "{\"messageId\":\"\\u003cout1@trace.test\\u003e\",\"events\":[{\"event\":\"delivered\",\"rcptAddr\":\"bob@y.test\",\"fromAddr\":\"alice@x.test\",\"remoteHost\":null,\"details\":{\"status\":\"delivered\",\"subject\":\"Hello World\"},\"occurredAt\":\"2026-10-01T10:00:08Z\"},{\"event\":\"received\",\"rcptAddr\":\"bob@y.test\",\"fromAddr\":\"alice@x.test\",\"remoteHost\":\"mx1.x.test\",\"details\":{\"size\":120,\"status\":\"ok\",\"subject\":\"Hello World\"},\"occurredAt\":\"2026-10-01T10:00:09Z\"},{\"event\":\"received\",\"rcptAddr\":\"yan@y.test\",\"fromAddr\":\"zed@x.test\",\"remoteHost\":\"mx1.x.test\",\"details\":{\"subject\":\"ZZZ\"},\"occurredAt\":\"2026-10-03T10:00:00Z\"},{\"event\":\"delivered\",\"rcptAddr\":\"yan@y.test\",\"fromAddr\":\"zed@x.test\",\"remoteHost\":null,\"details\":{\"status\":\"delivered\",\"subject\":\"ZZZ\"},\"occurredAt\":\"2026-10-04T10:00:00Z\"}],\"queue\":{\"status\":\"delivered\",\"attemptCount\":2,\"nextAttemptAt\":\"2026-10-02T09:00:00Z\",\"lastError\":null,\"rcptAddrs\":[\"r1@ext.test\",\"r2@ext.test\",\"r3@ext.test\"],\"queuedAt\":\"2026-10-01T10:00:00Z\"},\"multiRecipient\":true,\"recipients\":[{\"email\":\"r2@ext.test\",\"status\":\"bounced\",\"mxHost\":\"mx2.ext.test\",\"deliveredAt\":null,\"nextAttemptAt\":null,\"lastSmtpCode\":550,\"lastSmtpText\":\"no such user\",\"attempts\":[{\"n\":1,\"at\":\"2026-10-01T10:02:00Z\",\"mxHost\":\"mx2.ext.test\",\"smtpCode\":550,\"smtpText\":\"no such user\",\"outcome\":\"rejected\",\"tls\":true}]},{\"email\":\"r3@ext.test\",\"status\":\"queued\",\"mxHost\":null,\"deliveredAt\":null,\"nextAttemptAt\":null,\"lastSmtpCode\":null,\"lastSmtpText\":null,\"attempts\":[]},{\"email\":\"r1@ext.test\",\"status\":\"delivered\",\"mxHost\":\"mx1.ext.test\",\"deliveredAt\":\"2026-10-01T10:05:00.25Z\",\"nextAttemptAt\":null,\"lastSmtpCode\":250,\"lastSmtpText\":\"ok\",\"attempts\":[{\"n\":1,\"at\":\"2026-10-01T10:01:00Z\",\"mxHost\":\"mx1.ext.test\",\"smtpCode\":451,\"smtpText\":\"try \\u003clater\\u003e \\u0026 retry\",\"outcome\":\"deferred\",\"tls\":false},{\"n\":2,\"at\":\"2026-10-01T10:05:00.25Z\",\"mxHost\":\"mx1.ext.test\",\"smtpCode\":250,\"smtpText\":\"ok\",\"outcome\":\"accepted\",\"tls\":true}]}],\"overallStatus\":\"delivered\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1939"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/trace/{messageId}"
+}

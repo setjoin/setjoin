@@ -1,0 +1,300 @@
+-- meet_lobby.pg — Meet B1 Task 5: guest lobby reducer trio (create/poll/
+-- admit/deny) + the expiry sweep. B2 Task 4 extends meeting_join_request_poll:
+-- the pending return and BOTH admitted grant returns carry recordingActive
+-- (D5's flicker-window belt); denied/expired stay bare (D-7 — no consent
+-- decision remains on a dead request).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 5;
+-- retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 4.
+BEGIN;
+SELECT plan(48);
+
+SELECT mk_auth_user('host@meet-lobby.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-lobby.test') AS member_id \gset
+SELECT mk_auth_user('knocker@meet-lobby.test') AS knocker_id \gset
+
+-- ── DEFINER search_path pin (eng #2 — reused from meet_schema.pg's assert) ──
+SELECT ok((SELECT proconfig::text FROM pg_proc WHERE proname = 'meeting_join_request_create')
+          LIKE '%search_path%', 'meeting_join_request_create pins search_path');
+SELECT ok((SELECT proconfig::text FROM pg_proc WHERE proname = 'meeting_join_request_poll')
+          LIKE '%search_path%', 'meeting_join_request_poll pins search_path');
+
+-- ── setup: a guest-enabled live meeting ──────────────────────────────────
+SELECT (meeting_create(:host_id, 'Lobby test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'chatChannelId')::bigint AS channel_id \gset
+SELECT (:'m'::jsonb ->> 'slug') AS slug \gset
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+
+-- ── create: guest-enabled meeting → requestId + secret ───────────────────
+SELECT (meeting_join_request_create(:'slug', 'Gary Guest')) AS req \gset
+SELECT ok((:'req'::jsonb ? 'requestId') AND (:'req'::jsonb ? 'secret'),
+  'guest create on a guest-enabled meeting returns requestId+secret');
+SELECT (:'req'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT (:'req'::jsonb ->> 'secret') AS guest_secret \gset
+
+-- ── the anti-oracle: guestAllowed=false / ended / bad slug / guest_access ──
+-- off all raise the identical BZ185.
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, false);
+SELECT throws_ok(
+  format($$ SELECT meeting_join_request_create(%L, 'X') $$, :'slug'),
+  'BZ185', NULL, 'guestAllowed=false → BZ185'
+);
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+
+SELECT throws_ok(
+  $$ SELECT meeting_join_request_create('not-a-real-slug', 'X') $$,
+  'BZ185', NULL, 'bad slug → BZ185'
+);
+
+UPDATE feature_toggles SET enabled = false WHERE key = 'meet.guest_access';
+SELECT throws_ok(
+  format($$ SELECT meeting_join_request_create(%L, 'X') $$, :'slug'),
+  'BZ185', NULL, 'meet.guest_access OFF → BZ185 for a guest'
+);
+-- ── the scoping arm: a member knock (p_user_id set) still succeeds while ──
+-- meet.guest_access is OFF — the anti-oracle arm is guest-row-only.
+SELECT (meeting_join_request_create(:'slug', 'Kim Knocker', :knocker_id)) AS knock_req \gset
+SELECT ok((:'knock_req'::jsonb ? 'requestId') AND (:'knock_req'::jsonb ? 'secret'),
+  'a member knock succeeds with meet.guest_access OFF (scoping arm)');
+SELECT (:'knock_req'::jsonb ->> 'requestId')::bigint AS knock_req_id \gset
+SELECT (:'knock_req'::jsonb ->> 'secret') AS knock_secret \gset
+UPDATE feature_toggles SET enabled = true WHERE key = 'meet.guest_access';
+
+-- ended meeting → BZ185 (use a fresh disposable meeting so it doesn't
+-- disturb the guest-enabled fixture above).
+SELECT (meeting_create(:host_id, 'Lobby ended-meeting fixture', NULL, NULL, NULL, NULL, true)) AS m2 \gset
+SELECT (:'m2'::jsonb ->> 'meetingId')::bigint AS ended_meeting_id \gset
+SELECT (:'m2'::jsonb ->> 'slug') AS ended_slug \gset
+SELECT meeting_end(:host_id, :ended_meeting_id);
+SELECT throws_ok(
+  format($$ SELECT meeting_join_request_create(%L, 'X') $$, :'ended_slug'),
+  'BZ185', NULL, 'ended meeting → BZ185'
+);
+
+-- ── poll: wrong secret → BZ185 (same anti-oracle shape) ──────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_join_request_poll(%L, %s, 'wrong-secret') $$, :'slug', :guest_req_id),
+  'BZ185', NULL, 'poll with the wrong secret → BZ185'
+);
+
+-- ── admit/deny gates ──────────────────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :member_id, :guest_req_id),
+  'BZ186', NULL, 'admit by a non-host/cohost → BZ186'
+);
+
+SELECT (meeting_admit(:host_id, :guest_req_id)) AS admit_result \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :guest_req_id),
+  'BZ189', NULL, 'admit of an already-decided (non-pending) request → BZ189'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, 999999) $$, :host_id),
+  'BZ189', NULL, 'admit of a nonexistent request → BZ189 (no oracle on which)'
+);
+
+-- ── guest poll after admit: grant with roomAdmin=false, identity ~ '^g:' ──
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS guest_poll \gset
+SELECT is(:'guest_poll'::jsonb ->> 'state', 'admitted', 'guest poll after admit reports admitted');
+SELECT is((:'guest_poll'::jsonb -> 'grant' ->> 'roomAdmin')::boolean, false,
+  'guest grant has roomAdmin=false');
+SELECT ok((:'guest_poll'::jsonb -> 'grant' ->> 'identity') ~ '^g:',
+  'guest grant identity is g:-prefixed');
+SELECT ok((:'guest_poll'::jsonb ? 'recordingActive'),
+  'the guest admitted-grant return carries recordingActive (D5)');
+-- B3 Task 18 retro fix (design finding #4): the named root fix for the
+-- guest-captions ceiling — the admitted guest envelope carries the bot's
+-- attested identity, unconditional on captionsOn.
+SELECT is(:'guest_poll'::jsonb ->> 'ccIdentity', 'cc:' || :meeting_id,
+  'the guest admitted-grant return carries ccIdentity (design finding #4)');
+
+-- ── knock-admit: member-knock poll → grant with identity ~ '^u:' ─────────
+SELECT (meeting_admit(:host_id, :knock_req_id)) AS knock_admit \gset
+SELECT (meeting_join_request_poll(:'slug', :knock_req_id, :'knock_secret')) AS knock_poll \gset
+SELECT is(:'knock_poll'::jsonb ->> 'state', 'admitted', 'member-knock poll after admit reports admitted');
+SELECT ok((:'knock_poll'::jsonb -> 'grant' ->> 'identity') ~ '^u:',
+  'member-knock grant identity is u:-prefixed, never a guest identity');
+SELECT ok((:'knock_poll'::jsonb ? 'recordingActive'),
+  'the member-knock admitted-grant return ALSO carries recordingActive (D5, both arms)');
+SELECT is(:'knock_poll'::jsonb ->> 'ccIdentity', 'cc:' || :meeting_id,
+  'the member-knock admitted-grant return ALSO carries ccIdentity (design finding #4, both arms)');
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_channel_members WHERE channel_id = :channel_id AND user_id = :knocker_id
+  ), 'a knock-admitted member is a member of the bound chat channel');
+
+-- ── the re-mint kill: guest poll goes dark (BZ185) once guest_access flips ──
+-- OFF, even though the row is already admitted.
+UPDATE feature_toggles SET enabled = false WHERE key = 'meet.guest_access';
+SELECT throws_ok(
+  format($$ SELECT meeting_join_request_poll(%L, %s, %L) $$, :'slug', :guest_req_id, :'guest_secret'),
+  'BZ185', NULL, 'an admitted guest poll goes dark once meet.guest_access flips OFF'
+);
+UPDATE feature_toggles SET enabled = true WHERE key = 'meet.guest_access';
+
+-- ── poll after kick: denied, no grant ────────────────────────────────────
+SELECT meeting_kick(:host_id, :meeting_id, 'g:' || :guest_req_id);
+SELECT (meeting_join_request_poll(:'slug', :guest_req_id, :'guest_secret')) AS kicked_poll \gset
+SELECT is(:'kicked_poll'::jsonb ->> 'state', 'denied', 'poll after kick reports denied');
+SELECT ok(NOT (:'kicked_poll'::jsonb ? 'grant'), 'a denied poll carries no grant');
+SELECT ok(NOT (:'kicked_poll'::jsonb ? 'recordingActive'),
+  'a denied poll carries no recordingActive either (D-7 — no consent decision remains)');
+
+-- ── BLOCKER FIX regression: a banned member's knock-poll mints no grant ──
+-- (live-reproduced 2026-07-12): knock -> admit -> meeting_kick('u:'||uid)
+-- stamps banned_at on the participant row, but the join_request row itself
+-- stayed 'admitted' forever — the public poll kept re-minting a live grant
+-- around the ban. The knocker (:knocker_id) was already admitted + polled
+-- above (identity 'u:'||:knocker_id); kick it, then re-poll the SAME
+-- request/secret and confirm the wire goes dark exactly like the guest arm.
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :knocker_id);
+SELECT (meeting_join_request_poll(:'slug', :knock_req_id, :'knock_secret')) AS banned_knock_poll \gset
+SELECT is(:'banned_knock_poll'::jsonb ->> 'state', 'denied',
+  'a banned member''s knock-poll reports denied (no re-mint), mirroring the guest kick wire shape');
+SELECT ok(NOT (:'banned_knock_poll'::jsonb ? 'grant'), 'the banned member''s poll carries no grant');
+SELECT ok(NOT (:'banned_knock_poll'::jsonb ? 'recordingActive'),
+  'a banned member''s denied poll carries no recordingActive either (D-7)');
+
+-- ── the knock-then-admit re-admit arm: a banned member knocks; admit ─────
+-- clears banned_at; the member can then meeting_join normally.
+SELECT meeting_join(:member_id, :meeting_id);
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :member_id);
+SELECT is((SELECT banned_at FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id) IS NOT NULL, true,
+  'setup: the member is banned before the knock-then-admit test');
+SELECT (meeting_join_request_create(:'slug', 'Rejoining Member', :member_id)) AS reknock \gset
+SELECT (meeting_admit(:host_id, (:'reknock'::jsonb ->> 'requestId')::bigint)) AS reknock_admit \gset
+SELECT is((SELECT banned_at FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id), NULL,
+  'admitting a banned member''s knock clears banned_at (the re-admit arm)');
+SELECT lives_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :member_id, :meeting_id),
+  'the re-admitted member can meeting_join normally afterward'
+);
+
+-- ── deny gate parity ──────────────────────────────────────────────────────
+SELECT (meeting_join_request_create(:'slug', 'To Be Denied')) AS deny_req \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_deny(%s, %s) $$, :member_id, (:'deny_req'::jsonb ->> 'requestId')::bigint),
+  'BZ186', NULL, 'deny by a non-host/cohost → BZ186'
+);
+SELECT meeting_deny(:host_id, (:'deny_req'::jsonb ->> 'requestId')::bigint);
+
+-- ── the DES-011 authority check: an admitted poll mints no grant once the ──
+-- meeting itself has ended (meeting_end only expires 'pending' rows, so an
+-- 'admitted' row would otherwise keep re-minting a token for a dead room
+-- indefinitely — the blocker fix). Fresh disposable meeting so it doesn't
+-- disturb the guest-enabled fixture above.
+SELECT (meeting_create(:host_id, 'Lobby end-after-admit fixture')) AS m3 \gset
+SELECT (:'m3'::jsonb ->> 'meetingId')::bigint AS eoa_meeting_id \gset
+SELECT (:'m3'::jsonb ->> 'slug') AS eoa_slug \gset
+SELECT meeting_set_guest_allowed(:host_id, :eoa_meeting_id, true);
+SELECT (meeting_join_request_create(:'eoa_slug', 'End After Admit')) AS eoa_req \gset
+SELECT (:'eoa_req'::jsonb ->> 'requestId')::bigint AS eoa_req_id \gset
+SELECT (:'eoa_req'::jsonb ->> 'secret') AS eoa_secret \gset
+SELECT (meeting_admit(:host_id, :eoa_req_id)) AS eoa_admit \gset
+SELECT meeting_end(:host_id, :eoa_meeting_id);
+SELECT (meeting_join_request_poll(:'eoa_slug', :eoa_req_id, :'eoa_secret')) AS eoa_poll \gset
+SELECT is(:'eoa_poll'::jsonb ->> 'state', 'expired',
+  'admitted poll after meeting_end mints no grant (reports expired)');
+SELECT ok(NOT (:'eoa_poll'::jsonb ? 'grant'), 'the post-end poll carries no grant');
+SELECT ok(NOT (:'eoa_poll'::jsonb ? 'recordingActive'),
+  'the synthesized expired poll carries no recordingActive either (D-7 — dead request)');
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :eoa_req_id), 'admitted',
+  'the persisted row stays admitted — the host''s decision is not rewritten, only the wire response');
+
+-- ── B2 Task 4: recordingActive VALUE correctness (the flicker window) ───
+-- a fresh guest-enabled live meeting with a host recording in flight. A
+-- GUEST's pending poll reports recordingActive=true (BZ199 arm 2 then
+-- correctly refuses to admit that guest while recording — proven below,
+-- not worked around); a MEMBER-KNOCK's admitted poll ALSO reports
+-- recordingActive=true (arm 2 is guest-scoped, a knock-admit is allowed
+-- while recording). Once the recording settles into a terminal state, a
+-- re-poll of the (already-admitted) knock reports recordingActive=false.
+SELECT mk_auth_user('flicker-knocker@meet-lobby.test') AS flicker_knocker_id \gset
+SELECT (meeting_create(:host_id, 'Lobby recording-flicker fixture')) AS m4 \gset
+SELECT (:'m4'::jsonb ->> 'meetingId')::bigint AS rec_meeting_id \gset
+SELECT (:'m4'::jsonb ->> 'slug') AS rec_slug \gset
+SELECT room_name AS rec_room FROM meetings WHERE id = :rec_meeting_id \gset
+UPDATE meetings SET state = 'live' WHERE id = :rec_meeting_id;
+SELECT meeting_set_guest_allowed(:host_id, :rec_meeting_id, true);
+SELECT (meeting_recording_start(:host_id, :rec_meeting_id)) AS rec_id \gset
+
+SELECT (meeting_join_request_create(:'rec_slug', 'Flicker Guest')) AS flicker_req \gset
+SELECT (:'flicker_req'::jsonb ->> 'requestId')::bigint AS flicker_req_id \gset
+SELECT (:'flicker_req'::jsonb ->> 'secret') AS flicker_secret \gset
+SELECT (meeting_join_request_poll(:'rec_slug', :flicker_req_id, :'flicker_secret')) AS flicker_pending_poll \gset
+SELECT is(:'flicker_pending_poll'::jsonb ->> 'state', 'pending', 'setup: the flicker guest is still pending');
+SELECT is((:'flicker_pending_poll'::jsonb ->> 'recordingActive')::boolean, true,
+  'a pending poll reports recordingActive=true while a recording is in flight (D5)');
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :flicker_req_id),
+  'BZ199', NULL, 'admitting that GUEST while recording is in flight is still refused (arm 2 — not worked around above)'
+);
+
+SELECT (meeting_join_request_create(:'rec_slug', 'Flicker Knocker', :flicker_knocker_id)) AS flicker_knock \gset
+SELECT (:'flicker_knock'::jsonb ->> 'requestId')::bigint AS flicker_knock_id \gset
+SELECT (:'flicker_knock'::jsonb ->> 'secret') AS flicker_knock_secret \gset
+SELECT (meeting_admit(:host_id, :flicker_knock_id)) AS ignore3 \gset
+SELECT (meeting_join_request_poll(:'rec_slug', :flicker_knock_id, :'flicker_knock_secret')) AS flicker_admitted_poll \gset
+SELECT is((:'flicker_admitted_poll'::jsonb ->> 'recordingActive')::boolean, true,
+  'a member-knock admitted-grant poll reports recordingActive=true too (arm 2 is guest-scoped)');
+
+SELECT meeting_recording_bind_egress(:rec_id, 'EG_flicker', 'meet/flicker.mp4', true, NULL);
+SELECT meeting_recording_stop(:host_id, :rec_meeting_id);
+SELECT meeting_recording_event(:'rec_room'::uuid, 'EG_flicker', 'egress_ended',
+  '{"status":"EGRESS_FAILED","error":"flicker-test induced failure"}'::jsonb);
+SELECT (meeting_join_request_poll(:'rec_slug', :flicker_knock_id, :'flicker_knock_secret')) AS flicker_settled_poll \gset
+SELECT is((:'flicker_settled_poll'::jsonb ->> 'recordingActive')::boolean, false,
+  'once the recording settles into a terminal state, a re-poll reports recordingActive=false');
+
+-- ── meeting_requests_expire: flips clock-expired rows, returns the count ──
+INSERT INTO meeting_join_requests (meeting_id, display_name, state, expires_at)
+  VALUES (:meeting_id, 'Stale Guest', 'pending', now() - interval '1 minute');
+SELECT ok((meeting_requests_expire()) >= 1, 'meeting_requests_expire flips clock-expired rows');
+SELECT is((SELECT state FROM meeting_join_requests
+            WHERE meeting_id = :meeting_id AND display_name = 'Stale Guest'), 'expired',
+  'the clock-expired row is now expired');
+
+-- ── huddle Slack semantics (V131, pipeline review fix): a member-knock
+-- ADMIT into a huddle-bound meeting must not auto-add the knocker to the
+-- pre-existing channel either — mirrors meeting_join.sql's gate. ────────
+SELECT mk_auth_user('huddle-lobby-owner@meet-lobby.test') AS hl_owner_id \gset
+SELECT mk_auth_user('huddle-lobby-knocker@meet-lobby.test') AS hl_knocker_id \gset
+SELECT chat_channel_create(:hl_owner_id, 'huddle-origin-lobby') AS hl_origin_ch \gset
+SELECT (meeting_create(:hl_owner_id, 'Lobby huddle test', NULL, NULL, :hl_origin_ch)) AS hlm \gset
+SELECT (:'hlm'::jsonb ->> 'meetingId')::bigint AS hl_meeting_id \gset
+SELECT (:'hlm'::jsonb ->> 'slug') AS hl_slug \gset
+SELECT (meeting_join_request_create(:'hl_slug', 'Huddle Knocker', :hl_knocker_id)) AS hl_req \gset
+SELECT (meeting_admit(:hl_owner_id, (:'hl_req'::jsonb ->> 'requestId')::bigint)) AS hl_admit \gset
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM chat_channel_members WHERE channel_id = :hl_origin_ch AND user_id = :hl_knocker_id
+  ), 'a knock-admitted member into a huddle-bound meeting does NOT auto-join the origin channel (V131)');
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :hl_meeting_id AND identity = 'u:' || :hl_knocker_id), 'member',
+  'the knock-admitted member IS a meeting participant regardless');
+
+-- ── meeting_admit audit residual (compliance F2 completion, pipeline
+-- review fix): the member-knock/guest-admit path also inserts into
+-- chat_channel_members for a provisioned channel — an admit into a
+-- provisioned meeting channel with feature.chat_compliance ON must land a
+-- member.join act and the chain must verify, the meeting_join.sql/
+-- chat_org_default_set genre extended to meeting_admit. ─────────────────
+SELECT mk_auth_user('admit-audit-host@meet-lobby.test') AS aa_host_id \gset
+SELECT mk_auth_user('admit-audit-knocker@meet-lobby.test') AS aa_knocker_id \gset
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT (meeting_create(:aa_host_id, 'Admit audit lobby test')) AS aam \gset
+SELECT (:'aam'::jsonb ->> 'meetingId')::bigint AS aa_meeting_id \gset
+SELECT (:'aam'::jsonb ->> 'chatChannelId')::bigint AS aa_channel_id \gset
+SELECT (:'aam'::jsonb ->> 'slug') AS aa_slug \gset
+SELECT (meeting_join_request_create(:'aa_slug', 'Admit Audit Knocker', :aa_knocker_id)) AS aa_req \gset
+SELECT (meeting_admit(:aa_host_id, (:'aa_req'::jsonb ->> 'requestId')::bigint)) AS aa_admit \gset
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_audit_log
+     WHERE channel_id = :aa_channel_id AND action = 'member.join' AND target_id = :aa_knocker_id
+  ), 'meeting_admit into a provisioned channel with compliance ON writes a member.join act');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:aa_channel_id)),
+  'the chain stays valid after the meeting_admit member.join act');
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_compliance';
+
+SELECT * FROM finish();
+ROLLBACK;

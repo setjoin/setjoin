@@ -1,0 +1,114 @@
+BEGIN;
+SELECT plan(18);
+
+UPDATE feature_toggles SET enabled=true WHERE key IN
+  ('feature.identity_model_v2','feature.identity_transitions','feature.cae_runtime');
+SELECT mk_account('rebind-actor') AS actor_mb \gset
+SELECT mk_account('rebind-target') AS target_mb \gset
+SELECT mk_account('rebind-approver') AS approver_mb \gset
+SELECT user_id AS actor_id FROM mailboxes WHERE id=:actor_mb \gset
+SELECT user_id AS target_id FROM mailboxes WHERE id=:target_mb \gset
+SELECT user_id AS approver_id FROM mailboxes WHERE id=:approver_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:actor_id,1,:actor_id),(:approver_id,1,:actor_id) ON CONFLICT DO NOTHING;
+UPDATE system_config SET value=jsonb_build_array(:approver_id) WHERE key='ca_break_glass_user_ids';
+UPDATE approval_policies SET enabled=true,conditions='{"protected":true}'::jsonb,
+  approver_spec=jsonb_build_object('kind','named','user_id',:approver_id)
+WHERE consumer_type='identity.transition';
+UPDATE users SET password_hash='rebind-recovery',sync_source='ad' WHERE id=:target_id;
+INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state,created_by,updated_by)
+VALUES('rebind-ad','Rebind AD','ad','{"authenticate":true,"provision_lifecycle":true}','active',:actor_id,:actor_id)
+RETURNING id AS old_source \gset
+INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state,created_by,updated_by)
+VALUES('rebind-scim','Rebind SCIM','scim','{"authenticate":true,"provision_lifecycle":true}','active',:actor_id,:actor_id)
+RETURNING id AS target_source \gset
+INSERT INTO user_identity_links(user_id,source_id,external_subject,purposes,state,link_method,evidence)
+VALUES(:target_id,:old_source,'old-anchor',ARRAY['authenticate','provision'],'active','hard_anchor','{"proof":"test"}')
+RETURNING id AS old_link \gset
+INSERT INTO user_identity_links(user_id,source_id,external_subject,purposes,state,link_method,evidence)
+VALUES(:target_id,:target_source,'new-anchor',ARRAY['authenticate','provision'],'active','hard_anchor','{"proof":"test"}')
+RETURNING id AS target_link \gset
+INSERT INTO user_lifecycle_authorities(user_id,authority_kind,link_id,established_by)
+VALUES(:target_id,'source',:old_link,:actor_id)
+ON CONFLICT(user_id) DO UPDATE SET authority_kind='source',link_id=:old_link,generation=user_lifecycle_authorities.generation+1;
+
+SELECT identity_mailbox_invariant_snapshot(:target_id)::text AS mailbox_before \gset
+SELECT gen_random_uuid() AS preview_key \gset
+SELECT identity_source_rebind_preview(:actor_id,:target_id,:target_link,
+  'Move lifecycle authority to verified SCIM anchor',:'preview_key')::text AS preview \gset
+SELECT is((:'preview'::jsonb)->>'state','previewed','source migration creates a durable preview');
+SELECT is((:'preview'::jsonb)->'preview'->>'targetLinkId',:target_link::text,'preview binds the exact target link');
+SELECT is((identity_source_rebind_preview(:actor_id,:target_id,:target_link,
+  'Move lifecycle authority to verified SCIM anchor',:'preview_key')->>'replayed')::boolean,true,
+  'exact source migration preview replays');
+
+CREATE FUNCTION pg_temp.rebind_elevation(p_actor bigint,p_transition uuid,p_digest text,p_key uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_challenge jsonb; v_result jsonb;
+BEGIN
+  v_challenge:=identity_transition_challenge_issue(p_actor,p_transition,p_digest,gen_random_uuid());
+  v_result:=identity_transition_challenge_complete(p_actor,p_transition,
+    (v_challenge->>'challengeId')::uuid,p_digest,digest('rebind-session','sha256'),digest('rebind-factor','sha256'),
+    ARRAY['pwd','otp','mfa'],'aal2',p_key);
+  RETURN (v_result->>'elevationId')::uuid;
+END $$;
+SELECT pg_temp.rebind_elevation(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  :'preview'::jsonb->>'previewDigest',gen_random_uuid()) AS request_elevation \gset
+SELECT identity_transition_request(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  :'preview'::jsonb->>'previewDigest',:'request_elevation',
+  'Move lifecycle authority to verified SCIM anchor',gen_random_uuid())::text AS requested \gset
+SELECT is((:'requested'::jsonb)->>'state','authorized','unprotected source migration authorizes after step-up');
+SELECT pg_temp.rebind_elevation(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  :'preview'::jsonb->>'previewDigest',gen_random_uuid()) AS execute_elevation \gset
+SELECT lives_ok(format($q$SELECT identity_transition_execute(%s,%L::uuid,%L,%L::uuid,NULL,
+  %L,%L::uuid)$q$,:actor_id,(:'preview'::jsonb->>'transitionId'),(:'preview'::jsonb->>'previewDigest'),
+  :'execute_elevation','Move lifecycle authority to verified SCIM anchor',gen_random_uuid()),
+  'source migration executes through the existing transition rail');
+SELECT is((SELECT link_id::text FROM user_lifecycle_authorities WHERE user_id=:target_id),:target_link::text,
+  'lifecycle authority points at the target link');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:old_link),'detached','old provisioning link is retained and detached');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:target_link),'active','target provisioning link remains active');
+SELECT is((SELECT sync_source FROM users WHERE id=:target_id),'scim','legacy source projection follows the target');
+SELECT is(identity_mailbox_invariant_snapshot(:target_id)::text,:'mailbox_before',
+  'person mailbox IDs and address claims are byte-identical after migration');
+SELECT ok((SELECT state='effects_pending' FROM identity_transitions
+  WHERE id=(:'preview'::jsonb->>'transitionId')::uuid),'transition continues through durable revocation effects');
+
+SELECT identity_transition_set_state((:'preview'::jsonb->>'transitionId')::uuid,
+  'effects_pending','failed_recoverable','test rollback boundary');
+SELECT identity_transition_rollback_preview(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (SELECT transition_generation FROM identity_transitions WHERE id=(:'preview'::jsonb->>'transitionId')::uuid),
+  'Restore verified AD authority',gen_random_uuid())::text AS rollback_preview \gset
+SELECT is((:'rollback_preview'::jsonb)->>'state','rollback_previewed',
+  'source migration enters an exact rollback preview');
+SELECT pg_temp.rebind_elevation(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',gen_random_uuid()) AS rollback_request_elevation \gset
+SELECT identity_transition_request(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',:'rollback_request_elevation',
+  'Restore verified AD authority',gen_random_uuid())::text AS rollback_requested \gset
+SELECT pg_temp.rebind_elevation(:approver_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',gen_random_uuid()) AS rollback_approve_elevation \gset
+SELECT identity_transition_approve(:approver_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',:'rollback_approve_elevation',
+  'Approve source authority restoration',gen_random_uuid())::text AS rollback_approved \gset
+SELECT pg_temp.rebind_elevation(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',gen_random_uuid()) AS rollback_execute_elevation \gset
+SELECT identity_transition_rollback(:actor_id,(:'preview'::jsonb->>'transitionId')::uuid,
+  (:'rollback_preview'::jsonb)#>>'{rollback,previewDigest}',:'rollback_execute_elevation',
+  (SELECT rollback_approval_request_id FROM identity_transitions
+    WHERE id=(:'preview'::jsonb->>'transitionId')::uuid),
+  'Restore verified AD authority',gen_random_uuid())::text AS rollback_result \gset
+SELECT is((:'rollback_result'::jsonb)->>'state','rolling_back',
+  'rollback restores authority before its durable revocation effects converge');
+SELECT is((SELECT link_id::text FROM user_lifecycle_authorities WHERE user_id=:target_id),:old_link::text,
+  'rollback restores the original lifecycle-authority link');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:old_link),'active',
+  'rollback reactivates the original provisioning link');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:target_link),'detached',
+  'rollback retains and detaches the replaced target link');
+SELECT is((SELECT sync_source FROM users WHERE id=:target_id),'ad',
+  'rollback restores the legacy source projection');
+SELECT is(identity_mailbox_invariant_snapshot(:target_id)::text,:'mailbox_before',
+  'mailbox IDs and address claims remain byte-identical after rollback');
+
+SELECT * FROM finish();
+ROLLBACK;

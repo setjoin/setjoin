@@ -1,0 +1,409 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "office.provider.qualified",
+        "after_state": {
+          "configSha256": "<provider-config-sha>",
+          "generation": 2,
+          "providerId": "office1",
+          "qualificationId": "<qualification:1>"
+        },
+        "before_state": null,
+        "id": "<audit:0>",
+        "ip": null,
+        "notes": "Office1 parity",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "office_provider",
+        "user_id": "<actor>"
+      },
+      {
+        "action": "office.provider.qualified",
+        "after_state": {
+          "configSha256": "<provider-config-sha>",
+          "generation": 2,
+          "providerId": "office1",
+          "qualificationId": "<qualification:1>"
+        },
+        "before_state": null,
+        "id": "<audit:1>",
+        "ip": null,
+        "notes": "Office1 parity",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "office_provider",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "action": "office.provider.qualified",
+            "after_state": {
+              "configSha256": "<provider-config-sha>",
+              "generation": 2,
+              "providerId": "office1",
+              "qualificationId": "<qualification:1>"
+            },
+            "before_state": null,
+            "id": "<audit:0>",
+            "ip": null,
+            "notes": "Office1 parity",
+            "occurred_at": "<timestamp>",
+            "target_id": null,
+            "target_type": "office_provider",
+            "user_id": "<actor>"
+          },
+          {
+            "action": "office.provider.qualified",
+            "after_state": {
+              "configSha256": "<provider-config-sha>",
+              "generation": 2,
+              "providerId": "office1",
+              "qualificationId": "<qualification:1>"
+            },
+            "before_state": null,
+            "id": "<audit:1>",
+            "ip": null,
+            "notes": "Office1 parity",
+            "occurred_at": "<timestamp>",
+            "target_id": null,
+            "target_type": "office_provider",
+            "user_id": "<actor>"
+          }
+        ],
+        "before": [],
+        "table": "core_audit"
+      },
+      {
+        "after": [
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {},
+            "id": "<health:0>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          },
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {
+              "qualificationId": "<qualification:1>",
+              "source": "qualification"
+            },
+            "id": "<health:1>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          },
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {
+              "qualificationId": "<qualification:1>",
+              "source": "qualification"
+            },
+            "id": "<health:2>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          }
+        ],
+        "before": [
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {},
+            "id": "<health:0>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          }
+        ],
+        "table": "health"
+      },
+      {
+        "after": [
+          {
+            "active_qualification_id": "<qualification:1>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "<provider-origin>/browser/editor",
+              "privateAllowCidrs": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16"
+              ],
+              "privateAllowHosts": [
+                "<provider-host>"
+              ],
+              "profile": "existing-provider",
+              "proofDiscoveryUrl": "<provider-origin>/hosting/discovery",
+              "wopiPublicBaseUrl": "https://mail.test"
+            },
+            "config_sha256": "<provider-config-sha>",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          }
+        ],
+        "before": [
+          {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "<provider-origin>/browser/editor",
+              "privateAllowCidrs": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16"
+              ],
+              "privateAllowHosts": [
+                "<provider-host>"
+              ],
+              "profile": "existing-provider",
+              "proofDiscoveryUrl": "<provider-origin>/hosting/discovery",
+              "wopiPublicBaseUrl": "https://mail.test"
+            },
+            "config_sha256": "<provider-config-sha>",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": null
+          }
+        ],
+        "table": "providers"
+      },
+      {
+        "after": [
+          {
+            "app_revision_id": null,
+            "build_digest": null,
+            "checks": {
+              "discovery": "pass",
+              "editor": "pass",
+              "proof": "pass",
+              "wopiSave": "pass"
+            },
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "discovery_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "expires_at": "<timestamp>",
+            "id": "<qualification:0>",
+            "profile": "existing-provider",
+            "provider_generation": 1,
+            "provider_id": "office1",
+            "route_revision": 1,
+            "status": "passed",
+            "synthetic_receipt_id": null
+          },
+          {
+            "app_revision_id": null,
+            "build_digest": null,
+            "checks": {
+              "discovery": "pass",
+              "discoveryBytes": 417,
+              "editor": "pass",
+              "proof": "pass",
+              "wopiSave": "pass"
+            },
+            "config_sha256": "<provider-config-sha>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "discovery_fingerprint": "5f0363b31ffa8e669c8a1aed41d7c6d2a260f5f1418c57662f32f3f6869c354e",
+            "expires_at": "<timestamp>",
+            "id": "<qualification:1>",
+            "profile": "existing-provider",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "route_revision": 1,
+            "status": "passed",
+            "synthetic_receipt_id": "<receipt:0>"
+          }
+        ],
+        "before": [
+          {
+            "app_revision_id": null,
+            "build_digest": null,
+            "checks": {
+              "discovery": "pass",
+              "editor": "pass",
+              "proof": "pass",
+              "wopiSave": "pass"
+            },
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "discovery_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "expires_at": "<timestamp>",
+            "id": "<qualification:0>",
+            "profile": "existing-provider",
+            "provider_generation": 1,
+            "provider_id": "office1",
+            "route_revision": 1,
+            "status": "passed",
+            "synthetic_receipt_id": null
+          }
+        ],
+        "table": "qualifications"
+      }
+    ],
+    "notify": [
+      {
+        "generation": 2,
+        "provider_id": "office1",
+        "qualification_id": "<qualification>",
+        "route_state": "connected_inactive"
+      },
+      {
+        "generation": 2,
+        "provider_id": "office1",
+        "qualification_id": "<qualification>",
+        "route_state": "connected_inactive"
+      }
+    ],
+    "request": {
+      "body": {
+        "expectedGeneration": 2,
+        "routeRevision": 1,
+        "syntheticReceiptId": "<synthetic-receipt>"
+      },
+      "external_path": "/api/admin/office/providers/{providerId}/qualify",
+      "headers": {
+        "authorization": "<verified-session>",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-audit-reason": "Office1 parity"
+      },
+      "method": "POST",
+      "path": "/admin/office/providers/{providerId}/qualify"
+    },
+    "response": {
+      "body": {
+        "expiresAt": "<timestamp>",
+        "generation": 2,
+        "providerId": "office1",
+        "qualificationId": "<qualification>",
+        "qualified": true,
+        "routeState": "connected_inactive"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-admin"
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": {
+          "expiresAt": "<timestamp>",
+          "generation": 2,
+          "providerId": "office1",
+          "qualificationId": "<qualification>",
+          "qualified": true,
+          "routeState": "connected_inactive"
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-admin"
+        },
+        "status": 200
+      },
+      {
+        "body": {
+          "expiresAt": "<timestamp>",
+          "generation": 2,
+          "providerId": "office1",
+          "qualificationId": "<qualification>",
+          "qualified": true,
+          "routeState": "connected_inactive"
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-admin"
+        },
+        "status": 200
+      }
+    ]
+  },
+  "route": "POST /admin/office/providers/{providerId}/qualify"
+}

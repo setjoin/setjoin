@@ -1,0 +1,336 @@
+{
+  "case": "secevents-batch-bound",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n001\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n002\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n003\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n004\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n005\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n006\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n007\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n008\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n009\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n010\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n011\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n012\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n013\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n014\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n015\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n016\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n017\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n018\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n019\"}",
+        "type": "sec.ok"
+      },
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"n020\"}",
+        "type": "sec.ok"
+      }
+    ],
+    "rows": [
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n001",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n002",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n003",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n004",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n005",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n006",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n007",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n008",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n009",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n010",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n011",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n012",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n013",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n014",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n015",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n016",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n017",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n018",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n019",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "n020",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "n021",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "n022",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "n023",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "n024",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "n025",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      }
+    ]
+  }
+}

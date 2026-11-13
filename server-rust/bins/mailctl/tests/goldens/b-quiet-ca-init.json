@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/templates/baseline/instantiate",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"id\": 7\n}\nPolicy instantiated from template \"baseline\".\n",
+  "stderr": "",
+  "exit": 0
+}

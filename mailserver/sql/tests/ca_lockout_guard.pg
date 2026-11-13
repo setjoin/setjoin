@@ -1,0 +1,183 @@
+-- pgTAP: ca_lockout_guard.pg — BZ080 admin-lockout guard (CA-0a).
+-- Two-namespace join: admin reachability = admin_role_assignments.role_group_id;
+-- exclusion = user_group_members.group_id / exclude_users / break-glass.
+BEGIN;
+SELECT plan(26);
+
+SELECT has_function(
+  'public', 'ca_grant_discriminators_valid', ARRAY['jsonb'],
+  'shared SQL grant-discriminator predicate is loaded');
+
+-- one active admin (user 81001) holding admin role-group 91101; also in user-group 51101.
+INSERT INTO domains (id, name, is_local) VALUES (95100, 'lg.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (81001, 'lg_admin', 95100, 'a@lg.test', 'Admin', TRUE);
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (91101, 'lg-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at)
+  VALUES (81001, 91101, NULL);
+INSERT INTO user_group_members (user_id, group_id) VALUES (81001, 51101);
+
+-- (a) on+global+block, no exclude → BZ080
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'BZ080', NULL, 'on+global+block excluding no admin raises BZ080');
+
+-- (b) excluded directly via exclude_users → OK
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,'[81001]'::jsonb,'[]'::jsonb) $$,
+  'admin in exclude_users passes');
+
+-- (c) excluded via a user_group_members group in exclude_groups → OK (two-namespace join)
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,'[]'::jsonb,'[51101]'::jsonb) $$,
+  'admin reachable via exclude_groups (user-group namespace) passes');
+
+-- (d) break-glass set covers the admin → OK
+UPDATE system_config SET value = '[81001]'::jsonb WHERE key = 'ca_break_glass_user_ids';
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'admin in ca_break_glass_user_ids passes');
+UPDATE system_config SET value = '[]'::jsonb WHERE key = 'ca_break_glass_user_ids';
+
+-- (e) report_only global block, no exclude → OK (guard only fires for state='on')
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('report_only','global','{"action":"block"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'report_only does not trigger the guard');
+
+-- (f) off global block → OK
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('off','global','{"action":"block"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'off does not trigger the guard');
+
+-- (g) on+user (non-global) block → OK
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','user','{"action":"block"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'non-global scope does not trigger the guard');
+
+-- (h) on+global+notify → OK (notify is not block/step_up)
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global','{"action":"notify"}'::jsonb,'[]'::jsonb,'[]'::jsonb) $$,
+  'notify action does not trigger the guard');
+
+-- Grant-array shape tests (V030 format: {"operator":"all","grants":[{"action":"..."}]}).
+-- (i) on+global block in grant-array shape, no admin excluded → BZ080 raised.
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"action":"block"}],"reason":"test"}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'BZ080', NULL,
+  'on+global block in grant-array shape with no excluded admin raises BZ080');
+
+-- (j) on+global notify in grant-array shape, no admin excluded → NO raise (no spurious over-guard).
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"action":"notify"}],"reason":"test"}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'on+global notify in grant-array shape does not trigger guard (no over-guard)');
+
+-- (k) on+global block in grant-array shape, admin excluded → OK.
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"action":"block"}]}'::jsonb,
+       '[81001]'::jsonb,'[]'::jsonb) $$,
+  'on+global block in grant-array shape with admin excluded passes');
+
+-- Canonical grant discriminator parity. Runtime policy evaluation treats `type`
+-- as canonical; the database lockout floor must interpret it identically.
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"block"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'BZ080', NULL,
+  'canonical type:block with no excluded admin raises BZ080');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"step_up"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'BZ080', NULL,
+  'canonical type:step_up with no excluded admin raises BZ080');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"block","action":"block"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'BZ080', NULL,
+  'matching type/action block discriminators retain lockout protection');
+
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"notify","action":"notify"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  'matching type/action notify discriminators remain non-blocking');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('off','global',
+       '{"operator":"all","grants":[{"type":"allow","action":"block"}]}'::jsonb,
+       '[81001]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'conflicting non-empty discriminators reject before the state fast path');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','user',
+       '{"operator":"all","grants":[{"type":"block","action":"notify"}]}'::jsonb,
+       '[81001]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'conflicting non-empty discriminators reject before the scope fast path');
+
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"block"}]}'::jsonb,
+       '[81001]'::jsonb,'[]'::jsonb) $$,
+  'canonical type:block passes when an admin is excluded');
+
+SELECT lives_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"block"}]}'::jsonb,
+       '[]'::jsonb,'[51101]'::jsonb) $$,
+  'canonical type:block passes when an admin group is excluded');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'missing grant discriminator is rejected at the lockout floor');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"unknown"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'unknown canonical grant discriminator is rejected at the lockout floor');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":""}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'empty canonical grant discriminator is rejected at the lockout floor');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":true}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'malformed canonical grant discriminator is rejected at the lockout floor');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":"","action":"block"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'empty canonical discriminator cannot fall back to a legacy action');
+
+SELECT throws_ok(
+  $$ SELECT ca_lockout_guard('on','global',
+       '{"operator":"all","grants":[{"type":true,"action":"block"}]}'::jsonb,
+       '[]'::jsonb,'[]'::jsonb) $$,
+  '22023', NULL,
+  'malformed canonical discriminator cannot fall back to a legacy action');
+
+SELECT finish();
+ROLLBACK;

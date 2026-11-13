@@ -1,0 +1,27 @@
+-- #333 public reducer seam: first-issue secret, owned conflict key, event atomicity.
+BEGIN;
+SELECT plan(10);
+INSERT INTO domains(name,is_local) VALUES('idlogin3-device-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idlogin3-device-a','a@idlogin3-device-pgtap.test','a',:dom,'x') RETURNING id AS a \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idlogin3-device-b','b@idlogin3-device-pgtap.test','b',:dom,'x') RETURNING id AS b \gset
+SELECT set_config('app.current_user_id',:'a',true);
+SELECT * FROM rust_identity_device_register(:a,'first','desktop','os','1','idlogin3-fingerprint-0123456789abcdef',decode('012345','hex')) \gset first_
+SELECT ok(:'first_created'::boolean,'first registration creates a trust root');
+SELECT is((SELECT user_id FROM devices WHERE id=:first_device_id),:a::bigint,'principal owns new device');
+SELECT is((SELECT hmac_secret_key_id FROM devices WHERE id=:first_device_id),'v1','key version retained');
+SELECT is((SELECT count(*) FROM device_events WHERE device_id=:first_device_id AND event_type='registered'),1::bigint,'creation evidence is present');
+SELECT * FROM rust_identity_device_register(:a,'second','desktop','os2','2','idlogin3-fingerprint-0123456789abcdef',decode('ffffff','hex')) \gset again_
+SELECT ok(NOT :'again_created'::boolean,'re-registration is not first creation');
+SELECT is(:again_device_id::bigint,:first_device_id::bigint,'owned fingerprint reuses device');
+SELECT is((SELECT encode(hmac_secret_enc,'hex') FROM devices WHERE id=:first_device_id),'012345','re-registration never rotates stored secret');
+SELECT set_config('app.current_user_id',:'b',true);
+SELECT * FROM rust_identity_device_register(:b,'foreign','desktop','os','1','idlogin3-fingerprint-0123456789abcdef',decode('abcdef','hex')) \gset foreign_
+SELECT ok(:'foreign_created'::boolean AND :foreign_device_id<>:first_device_id,'same fingerprint cannot select another owner device');
+CREATE FUNCTION pg_temp.idlogin3_event_fail() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'injected event failure'; END;$$;
+CREATE TRIGGER idlogin3_event_fail BEFORE INSERT ON device_events FOR EACH ROW EXECUTE FUNCTION pg_temp.idlogin3_event_fail();
+SELECT throws_ok(format('SELECT * FROM rust_identity_device_register(%s,%L,%L,%L,%L,%L,decode(%L,%L))',:b,'must-rollback','desktop','os','2','idlogin3-fingerprint-0123456789abcdef','00','hex'),'P0001','injected event failure','event failure aborts command');
+SELECT is((SELECT device_name FROM devices WHERE id=:foreign_device_id),'foreign','failed event rolls back metadata change');
+SELECT * FROM finish();
+ROLLBACK;

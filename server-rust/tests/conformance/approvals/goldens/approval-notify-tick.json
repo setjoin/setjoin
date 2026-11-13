@@ -1,0 +1,223 @@
+{
+  "case": "seed-one-tick",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "mailbox_after": {
+      "email": 1,
+      "journal": [
+        {
+          "datatype": "email",
+          "op": "created",
+          "state_seq": 1
+        }
+      ],
+      "mailbox": 0,
+      "tag": 1,
+      "tags": [
+        {
+          "name": "Drafts",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Important",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Inbox",
+          "total": 3,
+          "unread": 3
+        },
+        {
+          "name": "Muted",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Oracle Label",
+          "total": 1,
+          "unread": 1
+        },
+        {
+          "name": "Other",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Scheduled",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Sent",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Snoozed",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Spam",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Starred",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Trash",
+          "total": 0,
+          "unread": 0
+        }
+      ],
+      "thread": 0
+    },
+    "mailbox_before": {
+      "email": 0,
+      "journal": null,
+      "mailbox": 0,
+      "tag": 0,
+      "tags": [
+        {
+          "name": "Drafts",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Important",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Inbox",
+          "total": 2,
+          "unread": 2
+        },
+        {
+          "name": "Muted",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Oracle Label",
+          "total": 1,
+          "unread": 1
+        },
+        {
+          "name": "Other",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Scheduled",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Sent",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Snoozed",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Spam",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Starred",
+          "total": 0,
+          "unread": 0
+        },
+        {
+          "name": "Trash",
+          "total": 0,
+          "unread": 0
+        }
+      ],
+      "thread": 0
+    },
+    "messages": [
+      {
+        "bcc_addrs": [],
+        "body_html": "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Approval Request</title></head>\n<body style=\"font-family:sans-serif;max-width:600px;margin:auto;padding:24px\">\n<h2>Approval Request</h2>\n<p><strong>Leave &lt;notify&gt;</strong></p>\n<p>\n  <a href=\"https://mail.test/approvals/email/<approve-token>\" style=\"display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;margin-right:12px\">Approve</a>\n  <a href=\"https://mail.test/approvals/email/<deny-token>\" style=\"display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;border-radius:6px;text-decoration:none\">Deny</a>\n</p>\n<p style=\"color:#6b7280;font-size:14px\">This approval request expires Sun, 01 Nov 2099 12:00:00 UTC.</p>\n</body></html>",
+        "body_text": "You have an approval request pending action.\n\nRequest: Leave <notify>\n\nApprove: https://mail.test/approvals/email/<approve-token>\n\nDeny: https://mail.test/approvals/email/<deny-token>\n\nThis link expires at Sun, 01 Nov 2099 12:00:00 UTC.",
+        "body_tsv": "<derived-search-vector>",
+        "categories": [],
+        "cc_addrs": [],
+        "crypto_type": null,
+        "deleted_at": null,
+        "delivery_receipt_requested": false,
+        "dkim_domain": null,
+        "dkim_result": "none",
+        "dkim_selector": null,
+        "dmarc_result": "none",
+        "flag_due_at": null,
+        "flag_reminder_at": null,
+        "folder_id": "<inbox-folder>",
+        "from_addr": "noreply@gofree-appr1-notify.test",
+        "from_name": "SetJoin Approvals",
+        "from_tsv": "<derived-search-vector>",
+        "has_attachments": false,
+        "held": false,
+        "id": "<message>",
+        "imap_modseq": 2,
+        "imap_uid": 3,
+        "in_reply_to": "",
+        "is_answered": false,
+        "is_deleted": false,
+        "is_draft": false,
+        "is_external": false,
+        "is_first_time": true,
+        "is_flagged": false,
+        "is_name_spoof": false,
+        "is_read": false,
+        "list_id": null,
+        "list_unsubscribe": null,
+        "mailbox_id": "<approver-mailbox>",
+        "message_id": "<message-id>",
+        "pinned_at": null,
+        "priority": 0,
+        "raw_ref": "system:approval-notify:<request>:<approver>",
+        "read_receipt_requested": false,
+        "received_at": "<timestamp>",
+        "references_hdr": "",
+        "reply_to": null,
+        "scheduled_at": null,
+        "sender_display_name": null,
+        "sensitivity": null,
+        "sent_at": "<timestamp>",
+        "size_bytes": 1005,
+        "smime_issuer_cn": null,
+        "smime_signer_cn": null,
+        "smime_signer_email": null,
+        "smime_status": null,
+        "spam_headers": {},
+        "spam_score": 0,
+        "spf_result": "none",
+        "subject": "Approval required: Leave <notify>",
+        "subject_tsv": "<derived-search-vector>",
+        "thread_id": "<message-id>",
+        "to_addrs": [
+          {
+            "email": "approver@gofree-appr1-notify.test",
+            "name": ""
+          }
+        ],
+        "vote_options": null,
+        "vote_response": null
+      }
+    ]
+  },
+  "worker": "approval-notify"
+}

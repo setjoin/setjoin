@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca import:\n  -f string\n    \tPolicy document file\n  -mode string\n    \tImport mode: merge, replace, prune (default \"merge\")\nError: flag: help requested\n",
+  "exit": 1
+}

@@ -1,0 +1,13 @@
+{
+  "case": "keys-invalid-input-row-effects",
+  "effects": [
+    {
+      "after": null,
+      "before": null,
+      "table": "mailboxes.jmap_*_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "route": "* /keys"
+}

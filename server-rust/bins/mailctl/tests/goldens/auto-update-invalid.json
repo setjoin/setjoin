@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown auto-update action: bogus (try: status, enable, disable)\n",
+  "exit": 1
+}

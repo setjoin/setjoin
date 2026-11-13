@@ -1,0 +1,106 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [
+      {
+        "action": "approval_policy_update",
+        "after_state": {
+          "id": "<policy>",
+          "name": "Policy <updated>"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit-id>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": "<policy>",
+        "target_type": "approval_policy",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "approver_spec": {
+              "kind": "named",
+              "user_id": "<approver>"
+            },
+            "conditions": {},
+            "consumer_type": "hr.leave",
+            "created_at": "<timestamp>",
+            "enabled": false,
+            "id": "<policy>",
+            "name": "Policy <updated>",
+            "priority": 1,
+            "requires_approval": true,
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "before": [
+          {
+            "approver_spec": {
+              "kind": "named",
+              "user_id": "<approver>"
+            },
+            "conditions": {},
+            "consumer_type": "hr.leave",
+            "created_at": "<timestamp>",
+            "enabled": true,
+            "id": "<policy>",
+            "name": "Policy <one>",
+            "priority": 1,
+            "requires_approval": true,
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "table": "approval_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"enabled\":false,\"name\":\"Policy <updated>\"}",
+      "external_path": "/api/admin/approval-policies/{id}",
+      "method": "PUT",
+      "path": "/admin/approval-policies/{id}",
+      "query": ""
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/approval-policies/{id}"
+}

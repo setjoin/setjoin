@@ -1,0 +1,163 @@
+-- pgTAP: calendar recurrence gaps — BYSETPOS wiring + RECURRENCE-ID exceptions
+BEGIN;
+SELECT plan(8);
+
+-- ============================================================
+-- Tests 1-4: BYSETPOS — expand_recurrence_bysetpos works correctly
+-- These pass now because the wrapper function is already implemented.
+-- The fix wires calendar_free_busy to USE it instead of the base expander.
+-- ============================================================
+
+-- Test 1: Base expand_recurrence returns ALL weekdays (no BYSETPOS filtering).
+-- June 2026 has 22 weekdays (Mon-Fri). FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR
+-- generates every weekday within the range.
+SELECT is(
+    (SELECT count(*) FROM expand_recurrence(
+        '2026-06-01 10:00:00+00'::TIMESTAMPTZ,
+        '2026-06-01 11:00:00+00'::TIMESTAMPTZ,
+        'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR',
+        '2026-06-01'::TIMESTAMPTZ,
+        '2026-07-01'::TIMESTAMPTZ
+    ))::INT,
+    22,
+    'base expand_recurrence returns all 22 June 2026 weekdays (no BYSETPOS)'
+);
+
+-- Test 2: BYSETPOS=-2 with the same rule returns only 2nd-to-last weekday.
+-- 22 weekdays, BYSETPOS=-2 = position 21 = Monday June 29, 2026.
+SELECT is(
+    (SELECT count(*) FROM expand_recurrence_bysetpos(
+        '2026-06-01 10:00:00+00'::TIMESTAMPTZ,
+        '2026-06-01 11:00:00+00'::TIMESTAMPTZ,
+        'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-2',
+        '2026-06-01'::TIMESTAMPTZ,
+        '2026-07-01'::TIMESTAMPTZ
+    ))::INT,
+    1,
+    'BYSETPOS=-2 returns exactly 1 occurrence'
+);
+
+-- Test 3: BYSETPOS=-2 returns the correct date (June 29, 2026 = Monday).
+SELECT is(
+    (SELECT occ_start::DATE FROM expand_recurrence_bysetpos(
+        '2026-06-01 10:00:00+00'::TIMESTAMPTZ,
+        '2026-06-01 11:00:00+00'::TIMESTAMPTZ,
+        'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-2',
+        '2026-06-01'::TIMESTAMPTZ,
+        '2026-07-01'::TIMESTAMPTZ
+    )),
+    '2026-06-29'::DATE,
+    'BYSETPOS=-2 returns Monday June 29, 2026'
+);
+
+-- Test 4: BYSETPOS=1 returns the first weekday.
+SELECT is(
+    (SELECT occ_start::DATE FROM expand_recurrence_bysetpos(
+        '2026-06-01 10:00:00+00'::TIMESTAMPTZ,
+        '2026-06-01 11:00:00+00'::TIMESTAMPTZ,
+        'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1',
+        '2026-06-01'::TIMESTAMPTZ,
+        '2026-07-01'::TIMESTAMPTZ
+    )),
+    '2026-06-01'::DATE,
+    'BYSETPOS=1 returns Monday June 1, 2026'
+);
+
+-- ============================================================
+-- Tests 5-8: RECURRENCE-ID exceptions via calendar_free_busy
+-- ============================================================
+
+-- Setup: user + mailbox + calendar for free/busy testing
+INSERT INTO domains (name, is_local) VALUES ('cal3.test', TRUE);
+
+-- ADR-003: DIVERGENT ids (user 108001 != mailbox 8001). calendar_free_busy joins
+-- calendars by c.mailbox_id = ANY(p_user_ids), so the array carries the MAILBOX id
+-- (8001); the user id is unrelated. calendar id 8001 is a separate namespace.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (108001, 'caluser', (SELECT id FROM domains WHERE name = 'cal3.test'), 'caluser@cal3.test', 'Cal User');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (8001, 108001, (SELECT id FROM domains WHERE name = 'cal3.test'), 'caluser@cal3.test', 'personal', 'Cal User Mailbox', TRUE);
+
+INSERT INTO calendars (id, mailbox_id, name) VALUES
+  (8001, 8001, 'Default');
+
+-- Master event: weekly Monday 10am, 4 occurrences
+-- Occurs: Jun 1, Jun 8, Jun 15, Jun 22
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule, status)
+VALUES (8001, 8001, 'recid-master', 'Weekly Standup',
+        '2026-06-01 10:00:00+00', '2026-06-01 11:00:00+00',
+        'FREQ=WEEKLY;COUNT=4', 'confirmed');
+
+-- Exception: June 8 moved to 2pm
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status,
+                             parent_event_uid, recurrence_override)
+VALUES (8002, 8001, 'recid-master', 'Weekly Standup (MOVED)',
+        '2026-06-08 14:00:00+00', '2026-06-08 15:00:00+00',
+        'confirmed', 'recid-master', '2026-06-08 10:00:00+00');
+
+-- Exception: June 15 cancelled
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status,
+                             parent_event_uid, recurrence_override)
+VALUES (8003, 8001, 'recid-master', 'Weekly Standup (CANCELLED)',
+        '2026-06-15 10:00:00+00', '2026-06-15 11:00:00+00',
+        'cancelled', 'recid-master', '2026-06-15 10:00:00+00');
+
+-- Test 5: calendar_free_busy returns 3 busy intervals (not 4 — cancelled skipped).
+-- The free/busy for user 8001 should have 3 busy slots: Jun 1, Jun 8 (14:00), Jun 22.
+SELECT is(
+    jsonb_array_length(
+        (SELECT jsonb_array_elements(calendar_free_busy(
+            8001, ARRAY[8001::BIGINT],
+            '2026-06-01'::TIMESTAMPTZ, '2026-07-01'::TIMESTAMPTZ
+        ))->'intervals')
+    ),
+    3,
+    'free_busy returns 3 intervals (4 master minus 1 cancelled)'
+);
+
+-- Test 6: The cancelled occurrence (June 15) is NOT in the intervals.
+SELECT ok(
+    NOT EXISTS(
+        SELECT 1 FROM jsonb_array_elements(
+            (SELECT jsonb_array_elements(calendar_free_busy(
+                8001, ARRAY[8001::BIGINT],
+                '2026-06-01'::TIMESTAMPTZ, '2026-07-01'::TIMESTAMPTZ
+            ))->'intervals')
+        ) AS slot
+        WHERE (slot->>'start')::TIMESTAMPTZ::DATE = '2026-06-15'::DATE
+    ),
+    'cancelled occurrence June 15 not in free_busy output'
+);
+
+-- Test 7: The modified occurrence (June 8) has the exception time (14:00-15:00).
+SELECT ok(
+    EXISTS(
+        SELECT 1 FROM jsonb_array_elements(
+            (SELECT jsonb_array_elements(calendar_free_busy(
+                8001, ARRAY[8001::BIGINT],
+                '2026-06-01'::TIMESTAMPTZ, '2026-07-01'::TIMESTAMPTZ
+            ))->'intervals')
+        ) AS slot
+        WHERE (slot->>'start')::TIMESTAMPTZ = '2026-06-08 14:00:00+00'::TIMESTAMPTZ
+          AND (slot->>'end')::TIMESTAMPTZ   = '2026-06-08 15:00:00+00'::TIMESTAMPTZ
+    ),
+    'modified occurrence at June 8 14:00-15:00 (exception time, not 10:00)'
+);
+
+-- Test 8: The unmodified occurrence (June 1) still has the original time.
+SELECT ok(
+    EXISTS(
+        SELECT 1 FROM jsonb_array_elements(
+            (SELECT jsonb_array_elements(calendar_free_busy(
+                8001, ARRAY[8001::BIGINT],
+                '2026-06-01'::TIMESTAMPTZ, '2026-07-01'::TIMESTAMPTZ
+            ))->'intervals')
+        ) AS slot
+        WHERE (slot->>'start')::TIMESTAMPTZ = '2026-06-01 10:00:00+00'::TIMESTAMPTZ
+    ),
+    'unmodified occurrence June 1 at original time 10:00'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

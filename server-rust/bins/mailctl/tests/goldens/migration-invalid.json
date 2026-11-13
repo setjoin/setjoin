@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown migration action: bogus (try: list, status, cancel)\n",
+  "exit": 1
+}

@@ -1,0 +1,9 @@
+{
+  "stdout": "{\"current\":274,\"expected\":275,\"pending\":[\"V275__feature_toggle_registry_projection.sql\"],\"up_to_date\":false}\n",
+  "stderr": "",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

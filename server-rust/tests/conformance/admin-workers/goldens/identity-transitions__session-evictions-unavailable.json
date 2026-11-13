@@ -1,0 +1,48 @@
+{
+  "case": "session-evictions-unavailable",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "effects": [],
+        "events": [],
+        "intents": [
+          "u:<act>:60:false:true:-1:twirp error unavailable: SFU unavailable",
+          "u:<t1>:1:false:false:5:twirp error unavailable: SFU unavailable",
+          "u:<t2>:3:false:false:15:twirp error unavailable: SFU unavailable",
+          "u:<t3>:20:false:false:60:twirp error unavailable: SFU unavailable"
+        ],
+        "steps": [],
+        "targets": [],
+        "transitions": []
+      },
+      "sfu": [
+        "/twirp/livekit.RoomService/RemoveParticipant:room-<t1>|u:<t1>:auth=true",
+        "/twirp/livekit.RoomService/RemoveParticipant:room-<t2>|u:<t2>:auth=true",
+        "/twirp/livekit.RoomService/RemoveParticipant:room-<t3>|u:<t3>:auth=true",
+        "/twirp/livekit.RoomService/RemoveParticipant:room-<act>|u:<act>:auth=true"
+      ]
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "effects": [],
+        "events": [],
+        "intents": [
+          "u:<act>:59:false:false:-1:",
+          "u:<t1>:0:false:false:-1:",
+          "u:<t2>:2:false:false:-1:",
+          "u:<t3>:19:false:false:-1:"
+        ],
+        "steps": [],
+        "targets": [],
+        "transitions": []
+      },
+      "sfu": []
+    },
+    "notifies": []
+  },
+  "worker": "identity-transitions"
+}

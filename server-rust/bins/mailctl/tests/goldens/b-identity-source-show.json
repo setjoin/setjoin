@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/sources/directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Source directory (Directory)\nKind: ldap  State: active  Generation: 3\nSecret bindPassword configured: true\n",
+  "stderr": "",
+  "exit": 0
+}

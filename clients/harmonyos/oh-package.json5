@@ -1,0 +1,11 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "setjoin-mail",
+  "version": "1.0.0",
+  "description": "SetJoin Mail — HarmonyOS NEXT client",
+  "main": "",
+  "author": "SetJoin",
+  "license": "UNLICENSED",
+  "dependencies": {},
+  "devDependencies": {}
+}

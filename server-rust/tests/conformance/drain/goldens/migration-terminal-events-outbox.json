@@ -1,0 +1,84 @@
+{
+  "case": "migration-terminal-events-outbox",
+  "format": 1,
+  "go_source": "1d7ea54c0",
+  "observation": {
+    "deliveries": [],
+    "jobs": [
+      [
+        0,
+        "completed",
+        "[]",
+        false
+      ],
+      [
+        1,
+        "failed",
+        "[]",
+        false
+      ],
+      [
+        2,
+        "failed",
+        "[\"startup_recovery: gateway restart during migration\"]",
+        false
+      ],
+      [
+        3,
+        "failed",
+        "[\"startup_recovery: gateway restart during migration\"]",
+        false
+      ],
+      [
+        4,
+        "cancelled",
+        "[]",
+        false
+      ],
+      [
+        5,
+        "completed",
+        "[]",
+        false
+      ]
+    ],
+    "publications": [
+      [
+        "migration.completed",
+        "mailbox",
+        "pending",
+        true,
+        true
+      ],
+      [
+        "migration.completed",
+        "user",
+        "pending",
+        true,
+        false
+      ],
+      [
+        "migration.failed",
+        "mailbox",
+        "pending",
+        true,
+        true
+      ],
+      [
+        "migration.failed",
+        "user",
+        "pending",
+        true,
+        false
+      ],
+      [
+        "migration.failed",
+        "user",
+        "pending",
+        true,
+        false
+      ]
+    ],
+    "requests": []
+  }
+}

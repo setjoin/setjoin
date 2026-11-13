@@ -1,0 +1,217 @@
+-- hr_request_create.pg — pgTAP tests for the HR leave/expense create wrapper.
+BEGIN;
+SELECT plan(42);
+
+-- ── Task 1 schema assertions (kept — V110) ──────────────────────────────────
+SELECT lives_ok($$INSERT INTO approval_policies(consumer_type,name,priority,conditions,approver_spec)
+  VALUES ('hr.leave','t',1001,'{}','{"kind":"manager"}')$$, 'policies CHECK accepts hr.leave');
+SELECT lives_ok($$INSERT INTO approval_policies(consumer_type,name,priority,conditions,approver_spec)
+  VALUES ('hr.expense','t2',1002,'{}','{"kind":"manager"}')$$, 'policies CHECK accepts hr.expense');
+SELECT throws_ok($$INSERT INTO approval_policies(consumer_type,name,priority,conditions,approver_spec)
+  VALUES ('hr.bogus','t3',1003,'{}','{}')$$, '23514', NULL, 'unknown consumer still rejected');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='approval.hr_leave'), false, 'hr_leave seeded OFF');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='approval.hr_expense'), false, 'hr_expense seeded OFF');
+SELECT has_table('hr_expense_receipts');
+-- undo the throwaway policy rows above so they don't interfere with match tests below
+DELETE FROM approval_policies WHERE priority IN (1001,1002,1003);
+
+-- ── fixtures ─────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (91100, 'hrcreate.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (91101, 'hr_mgr',       91100, 'mgr@hrcreate.test',      'Manager',        TRUE),
+  (91102, 'hr_req_mgr',   91100, 'reqmgr@hrcreate.test',   'Req With Mgr',   TRUE),
+  (91103, 'hr_req_nomgr', 91100, 'reqnomgr@hrcreate.test', 'Req No Mgr A',   TRUE),
+  (91104, 'hr_req_skip',  91100, 'reqskip@hrcreate.test',  'Req No Mgr B',   TRUE),
+  (91105, 'hr_mgr2',      91100, 'mgr2@hrcreate.test',     'Manager 2',      TRUE),
+  (91106, 'hr_req_deleg', 91100, 'reqdeleg@hrcreate.test', 'Req Delegated',  TRUE),
+  (91107, 'hr_delegate',  91100, 'delegate@hrcreate.test', 'Delegate',       TRUE),
+  (91108, 'hr_admin',     91100, 'admin@hrcreate.test',    'Default Admin',  TRUE),
+  (91109, 'hr_named_lng', 91100, 'longapp@hrcreate.test',  'Long Approver',  TRUE),
+  (91110, 'hr_named_tier',91100, 'tierapp@hrcreate.test',  'Tier Approver',  TRUE),
+  (91111, 'hr_req_exp',   91100, 'reqexp@hrcreate.test',   'Expense Req',    TRUE);
+
+UPDATE users SET manager_id = 91101 WHERE id = 91102; -- req_mgr → manager 91101
+UPDATE users SET manager_id = 91105 WHERE id = 91106; -- req_deleg → manager2 91105
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (91105, 91107, now() - interval '1 hour', now() + interval '1 hour'); -- mgr2 OOO → delegate
+
+UPDATE system_config SET value = '91108'::jsonb WHERE key = 'approval.default_approver_user_id';
+
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES ('deadbeef00000000000000000000000000000000000000000000000000aa', 'minio:hr-test-1', 1234, 'application/pdf');
+
+-- ── no-policy-match path (hr.expense — no policy configured yet) ────────────
+SELECT is(
+  (SELECT hr_request_create(91111, 'hr.expense', '{"currency":"CNY","total_cents":1000,"line_items":[{"description":"x","amount_cents":1000,"category":"other"}]}'::jsonb)),
+  NULL::bigint,
+  'no matching policy ⇒ NULL, no request row'
+);
+SELECT is((SELECT count(*) FROM approval_requests WHERE consumer_type='hr.expense'), 0::bigint, 'no-policy path inserted no row');
+
+-- ── policies ─────────────────────────────────────────────────────────────────
+INSERT INTO approval_policies (consumer_type, name, priority, conditions, approver_spec) VALUES
+  ('hr.leave',   'leave-skip',    9100, '{"leave_type":"bereavement"}', '{"kind":"manager","fallback":[{"kind":"skip"}]}'),
+  ('hr.leave',   'leave-long',    9101, '{"long_leave":true}',          jsonb_build_object('kind','named','user_id',91109)),
+  ('hr.leave',   'leave-default', 9102, '{}',                           '{"kind":"manager","fallback":[{"kind":"default_admin"}]}'),
+  ('hr.expense', 'expense-tier',  9110, '{"over_tier":true}',           jsonb_build_object('kind','named','user_id',91110)),
+  ('hr.expense', 'expense-default', 9111, '{}',                          '{"kind":"manager","fallback":[{"kind":"default_admin"}]}');
+
+-- ── happy leave (manager resolution) ────────────────────────────────────────
+SELECT ok(
+  (SELECT hr_request_create(91102, 'hr.leave',
+     '{"leave_type":"annual","start_date":"2026-07-10","end_date":"2026-07-12","days":3,"reason":"family trip"}'::jsonb)) > 0,
+  'happy leave returns positive id'
+);
+SELECT is(
+  (SELECT status FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave'),
+  'pending', 'leave request status pending'
+);
+SELECT is(
+  (SELECT payload FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave'),
+  '{"leave_type":"annual","start_date":"2026-07-10","end_date":"2026-07-12","days":3,"reason":"family trip"}'::jsonb,
+  'leave payload stored verbatim'
+);
+SELECT ok(
+  (SELECT expires_at FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave')
+    BETWEEN now() + interval '2870 minutes' AND now() + interval '2890 minutes',
+  'expires_at honors the default 2880-minute ttl'
+);
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action='approval_created' AND user_id=91102) >= 1,
+  'approval_created audit written'
+);
+SELECT is(
+  (SELECT subject FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave'),
+  'Leave: annual 2026-07-10 → 2026-07-12 (3d)', 'subject formatted correctly'
+);
+SELECT is(
+  (SELECT approver_kind FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave'),
+  'user', 'manager resolution: approver_kind=user'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91102 AND consumer_type='hr.leave'),
+  91101::bigint, 'manager resolution: approver_ref=manager'
+);
+
+-- ── delegation reroute (OOO entrust rides free) ─────────────────────────────
+SELECT ok(
+  (SELECT hr_request_create(91106, 'hr.leave',
+     '{"leave_type":"personal","start_date":"2026-08-01","end_date":"2026-08-01","days":1,"reason":"appointment"}'::jsonb)) > 0,
+  'delegated-manager leave returns positive id'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91106 AND consumer_type='hr.leave'),
+  91107::bigint, 'delegation reroute: approver is manager''s active delegate, not the manager'
+);
+
+-- ── NULL manager → default_admin fallback ───────────────────────────────────
+SELECT ok(
+  (SELECT hr_request_create(91103, 'hr.leave',
+     '{"leave_type":"sick","start_date":"2026-07-14","end_date":"2026-07-15","days":2,"reason":"flu"}'::jsonb)) > 0,
+  'no-manager leave returns positive id'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91103 AND consumer_type='hr.leave'),
+  91108::bigint, 'NULL manager falls back to default_admin'
+);
+
+-- ── matched skip policy → NULL, audit, no row ───────────────────────────────
+SELECT is(
+  (SELECT hr_request_create(91104, 'hr.leave',
+     '{"leave_type":"bereavement","start_date":"2026-07-20","end_date":"2026-07-21","days":2,"reason":"loss in family"}'::jsonb)),
+  NULL::bigint, 'skip policy ⇒ NULL'
+);
+SELECT is(
+  (SELECT count(*) FROM approval_requests WHERE requester_user_id=91104 AND consumer_type='hr.leave'), 0::bigint,
+  'skip policy ⇒ no request row'
+);
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action='approval_skipped' AND user_id=91104) >= 1,
+  'skip policy ⇒ approval_skipped audit written'
+);
+
+-- ── context correctness: long_leave routing ─────────────────────────────────
+SELECT ok(
+  (SELECT hr_request_create(91103, 'hr.leave',
+     '{"leave_type":"annual","start_date":"2026-09-01","end_date":"2026-09-04","days":4,"reason":"vacation"}'::jsonb)) > 0,
+  '4-day leave returns positive id'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91103 AND consumer_type='hr.leave' AND subject LIKE '%2026-09-01%'),
+  91109::bigint, '4-day leave matches the long_leave policy (named approver)'
+);
+SELECT ok(
+  (SELECT hr_request_create(91103, 'hr.leave',
+     '{"leave_type":"annual","start_date":"2026-09-10","end_date":"2026-09-11","days":2,"reason":"short trip"}'::jsonb)) > 0,
+  '2-day leave returns positive id'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91103 AND consumer_type='hr.leave' AND subject LIKE '%2026-09-10%'),
+  91108::bigint, '2-day leave does NOT match the long_leave policy (falls to default_admin)'
+);
+
+-- ── happy expense + receipts + ref_count ────────────────────────────────────
+SELECT ok(
+  (SELECT hr_request_create(91111, 'hr.expense',
+     '{"currency":"CNY","total_cents":128000,"line_items":[
+        {"description":"Taxi to client","amount_cents":8000,"category":"travel","receipt_sha256":"deadbeef00000000000000000000000000000000000000000000000000aa"},
+        {"description":"Hotel","amount_cents":120000,"category":"lodging"}
+      ]}'::jsonb)) > 0,
+  'happy expense returns positive id'
+);
+SELECT is(
+  (SELECT count(*) FROM hr_expense_receipts WHERE approval_request_id =
+     (SELECT id FROM approval_requests WHERE requester_user_id=91111 AND consumer_type='hr.expense' AND subject LIKE '%2 items%')),
+  1::bigint, 'exactly one receipt row inserted (the line item WITH a receipt)'
+);
+SELECT is(
+  (SELECT ref_count FROM blobs WHERE sha256='deadbeef00000000000000000000000000000000000000000000000000aa'),
+  2, 'blobs.ref_count bumped by the receipt insert trigger'
+);
+
+-- ── over-tier expense routes to the tier policy's named approver ───────────
+SELECT ok(
+  (SELECT hr_request_create(91111, 'hr.expense',
+     '{"currency":"CNY","total_cents":600000,"line_items":[{"description":"Conference","amount_cents":600000,"category":"other"}]}'::jsonb)) > 0,
+  'over-tier expense returns positive id'
+);
+SELECT is(
+  (SELECT approver_ref FROM approval_requests WHERE requester_user_id=91111 AND consumer_type='hr.expense' AND subject LIKE '%6000.00%'),
+  91110::bigint, 'over-tier expense matches the tier policy (named approver)'
+);
+
+-- ── validation errors ────────────────────────────────────────────────────────
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.leave',
+  '{"leave_type":"bogus","start_date":"2026-07-10","end_date":"2026-07-12","days":3,"reason":"x"}'::jsonb)$$,
+  'BZ124', NULL, 'bad leave_type → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.leave',
+  '{"leave_type":"annual","start_date":"2026-07-12","end_date":"2026-07-10","days":1,"reason":"x"}'::jsonb)$$,
+  'BZ124', NULL, 'end_date before start_date → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.leave',
+  '{"leave_type":"annual","start_date":"2026-07-10","end_date":"2026-07-12","days":99,"reason":"x"}'::jsonb)$$,
+  'BZ124', NULL, 'days mismatch → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.leave',
+  '{"leave_type":"annual","start_date":"2026-07-10","end_date":"2026-07-12","days":3,"reason":""}'::jsonb)$$,
+  'BZ124', NULL, 'empty reason → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  '{"currency":"cny","total_cents":1000,"line_items":[{"description":"x","amount_cents":1000,"category":"other"}]}'::jsonb)$$,
+  'BZ124', NULL, 'lowercase currency → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  '{"currency":"CNY","total_cents":9999,"line_items":[{"description":"x","amount_cents":1000,"category":"other"}]}'::jsonb)$$,
+  'BZ124', NULL, 'total_cents ≠ sum(line_items) → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  '{"currency":"CNY","total_cents":0,"line_items":[]}'::jsonb)$$,
+  'BZ124', NULL, '0 line items → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  jsonb_build_object('currency','CNY','total_cents',51000,'line_items',
+     (SELECT jsonb_agg(jsonb_build_object('description','x','amount_cents',1000,'category','other')) FROM generate_series(1,51))))$$,
+  'BZ124', NULL, '51 line items → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  '{"currency":"CNY","total_cents":-100,"line_items":[{"description":"x","amount_cents":-100,"category":"other"}]}'::jsonb)$$,
+  'BZ124', NULL, 'amount_cents ≤ 0 → BZ124');
+SELECT throws_ok($$SELECT hr_request_create(1, 'hr.expense',
+  '{"currency":"CNY","total_cents":1000,"line_items":[{"description":"x","amount_cents":1000,"category":"other","receipt_sha256":"0000000000000000000000000000000000000000000000000000000000ff"}]}'::jsonb)$$,
+  'BZ126', NULL, 'unknown receipt_sha256 → BZ126');
+
+SELECT * FROM finish();
+ROLLBACK;

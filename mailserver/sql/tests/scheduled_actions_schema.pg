@@ -1,0 +1,44 @@
+-- scheduled_actions_schema.pg: deferred-action infrastructure schema (A6 Task 1).
+-- Asserts the two core tables, the two critical indexes, the reminders ledger,
+-- and the jmap_reminder_state surface. See
+-- retired-docs:superpowers/specs/2026-06-16-scheduled-actions-design.md §2.
+BEGIN;
+SELECT plan(14);
+
+SELECT has_table('scheduled_actions',     'scheduled_actions table exists');
+SELECT has_table('scheduled_action_log',  'scheduled_action_log table exists');
+SELECT has_table('reminders',             'reminders ledger table exists');
+
+SELECT has_column('scheduled_actions', 'action_kind',  'has action_kind');
+SELECT has_column('scheduled_actions', 'fire_at',      'has fire_at');
+SELECT has_column('scheduled_actions', 'status',       'has status');
+SELECT has_column('scheduled_actions', 'dedup_key',    'has dedup_key');
+SELECT has_column('scheduled_actions', 'locked_until', 'has locked_until');
+SELECT has_column('scheduled_actions', 'mailbox_id',   'has mailbox_id');
+
+-- The due-scan index: partial on status='pending', keyed by fire_at.
+SELECT isnt(
+  (SELECT count(*) FROM pg_indexes
+   WHERE tablename='scheduled_actions' AND indexdef ILIKE '%(fire_at)%' AND indexdef ILIKE '%pending%'),
+  0::BIGINT, 'partial fire_at WHERE status=pending index exists');
+
+-- The egress-idempotency partial-UNIQUE index on dedup_key.
+SELECT isnt(
+  (SELECT count(*) FROM pg_indexes
+   WHERE tablename='scheduled_actions' AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%dedup_key%'),
+  0::BIGINT, 'partial-UNIQUE dedup_key index exists');
+
+-- The reclaim index: partial on status='processing', keyed by locked_until.
+SELECT isnt(
+  (SELECT count(*) FROM pg_indexes
+   WHERE tablename='scheduled_actions' AND indexdef ILIKE '%(locked_until)%' AND indexdef ILIKE '%processing%'),
+  0::BIGINT, 'partial locked_until WHERE status=processing reclaim index exists');
+
+-- Reminders surface for the remind handler.
+SELECT has_column('mailboxes', 'jmap_reminder_state', 'mailboxes.jmap_reminder_state exists');
+
+-- outbound_queue_hot gains the egress-idempotency dedup_key column (send handler).
+SELECT has_column('outbound_queue_hot', 'dedup_key', 'outbound_queue_hot.dedup_key exists');
+
+SELECT * FROM finish();
+ROLLBACK;

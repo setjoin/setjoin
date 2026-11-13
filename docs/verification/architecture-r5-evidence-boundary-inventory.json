@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "caseId": "R5-EVIDENCE-PUBLICATION-BOUNDARY",
+  "authority": "docs/architecture.md",
+  "decision": "no-change",
+  "stableCommonEnvelope": false,
+  "publicationLeaf": null,
+  "sources": [
+    {"path":"scripts/run-pgtap-evidence.sh","sha256":"6b751c708211ecb20adcd2bf93428018062d533094d8f27fe9442321c3daa789"},
+    {"path":"scripts/check-architecture-r2-evidence.sh","sha256":"14aeca70325785cbe70b20e9093ced65cd793599689675e1b785f5b014c8051a"},
+    {"path":"docs/verification/architecture-r3-cases.json","sha256":"3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"},
+    {"path":"scripts/verify-architecture-r3.sh","sha256":"4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"},
+    {"path":"docs/verification/architecture-r4-cases.json","sha256":"a1f5302ff814b375f225179eb5f64a3f690721b6cca223b723f1f6b5ee011d31"},
+    {"path":"scripts/verify-architecture-r4.sh","sha256":"0bfb96fdf7a04c88d60558bb2d0392b5830616f3380f611b4d22ddd8576640b2"},
+    {"path":"docs/verification/connectivity-aware-sync-cases.json","sha256":"db926fbba696ceeda8bcaed33eabc902cd031eb0df1362edc2603df09403bfa5"},
+    {"path":"scripts/check-connectivity-aware-sync-cases.mjs","sha256":"6f77a7f0ad60df5b90bd57e1c3c6ef21e1f4e7c01e6d2beec35bfdd11b9ab3f5"},
+    {"path":"scripts/verify-connectivity-aware-sync.sh","sha256":"d4699da46db480b535e0ab027ddcd88c7836d4af1e7d1be5fd56097dd2be245c"},
+    {"path":"scripts/verify-office-foundation.sh","sha256":"6bc198a6cf133032a04d59df203169a7fa1fd4ce9457b29858ca60bc2b66013c"}
+  ],
+  "programs": [
+    {
+      "id": "architecture-r2",
+      "schemaIdentity": "verbose TAP stream; no JSON envelope",
+      "sourceBinding": "disposable database name, loopback host and DSN equality",
+      "verdictModel": "pg_prove and tee exit status",
+      "artifactModel": "canonical .tap on pass; .failed or .partial otherwise",
+      "publicationModel": "same-directory temporary file renamed to one report path",
+      "pointerModel": "none"
+    },
+    {
+      "id": "architecture-r3",
+      "schemaIdentity": "numeric schemaVersion 1 lane/release/benchmark families",
+      "sourceBinding": "commit plus dirtyDigest object and population key where applicable",
+      "verdictModel": "pass/failed plus explicit missing release evidence",
+      "artifactModel": "multiple exact cases and hashed artifacts, including real-environment receipts",
+      "publicationModel": "run directory rename plus atomic manifest pointer",
+      "pointerModel": "manifest path and aggregate path variants"
+    },
+    {
+      "id": "architecture-r4",
+      "schemaIdentity": "numeric schemaVersion 1 single-lane envelope",
+      "sourceBinding": "commit:dirty SHA string",
+      "verdictModel": "passed/failed",
+      "artifactModel": "one caseId and hashed output.log",
+      "publicationModel": "temporary run directory rename",
+      "pointerModel": "runId"
+    },
+    {
+      "id": "connectivity-aware-sync",
+      "schemaIdentity": "case registry plus separate result, decision and cleanup schemas",
+      "sourceBinding": "exact case and retained-artifact contracts; privacy-safe normalized decisions",
+      "verdictModel": "required states reject skipped, ambiguous, malformed, flaky and failed",
+      "artifactModel": "case-specific retained paths and cleanup receipts",
+      "publicationModel": "lane-owned result publication with separate validators",
+      "pointerModel": "program run ID"
+    },
+    {
+      "id": "office-foundation",
+      "schemaIdentity": "setjoin.office.verification/v1 string schema",
+      "sourceBinding": "provider and acceptance manifest digests; no repository dirty digest",
+      "verdictModel": "pass with explicit external_gate claim boundary",
+      "artifactModel": "embedded stage outcomes and source manifest digests",
+      "publicationModel": "direct mode-0600 manifest and latest writes in an isolated result directory",
+      "pointerModel": "full duplicated latest result"
+    }
+  ],
+  "incompatibilities": [
+    "schema identifiers differ in type and meaning",
+    "source binding ranges from database identity to commit/dirty digest to input-manifest digests",
+    "verdict vocabularies and external-gate semantics differ",
+    "artifact cardinality and privacy contracts differ",
+    "atomic publication and pointer shapes are not byte-identical",
+    "release and cleanup receipts cannot be reduced to a lane output envelope"
+  ]
+}

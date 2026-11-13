@@ -1,0 +1,451 @@
+-- guest_set_status.pg — Guest G0 Task 2: single-writer atomicity + the P9
+-- split (disable = clean slate, expire = freeze, extend = restore) + the
+-- disable arm rides the EXISTING removal shape (notify_chat_state per
+-- channel — proven via the notify_decouple intent rail, the one observable
+-- form of the push; raw pg_notify is invisible to pgTAP) + the C-5
+-- guest_require_grantable semantics (BZ219 for a non-active guest target,
+-- no-op for a member; the FOR SHARE serialization itself is a concurrency
+-- property pgTAP cannot drive — ledgered in Task 17, see the honest note).
+BEGIN;
+SELECT plan(69);
+
+-- Flip notify-decouple ON for this txn so notify_chat_state writes
+-- observable notify_intents rows instead of raw pg_notify.
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.notify_decouple';
+
+-- Fixture: host domain, admin, a guest with an oauth token and a channel grant.
+INSERT INTO domains (name, is_local) VALUES ('gss-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled, is_local_admin)
+SELECT 'gss-admin', d.id, 'gss-admin@gss-host.example', 'Admin', TRUE, TRUE
+  FROM domains d WHERE d.name = 'gss-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gss-viewer', d.id, 'gss-viewer@gss-host.example', 'Viewer', TRUE
+  FROM domains d WHERE d.name = 'gss-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.username, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('gss-composed', 'gss-composed@gss-host.example', 'Composed Admin'),
+    ('gss-scoped', 'gss-scoped@gss-host.example', 'Scoped Admin')
+  ) AS v(username, email, display_name)
+  JOIN domains d ON d.name='gss-host.example';
+INSERT INTO domains (name, is_local) VALUES ('gss-other.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gss-other-admin', d.id, 'gss-other-admin@gss-other.example', 'Other Admin', TRUE
+  FROM domains d WHERE d.name = 'gss-other.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gss-guest@ext.example', d.id, 'gss-guest@ext.example', 'Guest', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gss-nomember@ext.example', d.id, 'gss-nomember@ext.example', 'Guest Without Membership', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'gss-admin@gss-host.example', h.id, 'active'
+  FROM users u, domains h WHERE u.email = 'gss-guest@ext.example' AND h.name = 'gss-host.example';
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'gss-admin@gss-host.example', h.id, 'active'
+  FROM users u, domains h WHERE u.email = 'gss-nomember@ext.example' AND h.name = 'gss-host.example';
+INSERT INTO oauth_tokens (user_id, token_hash, token_type, expires_at)
+SELECT id, decode('aa','hex'), 'refresh', now() + interval '30 days'
+  FROM users WHERE email = 'gss-guest@ext.example';
+INSERT INTO chat_channels (kind, name, visibility, created_by)
+SELECT 'channel', 'gss-chan', 'public', id FROM users WHERE email = 'gss-admin@gss-host.example';
+-- The admin is a member too (owner), not just created_by — notify_chat_state
+-- fans out to the REMAINING members after the delete (chat_member_remove's
+-- own pattern); with the guest as the channel's only member the removal
+-- would leave nobody to notify and the push assertion below could never fire.
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+SELECT c.id, u.id, 'owner' FROM chat_channels c, users u
+ WHERE c.name = 'gss-chan' AND u.email = 'gss-admin@gss-host.example';
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+SELECT c.id, u.id, 'member' FROM chat_channels c, users u
+ WHERE c.name = 'gss-chan' AND u.email = 'gss-guest@ext.example';
+
+-- Both actors wield guests.manage, but only the immutable host-domain match
+-- may reach the guest. The reducer itself must carry that predicate: a Go
+-- precheck is not sufficient for R3 and would leave a TOCTOU seam.
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'gss-manage-' || d.name, ARRAY['guests.manage'], d.id
+  FROM domains d WHERE d.name IN ('gss-host.example', 'gss-other.example');
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u
+  JOIN admin_role_groups rg
+    ON rg.name = 'gss-manage-' || split_part(u.email, '@', 2)
+ WHERE u.email IN ('gss-admin@gss-host.example', 'gss-other-admin@gss-other.example');
+
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'gss-view-' || d.name, ARRAY['guests.view'], d.id
+  FROM domains d WHERE d.name = 'gss-host.example';
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u
+  JOIN admin_role_groups rg ON rg.name = 'gss-view-' || split_part(u.email, '@', 2)
+ WHERE u.email = 'gss-viewer@gss-host.example';
+
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'gss-empty-host-reach', ARRAY[]::text[], d.id
+  FROM domains d WHERE d.name='gss-host.example';
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u, admin_role_groups rg
+ WHERE u.email='gss-composed@gss-host.example'
+   AND rg.name IN ('gss-manage-gss-other.example','gss-empty-host-reach');
+INSERT INTO admin_scope_sets (name, domain_id, created_by)
+SELECT 'gss-guest-set', d.id, u.id FROM domains d, users u
+ WHERE d.name='gss-host.example' AND u.email='gss-scoped@gss-host.example';
+INSERT INTO admin_scope_set_members (set_id, member_type, member_id, added_by)
+SELECT s.id, 'user', g.id, a.id
+  FROM admin_scope_sets s, users g, users a
+ WHERE s.name='gss-guest-set' AND g.email='gss-guest@ext.example'
+   AND a.email='gss-scoped@gss-host.example';
+INSERT INTO admin_role_assignments
+       (user_id, role_group_id, granted_by, scope_type, scope_id, eligible)
+SELECT u.id, rg.id, u.id, 'set', s.id, FALSE
+  FROM users u, admin_role_groups rg, admin_scope_sets s
+ WHERE u.email='gss-scoped@gss-host.example'
+   AND rg.name='gss-manage-gss-host.example' AND s.name='gss-guest-set';
+
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-composed@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-guest@ext.example'), 'extend',
+       now() + interval '60 days') $$,
+  'BZ170', NULL,
+  'cross-assignment lifecycle: wrong-domain manage plus permissionless reach cannot compose');
+SELECT is((SELECT status FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE u.email='gss-guest@ext.example'), 'active',
+  'cross-assignment lifecycle denial leaves status unchanged');
+UPDATE guest_accounts SET status='expired'
+ WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+UPDATE users SET enabled=FALSE WHERE email='gss-guest@ext.example';
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-scoped@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-guest@ext.example'), 'extend',
+       now() + interval '60 days') $$,
+  'same-assignment set scope: lifecycle write to a reachable guest succeeds');
+SELECT ok((SELECT expires_at > now() + interval '59 days' FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE u.email='gss-guest@ext.example'),
+  'same-assignment set scope: lifecycle mutation is persisted');
+
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-guest@ext.example'), 'extend',
+       now() + interval '70 days') $$,
+  'active unelapsed: renewal succeeds');
+SELECT ok((SELECT status='active' AND expires_at > now()+interval '69 days'
+             FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE u.email='gss-guest@ext.example'),
+  'active unelapsed: renewal advances expiry and remains active');
+
+UPDATE guest_accounts SET status='active',expires_at=now()-interval '1 day'
+ WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-guest@ext.example'), 'extend',
+       now() + interval '80 days') $$,
+  'active elapsed: effective-expired guest renewal succeeds');
+SELECT ok((SELECT status='active' AND expires_at > now()+interval '79 days'
+             FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE u.email='gss-guest@ext.example'),
+  'active elapsed: renewal restores a future active lifecycle');
+
+UPDATE guest_accounts SET status='disabled' WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+UPDATE users SET enabled=FALSE WHERE email='gss-guest@ext.example';
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-guest@ext.example'), 'extend',
+       now() + interval '85 days') $$,
+  'disabled: renewal succeeds');
+SELECT ok((SELECT g.status='active' AND g.expires_at > now()+interval '84 days' AND u.enabled
+             FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE u.email='gss-guest@ext.example'),
+  'disabled: renewal restores status, expiry, and users.enabled');
+
+UPDATE feature_toggles SET enabled=TRUE WHERE key='feature.chat_compliance';
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email='gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email='gss-nomember@ext.example'), 'disable') $$,
+  'disable without memberships succeeds');
+SELECT is((SELECT count(*)::int FROM chat_audit_log
+            WHERE target_type='member'
+              AND target_id=(SELECT id FROM users WHERE email='gss-nomember@ext.example')),
+  0, 'disable without a deleted membership emits no false compliance evidence');
+SELECT is((SELECT count(*)::int FROM notify_intents
+            WHERE payload LIKE '%member_removed%'), 0,
+  'disable without a deleted membership emits no false member_removed push (session_revoke is expected)');
+SELECT ok(position('ORDER BY channel_id' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_set_status(bigint,bigint,text,timestamp with time zone)'::regprocedure)) > 0,
+  'disable mutation shape: memberships are deleted in deterministic channel order');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_set_status(bigint,bigint,text,timestamp with time zone)'::regprocedure))
+  < position('FOR UPDATE OF g, u' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_set_status(bigint,bigint,text,timestamp with time zone)'::regprocedure)),
+  'guest_set_status loaded definition fences before guest/user row locks');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_expire_due(integer)'::regprocedure))
+  < position('FOR UPDATE SKIP LOCKED' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='guest_expire_due(integer)'::regprocedure)),
+  'guest_expire_due loaded definition fences before claiming guest rows');
+
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-viewer@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'disable') $$,
+  'BZ002', NULL,
+  'persisted authority: same-domain guests.view-only actor cannot mutate lifecycle');
+SELECT is((SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+            WHERE u.email = 'gss-guest@ext.example'), 'active',
+  'permission denial: guest status is unchanged');
+SELECT ok((SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'permission denial: users.enabled is unchanged');
+SELECT is((SELECT count(*)::int FROM oauth_tokens ot JOIN users u ON u.id = ot.user_id
+            WHERE u.email = 'gss-guest@ext.example' AND ot.revoked_at IS NULL), 1,
+  'permission denial: refresh token is not revoked');
+SELECT is((SELECT count(*)::int FROM chat_channel_members m JOIN users u ON u.id = m.user_id
+            WHERE u.email = 'gss-guest@ext.example'), 1,
+  'permission denial: channel membership is not deleted');
+
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-other-admin@gss-other.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'disable') $$,
+  'BZ170', NULL,
+  'reach anti-oracle: cross-domain guests.manage actor gets not found');
+SELECT is((SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+            WHERE u.email = 'gss-guest@ext.example'), 'active',
+  'reach denial: guest status is unchanged');
+SELECT ok((SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'reach denial: users.enabled is unchanged');
+SELECT is((SELECT count(*)::int FROM oauth_tokens ot JOIN users u ON u.id = ot.user_id
+            WHERE u.email = 'gss-guest@ext.example' AND ot.revoked_at IS NULL), 1,
+  'reach denial: refresh token is not revoked');
+SELECT is((SELECT count(*)::int FROM chat_channel_members m JOIN users u ON u.id = m.user_id
+            WHERE u.email = 'gss-guest@ext.example'), 1,
+  'reach denial: channel membership is not deleted');
+
+-- Helpers behave.
+SELECT ok( is_guest_account((SELECT id FROM users WHERE email = 'gss-guest@ext.example')),
+  'is_guest_account: true for a satellite row');
+SELECT ok( NOT is_guest_account((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example')),
+  'is_guest_account: false for a member');
+SELECT lives_ok(
+  $$ SELECT guest_require_active((SELECT id FROM users WHERE email = 'gss-guest@ext.example')) $$,
+  'guest_require_active: no-op for an active guest');
+
+-- Meet grant-resurrection fixture: neither row is disposable history, but a
+-- clean-slate disable must make both incapable of authorizing a future token.
+-- It is intentionally created after the no-membership notification baseline
+-- above because meeting_create emits its own chat notification.
+SELECT id AS gss_admin_id FROM users WHERE email='gss-admin@gss-host.example' \gset
+SELECT id AS gss_guest_id FROM users WHERE email='gss-guest@ext.example' \gset
+SELECT (meeting_create(:gss_admin_id, 'gss lifecycle meeting')->>'meetingId')::bigint
+       AS gss_meeting_id \gset
+INSERT INTO meeting_join_requests
+       (meeting_id, display_name, user_id, state, decided_by, decided_at)
+VALUES (:gss_meeting_id, 'Guest admitted', :gss_guest_id, 'admitted', :gss_admin_id, now()),
+       (:gss_meeting_id, 'Guest pending',  :gss_guest_id, 'pending',  NULL, NULL);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+VALUES (:gss_meeting_id, :gss_guest_id, 'u:' || :gss_guest_id, 'member');
+SELECT ok(meeting_guest_join_allowed(:gss_guest_id, :gss_meeting_id),
+  'fixture: admitted authenticated knock is live guest join authority');
+
+-- A lifecycle transition must invalidate credentials even if an older caller
+-- left an invited link attached to a now-active guest.
+INSERT INTO guest_invites
+       (guest_user_id, token_hash, host_domain_id, created_by, created_by_email, expires_at)
+SELECT :gss_guest_id, 'gss-disable-pending', d.id, :gss_admin_id,
+       'gss-admin@gss-host.example', now()+interval '1 day'
+  FROM domains d WHERE d.name='gss-host.example';
+
+-- DISABLE: one call flips status + users.enabled, revokes tokens, deletes grants.
+SELECT lives_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'disable') $$,
+  'guest_set_status: disable succeeds');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'disabled', 'disable: status flipped');
+SELECT ok( NOT (SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'disable: users.enabled flipped in the same act');
+SELECT is((SELECT terminal_reason FROM guest_invites
+            WHERE token_hash='gss-disable-pending'), 'revoked',
+  'disable: pending invitation is atomically marked revoked');
+SELECT ok(EXISTS (SELECT 1 FROM admin_audit_log a
+                   JOIN guest_invites gi ON gi.id=a.target_id
+                  WHERE gi.token_hash='gss-disable-pending'
+                    AND a.action='guest.invite_revoke'
+                    AND a.target_type='guest_invite'),
+  'disable: exact invitation revocation is independently auditable');
+SELECT is( (SELECT count(*) FROM oauth_tokens ot JOIN users u ON u.id = ot.user_id
+             WHERE u.email = 'gss-guest@ext.example' AND ot.revoked_at IS NULL)::int, 0,
+  'disable: refresh family revoked in the same act (C-7)');
+SELECT is( (SELECT count(*) FROM chat_channel_members m JOIN users u ON u.id = m.user_id
+             WHERE u.email = 'gss-guest@ext.example')::int, 0,
+  'disable: chat-membership grant rows DELETED (P9 clean slate)');
+SELECT ok( EXISTS (SELECT 1 FROM notify_intents
+             WHERE payload LIKE '%member_removed%'
+               AND payload LIKE '%' || (SELECT id FROM chat_channels WHERE name = 'gss-chan')::text || '%'),
+  'disable: rides the existing removal shape — notify_chat_state(member_removed) fired per channel');
+SELECT is((SELECT count(*)::int FROM meeting_join_requests
+            WHERE meeting_id = :gss_meeting_id AND user_id = :gss_guest_id
+              AND state = 'expired'), 2,
+  'disable: pending and admitted authenticated knocks are expired');
+SELECT ok((SELECT left_at IS NOT NULL AND banned_at IS NOT NULL
+             FROM meeting_participants
+            WHERE meeting_id = :gss_meeting_id AND user_id = :gss_guest_id),
+  'disable: participant history is retained but marked left and banned');
+SELECT ok(NOT meeting_guest_join_allowed(:gss_guest_id, :gss_meeting_id),
+  'disable: no admitted-knock authority survives');
+SELECT throws_ok(
+  format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'member') $$,
+         :gss_admin_id, :gss_meeting_id, :gss_guest_id),
+  'BZ219', NULL, 'disable: host cannot clear the guest ban through member re-admit');
+SELECT throws_ok(
+  $$ SELECT guest_require_active((SELECT id FROM users WHERE email = 'gss-guest@ext.example')) $$,
+  'BZ219', NULL, 'guest_require_active: BZ219 for a disabled guest');
+SELECT throws_ok(
+  $$ SELECT guest_require_grantable((SELECT id FROM users WHERE email = 'gss-guest@ext.example')) $$,
+  'BZ219', NULL, 'guest_require_grantable: BZ219 for a disabled guest TARGET (C-5)');
+SELECT lives_ok(
+  $$ SELECT guest_require_grantable((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example')) $$,
+  'guest_require_grantable: no-op (no row, no lock) for a member target');
+
+-- EXPIRE freezes (re-grant a membership first, then expire — grants survive).
+-- (Fixture reducer calls ride DO/PERFORM so no stray result rows corrupt TAP.)
+DO $$
+BEGIN
+  PERFORM guest_set_status((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+                           (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'enable');
+END $$;
+SELECT ok(NOT meeting_guest_join_allowed(:gss_guest_id, :gss_meeting_id),
+  'enable: invalidated Meet authority is not silently restored');
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+SELECT c.id, u.id, 'member' FROM chat_channels c, users u
+ WHERE c.name = 'gss-chan' AND u.email = 'gss-guest@ext.example';
+UPDATE meeting_join_requests
+   SET state='admitted', decided_by=:gss_admin_id, decided_at=now(),
+       expires_at=now()+interval '15 minutes'
+ WHERE id=(SELECT min(id) FROM meeting_join_requests
+            WHERE meeting_id=:gss_meeting_id AND user_id=:gss_guest_id);
+UPDATE meeting_participants SET left_at=NULL, banned_at=NULL
+ WHERE meeting_id=:gss_meeting_id AND user_id=:gss_guest_id;
+SELECT ok(meeting_guest_join_allowed(:gss_guest_id, :gss_meeting_id),
+  'fixture: explicit post-enable re-admission restores Meet authority');
+DO $$
+BEGIN
+  PERFORM guest_set_status((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+                           (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'expire');
+END $$;
+SELECT is( (SELECT count(*) FROM chat_channel_members m JOIN users u ON u.id = m.user_id
+             WHERE u.email = 'gss-guest@ext.example')::int, 1,
+  'expire: grant rows KEPT frozen (P9 split)');
+SELECT is((SELECT state FROM meeting_join_requests
+            WHERE meeting_id=:gss_meeting_id AND user_id=:gss_guest_id
+            ORDER BY id LIMIT 1), 'admitted',
+  'expire: admitted authenticated knock stays frozen');
+SELECT ok((SELECT left_at IS NULL AND banned_at IS NULL
+             FROM meeting_participants
+            WHERE meeting_id=:gss_meeting_id AND user_id=:gss_guest_id),
+  'expire: live participant grant stays frozen');
+
+-- EXTEND restores with zero re-granting.
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'extend',
+       clock_timestamp() - interval '1 second') $$,
+  'BZ162', NULL, 'extend: elapsed expiry is rejected as a classified client error');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'expired',
+  'elapsed extend: guest status is unchanged');
+SELECT ok( NOT (SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'elapsed extend: users.enabled is unchanged');
+DO $$
+BEGIN
+  PERFORM guest_set_status((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+                           (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'extend',
+                           now() + interval '90 days');
+END $$;
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'active', 'extend: status restored to active');
+SELECT ok(meeting_guest_join_allowed(:gss_guest_id, :gss_meeting_id),
+  'extend: frozen admitted-knock and participant rows restore without mutation');
+
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'enable') $$,
+  'BZ162', NULL, 'enable: an already-active guest is not a valid source state');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'active',
+  'active enable denial leaves status unchanged');
+
+-- ENABLE is the undo-disable transition only. Expired guests recover through
+-- extend; invited guests must accept the invite and cannot use either verb to
+-- bypass credential/disclosure acceptance.
+DO $$
+BEGIN
+  PERFORM guest_set_status((SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+                           (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'expire');
+END $$;
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'enable') $$,
+  'BZ162', NULL, 'enable: an expired guest must use extend');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'expired',
+  'expired enable denial leaves status unchanged');
+SELECT ok( NOT (SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'expired enable denial leaves users.enabled false');
+
+UPDATE guest_accounts SET status='disabled'
+ WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+UPDATE guest_accounts SET expires_at=clock_timestamp()-interval '1 second'
+ WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'enable') $$,
+  'BZ162', NULL, 'enable: elapsed stored expiry is rejected as a classified client error');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'disabled',
+  'elapsed enable: guest status is unchanged');
+SELECT ok( NOT (SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'elapsed enable: users.enabled is unchanged');
+
+UPDATE guest_accounts SET status='invited',expires_at=clock_timestamp()+interval '30 days'
+ WHERE user_id=(SELECT id FROM users WHERE email='gss-guest@ext.example');
+UPDATE users SET enabled=TRUE WHERE email='gss-guest@ext.example';
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'enable') $$,
+  'BZ162', NULL, 'invited: enable cannot bypass invite acceptance');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'invited',
+  'invited enable denial preserves acceptance state');
+SELECT ok( (SELECT enabled FROM users WHERE email = 'gss-guest@ext.example'),
+  'invited enable denial does not mutate the prepared user axis');
+SELECT throws_ok(
+  $$ SELECT guest_set_status(
+       (SELECT id FROM users WHERE email = 'gss-admin@gss-host.example'),
+       (SELECT id FROM users WHERE email = 'gss-guest@ext.example'), 'extend',
+       clock_timestamp()+interval '60 days') $$,
+  'BZ162', NULL, 'invited: extend cannot bypass invite acceptance');
+SELECT is( (SELECT status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'gss-guest@ext.example'), 'invited',
+  'invited extend denial preserves acceptance state');
+
+-- Audit acts written via the single writer.
+SELECT ok( (SELECT count(*) FROM admin_audit_log
+             WHERE action IN ('guest.disable','guest.enable','guest.expire','guest.extend')) >= 4,
+  'guest_set_status: one audit act per transition via audit_write');
+
+SELECT * FROM finish();
+ROLLBACK;

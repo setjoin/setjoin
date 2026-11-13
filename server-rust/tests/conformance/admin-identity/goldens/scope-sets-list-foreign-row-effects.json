@@ -1,0 +1,151 @@
+{
+  "case": "foreign-row-effects",
+  "effects": [
+    {
+      "after": {
+        "members": [
+          {
+            "added_at": "2026-10-01 13:00:00+00",
+            "added_by": "<admin>",
+            "member_id": 910001,
+            "member_type": "ou",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:01.5+00",
+            "added_by": null,
+            "member_id": 920001,
+            "member_type": "group",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:02+00",
+            "added_by": "<admin>",
+            "member_id": "<target>",
+            "member_type": "user",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:03+00",
+            "added_by": null,
+            "member_id": 999999991,
+            "member_type": "user",
+            "set": "admin3-alpha"
+          }
+        ],
+        "sets": [
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "created_by": "<admin>",
+            "description": "Alpha <set> & co",
+            "domain_id": null,
+            "id": 930001,
+            "name": "admin3-alpha",
+            "updated_at": "2026-10-01 12:00:00.5+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:01.25+00",
+            "created_by": null,
+            "description": null,
+            "domain_id": "<target-domain>",
+            "id": 930002,
+            "name": "admin3-beta",
+            "updated_at": "2026-10-01 12:00:01.25+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:03+00",
+            "created_by": null,
+            "description": null,
+            "domain_id": null,
+            "id": 930004,
+            "name": "admin3-\"q\"\\é​\t<&>",
+            "updated_at": "2026-10-01 12:00:03+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:02+00",
+            "created_by": "<other>",
+            "description": "",
+            "domain_id": null,
+            "id": 930003,
+            "name": "admin3-used",
+            "updated_at": "2026-10-01 12:00:02+00"
+          }
+        ]
+      },
+      "before": {
+        "members": [
+          {
+            "added_at": "2026-10-01 13:00:00+00",
+            "added_by": "<admin>",
+            "member_id": 910001,
+            "member_type": "ou",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:01.5+00",
+            "added_by": null,
+            "member_id": 920001,
+            "member_type": "group",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:02+00",
+            "added_by": "<admin>",
+            "member_id": "<target>",
+            "member_type": "user",
+            "set": "admin3-alpha"
+          },
+          {
+            "added_at": "2026-10-01 13:00:03+00",
+            "added_by": null,
+            "member_id": 999999991,
+            "member_type": "user",
+            "set": "admin3-alpha"
+          }
+        ],
+        "sets": [
+          {
+            "created_at": "2026-10-01 12:00:00+00",
+            "created_by": "<admin>",
+            "description": "Alpha <set> & co",
+            "domain_id": null,
+            "id": 930001,
+            "name": "admin3-alpha",
+            "updated_at": "2026-10-01 12:00:00.5+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:01.25+00",
+            "created_by": null,
+            "description": null,
+            "domain_id": "<target-domain>",
+            "id": 930002,
+            "name": "admin3-beta",
+            "updated_at": "2026-10-01 12:00:01.25+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:03+00",
+            "created_by": null,
+            "description": null,
+            "domain_id": null,
+            "id": 930004,
+            "name": "admin3-\"q\"\\é​\t<&>",
+            "updated_at": "2026-10-01 12:00:03+00"
+          },
+          {
+            "created_at": "2026-10-01 12:00:02+00",
+            "created_by": "<other>",
+            "description": "",
+            "domain_id": null,
+            "id": 930003,
+            "name": "admin3-used",
+            "updated_at": "2026-10-01 12:00:02+00"
+          }
+        ]
+      },
+      "table": "admin_scope_sets"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/scope-sets"
+}

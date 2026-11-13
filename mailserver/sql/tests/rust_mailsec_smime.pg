@@ -1,0 +1,14 @@
+-- pgTAP: rust_mailsec_smime.sql (F06 slice smime) -- trust-anchor import and delete.
+BEGIN;
+SELECT plan(9);
+SELECT is(rust_mailsec_smime_anchor_import('lbl', '[{"pem":"P1","fingerprint":"fp-t1","subject_cn":"CN1","not_before":1700000000,"not_after":4000000000},{"pem":"P2","fingerprint":"fp-t2","subject_cn":"","not_before":1700000000,"not_after":4000000000}]'::jsonb, 0, NULL), 2, 'bundle import stores every certificate');
+SELECT is((SELECT count(*)::int FROM smime_trust_anchors WHERE fingerprint IN ('fp-t1','fp-t2') AND domain_id IS NULL), 2, 'deployment-wide rows have no domain');
+SELECT is(rust_mailsec_smime_anchor_import('renamed', '[{"pem":"P1","fingerprint":"fp-t1","subject_cn":"CN1","not_before":1700000000,"not_after":4000000000}]'::jsonb, 0, NULL), 1, 're-import runs');
+SELECT is((SELECT label FROM smime_trust_anchors WHERE fingerprint = 'fp-t1'), 'renamed', 'conflict renames the label');
+SELECT is((SELECT count(*)::int FROM smime_trust_anchors WHERE fingerprint = 'fp-t1'), 1, 'conflict does not duplicate');
+SELECT is(rust_mailsec_smime_anchor_delete((SELECT id FROM smime_trust_anchors WHERE fingerprint='fp-t1'), 999999999), false, 'a scoped caller cannot delete a deployment-wide anchor');
+SELECT is(rust_mailsec_smime_anchor_delete((SELECT id FROM smime_trust_anchors WHERE fingerprint='fp-t1'), 0), true, 'a global caller deletes it');
+SELECT is(rust_mailsec_smime_anchor_delete(-1, 0), false, 'a missing id is false');
+SELECT is((SELECT count(*)::int FROM smime_trust_anchors WHERE fingerprint = 'fp-t1'), 0, 'row gone');
+SELECT * FROM finish();
+ROLLBACK;

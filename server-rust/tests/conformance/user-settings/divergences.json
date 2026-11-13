@@ -1,0 +1,57 @@
+[
+  {
+    "route": "PUT /settings/undo-send",
+    "case": "concurrent writers (no recorded case reaches it)",
+    "field": "/effects (users.view_prefs under two simultaneous PUTs)",
+    "from": "Go SELECTs view_prefs, merges in Go and UPDATEs, so concurrent writers can lose each other's keys",
+    "to": "rust_settings_undo_delay_put locks the user row (FOR UPDATE) and merges in SQL in one transaction",
+    "reason": "ARCH-028 statement-or-reducer rule: Go's handler is a read then a write, so Rust calls one reducer. Sequential results are identical (recorded); other numeric keys are not re-rounded through float64 because the document is merged as JSONB.",
+    "reviewer": "owner (2026-11-03)",
+    "reviewed": true,
+    "review_reference": "#468: owner approval of group A (2026-11-03)"
+  },
+  {
+    "route": "PUT /settings/signatures",
+    "case": "concurrent writers beyond the cap (no recorded case reaches it)",
+    "field": "/response (limit admission)",
+    "from": "Go counts other rows outside the transaction, so two simultaneous new aliases can both pass at 99 rows",
+    "to": "the reducer re-counts inside the transaction",
+    "reason": "ARCH-028 statement-or-reducer rule: Go's handler is four statements. Rust still reads the count first so validation order is Go's; the reducer's count is the authoritative one.",
+    "reviewer": "owner (2026-11-03)",
+    "reviewed": true,
+    "review_reference": "#468: owner approval of group A (2026-11-03)"
+  },
+  {
+    "route": "GET /user/devices",
+    "case": "Go process in a non-UTC time zone (no recorded case reaches it)",
+    "field": "/response/devices/*/last_seen, created_at",
+    "from": "Go prints fmt %v of a pgx time.Time in the Go process's local zone (for example +0200 CEST)",
+    "to": "Rust always prints UTC (2006-01-02 15:04:05.999999999 +0000 UTC), identical to Go whenever Go runs in UTC",
+    "reason": "The local zone is host configuration, not data; the recorded oracle runs Go in UTC. A fixed UTC rendering keeps the wire value independent of where the Rust gateway runs.",
+    "reviewer": "owner (2026-11-03)",
+    "reviewed": true,
+    "review_reference": "#468: owner approval of group A (2026-11-03)"
+  },
+  {
+    "route": "DELETE /user/sessions/{id}",
+    "case": "concurrent revoke of the same session (no recorded case reaches it)",
+    "field": "/effects (sessions, session_revocations)",
+    "from": "Go checks the web session in one statement and calls the reducer in a later one inside the same transaction",
+    "to": "rust_session_revoke_one performs both inside one function call",
+    "reason": "ARCH-028 statement-or-reducer rule: Go's handler is several statements, so Rust calls one reducer composing the same revoke_user_sessions arms; sequential results are identical (recorded).",
+    "reviewer": "owner (2026-11-03)",
+    "reviewed": true,
+    "review_reference": "#468: owner approval of group A (2026-11-03)"
+  },
+  {
+    "route": "GET /user/login-history",
+    "case": "concurrent login events between the two reads (no recorded case reaches it)",
+    "field": "/response (items vs failed_distinct)",
+    "from": "Go runs the page query and the seven-day failure summary in one transaction",
+    "to": "Rust runs them as two consecutive scoped reads",
+    "reason": "The executor's read primitive is one statement per snapshot; the summary can differ from the page by an event committed between the reads.",
+    "reviewer": "owner (2026-11-03)",
+    "reviewed": true,
+    "review_reference": "#468: owner approval of group A (2026-11-03)"
+  }
+]

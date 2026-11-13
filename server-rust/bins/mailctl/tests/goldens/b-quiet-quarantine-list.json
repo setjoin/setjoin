@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/quarantine?limit=4&offset=2&q=a+%26+b&status=active",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "ID     Subject                        From                           Reason          Quarantined\n7      Subject                        sender@example.test            spam            now (active)\n",
+  "stderr": "",
+  "exit": 0
+}

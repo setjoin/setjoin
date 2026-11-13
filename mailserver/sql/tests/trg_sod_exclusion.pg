@@ -1,0 +1,76 @@
+-- pgTAP: trg_sod_exclusion.pg — SoD exclusion trigger behaviour
+--
+-- Tests three scenarios:
+--   A) toggle OFF:  cross-class assignment INSERT succeeds (trigger is a no-op)
+--   B) toggle ON:   cross-class second INSERT RAISES (ERRCODE BZ001)
+--   C) toggle ON:   same-class second assignment SUCCEEDS
+--
+-- Design note: pgTAP state (the __tresults__ / __tplan__ tables) participates
+-- in the outer transaction, so ROLLBACK TO SAVEPOINT would rewind the plan
+-- state.  Instead each scenario fully cleans up after itself via DELETE or
+-- explicit user-scoped row cleanup, keeping all work in one transaction.
+BEGIN;
+SELECT plan(4);
+
+-- ── Fixtures ─────────────────────────────────────────────────────────────────
+-- Two test users and a second system-class role group (for the same-class test).
+INSERT INTO domains (name, is_local) VALUES ('sod.test', TRUE) ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE v_domain_id BIGINT;
+BEGIN
+  SELECT id INTO v_domain_id FROM domains WHERE name = 'sod.test';
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79001, 'sodtest1', v_domain_id, 'sodtest1@sod.test', 'SoD Test 1', 'x')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79002, 'sodtest2', v_domain_id, 'sodtest2@sod.test', 'SoD Test 2', 'x')
+    ON CONFLICT (id) DO NOTHING;
+END;
+$$;
+
+INSERT INTO admin_role_groups (name, description, permissions, sod_class, is_builtin)
+  VALUES ('系统管理员2_sodtest', 'Second system-class role for SoD trigger test', '{}', 'system', false)
+  ON CONFLICT (name) DO NOTHING;
+
+-- ── Test A: toggle OFF → cross-class assignment succeeds ─────────────────────
+UPDATE feature_toggles SET enabled = false WHERE key = 'dengbao.sod_mode';
+
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 79001, g.id, 79001 FROM admin_role_groups g WHERE g.name = '系统管理员';
+
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79001, g.id, 79001 FROM admin_role_groups g WHERE g.name = '审计管理员'$$,
+  'toggle OFF: cross-class (system+audit) INSERT succeeds — trigger is a no-op');
+
+-- Clean up user 79001 assignments before the ON tests.
+DELETE FROM admin_role_assignments WHERE user_id = 79001;
+
+-- ── Test B: toggle ON → cross-class second INSERT RAISES ─────────────────────
+UPDATE feature_toggles SET enabled = true WHERE key = 'dengbao.sod_mode';
+
+-- First assignment (system class) must succeed under ON.
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79002, g.id, 79002 FROM admin_role_groups g WHERE g.name = '系统管理员'$$,
+  'toggle ON: first (system class) assignment succeeds');
+
+-- Second assignment (audit class, cross-class) must raise BZ001.
+SELECT throws_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79002, g.id, 79002 FROM admin_role_groups g WHERE g.name = '审计管理员'$$,
+  'BZ001',
+  NULL,
+  'toggle ON: cross-class (system+audit) INSERT raises BZ001');
+
+-- ── Test C: toggle ON → same-class second assignment SUCCEEDS ─────────────────
+-- user 79002 already holds 系统管理员 (system class).
+-- Assigning another system-class role must succeed.
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79002, g.id, 79002 FROM admin_role_groups g WHERE g.name = '系统管理员2_sodtest'$$,
+  'toggle ON: same-class (system+system) second assignment succeeds');
+
+SELECT * FROM finish();
+ROLLBACK;

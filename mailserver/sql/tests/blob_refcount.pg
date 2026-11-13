@@ -1,0 +1,83 @@
+-- pgTAP: blobs.ref_count lifecycle — the content-addressed attachment refcount.
+--
+-- Three triggers under test:
+--   • attachment_blob_refcount_inc  AFTER INSERT ON message_attachments (V075)
+--       → trg_attachment_inserted(): UPDATE blobs SET ref_count = ref_count + 1
+--   • attachment_blob_refcount      AFTER DELETE ON message_attachments
+--       → trg_attachment_deleted(): UPDATE blobs SET ref_count = ref_count - 1
+--   • blob_refcount_cleanup         AFTER UPDATE OF ref_count ON blobs
+--       → trg_blob_refcount_zero(): when ref_count hits 0, enqueue the sha256 into
+--         blob_cleanup_queue (the GC worker reclaims SeaweedFS objects from there).
+--
+-- The blob seeds at ref_count=0 (the unsent-orphan state PUT /blobs creates); the two
+-- message_attachments INSERTs bump it to 2 via the V075 trigger, the DELETEs restore it.
+--
+-- Namespaced fixture ids (domain 96010 / user 79010 / mailbox 99010 / message
+-- 990100 / attachments 990101-2 / sha "blobrefcount_test_sha_990100") so this
+-- file never collides with a sibling test.
+BEGIN;
+SELECT plan(5);
+
+INSERT INTO domains (id, name, is_local) VALUES (96010, 'blobrc.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (79010, 'blobrc', 96010, 'u@blobrc.test', 'BlobRC')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99010, 79010, 96010, 'u@blobrc.test', 'BlobRC', 'personal', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- A real message for the message_attachments FK (message_id, received_at)
+-- → messages(id, received_at) ON DELETE CASCADE.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+  VALUES (990100, 99010, 1, '<blobrc-1@blobrc.test>', 'Has attachments', 'u@blobrc.test', 'BlobRC',
+    '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'thread-blobrc-1', 'raw/990100', now())
+  ON CONFLICT (id, received_at) DO NOTHING;
+
+-- Seed the blob at ref_count=0 (unsent orphan); the two attachment INSERTs below
+-- bump it to 2 via the V075 AFTER INSERT trigger.
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES ('blobrefcount_test_sha_990100', 'minio/blobrc', 1024, 'application/pdf', 0);
+
+INSERT INTO message_attachments (id, message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+  SELECT 990101, 990100, m.received_at, 'blobrefcount_test_sha_990100', 'a.pdf', 'application/pdf', 1024
+    FROM messages m WHERE m.id = 990100;
+INSERT INTO message_attachments (id, message_id, received_at, blob_sha256, filename, content_type, size_bytes)
+  SELECT 990102, 990100, m.received_at, 'blobrefcount_test_sha_990100', 'b.pdf', 'application/pdf', 1024
+    FROM messages m WHERE m.id = 990100;
+
+-- 1. ref_count reflects the two attachments.
+SELECT is(
+  (SELECT ref_count FROM blobs WHERE sha256 = 'blobrefcount_test_sha_990100'),
+  2,
+  'two message_attachments on one sha256 → blobs.ref_count = 2');
+
+-- 2. Deleting one attachment fires trg_attachment_deleted → ref_count decrements to 1.
+DELETE FROM message_attachments WHERE id = 990101;
+SELECT is(
+  (SELECT ref_count FROM blobs WHERE sha256 = 'blobrefcount_test_sha_990100'),
+  1,
+  'AFTER DELETE of one attachment decrements ref_count to 1 (trg_attachment_deleted)');
+
+-- 3. Enqueue is zero-gated: a non-zero decrement must NOT enqueue a cleanup row.
+SELECT is(
+  (SELECT count(*) FROM blob_cleanup_queue WHERE blob_sha256 = 'blobrefcount_test_sha_990100'),
+  0::BIGINT,
+  'ref_count still 1 → no blob_cleanup_queue row yet (enqueue is zero-gated)');
+
+-- 4. Deleting the last attachment decrements ref_count to 0.
+DELETE FROM message_attachments WHERE id = 990102;
+SELECT is(
+  (SELECT ref_count FROM blobs WHERE sha256 = 'blobrefcount_test_sha_990100'),
+  0,
+  'AFTER DELETE of the last attachment decrements ref_count to 0');
+
+-- 5. ref_count hitting 0 fires trg_blob_refcount_zero → the sha256 is enqueued for GC.
+SELECT is(
+  (SELECT count(*) FROM blob_cleanup_queue WHERE blob_sha256 = 'blobrefcount_test_sha_990100'),
+  1::BIGINT,
+  'ref_count reaching 0 enqueues the blob into blob_cleanup_queue (trg_blob_refcount_zero)');
+
+SELECT * FROM finish();
+ROLLBACK;

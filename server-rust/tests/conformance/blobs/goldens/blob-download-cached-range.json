@@ -1,0 +1,153 @@
+{
+  "case": "blob-download-cached-range",
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "normalization": [
+    "response date",
+    "fixture body owner id and adjusted content-length",
+    "fixture authorization and blob path"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "external_path": "/api/blobs/{sha256}",
+      "headers": {
+        "authorization": "<fixture-access-token>",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "range": "bytes=2-5"
+      },
+      "method": "GET",
+      "path": "/blobs/{sha256}"
+    },
+    "response": {
+      "body": "gofree-blobs1 object for <owner-user>",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "37"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "text/plain"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-download-oracle"
+        ]
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": "gofree-blobs1 object for <owner-user>",
+        "headers": {
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "37"
+          ],
+          "content-security-policy": [
+            "default-src 'none'; sandbox"
+          ],
+          "content-type": [
+            "text/plain"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs1-download-oracle"
+          ]
+        },
+        "status": 200
+      },
+      {
+        "body": "free",
+        "headers": {
+          "accept-ranges": [
+            "bytes"
+          ],
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "4"
+          ],
+          "content-range": [
+            "bytes 2-5/<object-size>"
+          ],
+          "content-security-policy": [
+            "default-src 'none'; sandbox"
+          ],
+          "content-type": [
+            "text/plain"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs1-download-oracle"
+          ]
+        },
+        "status": 206
+      }
+    ]
+  },
+  "route": "GET /blobs/{sha256}"
+}

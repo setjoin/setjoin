@@ -1,0 +1,70 @@
+{
+  "max_meetings": "0",
+  "scenario": "zero-capacity",
+  "steps": [
+    {
+      "name": "start-refused",
+      "request": {
+        "body_len": 24,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"busy\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 409
+      }
+    },
+    {
+      "name": "status-empty",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    }
+  ]
+}

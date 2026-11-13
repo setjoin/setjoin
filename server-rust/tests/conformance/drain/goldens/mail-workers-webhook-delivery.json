@@ -1,0 +1,341 @@
+{
+  "case": "mail-workers-webhook-delivery",
+  "format": 1,
+  "go_source": "1d7ea54c0",
+  "observation": {
+    "deliveries": [
+      [
+        "/all",
+        "mailbox.detached",
+        "{\"id\": \"29591000-0000-4000-8000-000000000003\", \"data\": {\"event\": \"mailbox.detached\", \"mailboxId\": \"1\", \"generation\": \"3\"}, \"time\": \"2026-01-02T10:00:00.5Z\", \"type\": \"mailbox.detached\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29591000-0000-4000-8000-000000000003"
+      ],
+      [
+        "/all",
+        "mailbox.purged",
+        "{\"id\": \"29591000-0000-4000-8000-000000000005\", \"data\": {\"a\": {\"b\": [1, 2.5, \"x\"], \"aa\": null}, \"event\": \"mailbox.purged\"}, \"time\": \"2026-12-31T23:59:59.000001Z\", \"type\": \"mailbox.purged\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29591000-0000-4000-8000-000000000005"
+      ],
+      [
+        "/all",
+        "mailbox.resumed",
+        "{\"id\": \"29591000-0000-4000-8000-000000000002\", \"data\": {\"z\": \"<tag> & ünï\", \"event\": \"mailbox.resumed\", \"mailboxId\": \"1\", \"generation\": \"2\"}, \"time\": \"2026-01-02T12:00:00Z\", \"type\": \"mailbox.resumed\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29591000-0000-4000-8000-000000000002"
+      ],
+      [
+        "/all",
+        "mailbox.suspended",
+        "{\"id\": \"29591000-0000-4000-8000-000000000001\", \"data\": {\"event\": \"mailbox.suspended\", \"mailboxId\": \"1\", \"generation\": \"1\"}, \"time\": \"2026-01-02T12:00:00.123456Z\", \"type\": \"mailbox.suspended\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29591000-0000-4000-8000-000000000001"
+      ],
+      [
+        "/all",
+        "mailwork.assigned",
+        "{\"id\": \"29590000-0000-4000-8000-000000000002\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000002\", \"threadId\": \"t1\", \"eventType\": \"assigned\", \"mailboxId\": <mailbox>, \"generation\": 2.5}, \"time\": \"<time>\", \"type\": \"mailwork.assigned\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000002"
+      ],
+      [
+        "/all",
+        "mailwork.assigned",
+        "{\"id\": \"29590000-0000-4000-8000-000000000003\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000003\", \"threadId\": \"t2\", \"eventType\": \"reassigned\", \"mailboxId\": <mailbox>, \"generation\": 12345678901234567000}, \"time\": \"<time>\", \"type\": \"mailwork.assigned\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000003"
+      ],
+      [
+        "/all",
+        "mailwork.claimed",
+        "{\"id\": \"29590000-0000-4000-8000-000000000001\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000001\", \"threadId\": \"t<b>&é\", \"eventType\": \"claimed\", \"mailboxId\": <mailbox>, \"generation\": 1}, \"time\": \"<time>\", \"type\": \"mailwork.claimed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000001"
+      ],
+      [
+        "/all",
+        "mailwork.completed",
+        "{\"id\": \"29590000-0000-4000-8000-000000000005\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000005\", \"threadId\": \"t4\", \"eventType\": \"completed\", \"mailboxId\": <mailbox>, \"generation\": 0.0000001}, \"time\": \"<time>\", \"type\": \"mailwork.completed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000005"
+      ],
+      [
+        "/all",
+        "mailwork.handed_off",
+        "{\"id\": \"29590000-0000-4000-8000-000000000004\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000004\", \"threadId\": \"t3\", \"eventType\": \"handed_off\", \"mailboxId\": <mailbox>, \"generation\": null}, \"time\": \"<time>\", \"type\": \"mailwork.handed_off\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000004"
+      ],
+      [
+        "/all",
+        "mailwork.sla_breached",
+        "{\"id\": \"29590000-0000-4000-8000-000000000006\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000006\", \"threadId\": null, \"eventType\": \"sla_breached\", \"mailboxId\": <mailbox>, \"generation\": 3}, \"time\": \"<time>\", \"type\": \"mailwork.sla_breached\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000006"
+      ],
+      [
+        "/completed",
+        "mailwork.completed",
+        "{\"id\": \"29590000-0000-4000-8000-000000000005\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000005\", \"threadId\": \"t4\", \"eventType\": \"completed\", \"mailboxId\": <mailbox>, \"generation\": 0.0000001}, \"time\": \"<time>\", \"type\": \"mailwork.completed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        null,
+        "29590000-0000-4000-8000-000000000005"
+      ]
+    ],
+    "lifecycle": [
+      [
+        "29591000-0000-4000-8000-000000000001",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000002",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000003",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000004",
+        "failed",
+        1,
+        "mailbox lifecycle webhook payload is missing",
+        false
+      ],
+      [
+        "29591000-0000-4000-8000-000000000005",
+        "completed",
+        1,
+        null,
+        true
+      ]
+    ],
+    "lifecycle-outbox": [
+      [
+        "29591000-0000-4000-8000-000000000001",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000002",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000003",
+        "completed",
+        1,
+        null,
+        true
+      ],
+      [
+        "29591000-0000-4000-8000-000000000005",
+        "completed",
+        1,
+        null,
+        true
+      ]
+    ],
+    "requests": [
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000001\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000001\", \"threadId\": \"t<b>&é\", \"eventType\": \"claimed\", \"mailboxId\": <mailbox>, \"generation\": 1}, \"time\": \"<time>\", \"type\": \"mailwork.claimed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000002\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000002\", \"threadId\": \"t1\", \"eventType\": \"assigned\", \"mailboxId\": <mailbox>, \"generation\": 2.5}, \"time\": \"<time>\", \"type\": \"mailwork.assigned\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000003\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000003\", \"threadId\": \"t2\", \"eventType\": \"reassigned\", \"mailboxId\": <mailbox>, \"generation\": 12345678901234567000}, \"time\": \"<time>\", \"type\": \"mailwork.assigned\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000004\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000004\", \"threadId\": \"t3\", \"eventType\": \"handed_off\", \"mailboxId\": <mailbox>, \"generation\": null}, \"time\": \"<time>\", \"type\": \"mailwork.handed_off\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000005\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000005\", \"threadId\": \"t4\", \"eventType\": \"completed\", \"mailboxId\": <mailbox>, \"generation\": 0.0000001}, \"time\": \"<time>\", \"type\": \"mailwork.completed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000006\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000006\", \"threadId\": null, \"eventType\": \"sla_breached\", \"mailboxId\": <mailbox>, \"generation\": 3}, \"time\": \"<time>\", \"type\": \"mailwork.sla_breached\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29591000-0000-4000-8000-000000000001\", \"data\": {\"event\": \"mailbox.suspended\", \"mailboxId\": \"1\", \"generation\": \"1\"}, \"time\": \"2026-01-02T12:00:00.123456Z\", \"type\": \"mailbox.suspended\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29591000-0000-4000-8000-000000000002\", \"data\": {\"z\": \"<tag> & ünï\", \"event\": \"mailbox.resumed\", \"mailboxId\": \"1\", \"generation\": \"2\"}, \"time\": \"2026-01-02T12:00:00Z\", \"type\": \"mailbox.resumed\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29591000-0000-4000-8000-000000000003\", \"data\": {\"event\": \"mailbox.detached\", \"mailboxId\": \"1\", \"generation\": \"3\"}, \"time\": \"2026-01-02T10:00:00.5Z\", \"type\": \"mailbox.detached\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29591000-0000-4000-8000-000000000005\", \"data\": {\"a\": {\"b\": [1, 2.5, \"x\"], \"aa\": null}, \"event\": \"mailbox.purged\"}, \"time\": \"2026-12-31T23:59:59.000001Z\", \"type\": \"mailbox.purged\", \"source\": \"mailserver/lifecycle\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/all",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"id\": \"29590000-0000-4000-8000-000000000005\", \"data\": {\"eventId\": \"29590000-0000-4000-8000-000000000005\", \"threadId\": \"t4\", \"eventType\": \"completed\", \"mailboxId\": <mailbox>, \"generation\": 0.0000001}, \"time\": \"<time>\", \"type\": \"mailwork.completed\", \"source\": \"urn:setjoin:mailwork\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/completed",
+        "signature": "<valid>"
+      }
+    ],
+    "work": [
+      [
+        "mbox-wh-0",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-1",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000002",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-2",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000003",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-3",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000004",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-4",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000005",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-5",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29590000-0000-4000-8000-000000000006",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox-wh-6",
+        "pending",
+        1,
+        "mail-work webhook event is not approved",
+        null
+      ],
+      [
+        "mbox-wh-7",
+        "pending",
+        1,
+        "mail-work webhook event is not approved",
+        null
+      ]
+    ]
+  }
+}

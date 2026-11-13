@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity source activate SOURCE_KEY --reason TEXT [--idempotency-key UUID]\n",
+  "exit": 1
+}

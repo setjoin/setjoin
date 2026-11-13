@@ -1,0 +1,39 @@
+{
+  "case": "secevents-stale-settlement",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"stolen-ok\"}",
+        "type": "sec.steal"
+      },
+      {
+        "attempts": 5,
+        "payload": "{\"label\": \"stolen-late\"}",
+        "type": "sec.steal"
+      }
+    ],
+    "rows": [
+      {
+        "attempts": "5",
+        "claim_generation": "2",
+        "delivered": "false",
+        "label": "stolen-late",
+        "last_error": "<null>",
+        "next_attempt_s": "120",
+        "status": "pending"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "2",
+        "delivered": "false",
+        "label": "stolen-ok",
+        "last_error": "<null>",
+        "next_attempt_s": "120",
+        "status": "pending"
+      }
+    ]
+  }
+}

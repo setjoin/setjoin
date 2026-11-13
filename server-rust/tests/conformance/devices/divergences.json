@@ -1,0 +1,50 @@
+[
+  {
+    "baseline": "goldens/devices-list-foreign-target.json",
+    "sha256": "d1cf41fc7468b45950f4fce0466e51de8243677840031bf5afe3ef16ba7b386b",
+    "expectation": "security/devices-list-foreign-target.json",
+    "reason": "owner-approved security fix 2026-11-05 (#435: the device lockdown queue, per-user list and transition are confined to devices of users inside the caller's reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#435",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::lockdown_console_is_confined_to_the_callers_reach",
+    "mutant": "lockdown-foreign-target"
+  },
+  {
+    "baseline": "goldens/queue-foreign-target.json",
+    "sha256": "44411d43b23d567059f57ae18ad492a250460198fbe7e959623b09dc321bdd7e",
+    "expectation": "security/queue-foreign-target.json",
+    "reason": "owner-approved security fix 2026-11-05 (#435: the device lockdown queue, per-user list and transition are confined to devices of users inside the caller's reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#435",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::lockdown_console_is_confined_to_the_callers_reach",
+    "mutant": "lockdown-foreign-target"
+  },
+  {
+    "baseline": "goldens/transition-foreign-target.json",
+    "sha256": "a4fe6aba02aedfe130d7c720c818b97194ab98ecab8eb236a553932ab059433b",
+    "expectation": "security/transition-foreign-target.json",
+    "reason": "owner-approved security fix 2026-11-05 (#435: the device lockdown queue, per-user list and transition are confined to devices of users inside the caller's reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#435",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::lockdown_console_is_confined_to_the_callers_reach",
+    "mutant": "lockdown-foreign-target"
+  },
+  {
+    "baseline": "goldens/transition-foreign-target-row-effects.json",
+    "sha256": "ee42fb6ad7e1e5d13a489c02fcad120477ed405f57ffcfd6d6283387320009be",
+    "expectation": "security/transition-foreign-target-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#435: the device lockdown queue, per-user list and transition are confined to devices of users inside the caller's reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#435",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::lockdown_console_is_confined_to_the_callers_reach",
+    "mutant": "lockdown-foreign-target"
+  }
+]

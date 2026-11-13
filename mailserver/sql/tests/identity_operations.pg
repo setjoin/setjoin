@@ -1,0 +1,335 @@
+\set ON_ERROR_STOP 1
+BEGIN;
+SELECT plan(57);
+SET LOCAL app.audit_hmac_key = 'identity-operations-test-hmac-key';
+
+SELECT has_table('public','identity_jobs','identity job ledger exists');
+SELECT has_table('public','identity_job_results','identity job result ledger exists');
+SELECT has_column('public','identity_jobs','failure_count',
+    'identity jobs track failure retries separately from successful page claims');
+SELECT is(
+    (SELECT relrowsecurity::text || ':' || relforcerowsecurity::text
+       FROM pg_class WHERE oid='public.identity_jobs'::regclass),
+    'true:true','identity jobs are ENABLE+FORCE RLS'
+);
+SELECT is(
+    (SELECT pg_get_userbyid(relowner) FROM pg_class
+      WHERE oid='public.identity_jobs'::regclass),
+    'setjoin_owner','identity jobs are owner-owned'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM pg_policies
+      WHERE schemaname='public' AND tablename='identity_jobs'),
+    0,'identity jobs have no app policy'
+);
+SELECT has_function('public','identity_job_create',
+    ARRAY['bigint','text','uuid','text','uuid','jsonb','text']);
+SELECT has_function('public','identity_job_claim',ARRAY['uuid']);
+SELECT has_function('public','identity_job_progress',
+    ARRAY['uuid','uuid','jsonb','text']);
+SELECT has_function('public','identity_job_complete',
+    ARRAY['uuid','uuid','text','jsonb','bytea','jsonb','jsonb']);
+SELECT has_function('public','identity_job_batch_settle',
+    ARRAY['uuid','uuid','jsonb','jsonb','boolean','boolean']);
+SELECT has_function('public','identity_job_fail',
+    ARRAY['uuid','uuid','text','boolean']);
+SELECT has_function('public','identity_job_cancel',ARRAY['bigint','uuid']);
+SELECT has_function('public','identity_diagnostic_download',ARRAY['bigint','uuid']);
+SELECT has_function('public','identity_diagnostic_delete',
+    ARRAY['bigint','uuid','text']);
+SELECT has_function('public','identity_doctor',
+    ARRAY['integer','boolean','boolean','boolean','boolean','boolean','text']);
+SELECT has_function('public','identity_inventory_export',ARRAY[]::text[]);
+SELECT has_function('public','identity_upgrade_preflight',
+    ARRAY['integer','boolean','boolean','boolean','boolean','boolean']);
+SELECT has_function('public','identity_upgrade_backfill_start',
+    ARRAY['bigint','text','uuid','text','integer','boolean','boolean','boolean','boolean','boolean']);
+SELECT has_function('public','identity_upgrade_shadow',ARRAY['text']);
+SELECT has_function('public','identity_upgrade_retirement_check',ARRAY[]::text[]);
+
+SELECT mk_account('identity-ops-actor') AS mailbox_id \gset actor_
+SELECT user_id FROM mailboxes WHERE id=:actor_mailbox_id \gset actor_
+INSERT INTO backup_runs(status,completed_at) VALUES('completed',statement_timestamp());
+SELECT max(version) AS expected_schema_version FROM schema_migrations \gset identity_
+
+SELECT is(
+    (identity_upgrade_preflight(
+        :identity_expected_schema_version,true,true,true,true,true
+    )->>'safeToBackfill')::boolean,
+    true,'preflight passes with matching schema, runtime seams, and fresh backup'
+);
+SELECT is(
+    (identity_upgrade_preflight(
+        :identity_expected_schema_version - 1,true,true,true,true,true
+    )->>'safeToBackfill')::boolean,
+    false,'preflight blocks a schema/binary mismatch'
+);
+SELECT ok(
+    identity_upgrade_preflight(
+        :identity_expected_schema_version,true,true,true,true,true
+    )->>'sha256'
+      ~ '^[0-9a-f]{64}$',
+    'preflight returns a checksum artifact'
+);
+
+SELECT identity_upgrade_preflight(
+    :identity_expected_schema_version,true,true,true,true,true
+)->>'sha256'
+    AS preflight_checksum \gset
+SELECT gen_random_uuid() AS backfill_key \gset
+SELECT identity_upgrade_backfill_start(
+    :actor_user_id, :'preflight_checksum', :'backfill_key',
+    'test bounded backfill',:identity_expected_schema_version,
+    true,true,true,true,true
+) AS backfill_job \gset
+SELECT is(:'backfill_job'::jsonb->>'kind','upgrade_backfill',
+    'backfill start creates the durable job kind');
+SELECT is(:'backfill_job'::jsonb->>'state','queued',
+    'backfill starts queued');
+SELECT is(
+    identity_upgrade_backfill_start(
+        :actor_user_id, :'preflight_checksum', :'backfill_key',
+        'test bounded backfill',:identity_expected_schema_version,
+        true,true,true,true,true
+    )->>'jobId',
+    :'backfill_job'::jsonb->>'jobId',
+    'same request and idempotency key returns the same job'
+);
+SELECT throws_ok(
+    format(
+      $$SELECT identity_upgrade_backfill_start(%s,%L,%L,%L,%s,true,true,true,true,true)$$,
+      :actor_user_id, :'preflight_checksum', :'backfill_key',
+      'different request', :identity_expected_schema_version
+    ),
+    'BZ240','identity idempotency key was reused',
+    'idempotency reuse with a different digest is rejected'
+);
+
+SELECT identity_job_cancel(
+    :actor_user_id,(:'backfill_job'::jsonb->>'jobId')::uuid
+) AS cancelled \gset
+SELECT is(:'cancelled'::jsonb->>'state','cancelled',
+    'queued job cancellation is terminal');
+SELECT is(
+    identity_job_cancel(
+      :actor_user_id,(:'backfill_job'::jsonb->>'jobId')::uuid
+    )->>'state','cancelled','job cancellation is idempotent'
+);
+
+SELECT gen_random_uuid() AS result_job_key \gset
+SELECT identity_job_create(
+    :actor_user_id,'upgrade_backfill',:'result_job_key',NULL,NULL,
+    jsonb_build_object('preflightChecksum',:'preflight_checksum'),
+    'test per-person results'
+) AS result_job \gset
+SELECT gen_random_uuid() AS result_worker_id \gset
+SELECT identity_job_claim(:'result_worker_id') AS result_claim \gset
+SELECT identity_job_batch_settle(
+    (:'result_job'::jsonb->>'jobId')::uuid,:'result_worker_id',
+    jsonb_build_array(jsonb_build_object(
+        'userId',:actor_user_id::text,
+        'state','completed',
+        'result',jsonb_build_object('linksObserved',0,'conflictsRecorded',0)
+    )),
+    '{"processed":1,"failed":0,"complete":true}'::jsonb,
+    true,false
+);
+SELECT is(
+    identity_job_read(
+      :actor_user_id,(:'result_job'::jsonb->>'jobId')::uuid
+    )->>'state','completed',
+    'atomic batch settlement completes the backfill job'
+);
+SELECT is(
+    identity_job_results(
+      :actor_user_id,(:'result_job'::jsonb->>'jobId')::uuid,0,100
+    )->'items'->0->>'userId',
+    :actor_user_id::text,
+    'backfill exposes the exact per-person result'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_job_results
+      WHERE job_id=(:'result_job'::jsonb->>'jobId')::uuid),
+    1,
+    'one batch records one bounded result per person'
+);
+SELECT lives_ok(
+    format(
+      $$UPDATE identity_jobs SET attempt_count=21 WHERE id=%L::uuid$$,
+      :'result_job'::jsonb->>'jobId'
+    ),
+    'successful backfill page claims are not capped at twenty'
+);
+
+SELECT gen_random_uuid() AS retry_job_key \gset
+SELECT identity_job_create(
+    :actor_user_id,'upgrade_backfill',:'retry_job_key',NULL,NULL,
+    jsonb_build_object('preflightChecksum',:'preflight_checksum'),
+    'test bounded failure budget'
+) AS retry_job \gset
+UPDATE identity_jobs
+   SET failure_count=19
+ WHERE id=(:'retry_job'::jsonb->>'jobId')::uuid;
+SELECT gen_random_uuid() AS retry_worker_id \gset
+SELECT identity_job_claim(:'retry_worker_id') AS retry_claim \gset
+SELECT is(:'retry_claim'::jsonb->>'failureCount','19',
+    'claim reports the independent failure retry count');
+SELECT identity_job_fail(
+    (:'retry_job'::jsonb->>'jobId')::uuid,:'retry_worker_id',
+    'TEST_RETRY_EXHAUSTED',true
+);
+SELECT is(
+    (SELECT state FROM identity_jobs
+      WHERE id=(:'retry_job'::jsonb->>'jobId')::uuid),
+    'failed','the twentieth actual failure terminalizes the job'
+);
+SELECT is(
+    (SELECT failure_count FROM identity_jobs
+      WHERE id=(:'retry_job'::jsonb->>'jobId')::uuid),
+    20,'failure retry count is capped independently of page claims'
+);
+
+SELECT gen_random_uuid() AS diagnostic_key \gset
+SELECT identity_job_create(
+    :actor_user_id,'diagnostics',:'diagnostic_key','local:default',NULL,
+    '{"sinceSeconds":3600}'::jsonb,'test sanitized diagnostic'
+) AS diagnostic_job \gset
+SELECT is(:'diagnostic_job'::jsonb->>'kind','diagnostics',
+    'diagnostic creation records the scoped kind');
+SELECT ok(
+    (:'diagnostic_job'::jsonb->>'expiresAt')::timestamptz
+      <= statement_timestamp()+interval '7 days 5 minutes',
+    'diagnostic retention is bounded to seven days'
+);
+SELECT gen_random_uuid() AS worker_id \gset
+SELECT identity_job_claim(:'worker_id') AS claimed \gset
+SELECT is(:'claimed'::jsonb->>'jobId',:'diagnostic_job'::jsonb->>'jobId',
+    'worker claims the oldest queued diagnostic');
+SELECT identity_job_complete(
+    (:'diagnostic_job'::jsonb->>'jobId')::uuid,:'worker_id','completed',
+    '{"processed":2,"failed":0}'::jsonb,
+    convert_to('PK-test-sanitized-zip','UTF8'),
+    '{"manifestVersion":"1"}'::jsonb,
+    '{"credentials":1,"emails":1}'::jsonb
+);
+SELECT is(
+    identity_job_read(
+      :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid
+    )->>'state','completed','diagnostic completion is visible'
+);
+SELECT is(
+    identity_job_read(
+      :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid
+    )->>'manifestVersion','1','diagnostic status returns manifest version'
+);
+SELECT is(
+    (SELECT convert_from(artifact,'UTF8')
+       FROM identity_diagnostic_download(
+         :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid
+       )),
+    'PK-test-sanitized-zip','download returns the stored bounded artifact'
+);
+SELECT ok(
+    identity_diagnostic_delete(
+      :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid,
+      'test artifact deletion'
+    ),
+    'diagnostic deletion succeeds'
+);
+SELECT ok(
+    identity_diagnostic_delete(
+      :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid,
+      'test artifact deletion replay'
+    ),
+    'diagnostic deletion is idempotent'
+);
+SELECT is(
+    identity_job_read(
+      :actor_user_id,(:'diagnostic_job'::jsonb->>'jobId')::uuid
+    )->>'state','expired','deleted diagnostic cannot be downloaded'
+);
+
+SELECT is(
+    identity_doctor(
+      :identity_expected_schema_version,true,true,true,true,true,NULL
+    )->>'passed',
+    'false','doctor reports current approval/source readiness blockers'
+);
+SELECT ok(
+    jsonb_array_length(identity_doctor(
+      :identity_expected_schema_version,true,true,true,true,true,NULL
+    )->'checks') >= 15,
+    'doctor exposes the named readiness checks'
+);
+SELECT ok(
+    identity_inventory_export()::text !~* 'identity-ops-actor',
+    'inventory export omits email addresses'
+);
+SELECT ok(
+    identity_inventory_export()::text !~* '"externalSubject":|"configEnvelope":',
+    'inventory export omits subject and secret fields'
+);
+
+INSERT INTO identity_source_batches(
+    source_id,batch_id,source_generation,remote_cursor,
+    remote_cursor_digest,state,entry_count,applied_count,
+    quarantined_count,discovered_at,started_at,completed_at,updated_at
+)
+SELECT s.id,gen_random_uuid(),s.generation,jsonb_build_object('n',sample.n),
+       digest(sample.n::text,'sha256'),'completed',0,0,0,
+       sample.completed_at,sample.completed_at,sample.completed_at,sample.completed_at
+  FROM identity_sources s
+ CROSS JOIN (
+    SELECT 1 AS n,statement_timestamp()-interval '25 hours' AS completed_at
+    UNION ALL
+    SELECT n,statement_timestamp()-interval '100 minutes'+n*interval '12 minutes'
+      FROM generate_series(2,8) n
+ ) sample
+ WHERE s.source_key='local:default';
+SELECT is(
+    identity_upgrade_shadow('local:default')->>'eligible',
+    'true','a high-frequency clean sync rail spanning 24 hours satisfies the shadow gate'
+);
+SELECT is(
+    identity_upgrade_shadow('local:default')->>'completedSyncs',
+    '7','completed sync evidence is capped at the documented seven-sync target'
+);
+INSERT INTO identity_source_batches(
+    source_id,batch_id,source_generation,remote_cursor,
+    remote_cursor_digest,state,entry_count,applied_count,
+    quarantined_count,discovered_at,started_at,updated_at
+)
+SELECT id,gen_random_uuid(),generation,'{"open":true}'::jsonb,
+       digest('open','sha256'),'staged',0,0,0,
+       statement_timestamp(),statement_timestamp(),statement_timestamp()
+  FROM identity_sources WHERE source_key='local:default';
+SELECT is(
+    identity_upgrade_shadow('local:default')->>'eligible',
+    'false','a non-terminal source batch fences canary admission'
+);
+SELECT is(
+    identity_upgrade_shadow('local:default')->>'nextAction',
+    'let the current source sync reach terminal state',
+    'the non-terminal batch fence has an exact operator action'
+);
+DELETE FROM identity_source_batches
+ WHERE source_id=(SELECT id FROM identity_sources WHERE source_key='local:default')
+   AND state='staged';
+DELETE FROM identity_source_batches
+ WHERE source_id=(SELECT id FROM identity_sources WHERE source_key='local:default')
+   AND remote_cursor='{"n": 1}'::jsonb;
+SELECT is(
+    identity_upgrade_shadow('local:default')->>'eligible',
+    'false','seven rapid successes without 24 hours of completed coverage remain blocked'
+);
+SELECT is(
+    identity_upgrade_retirement_check()->>'ready','false',
+    'retirement stays blocked while rollback-era legacy dependencies remain'
+);
+SELECT is(
+    identity_upgrade_retirement_check()->>'destructiveMigrationIncluded','false',
+    'retirement check never performs destructive migration'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

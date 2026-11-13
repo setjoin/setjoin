@@ -1,0 +1,29 @@
+{
+  "case": "login-mint-fenced",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@<domain>\",\"password\":\"Password1!\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz235\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"conflict\",\"instance\":\"/auth/login\",\"remediation\":\"wait for mandatory authentication and media revocation effects to converge\",\"code\":\"BZ235\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 409,
+      "tokens": []
+    }
+  },
+  "route": "POST /auth/login"
+}

@@ -1,0 +1,70 @@
+-- pgTAP: calendar_itip.sql — delegate respond (on-behalf RSVP, delegate-gated).
+BEGIN;
+SELECT plan(5);
+
+INSERT INTO domains (name, is_local) VALUES ('deleg.test', TRUE);
+
+-- Manager M (the meeting attendee), delegate D (acts on M's behalf), stranger S.
+-- DIVERGENT IDS (regression guard): user_id != mailbox_id so an ownership predicate that
+-- mistakes p_account_id (a mailbox id) for a users.id cannot pass coincidentally.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (7101, 'manager',  (SELECT id FROM domains WHERE name = 'deleg.test'), 'm@deleg.test', 'Manager'),
+  (7102, 'delegate', (SELECT id FROM domains WHERE name = 'deleg.test'), 'd@deleg.test', 'Delegate'),
+  (7103, 'stranger', (SELECT id FROM domains WHERE name = 'deleg.test'), 's@deleg.test', 'Stranger');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (9101, 7101, (SELECT id FROM domains WHERE name = 'deleg.test'), 'm@deleg.test', 'personal', 'Manager Mbox', TRUE),
+  (9102, 7102, (SELECT id FROM domains WHERE name = 'deleg.test'), 'd@deleg.test', 'personal', 'Delegate Mbox', TRUE);
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (9101, 9101, 'Default', TRUE);
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting)
+VALUES (9101, 9101, 'deleg-evt-1', 'Review', now(), now() + '1h'::INTERVAL, 'boss@ext.com', TRUE);
+
+-- M is an attendee on the meeting (needs-action).
+INSERT INTO event_attendees (event_id, email, name, role, status)
+VALUES (9101, 'm@deleg.test', 'Manager', 'required', 'needs-action');
+
+-- D (users.id 7102) holds full_access on M's mailbox (id 9101).
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+VALUES (9101, 7102, 'full_access', 7101);
+
+-- (1) D responds on M's behalf → M's attendee row flips to accepted.
+-- p_account_id = M's MAILBOX id (9101); p_on_behalf_of = D's USERS id (7102).
+SELECT is(
+  (jmap_calendar_event_rsvp(9101, 9101, 'm@deleg.test', 'accepted', 7102))->>'type',
+  NULL,
+  'on-behalf RSVP by a delegate returns no error'
+);
+
+SELECT is(
+  (SELECT status FROM event_attendees WHERE event_id = 9101 AND email = 'm@deleg.test'),
+  'accepted',
+  'on-behalf RSVP flips the manager attendee status'
+);
+
+-- (2) Stranger S (no delegate grant) is forbidden — no flip.
+-- reset status first
+UPDATE event_attendees SET status = 'needs-action' WHERE event_id = 9101 AND email = 'm@deleg.test';
+
+SELECT is(
+  (jmap_calendar_event_rsvp(9101, 9101, 'm@deleg.test', 'accepted', 7103))->>'type',
+  'forbidden',
+  'on-behalf RSVP without a delegate grant returns forbidden'
+);
+
+SELECT is(
+  (SELECT status FROM event_attendees WHERE event_id = 9101 AND email = 'm@deleg.test'),
+  'needs-action',
+  'forbidden on-behalf RSVP does not flip the status'
+);
+
+-- (3) Existing self-RSVP path (no p_on_behalf_of) still works (regression).
+SELECT is(
+  (jmap_calendar_event_rsvp(9101, 9101, 'm@deleg.test', 'tentative'))->>'type',
+  NULL,
+  'self RSVP path (NULL on-behalf) still succeeds'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

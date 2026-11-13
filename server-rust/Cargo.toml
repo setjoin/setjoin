@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/calendar-format", "crates/certificates", "crates/spam", "crates/boot", "crates/threat", "bins/updater", "bins/release", "crates/release-format", "crates/tls", "crates/mime", "crates/protocols/smtp", "crates/domains/rules", "crates/protocols/ldap", "crates/protocols/federation", "crates/protocols/imap", "bins/gateway", "bins/asrbot", "crates/authz", "crates/contracts", "crates/db", "crates/domains/jmap", "crates/domains/blobs", "crates/domains/approvals", "crates/domains/office", "crates/domains/chat", "crates/domains/guests", "crates/domains/mailboxes", "crates/domains/calendar", "crates/domains/directory-sync", "crates/domains/admin-identity", "crates/domains/drive", "crates/domains/meet", "crates/domains/recording", "crates/domains/static", "crates/pg", "tests/conformance", "bins/mailctl", "crates/push", "crates/acme", "crates/schema", "crates/backup", "crates/config-secret", "crates/domains/compliance", "crates/domains/devices", "crates/domains/user-settings", "crates/domains/platform", "crates/domains/mail-security", "crates/domains/conditional-access", "bins/auth", "crates/domains/identity"]
+exclude = ["tools/schema-simulation", "pilot"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.97.1"
+publish = false

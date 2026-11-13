@@ -1,0 +1,12 @@
+{
+  "exit": 0,
+  "stdout": "This is a DESTRUCTIVE restore and will overwrite the target system.\nType RESTORE to confirm: Restore completed (job 17)\n  Blobs restored:       2\n  Config keys restored: 3\n",
+  "stderr": "",
+  "requests": [
+    {
+      "path": "/setup/restore",
+      "body": "{\"provider\":\"\",\"endpoint\":\"\",\"region\":\"\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"config\"}",
+      "content-type": "application/json"
+    }
+  ]
+}

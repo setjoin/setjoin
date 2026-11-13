@@ -1,0 +1,35 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/roles/7/members",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"expiresAt\":\"2030-01-01T00:00:00Z\",\"userId\":9}"
+    }
+  ],
+  "stdout": "Granted role \"Reader\" to a@example.test.\n",
+  "stderr": "",
+  "exit": 0
+}

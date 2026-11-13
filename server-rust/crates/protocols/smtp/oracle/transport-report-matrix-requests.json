@@ -1,0 +1,342 @@
+[
+  {
+    "name": "report-success-even-for-plaintext",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "report-starttls-rejection",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": true,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+    "starttls_reply": "454 not available"
+  },
+  {
+    "name": "report-required-tls-absence",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO system_config(key,value) VALUES ('outbound_tls_global_mode','\"enforce\"') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "report-dane-mismatch-classified-certificate-expired",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": true,
+    "tls": true,
+    "transport": {
+      "feature.dnssec": true,
+      "feature.dane": true,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+    "tlsa": [
+      {
+        "ad": true,
+        "rcode": 0,
+        "records": [
+          "3 0 1 8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "mta-skipped-mx-does-not-record-tls-session",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\":\"STSv1\",\"Mode\":\"enforce\",\"MX\":[\"other.test\"],\"MaxAge\":3600}',now());",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "disabled-reporting-does-not-record",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": false
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "absent-rua-still-records-session",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {},
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "report-version-prefix-and-trim",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "  v=TLSRPTv1junk; rua= mailto:one@example.test!10m  "
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "report-first-rua-wins",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; other=a",
+        "v=TLSRPTv1; rua=mailto:first@example.test; rua=https://second.example.test",
+        "v=TLSRPTv1; rua=https://third.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "report-mx-fallback-records-each-attempt",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "mx.first.test.",
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+    "replies": {
+      "mx.first.test.": "450 retry elsewhere"
+    }
+  },
+  {
+    "name": "report-smtp-rejection-is-validation-failure",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test';",
+    "replies": {
+      "localhost.": "550 refused"
+    }
+  },
+  {
+    "name": "report-write-failure-does-not-block-delivery",
+    "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nCREATE FUNCTION public.gofree_smtp4_report_failure() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NULL; END$$; CREATE TRIGGER gofree_smtp4_report_failure BEFORE INSERT ON tls_rpt_sessions FOR EACH ROW EXECUTE FUNCTION public.gofree_smtp4_report_failure();",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "transport-report-observe.sql",
+    "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions; DELETE FROM mta_sts_policies WHERE domain='dest.test'; DROP FUNCTION IF EXISTS public.gofree_smtp4_report_failure();"
+  },
+  {
+    "name": "active-schema-report-table-absent-is-best-effort",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": true
+    },
+    "dns": {
+      "txt:_smtp._tls.dest.test": [
+        "v=TLSRPTv1; rua=https://reports.example.test"
+      ]
+    },
+    "observe_file": "outbound-observe.sql",
+    "teardown_sql": ""
+  }
+]

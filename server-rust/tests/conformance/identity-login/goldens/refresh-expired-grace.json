@@ -1,0 +1,167 @@
+{
+  "case": "refresh-expired-grace",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [
+      {
+        "details": null,
+        "email": "actor@<domain>",
+        "event": "login",
+        "ip_address": "127.0.0.1",
+        "occurred_at": "<time>",
+        "provider": "jwt",
+        "user_id": "<actor>"
+      },
+      {
+        "details": null,
+        "email": "actor@<domain>",
+        "event": "login",
+        "ip_address": null,
+        "occurred_at": "<time>",
+        "provider": "jwt",
+        "user_id": "<actor>"
+      },
+      {
+        "details": null,
+        "email": "actor@<domain>",
+        "event": "login",
+        "ip_address": null,
+        "occurred_at": "<time>",
+        "provider": "jwt",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": {
+      "oauth": [
+        {
+          "client_id": null,
+          "expires_at": "<time>",
+          "family_id": "<family>",
+          "id": "<row-id>",
+          "issued_at": "<time>",
+          "last_used_protocol": null,
+          "previous_token_hash": null,
+          "revoked_by": null,
+          "scope": [],
+          "token_hash": "<token-hash>",
+          "token_type": "refresh",
+          "user_id": "<actor>"
+        },
+        {
+          "client_id": null,
+          "expires_at": "<time>",
+          "family_id": "<family>",
+          "id": "<row-id>",
+          "issued_at": "<time>",
+          "last_used_protocol": null,
+          "previous_token_hash": "<previous-token-hash>",
+          "revoked_by": null,
+          "scope": [],
+          "token_hash": "<token-hash>",
+          "token_type": "refresh",
+          "user_id": "<actor>"
+        },
+        {
+          "client_id": null,
+          "expires_at": "<time>",
+          "family_id": "<family>",
+          "id": "<row-id>",
+          "issued_at": "<time>",
+          "last_used_protocol": null,
+          "previous_token_hash": "<previous-token-hash>",
+          "revoked_by": null,
+          "scope": [],
+          "token_hash": "<token-hash>",
+          "token_type": "refresh",
+          "user_id": "<actor>"
+        }
+      ],
+      "sessions": [
+        {
+          "ad_grace_until": null,
+          "auth_method": "password",
+          "expires_at": "<time>",
+          "id": "<jti>",
+          "ip": "127.0.0.1",
+          "token_hash": "<token-hash>",
+          "user_agent": "IDLOGIN1 oracle",
+          "user_id": "<actor>"
+        }
+      ],
+      "signins": [
+        {
+          "auth_method": "password",
+          "client": "web",
+          "correlation_id": null,
+          "device_fingerprint": null,
+          "device_name": null,
+          "fail_reason": null,
+          "location": null,
+          "platform": null,
+          "protocol": "http",
+          "session_id": null,
+          "source_ip": "127.0.0.1",
+          "success": true,
+          "user_id": "<actor>"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"refresh_token\":\"<presented_refresh_token>\",\"user_id\":\"<actor>\"}",
+      "method": "POST",
+      "path": "/auth/refresh"
+    },
+    "response": {
+      "body": "{\"access_token\":\"<access_token>\",\"expires_in\":3600,\"refresh_token\":\"<refresh_token>\"}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 200,
+      "tokens": [
+        {
+          "claims": {
+            "aud": [
+              "mailserver-gateway"
+            ],
+            "email": "actor@<domain>",
+            "exp": "<expiry>",
+            "fam": "<family>",
+            "iat": "<time>",
+            "iss": "mailserver",
+            "jti": "<jti>",
+            "nbf": "<time>",
+            "sub": "<actor>",
+            "typ": "access",
+            "uid": "<actor>"
+          },
+          "field": "access_token"
+        },
+        {
+          "claims": {
+            "aud": [
+              "mailserver-gateway"
+            ],
+            "email": "actor@<domain>",
+            "exp": "<expiry>",
+            "fam": "<family>",
+            "iat": "<time>",
+            "iss": "mailserver",
+            "jti": "<jti>",
+            "nbf": "<time>",
+            "sub": "<actor>",
+            "typ": "refresh",
+            "uid": "<actor>"
+          },
+          "field": "refresh_token"
+        }
+      ]
+    },
+    "security_effects": {
+      "audit": [],
+      "revocations": []
+    }
+  },
+  "route": "POST /auth/refresh"
+}

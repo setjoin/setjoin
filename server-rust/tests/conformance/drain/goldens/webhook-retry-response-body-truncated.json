@@ -1,0 +1,46 @@
+{
+  "case": "webhook-retry-response-body-truncated",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [
+      {
+        "attempt": 1,
+        "backoff_ms": null,
+        "completed": true,
+        "due_far_future": false,
+        "error": null,
+        "event_id": "evt_big",
+        "event_type": "user.updated",
+        "latency_recorded": true,
+        "leased": false,
+        "request_body": "{\"id\": \"evt_big\", \"data\": {\"note\": \"café <b> & more\", \"user_id\": 7}, \"time\": \"2026-10-01T10:00:00Z\", \"type\": \"user.updated\", \"source\": \"mailserver/test\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "response_body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "response_code": 200,
+        "status": "success",
+        "subscription": "a"
+      }
+    ],
+    "publications": [],
+    "requests": [
+      {
+        "body": "{\"id\": \"evt_big\", \"data\": {\"note\": \"café <b> & more\", \"user_id\": 7}, \"time\": \"2026-10-01T10:00:00Z\", \"type\": \"user.updated\", \"source\": \"mailserver/test\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/big",
+        "signature": "<valid:s2>"
+      }
+    ],
+    "subscriptions": [
+      {
+        "key_id": "v1",
+        "label": "a",
+        "legacy_prev": false,
+        "legacy_secret": false,
+        "prev_key_id": null,
+        "sealed": true,
+        "sealed_prev": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "trace": [
+    {
+      "basic_allowed": false,
+      "event": "startup-disabled"
+    },
+    {
+      "basic_allowed": true,
+      "event": "notify-enable"
+    },
+    {
+      "basic_allowed": false,
+      "event": "notify-disable"
+    },
+    {
+      "basic_allowed": false,
+      "event": "missing-toggle"
+    },
+    {
+      "basic_allowed": true,
+      "event": "notify-restore"
+    },
+    {
+      "basic_allowed": false,
+      "event": "reconnect-authority"
+    },
+    {
+      "basic_allowed": true,
+      "event": "post-reconnect-notify"
+    },
+    {
+      "basic_allowed": false,
+      "event": "query-failure"
+    },
+    {
+      "basic_allowed": false,
+      "event": "initial-subscription-failure"
+    }
+  ],
+  "worker": "auth-chain-reload"
+}

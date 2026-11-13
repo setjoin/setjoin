@@ -1,0 +1,7 @@
+{
+  "audit": [],
+  "case": "register-finish-missing-proof-anonymous-audit",
+  "format": 1,
+  "go_source": "6c1a7fee2c8d147965cc84ed94ea4663488a89c7",
+  "route": "POST /auth/webauthn/register/finish"
+}

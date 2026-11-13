@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "BZ087: Priority conflict — the target priority slot is already held by a live (non-deleted) policy. Reorder existing policies first or choose a different priority. #BZ087\n",
+  "stderr": "",
+  "exit": 0
+}

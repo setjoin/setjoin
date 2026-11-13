@@ -1,0 +1,55 @@
+-- pgTAP: admin_can_manage.pg
+--
+-- admin_can_manage(p_actor, p_target) — the single-sourced reach+fallback gate.
+-- Semantics: an actor with NO active admin assignment reaches everyone (zero perms
+-- means blocked at the route layer); otherwise admin_can_reach must hold.
+--
+-- 3 assertions:
+--   1. actor with an OU-scoped assignment reaches a target in that OU  → true
+--   2. same actor does NOT reach a target outside that OU             → false
+--   3. actor with NO active assignment reaches any target             → true (zero-fallback)
+--
+-- Seed ids: 955xx (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(3);
+
+-- ── Domain ───────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95510, 'acm.test', TRUE);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+--   /eng         parent OU for actor A's scope
+--   /sales       sibling — outside /eng reach
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95501, 'Engineering', '/eng',   'ou=Engineering,dc=acm,dc=test'),
+  (95502, 'Sales',       '/sales', 'ou=Sales,dc=acm,dc=test');
+
+-- ── Users ────────────────────────────────────────────────────────────────────
+--   T1 (95511) — in /eng  (actor A can reach)
+--   T2 (95512) — in /sales (actor A cannot reach)
+--   A  (95521) — has one active OU-scoped assignment (/eng)
+--   Z  (95522) — has NO admin assignment at all
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95511, 'acm_t1', 95510, 95501, 't1@acm.test', 'T1', TRUE),
+  (95512, 'acm_t2', 95510, 95502, 't2@acm.test', 'T2', TRUE),
+  (95521, 'acm_a',  95510, NULL,  'a@acm.test',  'A',  TRUE),
+  (95522, 'acm_z',  95510, NULL,  'z@acm.test',  'Z',  TRUE);
+
+-- ── Role group ───────────────────────────────────────────────────────────────
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95501, 'acm-global', ARRAY['users.read'], NULL);
+
+-- ── Assignment: actor A scoped to /eng ───────────────────────────────────────
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95521, 95501, 'ou', 95501, 95521);
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+SELECT ok(     admin_can_manage(95521, 95511), 'A reaches T1 (within /eng scope)');
+SELECT ok(NOT  admin_can_manage(95521, 95512), 'A cannot reach T2 (outside /eng scope)');
+SELECT ok(     admin_can_manage(95522, 95511), 'Z reaches anyone (zero-assignment fallback)');
+
+SELECT * FROM finish();
+ROLLBACK;

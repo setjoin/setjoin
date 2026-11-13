@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of eap update:\n  -additional string\n    \tAdditional templates JSON array\n  -cond-ad-ou string\n    \tAD OU condition JSON array\n  -cond-department string\n    \tDepartment condition JSON array\n  -cond-domain-ids string\n    \tDomain IDs condition JSON array\n  -cond-mailbox-type string\n    \tMailbox type condition JSON array\n  -duplicate-resolution string\n    \tDuplicate resolution strategy\n  -enabled\n    \tEnable/disable policy\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -overwrite string\n    \tOverwrite directory address (true/false)\n  -primary string\n    \tPrimary address template\n",
+  "exit": 2
+}

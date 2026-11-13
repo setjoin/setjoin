@@ -1,0 +1,230 @@
+-- guest_chat_doors.pg — Guest G0 Task 7: every chat door BZ215-denies a
+-- guest caller; org-default backfill/autojoin exclude guests; the BZ219
+-- belt fires in the mutating reducers; member→guest DM stays OPEN (P8's
+-- deliberate asymmetry) and channel-manager→guest member-add stays OPEN
+-- (P15's deliberate asymmetry); roster/mention-search are proven already
+-- membership-choked (the Task 13 no-change claim, TESTED not asserted);
+-- C-5: the two guest-TARGET grant writers refuse a non-active guest via
+-- guest_require_grantable (the FOR SHARE serialization vs disable).
+BEGIN;
+SELECT plan(25);
+
+INSERT INTO domains (name, is_local) VALUES ('gcd-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled, is_local_admin)
+SELECT 'gcd-admin', d.id, 'gcd-admin@gcd-host.example', 'Admin', TRUE, TRUE
+  FROM domains d WHERE d.name = 'gcd-host.example';
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'gcd-guest-managers', ARRAY['guests.manage'], d.id
+  FROM domains d WHERE d.name = 'gcd-host.example';
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u CROSS JOIN admin_role_groups rg
+ WHERE u.email = 'gcd-admin@gcd-host.example' AND rg.name = 'gcd-guest-managers';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gcd-guest@ext.example', d.id, 'gcd-guest@ext.example', 'Guest', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'gcd-admin@gcd-host.example', h.id, 'active'
+  FROM users u, domains h WHERE u.email = 'gcd-guest@ext.example' AND h.name = 'gcd-host.example';
+
+-- A public channel to join / a channel the admin owns. (Fixture reducer
+-- calls ride DO/PERFORM so no stray result rows corrupt TAP output.)
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                              'gcd-public', NULL, 'public');
+END $$;
+
+-- The doors (BZ215).
+SELECT throws_ok($$ SELECT chat_channel_join(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public')) $$,
+  'BZ215', NULL, 'door: chat_channel_join denies a guest');
+SELECT throws_ok($$ SELECT chat_browse_channels(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')) $$,
+  'BZ215', NULL, 'door: chat_browse_channels denies a guest');
+SELECT throws_ok($$ SELECT chat_channel_create(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'), 'guest-made') $$,
+  'BZ215', NULL, 'door: chat_channel_create denies a guest');
+SELECT throws_ok($$ SELECT chat_dm_open(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    ARRAY[(SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example')]) $$,
+  'BZ215', NULL, 'door: chat_dm_open denies a guest INITIATOR (P8)');
+
+-- P8 asymmetry: a MEMBER may open a DM to a guest.
+SELECT lives_ok($$ SELECT chat_dm_open(
+    (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+    ARRAY[(SELECT id FROM users WHERE email = 'gcd-guest@ext.example')]) $$,
+  'asymmetry: member-initiated DM to a guest is allowed');
+
+-- P15 asymmetry: a channel owner may add a guest to a NON-federated channel.
+SELECT lives_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'),
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')) $$,
+  'asymmetry: owner adds a guest to a plain channel');
+
+-- Guest-CALLER member-add is denied full stop (P2's rule) — even though the
+-- guest now holds a membership row, it can never be owner/admin of a channel
+-- it didn't create; belt the arm anyway by asserting the raise comes FIRST:
+SELECT throws_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'),
+    (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example')) $$,
+  'BZ215', NULL, 'door: chat_member_add denies a guest CALLER (before role checks)');
+
+-- Roster/mention-search (review-fold E-M2): Task 13 claims these need NO
+-- guest change because chat_require_role already chokes them on membership
+-- (chat_roster.sql:29/:60) — prove it both ways while the guest holds its
+-- gcd-public membership: a guest MEMBER reads co-members; a guest NON-member
+-- hits the membership refusal.
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                              'gcd-other', NULL, 'private');
+END $$;
+-- (roster returns userId/displayName/role, never email — matched
+-- structurally against the admin's user id, not a LIKE-on-email substring
+-- that the JSON shape can't actually contain.)
+SELECT ok( EXISTS (
+    SELECT 1 FROM jsonb_array_elements(chat_channel_roster(
+        (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+        (SELECT id FROM chat_channels WHERE name = 'gcd-public'))) elem
+     WHERE (elem->>'userId')::bigint = (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example')
+  ), 'roster: a guest MEMBER reads the roster (co-members visible)');
+SELECT throws_ok($$ SELECT chat_channel_roster(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-other')) $$,
+  'BZ163', NULL, 'roster: a guest NON-member is refused (chat_require_role choke)');
+SELECT lives_ok($$ SELECT chat_mention_search(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'), 'gcd') $$,
+  'mention-search: a guest MEMBER may search within its channel');
+SELECT throws_ok($$ SELECT chat_mention_search(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-other'), 'gcd') $$,
+  'BZ163', NULL, 'mention-search: a guest NON-member is refused (same choke)');
+
+-- Backfill exclusion: marking org-default backfills members but NOT guests.
+-- The guest already holds TWO membership rows by this point — the P8 DM
+-- (chat_dm_open, above) plus the explicit gcd-public add (P15) — the
+-- backfill must neither duplicate either nor add the guest to any channel,
+-- so the honest assertion is that the count stays exactly what it already
+-- was, not "came from a single add" (a second guest row on gcd-public would
+-- violate the PK anyway, so a stuck-at-2 count is the meaningful proof).
+DO $$
+BEGIN
+  PERFORM chat_org_default_set((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                               (SELECT id FROM chat_channels WHERE name = 'gcd-public'), TRUE);
+END $$;
+SELECT is( (SELECT count(*) FROM chat_channel_members m
+             WHERE m.user_id = (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'))::int, 2,
+  'backfill: guest membership count unchanged by org-default backfill (exclusion holds)');
+SELECT lives_ok($$ SELECT chat_autojoin_defaults(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')) $$,
+  'chat_autojoin_defaults: silent no-op for a guest (no raise, no join)');
+
+-- Review fix (Task 7 follow-up): the two assertions above ride gcd-public,
+-- where the guest already holds a membership row from P8/P15 — ON CONFLICT
+-- DO NOTHING makes the row count identical whether or not the
+-- "AND NOT is_guest_account(u.id)" exclusion (backfill) / the silent-skip
+-- guard (autojoin) exists, so removing either guard would NOT fail the
+-- assertions above. Prove the exclusion against a channel/timing the guest
+-- has NEVER touched, with a real member as a positive control so the new
+-- assertions prove the exclusion is guest-SPECIFIC, not a broken backfill
+-- for everyone.
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gcd-member2', d.id, 'gcd-member2@gcd-host.example', 'Member Two', TRUE
+  FROM domains d WHERE d.name = 'gcd-host.example';
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                              'gcd-orgdefault', NULL, 'public');
+END $$;
+DO $$
+BEGIN
+  PERFORM chat_org_default_set((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                               (SELECT id FROM chat_channels WHERE name = 'gcd-orgdefault'), TRUE);
+END $$;
+SELECT is( (SELECT count(*) FROM chat_channel_members m
+             WHERE m.channel_id = (SELECT id FROM chat_channels WHERE name = 'gcd-orgdefault')
+               AND m.user_id = (SELECT id FROM users WHERE email = 'gcd-member2@gcd-host.example'))::int, 1,
+  'backfill: a real MEMBER gets the org-default row (positive control, never touched this channel before)');
+SELECT is( (SELECT count(*) FROM chat_channel_members m
+             WHERE m.channel_id = (SELECT id FROM chat_channels WHERE name = 'gcd-orgdefault')
+               AND m.user_id = (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'))::int, 0,
+  'backfill: the guest is EXCLUDED from a channel it never held membership on (regression-detectable)');
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gcd-member3', d.id, 'gcd-member3@gcd-host.example', 'Member Three', TRUE
+  FROM domains d WHERE d.name = 'gcd-host.example';
+SELECT lives_ok($$ SELECT chat_autojoin_defaults(
+    (SELECT id FROM users WHERE email = 'gcd-member3@gcd-host.example')) $$,
+  'chat_autojoin_defaults: a real MEMBER auto-joins the org-default channel (positive control)');
+SELECT is( (SELECT count(*) FROM chat_channel_members m
+             WHERE m.channel_id = (SELECT id FROM chat_channels WHERE name = 'gcd-orgdefault')
+               AND m.user_id = (SELECT id FROM users WHERE email = 'gcd-member3@gcd-host.example'))::int, 1,
+  'autojoin: the real member landed on the org-default channel it never held membership on');
+SELECT lives_ok($$ SELECT chat_autojoin_defaults(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')) $$,
+  'chat_autojoin_defaults: silent no-op for a guest on a channel it never held membership on');
+SELECT is( (SELECT count(*) FROM chat_channel_members m
+             WHERE m.channel_id = (SELECT id FROM chat_channels WHERE name = 'gcd-orgdefault')
+               AND m.user_id = (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'))::int, 0,
+  'autojoin: the guest is EXCLUDED from the org-default channel it never held membership on (regression-detectable)');
+
+-- G2 makes guest posting profile-derived and fail-closed. This G0 door test is
+-- about the active-account composition belt, so model the already-authorized
+-- membership explicitly rather than relying on the pre-G2 NULL behavior.
+UPDATE chat_channel_members
+   SET can_post = TRUE
+ WHERE user_id = (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')
+   AND channel_id = (SELECT id FROM chat_channels WHERE name = 'gcd-public');
+
+-- The guest CAN post in its granted, writable membership…
+SELECT lives_ok($$ SELECT chat_message_send(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'),
+    'hello from outside', NULL, NULL) $$,
+  'granted writable membership: guest posts fine (the composition thesis)');
+
+-- …until it is no longer active (BZ219 belt behind the auth-chain gate).
+DO $$
+BEGIN
+  PERFORM guest_set_status((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                           (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'), 'expire');
+END $$;
+SELECT throws_ok($$ SELECT chat_message_send(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'),
+    'should not land', NULL, NULL) $$,
+  'BZ219', NULL, 'belt: chat_message_send raises BZ219 for an expired guest');
+SELECT throws_ok($$ SELECT chat_reaction_toggle(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT max(id) FROM chat_messages), 'x') $$,
+  'BZ219', NULL, 'belt: chat_reaction_toggle raises BZ219 for an expired guest');
+SELECT throws_ok($$ SELECT chat_mark_read(
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-public'), 1) $$,
+  'BZ219', NULL, 'belt: chat_mark_read raises BZ219 for an expired guest');
+
+-- C-5: the guest-TARGET grant writers refuse a non-active guest under the
+-- guest_require_grantable FOR SHARE lock — a disabled/expired guest needs an
+-- explicit re-enable + RE-INVITE (P9), never a silently re-armed grant.
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+                              'gcd-third', NULL, 'public');
+END $$;
+SELECT throws_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gcd-third'),
+    (SELECT id FROM users WHERE email = 'gcd-guest@ext.example')) $$,
+  'BZ219', NULL, 'C-5: member_add of an EXPIRED guest target => BZ219 (grantable check)');
+SELECT throws_ok($$ SELECT chat_dm_open(
+    (SELECT id FROM users WHERE email = 'gcd-admin@gcd-host.example'),
+    ARRAY[(SELECT id FROM users WHERE email = 'gcd-guest@ext.example')]) $$,
+  'BZ219', NULL, 'C-5: dm_open to an EXPIRED guest target => BZ219 (fires before the BZ170 enabled check)');
+
+SELECT * FROM finish();
+ROLLBACK;

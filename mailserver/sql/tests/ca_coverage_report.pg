@@ -1,0 +1,118 @@
+-- pgTAP: ca_coverage_report.pg — CA-1 C7: gap check + shadowed-rule detector.
+-- Read-only: no audit/notify. plan(6).
+BEGIN;
+SELECT plan(6);
+
+-- ── Setup: clean slate using isolated IDs ─────────────────────────────────────
+-- All seeds live inside the transaction → ROLLBACK cleans up.
+
+-- 1. No client_type policy → IMAP gap is flagged with severity='danger' ────────
+-- (No setup needed: conditional_access_policies fixtures are in 'off' state or
+--  have no client_type condition; we verify against the live (state!='off') set.)
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'gaps') g
+        WHERE g->>'kind' = 'client_type'
+          AND g->>'detail' = 'imap'
+          AND g->>'severity' = 'danger'
+    ),
+    'no live client_type=imap policy → gap flagged with severity=danger'
+);
+
+-- 2. No client_type policy → SMTP gap is flagged with severity='danger' ────────
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'gaps') g
+        WHERE g->>'kind' = 'client_type'
+          AND g->>'detail' = 'smtp'
+          AND g->>'severity' = 'danger'
+    ),
+    'no live client_type=smtp policy → gap flagged with severity=danger'
+);
+
+-- 3. Covered protocol not flagged: insert a live (report_only) imap policy ─────
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+VALUES (
+    901001, 999, 'cr-imap-cover', 'report_only', 'global',
+    '{"client_type":"imap"}',
+    '{"operator":"all","grants":[{"action":"allow"}]}'
+);
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'gaps') g
+        WHERE g->>'kind' = 'client_type'
+          AND g->>'detail' = 'imap'
+    ),
+    'live imap-covering policy removes imap from gaps'
+);
+
+-- 4. Uncovered scope (role) → warning ─────────────────────────────────────────
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'gaps') g
+        WHERE g->>'kind' = 'scope'
+          AND g->>'detail' = 'role'
+          AND g->>'severity' = 'warning'
+    ),
+    'no live role-scoped policy → scope=role gap flagged with severity=warning'
+);
+
+-- 5. Shadow detection: higher-priority P2 (priority=5) whose conditions ⊆ P3
+--    (priority=6), same grant action → P3 is shadowed by P2. ─────────────────
+-- P2: conditions={}, action=block — matches everything
+-- P3: conditions={"geo_risk_tier":"high"}, action=block — subset of P2's superset
+-- P2.conditions @> P3.conditions? {}: yes, empty @> anything is FALSE in PG jsonb.
+-- We need P2.conditions to be a subset of P3.conditions for P3 to be shadowed.
+-- Brief: "P whose conditions ⊇ Q's conditions" (P superset, Q higher-priority)
+-- So P3.conditions @> P2.conditions must be TRUE.
+-- P3 conditions = {"geo_risk_tier":"high"}, P2 conditions = {"geo_risk_tier":"high"}
+-- Let's make them equal for simplicity: P2 = {g:high}, P3 = {g:high,device_trust:unknown}
+-- P3.conditions @> P2.conditions → {"g":h,"dt":u} @> {"g":h} → TRUE → P3 shadowed by P2.
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+VALUES
+    (901002, 5, 'cr-shadow-hi', 'report_only', 'global',
+     '{"geo_risk_tier":"high"}',
+     '{"operator":"all","grants":[{"type":"block"}]}'),
+    (901003, 6, 'cr-shadow-lo', 'report_only', 'global',
+     '{"geo_risk_tier":"high","device_trust":"unknown"}',
+     '{"operator":"all","grants":[{"action":"block"}]}');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'shadowed') s
+        WHERE (s->>'policy_id')::bigint = 901003
+          AND (s->>'shadowed_by_id')::bigint = 901002
+          AND s->>'policy_name' = 'cr-shadow-lo'
+          AND s->>'shadowed_by_name' = 'cr-shadow-hi'
+    ),
+    'lower-priority policy with superset conditions is flagged shadowed by higher-priority one'
+);
+
+-- Matching dual discriminators project to the same action as canonical/schema-v1.
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+VALUES
+    (901004, 7, 'cr-shadow-dual', 'report_only', 'global',
+     '{"geo_risk_tier":"high","device_trust":"unknown","location_trusted":true}',
+     '{"operator":"all","grants":[{"type":"block","action":"block"}]}');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements((ca_coverage_report())->'shadowed') s
+        WHERE (s->>'policy_id')::bigint = 901004
+          AND (s->>'shadowed_by_id')::bigint = 901002
+    ),
+    'coverage shadow projection matches canonical, schema-v1, and dual discriminators'
+);
+
+SELECT finish();
+ROLLBACK;

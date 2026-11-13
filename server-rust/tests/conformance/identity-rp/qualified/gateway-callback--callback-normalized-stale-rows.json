@@ -1,0 +1,87 @@
+{
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "route": "* /auth/oidc/ callback",
+  "case": "callback-normalized-stale-row-effects",
+  "effects": [
+    {
+      "table": "rp_projection",
+      "snapshot": {
+        "after": {
+          "actor": {
+            "anchors": 0,
+            "auth_events": [],
+            "department": null,
+            "enabled": true,
+            "issuer": "https://idp.idfed2.test:19440",
+            "sessions": 0,
+            "signins": [],
+            "subject": "actor-subject"
+          },
+          "foreign": {
+            "anchors": 0,
+            "auth_events": [],
+            "department": null,
+            "enabled": true,
+            "issuer": null,
+            "sessions": 0,
+            "signins": [],
+            "subject": null
+          }
+        },
+        "before": {
+          "actor": {
+            "anchors": 0,
+            "auth_events": [],
+            "department": null,
+            "enabled": true,
+            "issuer": "https://idp.idfed2.test:19440",
+            "sessions": 0,
+            "signins": [],
+            "subject": "actor-subject"
+          },
+          "foreign": {
+            "anchors": 0,
+            "auth_events": [],
+            "department": null,
+            "enabled": true,
+            "issuer": null,
+            "sessions": 0,
+            "signins": [],
+            "subject": null
+          }
+        }
+      },
+      "identity": {
+        "after": {
+          "events": [
+            "auth_linked",
+            "entitlements_reconciled"
+          ],
+          "grants": 0,
+          "links": [
+            {
+              "generation": 2,
+              "state": "active",
+              "subject": "actor-subject"
+            }
+          ]
+        },
+        "before": {
+          "events": [
+            "auth_linked"
+          ],
+          "grants": 0,
+          "links": [
+            {
+              "generation": 1,
+              "state": "active",
+              "subject": "actor-subject"
+            }
+          ]
+        }
+      },
+      "mapping": null
+    }
+  ]
+}

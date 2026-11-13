@@ -1,0 +1,19 @@
+-- 122_login_events_prune.pg: retention drops out-of-window login_events partitions.
+BEGIN;
+SELECT plan(3);
+
+-- Seed an old partition well outside any sane retention window.
+CREATE TABLE login_events_2000_01 PARTITION OF login_events
+  FOR VALUES FROM ('2000-01-01') TO ('2000-02-01');
+
+-- 1: function exists.
+SELECT has_function('login_events_prune', ARRAY['integer'], 'login_events_prune(int) exists');
+
+-- 2: pruning with a 30-day window drops the year-2000 partition.
+SELECT ok(login_events_prune(30) >= 1, 'prune drops >=1 out-of-window partition');
+
+-- 3: the old partition is gone.
+SELECT hasnt_table('login_events_2000_01'::name, 'old partition dropped');
+
+SELECT * FROM finish();
+ROLLBACK;

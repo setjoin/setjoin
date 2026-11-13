@@ -1,0 +1,12 @@
+BEGIN;
+SELECT plan(6);
+
+SELECT has_table('user_notification_prefs');
+SELECT has_table('login_events');
+SELECT has_column('login_events', 'success');
+SELECT has_column('user_notification_prefs', 'push_enabled');
+SELECT has_column('user_notification_prefs', 'mail_notifications');
+SELECT has_column('login_events', 'device_fingerprint');
+
+SELECT * FROM finish();
+ROLLBACK;

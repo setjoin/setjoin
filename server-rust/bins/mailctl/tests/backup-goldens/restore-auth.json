@@ -1,0 +1,94 @@
+{
+  "dump-substitution": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Re-checking empty target and replacing preloaded public schema...\nDownloading s3://fixture/db-dump.dump ...\nDownloading s3://fixture/db-dump.dump.hmac ...\nError: refusing to restore: dump bytes do not match the authenticated publication binding (size/digest mismatch) \u2014 the dump was substituted or corrupted after publication\n",
+    "requests": [
+      {
+        "path": "/setup/restore",
+        "body": "{\"provider\":\"\",\"endpoint\":\"$S3\",\"region\":\"us-east-1\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+        "content-type": "application/json"
+      }
+    ],
+    "objects": [
+      [
+        "GET",
+        "fixture/db-dump.dump"
+      ],
+      [
+        "GET",
+        "fixture/db-dump.dump.hmac"
+      ]
+    ],
+    "untrusted_dump_never_executed": true
+  },
+  "hmac-substitution": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Re-checking empty target and replacing preloaded public schema...\nDownloading s3://fixture/db-dump.dump ...\nDownloading s3://fixture/db-dump.dump.hmac ...\nError: refusing to restore: dump authentication HMAC mismatch: the sidecar was not sealed under the configured key (wrong key or tampered binding)\n",
+    "requests": [
+      {
+        "path": "/setup/restore",
+        "body": "{\"provider\":\"\",\"endpoint\":\"$S3\",\"region\":\"us-east-1\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+        "content-type": "application/json"
+      }
+    ],
+    "objects": [
+      [
+        "GET",
+        "fixture/db-dump.dump"
+      ],
+      [
+        "GET",
+        "fixture/db-dump.dump.hmac"
+      ]
+    ],
+    "untrusted_dump_never_executed": true
+  },
+  "wrong-locator": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Re-checking empty target and replacing preloaded public schema...\nDownloading s3://fixture/db-dump.dump ...\nDownloading s3://fixture/db-dump.dump.hmac ...\nError: refusing to restore: dump authentication sidecar binds \"different.dump\", not the requested \"db-dump.dump\"\n",
+    "requests": [
+      {
+        "path": "/setup/restore",
+        "body": "{\"provider\":\"\",\"endpoint\":\"$S3\",\"region\":\"us-east-1\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+        "content-type": "application/json"
+      }
+    ],
+    "objects": [
+      [
+        "GET",
+        "fixture/db-dump.dump"
+      ],
+      [
+        "GET",
+        "fixture/db-dump.dump.hmac"
+      ]
+    ],
+    "untrusted_dump_never_executed": true
+  },
+  "wrong-key": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Re-checking empty target and replacing preloaded public schema...\nDownloading s3://fixture/db-dump.dump ...\nDownloading s3://fixture/db-dump.dump.hmac ...\nError: refusing to restore: dump authentication HMAC mismatch: the sidecar was not sealed under the configured key (wrong key or tampered binding)\n",
+    "requests": [
+      {
+        "path": "/setup/restore",
+        "body": "{\"provider\":\"\",\"endpoint\":\"$S3\",\"region\":\"us-east-1\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+        "content-type": "application/json"
+      }
+    ],
+    "objects": [
+      [
+        "GET",
+        "fixture/db-dump.dump"
+      ],
+      [
+        "GET",
+        "fixture/db-dump.dump.hmac"
+      ]
+    ],
+    "untrusted_dump_never_executed": true
+  }
+}

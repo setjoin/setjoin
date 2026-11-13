@@ -1,0 +1,31 @@
+-- mailserver/sql/tests/drive_chunk_register.pg — scope computation + claim upsert (§3.3)
+BEGIN;
+SELECT plan(11);
+SELECT mk_account('dcr') AS mb \gset
+SELECT mk_account('dcrV') AS mbv \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS uv FROM mailboxes WHERE id = :mbv \gset
+SELECT drive_space_create(:u, 'R', 'regular') AS rid \gset
+SELECT drive_space_create(:u, 'S', 'secure')  AS sid \gset
+SELECT drive_member_grant(:u, :rid, :uv, 'viewer');
+
+SELECT lives_ok(format($$ SELECT drive_chunk_register(%s, %s, %L, 10) $$, :u, :rid, repeat('a',64)),
+  'register in a regular space');
+SELECT is((SELECT scope_key FROM drive_chunks WHERE sha256=repeat('a',64)), 'g', 'regular space → global scope');
+SELECT is((SELECT storage_ref FROM drive_chunks WHERE sha256=repeat('a',64)), 'drive/g/'||repeat('a',64), 'storage_ref fixed format');
+SELECT is((SELECT count(*) FROM drive_upload_claims WHERE sha256=repeat('a',64) AND user_id=:u)::int, 1, 'claim row written');
+INSERT INTO drive_chunk_gc_queue(scope_key, sha256) VALUES ('g', repeat('a',64));
+SELECT lives_ok(format($$ SELECT drive_chunk_register(%s, %s, %L, 10) $$, :u, :rid, repeat('a',64)),
+  're-register is idempotent (ref_count untouched, claim upserted)');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key='g' AND sha256=repeat('a',64))::int, 0,
+  'fresh registration invalidates a stale zero-ref GC verdict');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('a',64)), 0::bigint, 'ref_count untouched by register');
+SELECT lives_ok(format($$ SELECT drive_chunk_register(%s, %s, %L, 10) $$, :u, :sid, repeat('b',64)),
+  'register in a secure space');
+SELECT is((SELECT scope_key FROM drive_chunks WHERE sha256=repeat('b',64)), 's'||:sid, 'secure space → per-space scope');
+SELECT throws_ok(format($$ SELECT drive_chunk_register(%s, %s, %L, 10) $$, :uv, :rid, repeat('c',64)),
+  'BZ140', NULL, 'viewer cannot register (editor+ write)');
+SELECT throws_ok(format($$ SELECT drive_chunk_register(%s, %s, 'not-a-sha', 10) $$, :u, :rid),
+  'BZ141', NULL, 'bad sha256 shape → BZ141');
+SELECT * FROM finish();
+ROLLBACK;

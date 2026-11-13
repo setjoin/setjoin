@@ -1,0 +1,52 @@
+package main
+
+// Recording adapter: the production registrar supplies the unchanged status handler.
+// r.TLS represents transport metadata, including expired leaves which a verifying TLS
+// listener rejects before HTTP. Authentication has its existing family oracle.
+import (
+    "crypto/tls"
+    "crypto/x509"
+    "encoding/json"
+    "encoding/pem"
+    "io"
+    "net"
+    "net/http"
+    "os"
+    "testing"
+)
+
+// Capture just this registration. The inventory dependencies intentionally leave
+// unrelated handlers nil, so they cannot be mounted on a serving ServeMux.
+type divfixStatusRouter struct { mux *http.ServeMux }
+func (m divfixStatusRouter) Handle(pattern string, h http.Handler) {
+    if pattern == "GET /user/cert-status" { m.mux.Handle(pattern, h) }
+}
+func (m divfixStatusRouter) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+    m.Handle(pattern, http.HandlerFunc(h))
+}
+
+func TestGoFreeDIVFIXStatus(t *testing.T) {
+    d := recordingDeps()
+    d.requireAuth = func(h http.Handler) http.Handler { return h }
+    mux := http.NewServeMux()
+    d.registerUserRoutes(divfixStatusRouter{mux})
+    var leaf *x509.Certificate
+    if path := os.Getenv("GOFREE_DIVFIX_CERT"); path != "" {
+        b, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
+        block, _ := pem.Decode(b); if block == nil { t.Fatal("missing PEM") }
+        leaf, err = x509.ParseCertificate(block.Bytes); if err != nil { t.Fatal(err) }
+    }
+    listener, err := net.Listen("tcp", os.Getenv("GOFREE_DIVFIX_UPSTREAM")); if err != nil { t.Fatal(err) }
+    server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if leaf != nil { r.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}} }
+        http.StripPrefix("/api", mux).ServeHTTP(w,r)
+    })}
+    defer server.Close()
+    go server.Serve(listener)
+    response, err := http.Get(os.Getenv("GOFREE_DIVFIX_EDGE")+"/api/user/cert-status"); if err != nil { t.Fatal(err) }
+    defer response.Body.Close()
+    body, err := io.ReadAll(response.Body); if err != nil { t.Fatal(err) }
+    out, err := json.Marshal(map[string]any{"status": response.StatusCode, "content_type": response.Header.Get("Content-Type"), "body": string(body)})
+    if err != nil { t.Fatal(err) }
+    if err = os.WriteFile(os.Getenv("GOFREE_DIVFIX_RESULT"),out,0600); err != nil { t.Fatal(err) }
+}

@@ -1,0 +1,161 @@
+{
+  "case": "verify-repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [
+            {
+              "details": null,
+              "email": "actor@idmfa1.test",
+              "event": "login",
+              "id": "<auth_event_log-1>",
+              "ip_address": "127.0.0.1",
+              "occurred_at": "<time>",
+              "provider": "jwt",
+              "user_id": "actor"
+            }
+          ],
+          "login_events": [
+            {
+              "auth_method": "password",
+              "client": "web",
+              "correlation_id": null,
+              "device_fingerprint": null,
+              "device_name": null,
+              "fail_reason": null,
+              "id": "<login_events-1>",
+              "location": null,
+              "occurred_at": "<time>",
+              "platform": null,
+              "protocol": "http",
+              "session_id": null,
+              "source_ip": "127.0.0.1",
+              "success": true,
+              "user_id": "actor"
+            }
+          ],
+          "oauth_tokens": [
+            {
+              "client_id": null,
+              "expires_at": "<time>",
+              "family_id": "<family>",
+              "id": "<oauth_tokens-1>",
+              "issued_at": "<time>",
+              "last_used_at": null,
+              "last_used_protocol": null,
+              "previous_token_hash": null,
+              "revoked_at": null,
+              "revoked_by": null,
+              "rotated_at": null,
+              "scope": [],
+              "token_hash": "<SHA256>",
+              "token_type": "refresh",
+              "user_id": "actor"
+            }
+          ],
+          "sessions": [
+            {
+              "ad_grace_until": null,
+              "auth_method": "password",
+              "created_at": "<time>",
+              "expires_at": "<time>",
+              "id": "<sessions-1>",
+              "ip": "127.0.0.1",
+              "last_seen_at": "<time>",
+              "token_hash": "<SHA256>",
+              "user_agent": "IDMFA1 oracle",
+              "user_id": "actor"
+            }
+          ]
+        },
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 1,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": true
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/verify"
+}

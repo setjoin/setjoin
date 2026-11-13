@@ -1,0 +1,26 @@
+{
+  "case": "lifetime-revoke-all",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "best-effort SessionRevoked/transport EOF reduced to terminal closure",
+    "native clock advances preserve Go's 30s/70s/300s intervals; token wall expiry remains real"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "closed",
+        "{\"@type\":\"error\",\"type\":\"urn:ietf:params:jmap:error:unknownType\",\"status\":400,\"detail\":\"unknown @type\"}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

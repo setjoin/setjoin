@@ -1,0 +1,14 @@
+[
+  {
+    "name": "future-backlog-alert",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,status,next_attempt_at) SELECT 9360000+n,'<backlog-'||n||'@smtp3.test>','sender@smtp1.test',ARRAY['future@remote.test'],E'Subject: future\\r\\n\\r\\nbody','pending',now()+interval '1 day' FROM generate_series(1,1000) n;",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "ticks": 1,
+    "backlog": true,
+    "observe_file": "outbound-backlog-observe.sql"
+  }
+]

@@ -1,0 +1,18 @@
+BEGIN;
+SELECT plan(6);
+SELECT set_config('app.encryption_key','idmfa1-key',true);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-confirm.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled,factor_generation)
+VALUES('idmfa1-confirm','confirm@idmfa1-confirm.test','confirm',:dom,'x',true,2) RETURNING id AS uid \gset
+INSERT INTO totp_pending_enrollments(user_id,secret_enc,staged_by_jti,staged_via,expires_at)
+VALUES(:uid,pgp_sym_encrypt('STAGED','idmfa1-key'),'sid','totp_setup',now()+interval '15 minutes') RETURNING id AS enrollment \gset
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,target_ref,proof_method,bound_factor_generation,token_scope,expires_at)
+VALUES('proof',:uid,'sid','totp.replace',:'enrollment','totp',2,'session',now()+interval '5 minutes');
+SELECT is(rust_identity_totp_confirm_read(:uid,'{"jti":"sid"}','proof',:'enrollment','127.0.0.1')->>'secret','STAGED','crypto sees staged secret under the fence');
+SELECT is(rust_identity_totp_confirm(:uid,'{"jti":"sid"}','proof',:'enrollment','127.0.0.1',100,digest('fixture','sha256'))->>'status','confirmed','valid proof promotes staged factor');
+SELECT is((SELECT pgp_sym_decrypt(totp_secret_enc::bytea,'idmfa1-key') FROM users WHERE id=:uid),'STAGED','active secret is promoted');
+SELECT ok(NOT EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=:uid) AND NOT EXISTS(SELECT 1 FROM totp_pending_enrollments WHERE user_id=:uid),'proof and pending target consumed together');
+SELECT is((SELECT factor_generation FROM users WHERE id=:uid),3::bigint,'one factor generation advance');
+SELECT ok((SELECT last_counter=100 AND secret_hash=digest('fixture','sha256') FROM totp_counter_claims WHERE user_id=:uid),'confirmation checkpoints the verified counter and factor');
+SELECT * FROM finish();
+ROLLBACK;

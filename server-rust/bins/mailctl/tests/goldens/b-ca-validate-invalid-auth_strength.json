@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: BZ085: policy[0]: invalid policy document: unknown condition key [key=auth_strength] allowed: auth_method,client_type,country_in,device_bound,device_platform,device_trust,geo_risk_tier,ip_reputation,location_in,location_trusted,require_approved_client_app,time_of_day,user_group; allowed condition keys: auth_method, client_type, country_in, device_bound, device_platform, device_trust, geo_risk_tier, ip_reputation, location_in, location_trusted, require_approved_client_app, time_of_day, user_group; actions shape: {\"grants\":[{\"type\":\"<allow|block|limited_web|notify|require_acr|require_risk_remediation|require_strength|require_terms|step_up>\"}]}\n",
+  "exit": 2
+}

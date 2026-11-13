@@ -1,0 +1,84 @@
+-- create_monthly_partitions (c11): the ONE catalog-derived rotator must cover
+-- every month-partitioned table — the audit trio (audit_log / auth_attempts /
+-- login_events) has NO DEFAULT partition, so a missing month hard-fails the
+-- insert and silently kills audit + auth logging on any long-running gateway.
+BEGIN;
+SELECT plan(15);
+
+SELECT lives_ok('SELECT create_monthly_partitions()', 'rotator runs clean (default = current + next month)');
+
+-- Next month's partition exists for every covered table.
+SELECT has_table(('messages_'          || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'messages next-month partition');
+SELECT has_table(('message_trace_'     || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'message_trace next-month partition');
+SELECT has_table(('message_tags_'      || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'message_tags next-month partition');
+SELECT has_table(('mailbox_audit_log_' || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'mailbox_audit_log next-month partition');
+SELECT has_table(('audit_log_'         || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'audit_log next-month partition');
+SELECT has_table(('auth_attempts_'     || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'auth_attempts next-month partition');
+SELECT has_table(('login_events_'      || to_char(now() + interval '1 month', 'YYYY_MM'))::name, 'login_events next-month partition');
+
+-- Catalog coverage: EVERY parent matching the reducer's predicate (RANGE
+-- parent in public, single timestamptz partition key) has a next-month
+-- partition — so a future partitioned table is covered automatically, and a
+-- failure here NAMES the uncovered parent.
+-- INSERT-CRITICAL coverage: every DEFAULT-LESS parent (an insert hard-fails
+-- without its month partition) must be covered. Default-backed parents may be
+-- legitimately skipped — future-dated rows already sitting in their DEFAULT
+-- partition block creating that month (23514); the rotator WARNs and inserts
+-- keep working through the default. (That skip once aborted the whole run and
+-- took the audit trio down with it — per-table isolation is the regression
+-- under test here.)
+SELECT is_empty(
+  $$ SELECT c.relname
+       FROM pg_partitioned_table p
+       JOIN pg_class     c ON c.oid = p.partrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       JOIN pg_attribute a ON a.attrelid = p.partrelid AND a.attnum = p.partattrs[0]
+      WHERE n.nspname = 'public' AND p.partstrat = 'r' AND p.partnatts = 1
+        AND a.atttypid = 'timestamptz'::regtype
+        AND p.partdefid = 0
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_class pc
+          WHERE pc.relname = c.relname || '_' || to_char(now() + interval '1 month', 'YYYY_MM')) $$,
+  'every DEFAULT-LESS month-partitioned parent has a next-month partition');
+
+-- Per-table isolation regression: a future-dated row in a default partition
+-- must not abort the run (the audit trio must still be covered).
+INSERT INTO domains (name, is_local) VALUES ('iso.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (970001, 'isoprobe', (SELECT id FROM domains WHERE name='iso.test'), 'iso@iso.test', 'Iso')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (97001, 970001, (SELECT id FROM domains WHERE name='iso.test'), 'iso@iso.test', 'Iso', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (990001, 97001, 1, '<isolation-probe@test>', 'isolation probe', 'a@b.c', 'A',
+    '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 't-iso', 'raw/iso',
+    date_trunc('month', now() + interval '3 months') + interval '1 day')
+ON CONFLICT DO NOTHING;
+SELECT create_system_tags(97001);
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 990001, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.id = 990001 AND t.mailbox_id = 97001 AND t.name = 'Inbox'
+ON CONFLICT DO NOTHING;
+SELECT lives_ok('SELECT create_monthly_partitions(3)',
+  'a default-partition month conflict does not abort the run');
+SELECT has_table(('audit_log_' || to_char(now() + interval '3 months', 'YYYY_MM'))::name,
+  'audit trio still covered when another table month-conflicts');
+
+-- The load-bearing proof: a NO-DEFAULT table accepts a next-month row
+-- (this exact insert is what hard-failed before the rotator was scheduled).
+SELECT lives_ok(
+  $$INSERT INTO audit_log (occurred_at, event_type) VALUES (date_trunc('month', now() + interval '1 month') + interval '1 day', 'e2e_rotation_probe')$$,
+  'audit_log accepts a next-month insert');
+
+-- Idempotent: a second run must not error on existing partitions.
+SELECT lives_ok('SELECT create_monthly_partitions()', 'rotator is idempotent');
+
+-- p_months_ahead honored: (2) reaches month+2 (offsets 0..2).
+SELECT lives_ok('SELECT create_monthly_partitions(2)', 'rotator runs clean with p_months_ahead = 2');
+SELECT has_table(('audit_log_' || to_char(now() + interval '2 months', 'YYYY_MM'))::name, 'audit_log month+2 partition');
+
+SELECT * FROM finish();
+ROLLBACK;

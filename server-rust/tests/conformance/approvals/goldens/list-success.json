@@ -1,0 +1,55 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/me/approvals",
+      "method": "GET",
+      "path": "/me/approvals"
+    },
+    "response": {
+      "body": "{\"myRequests\":[{\"id\":\"<request>\",\"consumerType\":\"hr.leave\",\"subject\":\"Leave \\u003cone\\u003e\",\"status\":\"pending\",\"requesterUserId\":\"<actor>\",\"approverKind\":\"user\",\"approverRef\":\"<actor>\",\"createdAt\":\"2026-10-01T12:00:00Z\",\"expiresAt\":\"2099-11-01T12:00:00Z\",\"payload\":{\"reason\":\"trip\"}}],\"pendingForMe\":[]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "305"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /me/approvals"
+}

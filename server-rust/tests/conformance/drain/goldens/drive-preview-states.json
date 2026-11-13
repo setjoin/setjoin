@@ -1,0 +1,42 @@
+{
+  "case": "drive-preview-states",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc|14|drive/g/045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc|rc=1",
+      "g|<st-other>|5|drive/g/<st-other>|rc=4",
+      "g|<st>|5|drive/g/<st>|rc=1"
+    ],
+    "preview_chunks": [
+      "1:0:g:045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc"
+    ],
+    "s3": {
+      "keys": [
+        "drive/g/045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc",
+        "drive/g/<st-other>",
+        "drive/g/<st>"
+      ],
+      "requests": [
+        {
+          "body_len": 14,
+          "body_sha256": "045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<st>"
+        }
+      ]
+    },
+    "versions": [
+      "1:ready:045ddd41b3d40d46d8425ce7aea0a0501e36bfa7ebbeb80f00d06a1d2b8b01fc",
+      "2:none:-",
+      "3:ready:-",
+      "4:failed:-",
+      "5:unsupported:-"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+[
+ ["inbox", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT peer_domain,peer_seq,stanza_id,content_type,payload FROM federation_inbox ORDER BY peer_domain,peer_seq) t"],
+ ["cursor", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT peer_domain,last_applied_seq FROM federation_inbox_cursor ORDER BY peer_domain) t"],
+ ["peers", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT peer_domain,last_seq,last_acked_seq FROM federation_peers ORDER BY peer_domain) t"],
+ ["outbox", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT peer_domain,peer_seq,stanza_id,content_type,payload,(acked_at IS NOT NULL) AS acked FROM federation_outbox ORDER BY peer_domain,peer_seq) t"],
+ ["ingress", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT peer_domain,sum(msg_count)::int AS msgs FROM federation_ingress_counters GROUP BY peer_domain ORDER BY peer_domain) t"],
+ ["chat", "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]'::jsonb)::text FROM (SELECT c.federated_peer_domain,c.federated_remote_id,c.kind,m.seq,m.federated_sender_addr,m.federated_origin_domain,m.federated_stanza_id,m.body,m.spam_quarantined,m.spam_reason FROM chat_messages m JOIN chat_channels c ON c.id=m.channel_id WHERE m.federated_origin_domain IS NOT NULL ORDER BY c.federated_peer_domain,m.seq) t"]
+]

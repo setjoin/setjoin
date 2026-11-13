@@ -1,0 +1,99 @@
+-- meet_create.pg — Meet B1 Task 3: meeting_create + notify_meet_state +
+-- the chat_call_started bridge + chat_channel_create's p_system bypass.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 3.
+-- Uses REAL `users` rows (mk_auth_user) — meeting_create's calendar-event
+-- ownership check reads mailboxes.user_id, so a bare bigint id won't do.
+BEGIN;
+SELECT plan(17);
+
+SELECT mk_auth_user('host@meet-create.test') AS host_id \gset
+SELECT mk_auth_user('stranger@meet-create.test') AS stranger_id \gset
+SELECT mk_auth_user('other@meet-create.test') AS other_id \gset
+
+-- ── ad-hoc create: row + bound private channel + host participant row ────
+SELECT (meeting_create(:host_id, 'Ad-hoc huddle')) AS adhoc_result \gset
+SELECT ok((:'adhoc_result'::jsonb ->> 'meetingId') IS NOT NULL, 'ad-hoc create returns a meetingId');
+SELECT (:'adhoc_result'::jsonb ->> 'meetingId')::bigint AS adhoc_meeting_id \gset
+SELECT (:'adhoc_result'::jsonb ->> 'chatChannelId')::bigint AS adhoc_channel_id \gset
+SELECT is((SELECT visibility FROM chat_channels WHERE id = :adhoc_channel_id), 'private',
+  'ad-hoc meeting binds a fresh PRIVATE channel');
+SELECT is((SELECT chat_channel_id FROM meetings WHERE id = :adhoc_meeting_id), :adhoc_channel_id::bigint,
+  'meetings row is bound to the fresh channel');
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :adhoc_meeting_id AND user_id = :host_id), 'host',
+  'owner gets a host participant row');
+SELECT is((SELECT chat_channel_provisioned FROM meetings WHERE id = :adhoc_meeting_id), true,
+  'ad-hoc create sets chat_channel_provisioned=true (V131 — meeting_create owns this channel)');
+
+-- ── huddle launch: caller must already be a member of the target channel ──
+SELECT chat_channel_create(:host_id, 'team-standup') AS origin_channel \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_create(%s, 'Standup huddle', NULL, NULL, %s) $$, :stranger_id, :origin_channel),
+  'BZ186', NULL, 'huddle launch by a non-member of the channel raises BZ186');
+
+-- ── huddle from an existing channel: binds THAT channel + posts a call message ──
+SELECT (meeting_create(:host_id, 'Standup huddle', NULL, NULL, :origin_channel)) AS huddle_result \gset
+SELECT (:'huddle_result'::jsonb ->> 'meetingId')::bigint AS huddle_meeting_id \gset
+SELECT (:'huddle_result'::jsonb ->> 'slug') AS huddle_slug \gset
+SELECT is((:'huddle_result'::jsonb ->> 'chatChannelId')::bigint, :origin_channel::bigint,
+  'huddle launch binds the ORIGIN channel, not a fresh one');
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_messages
+     WHERE channel_id = :origin_channel AND msg_type = 'call'
+       AND (payload ->> 'meetingId')::bigint = :huddle_meeting_id
+       AND payload ->> 'slug' = :'huddle_slug'
+  ), 'huddle launch posts a call-started system message with meetingId+slug');
+SELECT is((SELECT chat_channel_provisioned FROM meetings WHERE id = :huddle_meeting_id), false,
+  'huddle launch sets chat_channel_provisioned=false (V131 — the channel pre-existed the meeting)');
+
+-- ── validation: empty title / bad window / foreign calendar event ────────
+SELECT throws_ok(format($$ SELECT meeting_create(%s, '') $$, :host_id),
+  'BZ188', NULL, 'empty title raises BZ188');
+SELECT throws_ok(
+  format($$ SELECT meeting_create(%s, 'Bad window', now(), now() - interval '1 hour') $$, :host_id),
+  'BZ188', NULL, 'end <= start raises BZ188');
+
+-- foreign calendar event: owned by :other_id, referenced by :host_id.
+SELECT mk_account('meetcal') AS other_mb \gset
+UPDATE mailboxes SET user_id = :other_id WHERE id = :other_mb;
+INSERT INTO calendars (id, mailbox_id, name) VALUES (990001, :other_mb, 'Other Cal');
+INSERT INTO calendar_events (id, calendar_id, uid, title)
+  VALUES (990001, 990001, 'ev-foreign', 'Foreign event');
+SELECT throws_ok(
+  format($$ SELECT meeting_create(%s, 'Foreign cal', NULL, NULL, NULL, 990001) $$, :host_id),
+  'BZ188', NULL, 'a calendar event owned by another user raises BZ188');
+
+-- ── owned calendar event: stamped is_meeting + meeting_url ────────────────
+SELECT mk_account('meetcalown') AS own_mb \gset
+UPDATE mailboxes SET user_id = :host_id WHERE id = :own_mb;
+INSERT INTO calendars (id, mailbox_id, name) VALUES (990002, :own_mb, 'Host Cal');
+INSERT INTO calendar_events (id, calendar_id, uid, title)
+  VALUES (990002, 990002, 'ev-owned', 'Owned event');
+SELECT (meeting_create(:host_id, 'Calendar meeting', NULL, NULL, NULL, 990002)) AS cal_result \gset
+SELECT is((SELECT is_meeting FROM calendar_events WHERE id = 990002), true,
+  'owned calendar event gets is_meeting stamped true');
+SELECT is((SELECT meeting_url FROM calendar_events WHERE id = 990002),
+  '/meet/join/' || (:'cal_result'::jsonb ->> 'slug'),
+  'owned calendar event gets meeting_url stamped with the meeting slug');
+
+-- ── p_system pin (CEO deviation (d) REJECTED): chat.channel_creation OFF ──
+-- must not break meeting_create, while a direct non-system call still gates.
+UPDATE feature_toggles SET enabled = false WHERE key = 'chat.channel_creation';
+SELECT lives_ok(
+  format($$ SELECT meeting_create(%s, 'Restricted-org meeting') $$, :stranger_id),
+  'meeting_create succeeds even with chat.channel_creation OFF (p_system bypass)'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_channel_create(%s, 'direct-non-system', NULL, 'public', false) $$, :stranger_id),
+  'BZ161', NULL, 'a direct non-system chat_channel_create call still raises BZ161 (gate intact)'
+);
+UPDATE feature_toggles SET enabled = true WHERE key = 'chat.channel_creation';
+
+-- ── notify_meet_state fired on create (host is a fan-out target) ─────────
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT (meeting_create(:host_id, 'Notify check')) AS notify_result \gset
+SELECT ok(last_notify_event(format('meet:%s', :host_id)) = 'meeting_created',
+  'meeting_created fans out to the owner''s meet:{user_id} channel');
+
+SELECT * FROM finish();
+ROLLBACK;

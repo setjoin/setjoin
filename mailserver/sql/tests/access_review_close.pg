@@ -1,0 +1,64 @@
+-- access_review_close.pg
+-- pgTAP tests for access_review_close reducer.
+-- Verifies: kept assignment survives; admin-granted revoke is deleted + audited;
+-- SSO-flipped revoke NOT deleted + no audit; applied_at set/NULL correctly;
+-- second close raises BZ062 (idempotent).
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90501, 'arv-cl.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (90501, 'cl_act', 90501, 'act@arv-cl.test', 'A', TRUE),
+  (90502, 'cl_keep',90501, 'k@arv-cl.test',  'K', TRUE),
+  (90503, 'cl_rev', 90501, 'r@arv-cl.test',  'R', TRUE),
+  (90504, 'cl_flip',90501, 'f@arv-cl.test',  'F', TRUE);
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (90501, 'cl-role', ARRAY['mail.pipeline'], NULL);
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, domain_override, granted_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (90501, 90502, 90501, NULL, 90501),  -- will be kept
+  (90502, 90503, 90501, NULL, 90501),  -- will be revoked (admin-granted)
+  (90503, 90504, 90501, NULL, 90501);  -- decided revoke, but flips to SSO before close
+SELECT access_review_start(90501, 'cl recert', 0);
+CREATE TEMP TABLE _ci AS SELECT i.id, i.assignment_id FROM access_review_items i
+  JOIN access_review_campaigns c ON c.id=i.campaign_id WHERE c.name='cl recert';
+CREATE TEMP TABLE _cc AS SELECT id FROM access_review_campaigns WHERE name='cl recert';
+
+SELECT access_review_decide(90501,(SELECT id FROM _cc),(SELECT id FROM _ci WHERE assignment_id=90501),'keep',NULL,0);
+SELECT access_review_decide(90501,(SELECT id FROM _cc),(SELECT id FROM _ci WHERE assignment_id=90502),'revoke',NULL,0);
+SELECT access_review_decide(90501,(SELECT id FROM _cc),(SELECT id FROM _ci WHERE assignment_id=90503),'revoke',NULL,0);
+-- flip 90503 to SSO-managed AFTER the revoke decision (granted_by → NULL)
+UPDATE admin_role_assignments SET granted_by=NULL WHERE id=90503;
+
+SELECT lives_ok($$ SELECT access_review_close(90501,(SELECT id FROM _cc),'10.0.0.1'::inet,0) $$, 'close runs');
+
+-- the kept assignment survives; the admin-granted revoke is deleted; the flipped one survives
+SELECT is((SELECT count(*)::int FROM admin_role_assignments WHERE id=90501),1,'kept assignment survives');
+SELECT is((SELECT count(*)::int FROM admin_role_assignments WHERE id=90502),0,'admin-granted revoke deleted');
+SELECT is((SELECT count(*)::int FROM admin_role_assignments WHERE id=90503),1,'sso-flip revoke NOT deleted');
+
+-- exactly one revoke audit row, before_state present
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='access_review_revoke'),1,
+  'one audit row for the one applied revoke');
+SELECT isnt((SELECT before_state FROM admin_audit_log WHERE action='access_review_revoke' LIMIT 1),NULL,
+  'revoke audit has before_state (the deleted row)');
+
+-- applied_at set on the applied revoke, NULL on the skipped (flipped) one
+-- Note: assignment_id is set NULL by FK ON DELETE SET NULL when the assignment is deleted,
+-- so we look up items by their stable id (from _ci), not by assignment_id.
+SELECT isnt((SELECT applied_at FROM access_review_items WHERE id=(SELECT id FROM _ci WHERE assignment_id=90502)),NULL,'applied revoke has applied_at');
+SELECT is((SELECT applied_at FROM access_review_items WHERE id=(SELECT id FROM _ci WHERE assignment_id=90503)),NULL,'skipped revoke applied_at NULL');
+
+-- the close ACTION itself is audited (tamper-evidence: a close with all-keep
+-- decisions otherwise left no append-only trace). Pre-fix this row did not exist.
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action='access_review_close' AND target_id=(SELECT id FROM _cc)),1,
+  'close writes its own lifecycle audit row');
+
+-- second close raises BZ062 (idempotent; no double-audit)
+SELECT throws_ok(
+  $$ SELECT access_review_close(90501,(SELECT id FROM _cc),'10.0.0.1'::inet,0) $$,
+  'BZ062', NULL, 'second close raises BZ062 (idempotent)');
+
+SELECT * FROM finish();
+ROLLBACK;

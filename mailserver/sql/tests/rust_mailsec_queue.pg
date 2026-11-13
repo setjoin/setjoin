@@ -1,0 +1,17 @@
+-- pgTAP: rust_mailsec_queue.sql (#321) -- frozen Go's queue retry and bounce UPDATEs.
+BEGIN;
+SELECT plan(8);
+INSERT INTO outbound_queue (id, message_id, from_addr, rcpt_addrs, raw_ref, status)
+  VALUES (9101, '<a@q.test>', 'a@q.test', ARRAY['x@ext.test'], 'raw-9101', 'deferred'),
+         (9102, '<b@q.test>', 'a@q.test', ARRAY['y@ext.test'], 'raw-9102', 'delivered'),
+         (9103, '<c@q.test>', 'a@q.test', ARRAY['z@ext.test'], 'raw-9103', 'pending');
+SELECT is(rust_mailsec_queue_retry(9101), true, 'a deferred item is retried');
+SELECT is((SELECT status FROM outbound_queue WHERE id = 9101), 'pending', 'retry resets to pending');
+SELECT is(rust_mailsec_queue_retry(9102), false, 'a delivered item is not retriable');
+SELECT is(rust_mailsec_queue_retry(999999), false, 'a missing item matches nothing');
+SELECT is(rust_mailsec_queue_bounce(9103), true, 'a pending item is bounced');
+SELECT is((SELECT status FROM outbound_queue WHERE id = 9103), 'bounced', 'bounce sets the status');
+SELECT is(rust_mailsec_queue_bounce(9103), true, 'bouncing a bounced item matches again (Go has no status filter)');
+SELECT throws_ok($$SELECT rust_mailsec_queue_bounce(9102)$$, 'BZ012', NULL, 'bouncing a delivered item hits the status guard');
+SELECT * FROM finish();
+ROLLBACK;

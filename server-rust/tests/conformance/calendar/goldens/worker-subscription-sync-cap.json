@@ -1,0 +1,507 @@
+{
+  "case": "subscription-sync-cap",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "requests": [
+      "GET :: /no-validators?cap10 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap11 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap12 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap13 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap14 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap15 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap16 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap17 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap18 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap19 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap20 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap21 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap22 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap23 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap24 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap5 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap6 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap7 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap8 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1",
+      "GET :: /no-validators?cap9 :: accept=text/calendar, */* | user-agent=setjoin-calendarsync/1"
+    ],
+    "subscriptions": [
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/no-validators?cap1"
+      },
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/no-validators?cap2"
+      },
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/no-validators?cap3"
+      },
+      {
+        "claimed": false,
+        "error": null,
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "pending",
+        "url": "http://localhost:<port>/no-validators?cap4"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap5"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap6"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap7"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap8"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap9"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap10"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap11"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap12"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap13"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap14"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap15"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap16"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap17"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap18"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap19"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap20"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap21"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap22"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap23"
+      },
+      {
+        "claimed": true,
+        "error": null,
+        "etag": null,
+        "events": [
+          {
+            "all_day": false,
+            "description": "",
+            "end": "2040-01-01T10:00:00Z",
+            "location": "",
+            "rrule": "",
+            "start": "2040-01-01T09:00:00Z",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "No validators",
+            "uid": "plain"
+          }
+        ],
+        "last_modified": null,
+        "status": "ok",
+        "url": "http://localhost:<port>/no-validators?cap24"
+      }
+    ]
+  }
+}

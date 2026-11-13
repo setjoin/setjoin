@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/office/providers/collabora",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"buildId\":null,\"config\":{\"editorUrl\":\"https://office.example.test/editor\",\"privateAllowCidrs\":[],\"privateAllowHosts\":[\"office.example.test\",\"private.test\"],\"profile\":\"existing-provider\",\"proofDiscoveryUrl\":\"https://office.example.test/discovery\",\"wopiPublicBaseUrl\":\"https://mail.example.test/wopi\"},\"entitlementState\":\"unknown\",\"expectedGeneration\":0,\"profile\":\"existing-provider\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

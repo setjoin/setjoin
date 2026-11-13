@@ -1,0 +1,103 @@
+{
+  "case": "drive-preview-render",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|<part-b>|6|drive/g/<part-b>|rc=1",
+      "g|<hello>|5|drive/g/<hello>|rc=1",
+      "g|824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693|22|drive/g/824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693|rc=1",
+      "g|<part-a>|7|drive/g/<part-a>|rc=1",
+      "g|f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1|14|drive/g/f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1|rc=1",
+      "s9400002|<bigg>|4|drive/s9400002/<bigg>|rc=1",
+      "s9400002|bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8|4194304|drive/s9400002/bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8|rc=1",
+      "s9400002|f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97|805696|drive/s9400002/f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97|rc=1",
+      "s9400003|<hello-gxp>|9|drive/s9400003/<hello-gxp>|rc=1",
+      "s9400003|535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a|18|drive/s9400003/535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a|rc=1"
+    ],
+    "preview_chunks": [
+      "1:0:g:f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1",
+      "2:0:s9400002:bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8",
+      "2:1:s9400002:f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97",
+      "3:0:g:824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693",
+      "4:0:s9400003:535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a"
+    ],
+    "s3": {
+      "keys": [
+        "drive/g/<part-b>",
+        "drive/g/<hello>",
+        "drive/g/824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693",
+        "drive/g/<part-a>",
+        "drive/g/f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1",
+        "drive/s9400002/<bigg>",
+        "drive/s9400002/bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8",
+        "drive/s9400002/f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97",
+        "drive/s9400003/<hello-gxp>",
+        "drive/s9400003/535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a"
+      ],
+      "requests": [
+        {
+          "body_len": 14,
+          "body_sha256": "f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1"
+        },
+        {
+          "body_len": 18,
+          "body_sha256": "535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400003/535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a"
+        },
+        {
+          "body_len": 22,
+          "body_sha256": "824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693"
+        },
+        {
+          "body_len": 4194304,
+          "body_sha256": "bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8"
+        },
+        {
+          "body_len": 805696,
+          "body_sha256": "f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/f64841c5e76dd52621dc13ac4bf719ed775fa3fa75cf3a914ca9918e26892c97"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<hello>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<part-a>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<part-b>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/s9400002/<bigg>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/s9400003/<hello-gxp>"
+        }
+      ]
+    },
+    "versions": [
+      "1:ready:f31cdee0b4d4fdae0638872f6bb7d0e6ee041386a9055d5e64c25d9d35dc88d1",
+      "2:ready:b39781589c4403fb82174c9647a010464cff38bad976547d339899b00053a545",
+      "3:ready:824a4f4d79b1a9ca53784b435ef6ad737fe809f57df11134def3b25791892693",
+      "4:ready:535de09858e6a06fb9d0a82725401b10da6c70012a47dee0f9bd1894e402fd6a"
+    ]
+  }
+}

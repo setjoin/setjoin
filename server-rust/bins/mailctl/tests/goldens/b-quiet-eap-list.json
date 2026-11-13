@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/email-address-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "#    Name                      Enabled Overwrite PrimaryTemplate                          Updated\n1    Sales                     enabled no       {given_name}@{domain}                    \n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity transition authorize ID --preview-digest DIGEST\n",
+  "exit": 1
+}

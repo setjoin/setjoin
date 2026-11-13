@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"apiVersion\": \"setjoin.io/v1\",\n  \"sourceKey\": \"directory\",\n  \"valid\": true\n}\n",
+  "stderr": "",
+  "exit": 0
+}

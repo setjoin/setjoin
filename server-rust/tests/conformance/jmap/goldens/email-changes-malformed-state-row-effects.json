@@ -1,0 +1,13 @@
+{
+  "case": "email-changes-malformed-state-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "compare every column of mailbox-scoped mailboxes, messages, tags, message_tags, and jmap_changes_journal",
+    "identify fixture mailbox, message and tag rows by stable names",
+    "journal mailbox and entity IDs: fixture IDs; created_at: timestamp",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Email/changes"
+}

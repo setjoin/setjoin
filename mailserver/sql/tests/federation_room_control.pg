@@ -1,0 +1,546 @@
+-- federation_room_control.pg — Pillar C2 Task 5: the control-op applier
+-- arms (invite/remove/roster/room_revoked) inside federation_apply_room —
+-- spoke-side only. Requires: V140, federation_room_create.sql/
+-- federation_room_invite.sql/federation_room_remove.sql (Task 2),
+-- federation_room_fanout.sql (Task 3), federation_apply_room.sql (Task 4's
+-- message arm + this task's control-op arms), chat_message.sql's BZ213
+-- kicked-mirror send refusal (Task 3). Genre: federation_room_inbound.pg
+-- (poison-edge shape, hub/spoke fixture split), federation_room_lifecycle.pg
+-- (notify capture-tee pattern via last_notify_event/set_config).
+--
+-- This DB plays the SPOKE role throughout (federation_apply_room's control
+-- ops are spoke-side only — Q3's two-key model: a hub controls WHAT rooms a
+-- member joins via these very ops, a member org's local reducer never
+-- issues them). "hub1-ctrl.test"/"hub3-ctrl.test"/"hub-revoke-ctrl.test"
+-- play distinct HUB peers so each concern's fixtures stay isolated; a
+-- FOURTH peer, "attacker-ctrl.test", never legitimately hubs anything here.
+BEGIN;
+SELECT plan(85);
+
+SELECT set_config('app.capture_notify', 'on', true);
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.federation';
+
+-- ── fixture: our own local org (ctrl-contact.test) + one real, enabled user
+-- (harry) with an enabled/receive-enabled mailbox — the op:'invite' arm
+-- resolves contactAddr via mailboxes/users, the federation_apply_chat
+-- toAddr-join precedent, never via chat_channel_members (which the invite
+-- itself creates).
+INSERT INTO domains (id, name, is_local) VALUES (98100, 'ctrl-contact.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, enabled)
+  VALUES (98101, 'harry', 98100, 'harry@ctrl-contact.test', 'Harry', 'x', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, enabled, receive_enabled)
+  VALUES (98111, 98101, 98100, 'harry@ctrl-contact.test', 'Harry', TRUE, TRUE, TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('hub1-ctrl.test', 'test fixture anchor', 'room', true),
+  ('hub3-ctrl.test', 'test fixture anchor', 'room', true),
+  ('hub-revoke-ctrl.test', 'test fixture anchor', 'room', true),
+  ('attacker-ctrl.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 op:'invite' happy path — constructs the mirror atomically.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 1, 'c-inv1', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomA@hub1-ctrl.test', 'hubDomain', 'hub1-ctrl.test',
+    'title', 'Room A', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'a valid invite applies and constructs the spoke mirror'
+);
+SELECT id AS ch_a FROM chat_channels WHERE federated_room_id = 'roomA@hub1-ctrl.test' \gset
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE federated_room_id = 'roomA@hub1-ctrl.test'), 1,
+  'exactly one mirror channel was created');
+SELECT is((SELECT kind FROM chat_channels WHERE id = :ch_a), 'channel', 'the mirror is kind=channel');
+SELECT is((SELECT visibility FROM chat_channels WHERE id = :ch_a), 'private',
+  'the mirror is visibility=private (the DES-008 self-join pin)');
+SELECT is((SELECT federated_peer_domain FROM chat_channels WHERE id = :ch_a), 'hub1-ctrl.test',
+  'the mirror is bound to the inviting hub');
+SELECT is((SELECT name FROM chat_channels WHERE id = :ch_a), 'Room A', 'the mirror name comes from the invite title');
+SELECT is((SELECT hub_domain FROM federation_rooms WHERE room_id = 'roomA@hub1-ctrl.test'), 'hub1-ctrl.test',
+  'federation_rooms.hub_domain is the inviting peer');
+SELECT is((SELECT role FROM chat_channel_members WHERE channel_id = :ch_a AND user_id = 98101), 'owner',
+  'the resolved contact user is an owner of the mirror');
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'ctrl-contact.test') IS NULL, TRUE,
+  'our own domain lands non-left in our own roster mirror');
+SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_roster',
+  'the invite fires a federation_roster notify to the new owner');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 op:'invite' idempotency — a re-delivered invite (new seq/stanza, same
+--    room) must not duplicate the mirror/member/roster rows.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 2, 'c-inv1-redeliver', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomA@hub1-ctrl.test', 'hubDomain', 'hub1-ctrl.test',
+    'title', 'Room A', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'a re-delivered invite (idempotent re-admit shape) still applies'
+);
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE federated_room_id = 'roomA@hub1-ctrl.test'), 1,
+  'no duplicate mirror channel from the re-delivered invite');
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomA@hub1-ctrl.test'), 1,
+  'no duplicate federation_rooms row');
+SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :ch_a AND user_id = 98101), 1,
+  'no duplicate owner membership row');
+SELECT is((SELECT count(*)::int FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'ctrl-contact.test'), 1,
+  'no duplicate roster mirror row');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 structural hijack guard — an invite whose roomId's @-suffix does NOT
+--    match the stream peer poisons even with NO local row at all.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 3, 'c-struct1', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomX@somewhereelse.test', 'hubDomain', 'hub1-ctrl.test',
+    'title', 'Bad', 'contactAddr', 'harry@ctrl-contact.test', 'roster', '[]'::jsonb)),
+  'poison', 'an invite whose roomId suffix does not name the stream peer poisons even with no local row'
+);
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomX@somewhereelse.test'), 0,
+  'no room row was created for the structural-hijack attempt');
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'hub1-ctrl.test'), 3::bigint,
+  'the structural-hijack frame still consumed its seq');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 THE HIJACK BLOCKER (eng-review) — an existing local room bound to a
+--    DIFFERENT hub (kicked, populated roster mirror), then an op:'invite'
+--    for that EXACT roomId arriving from a different allow-listed peer M
+--    whose own domain happens to match the roomId's suffix (the
+--    legacy/free-text belt case guard 1 alone would not catch).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO chat_channels (id, kind, name, visibility, federated_room_id, federated_peer_domain,
+                            federated_room_removed_at, created_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (98201, 'channel', 'hijack-target', 'private', 'shared-id@attacker-ctrl.test', 'hub2-ctrl.test', now(), 98101)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id)
+  VALUES ('shared-id@attacker-ctrl.test', 'hub2-ctrl.test', 98201)
+  ON CONFLICT (room_id) DO NOTHING;
+INSERT INTO federation_room_members (room_id, member_domain) VALUES
+  ('shared-id@attacker-ctrl.test', 'ctrl-contact.test')
+  ON CONFLICT (room_id, member_domain) DO NOTHING;
+
+SELECT is(
+  federation_apply_room('attacker-ctrl.test', 1, 'c-hijack1', jsonb_build_object(
+    'op', 'invite', 'roomId', 'shared-id@attacker-ctrl.test', 'hubDomain', 'attacker-ctrl.test',
+    'title', 'Hijacked', 'contactAddr', 'harry@ctrl-contact.test', 'roster', '[]'::jsonb)),
+  'poison', 'THE HIJACK: an invite from a different peer for a roomId already bound to another hub is poisoned'
+);
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = 98201) IS NOT NULL, TRUE,
+  'the kicked marker was NOT cleared by the hijack attempt');
+SELECT is((SELECT hub_domain FROM federation_rooms WHERE room_id = 'shared-id@attacker-ctrl.test'), 'hub2-ctrl.test',
+  'federation_rooms.hub_domain still names the REAL hub, untouched by the hijack');
+SELECT is((SELECT count(*)::int FROM federation_room_members WHERE room_id = 'shared-id@attacker-ctrl.test'), 1,
+  'the roster mirror was NOT rewritten by the hijack attempt');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 invite with an unresolvable contact poisons (seq consumed, no writes).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 4, 'c-badcontact', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomB@hub1-ctrl.test', 'hubDomain', 'hub1-ctrl.test',
+    'title', 'Room B', 'contactAddr', 'nobody@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'poison', 'an invite with an unresolvable contactAddr is poisoned'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'hub1-ctrl.test'), 4::bigint,
+  'the unresolvable-contact frame still consumed its seq');
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomB@hub1-ctrl.test'), 0,
+  'no room row was created for the unresolvable-contact invite');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 THE ORDERING GUARANTEE, proven end-to-end on one stream: a roster op
+--    announcing a newly-invited org lands, then a message relayed FROM
+--    that org (consecutive seq) applies — because its roster op landed
+--    first, never a blind mirror-ensure.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 5, 'c-roster1', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(
+      jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active'),
+      jsonb_build_object('domain', 'newmember-ctrl.test', 'state', 'active')))),
+  'applied', 'a roster op announcing a newly-invited org applies'
+);
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test') IS NULL, TRUE,
+  'the new member is present, non-left, in our roster mirror');
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 6, 'c-newmsg1', jsonb_build_object(
+    'op', 'message', 'roomId', 'roomA@hub1-ctrl.test', 'fromAddr', 'nancy@newmember-ctrl.test',
+    'originDomain', 'newmember-ctrl.test', 'body', 'hi from the new org', 'sentAt', now(), 'clientMsgId', 'new-1')),
+  'applied', 'a message relayed from the newly-invited org applies — its roster op landed first'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages
+            WHERE channel_id = :ch_a AND federated_origin_domain = 'newmember-ctrl.test'
+              AND federated_stanza_id = 'new-1'), 1,
+  'the new member''s message landed');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 op:'roster' — park / reactivate / leave (never DELETE — read history).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 7, 'c-roster-park', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(
+      jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active'),
+      jsonb_build_object('domain', 'newmember-ctrl.test', 'state', 'parked')))),
+  'applied', 'a roster op parking a member applies'
+);
+SELECT is((SELECT parked_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test') IS NOT NULL, TRUE,
+  'newmember is now parked in our roster mirror');
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 8, 'c-roster-react', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(
+      jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active'),
+      jsonb_build_object('domain', 'newmember-ctrl.test', 'state', 'active')))),
+  'applied', 'a roster op reactivating a parked member applies'
+);
+SELECT is((SELECT parked_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test'), NULL::timestamptz,
+  'newmember is un-parked again');
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 9, 'c-roster-leave', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'a roster op omitting a member applies'
+);
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test') IS NOT NULL, TRUE,
+  'the omitted member is now marked left (never deleted) in our roster mirror');
+SELECT is((SELECT count(*)::int FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test'), 1,
+  'the roster mirror row for the left member still EXISTS — never DELETE, it is also read history');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 a control op arriving for a HUB-shaped local room (we are its hub) is
+--    poisoned — only a true hub may originate control ops.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(98101, 'our-own-hub-room') AS ch_ownhub \gset
+SELECT federation_room_create(98101, :ch_ownhub, 'ctrl-contact.test') AS room_ownhub \gset
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 10, 'c-hubshaped', jsonb_build_object(
+    'op', 'remove', 'roomId', :'room_ownhub')),
+  'poison', 'a control op arriving for a room we ourselves hub is poisoned'
+);
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_ownhub) IS NULL, TRUE,
+  'our own hub room is untouched by the bogus control op');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9 op:'remove' — the kicked-mirror machinery: archive-read-only + banner,
+--    a duplicate (peer,seq) still 'dup', a straggler message poisons, and a
+--    local send refuses BZ213.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 1, 'c3-inv1', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomC@hub3-ctrl.test', 'hubDomain', 'hub3-ctrl.test',
+    'title', 'Room C', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'roomC invite (hub3) applies'
+);
+SELECT id AS ch_c FROM chat_channels WHERE federated_room_id = 'roomC@hub3-ctrl.test' \gset
+
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 2, 'c3-remove1', jsonb_build_object(
+    'op', 'remove', 'roomId', 'roomC@hub3-ctrl.test')),
+  'applied', 'op:remove applies and kicks the mirror'
+);
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_c) IS NOT NULL, TRUE,
+  'the mirror is marked removed/closed');
+SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_removed',
+  'op:remove fires the federation_removed banner notify');
+
+-- control-op replay idempotency: the EXACT same (peer,seq) re-delivered
+-- returns 'dup', never re-applies (Step 1 bookkeeping is op-agnostic).
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 2, 'c3-remove1', jsonb_build_object(
+    'op', 'remove', 'roomId', 'roomC@hub3-ctrl.test')),
+  'dup', 're-delivering the exact same (peer,seq) for a control op returns dup, never re-applies'
+);
+
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 3, 'c3-straggler', jsonb_build_object(
+    'op', 'message', 'roomId', 'roomC@hub3-ctrl.test', 'fromAddr', 'x@hub3-ctrl.test',
+    'originDomain', 'hub3-ctrl.test', 'body', 'straggler', 'sentAt', now(), 'clientMsgId', 'strag-1')),
+  'poison', 'a straggler message after remove is poisoned'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(98101, %s, 'hello after kick') $$, :ch_c),
+  'BZ213', NULL, 'a local send into the kicked mirror refuses BZ213'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §10 re-invite (re-admit) — resurrects the mirror; WITH gapFrom/gapTo
+--    inserts exactly ONE local gap-marker message, WITHOUT inserts none.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 4, 'c3-reinvite-gap', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomC@hub3-ctrl.test', 'hubDomain', 'hub3-ctrl.test',
+    'title', 'Room C', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')),
+    'gapFrom', (now() - interval '1 hour')::text, 'gapTo', now()::text)),
+  'applied', 're-invite with gapFrom/gapTo applies'
+);
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_c) IS NULL, TRUE,
+  're-invite clears removed_at (resurrection)');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_c AND msg_type = 'system'), 1,
+  'exactly ONE gap-marker system message was inserted');
+SELECT is((SELECT author_id FROM chat_messages WHERE channel_id = :ch_c AND msg_type = 'system'), NULL::bigint,
+  'the gap marker has no local author');
+SELECT is((SELECT body::jsonb ->> 'kind' FROM chat_messages WHERE channel_id = :ch_c AND msg_type = 'system'),
+  'federation_gap', 'the gap marker body names its kind, machine-readable');
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 5, 'c3-postgap-msg', jsonb_build_object(
+    'op', 'message', 'roomId', 'roomC@hub3-ctrl.test', 'fromAddr', 'x@hub3-ctrl.test',
+    'originDomain', 'hub3-ctrl.test', 'body', 'back online', 'sentAt', now(), 'clientMsgId', 'back-1')),
+  'applied', 'the next message lands after resurrection'
+);
+
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 6, 'c3-roomD-inv', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomD@hub3-ctrl.test', 'hubDomain', 'hub3-ctrl.test',
+    'title', 'Room D', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'a plain invite (no gap keys) applies'
+);
+SELECT id AS ch_d FROM chat_channels WHERE federated_room_id = 'roomD@hub3-ctrl.test' \gset
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_d AND msg_type = 'system'), 0,
+  'an invite without gapFrom/gapTo inserts NO gap-marker message');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §11 op:'room_revoked' (the Q9 advisory, advisory content type) — the
+--    kicked-mirror machinery reused verbatim; poisons from a non-hub
+--    stream peer; the ONE deliberate authorize skip (still applies even
+--    after the peer's OWN room scope is downgraded to dm); contrast: a
+--    'message' op from that same now-dm-scoped peer DOES poison.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub-revoke-ctrl.test', 1, 'c-rev-inv1', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomE@hub-revoke-ctrl.test', 'hubDomain', 'hub-revoke-ctrl.test',
+    'title', 'Room E', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'roomE invite (hub-revoke) applies'
+);
+SELECT id AS ch_e FROM chat_channels WHERE federated_room_id = 'roomE@hub-revoke-ctrl.test' \gset
+
+SELECT is(
+  federation_apply_room('attacker-ctrl.test', 2, 'c-rev-wrongpeer', jsonb_build_object(
+    'op', 'room_revoked', 'roomId', 'roomE@hub-revoke-ctrl.test', 'reason', 'scope')),
+  'poison', 'room_revoked from a non-hub stream peer is poisoned'
+);
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_e) IS NULL, TRUE,
+  'roomE mirror untouched by the wrong-peer room_revoked attempt');
+
+-- the fed admin downgrades hub-revoke-ctrl.test's own room scope to dm —
+-- the SAME scenario the Q9 advisory exists to signal.
+UPDATE federation_allowlist SET scope = 'dm' WHERE peer_domain = 'hub-revoke-ctrl.test';
+
+SELECT is(
+  federation_apply_room('hub-revoke-ctrl.test', 2, 'c-rev-apply', jsonb_build_object(
+    'op', 'room_revoked', 'roomId', 'roomE@hub-revoke-ctrl.test', 'reason', 'scope'),
+    false, NULL, 'application/x-setjoin-advisory'),
+  'applied', 'room_revoked STILL APPLIES after the peer''s own room scope was downgraded — the ONE deliberate authorize skip'
+);
+SELECT is((SELECT content_type FROM federation_inbox
+            WHERE peer_domain = 'hub-revoke-ctrl.test' AND peer_seq = 2), 'application/x-setjoin-advisory',
+  'the advisory content_type is recorded verbatim in the inbox envelope (F3)');
+SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_e) IS NOT NULL, TRUE,
+  'roomE mirror is now read-only after room_revoked');
+SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_removed',
+  'room_revoked fires the SAME federation_removed banner notify as remove');
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(98101, %s, 'hello after revoke') $$, :ch_e),
+  'BZ213', NULL, 'a local send into the revoked mirror refuses BZ213 — the same kicked-mirror choke'
+);
+
+SELECT is(
+  federation_apply_room('hub-revoke-ctrl.test', 3, 'c-rev-msg-poison', jsonb_build_object(
+    'op', 'message', 'roomId', 'roomE@hub-revoke-ctrl.test', 'fromAddr', 'x@hub-revoke-ctrl.test',
+    'originDomain', 'hub-revoke-ctrl.test', 'body', 'should not land', 'sentAt', now(), 'clientMsgId', 'norevoke-1')),
+  'poison', 'contrast: a message op from the SAME now-dm-scoped peer DOES poison — room_revoked is the ONE skip, not a general bypass'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §12 (M2, required mutant-killer) — a peer allow-listed for scope='dm'
+--    only sending op:'invite' (which needs 'room') poisons at the Step 3
+--    authorize gate; a peer whose allow-list row is enabled=false sending
+--    op:'roster' poisons the same way. Pins the ordinary Step 3 authorize
+--    call against a mutant that widens the room_revoked-only skip to cover
+--    other ops too.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('hub-dmonly-m2.test', 'test fixture anchor', 'dm', true),
+  ('hub-disabled-m2.test', 'test fixture anchor', 'room', false)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT is(
+  federation_apply_room('hub-dmonly-m2.test', 1, 'c-m2-dminvite', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomM2A@hub-dmonly-m2.test', 'hubDomain', 'hub-dmonly-m2.test',
+    'title', 'M2 A', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'poison', 'M2: a dm-scoped-only peer sending op:invite (needs room scope) poisons at Step 3 authorize'
+);
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomM2A@hub-dmonly-m2.test'), 0,
+  'no room row was created for the dm-scoped-peer invite attempt');
+SELECT is(
+  federation_apply_room('hub-disabled-m2.test', 1, 'c-m2-disabledroster', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomM2B@hub-disabled-m2.test', 'roster', '[]'::jsonb)),
+  'poison', 'M2: a disabled-allowlist peer sending op:roster poisons at Step 3 authorize'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §13 guard-3 (invite hubDomain must equal the stream peer) pinned in
+--    isolation — roomId suffix matches the peer (guard 1 passes) and no
+--    existing binding exists (guard 2 passes), but the payload's own
+--    hubDomain names someone else.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 11, 'c-g3-hubmismatch', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomG3@hub1-ctrl.test', 'hubDomain', 'not-the-stream-peer.test',
+    'title', 'G3', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'poison', 'guard 3: invite hubDomain not matching the stream peer poisons (guards 1/2 alone would have passed)'
+);
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomG3@hub1-ctrl.test'), 0,
+  'no room row was created when hubDomain mismatches the stream peer');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §14 an invite with NO roster array at all poisons with ZERO writes.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 12, 'c-badroster', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomG4@hub1-ctrl.test', 'hubDomain', 'hub1-ctrl.test',
+    'title', 'G4', 'contactAddr', 'harry@ctrl-contact.test')),
+  'poison', 'an invite with no roster key at all poisons'
+);
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE federated_room_id = 'roomG4@hub1-ctrl.test'), 0,
+  'no mirror channel was created for the malformed-roster invite');
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = 'roomG4@hub1-ctrl.test'), 0,
+  'no federation_rooms row was created for the malformed-roster invite');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §15 a re-invite carrying GARBLED (non-timestamp) gapFrom/gapTo still
+--    applies (the bare-cast EXCEPTION WHEN OTHERS catch) and inserts ZERO
+--    gap-marker messages — kills the mutant that swaps the guarded cast
+--    for a bare ::timestamptz (which would RAISE mid-transaction instead).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 7, 'c3-badgap', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomD@hub3-ctrl.test', 'hubDomain', 'hub3-ctrl.test',
+    'title', 'Room D', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')),
+    'gapFrom', 'not-a-timestamp', 'gapTo', 'also-not-a-timestamp')),
+  'applied', 'a re-invite with garbled gapFrom/gapTo still applies (poison-safe cast)'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_d AND msg_type = 'system'), 0,
+  'the garbled gap keys inserted NO gap-marker message');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §16 a roster op re-listing a member who was previously marked left
+--    resurrects them (clears left_at on the SAME PK row — never a second
+--    INSERT).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 13, 'c-roster-resurrect', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(
+      jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active'),
+      jsonb_build_object('domain', 'newmember-ctrl.test', 'state', 'active')))),
+  'applied', 'a roster op re-listing a previously-left member applies'
+);
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'newmember-ctrl.test') IS NULL, TRUE,
+  'the previously-left member is resurrected — left_at cleared back to NULL'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §17 op:'remove' for a wholly unknown roomId poisons.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 14, 'c-remove-unknown', jsonb_build_object(
+    'op', 'remove', 'roomId', 'roomNeverExisted@hub1-ctrl.test')),
+  'poison', 'op:remove for a wholly unknown roomId poisons'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §18 B1 regression: an oversized (>512 octet) roomId invite poisons
+--    instead of blowing past the btree index-row ceiling raw — the cursor
+--    still advances and the stream survives a subsequent legit frame.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('hub-oversize-ctrl.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT is(
+  federation_apply_room('hub-oversize-ctrl.test', 1, 'c-b1-oversize', jsonb_build_object(
+    'op', 'invite', 'roomId', repeat('a', 600) || '@hub-oversize-ctrl.test', 'hubDomain', 'hub-oversize-ctrl.test',
+    'title', 'Oversize', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'poison', 'B1 regression: an oversized roomId invite poisons'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'hub-oversize-ctrl.test'), 1::bigint,
+  'B1 regression: the oversized-roomId frame still consumed its seq (no livelock)');
+SELECT is(
+  federation_apply_room('hub-oversize-ctrl.test', 2, 'c-b1-followup', jsonb_build_object(
+    'op', 'invite', 'roomId', 'roomOK@hub-oversize-ctrl.test', 'hubDomain', 'hub-oversize-ctrl.test',
+    'title', 'OK', 'contactAddr', 'harry@ctrl-contact.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', 'ctrl-contact.test', 'state', 'active')))),
+  'applied', 'B1 regression: the stream survives — a subsequent legit frame lands normally'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §19 B2/M1 regression: a roster with one oversized (>255 octet) domain
+--    poisons the WHOLE frame; a roster of 4097 elements poisons on
+--    cardinality alone — neither leaves a partial write behind.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 15, 'c-b2-oversizedomain', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', jsonb_build_array(jsonb_build_object('domain', repeat('b', 300), 'state', 'active')))),
+  'poison', 'B2 regression: a roster element with an oversized domain poisons the whole frame'
+);
+SELECT is((SELECT count(*)::int FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND octet_length(member_domain) > 255), 0,
+  'B2 regression: no oversized-domain row was inserted into the roster mirror'
+);
+SELECT is(
+  federation_apply_room('hub1-ctrl.test', 16, 'c-m1-cardinality', jsonb_build_object(
+    'op', 'roster', 'roomId', 'roomA@hub1-ctrl.test',
+    'roster', (SELECT jsonb_agg(jsonb_build_object('domain', 'm' || g || '.example', 'state', 'active'))
+                 FROM generate_series(1, 4097) g))),
+  'poison', 'M1 regression: a 4097-element roster array poisons on cardinality alone'
+);
+SELECT is((SELECT count(*)::int FROM federation_room_members
+            WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'm1.example'), 0,
+  'M1 regression: none of the oversized roster''s member rows were inserted'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §20 MINOR #5: op:'remove' is TRULY idempotent — a second delivery under
+--    a brand-new seq must not re-stamp federated_room_removed_at.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 8, 'c3-removeD-1', jsonb_build_object(
+    'op', 'remove', 'roomId', 'roomD@hub3-ctrl.test')),
+  'applied', 'op:remove on roomD applies (first transition)'
+);
+SELECT federated_room_removed_at AS removed_at_1 FROM chat_channels WHERE id = :ch_d \gset
+SELECT is(
+  federation_apply_room('hub3-ctrl.test', 9, 'c3-removeD-2', jsonb_build_object(
+    'op', 'remove', 'roomId', 'roomD@hub3-ctrl.test')),
+  'applied', 'a second remove delivery under a NEW seq still returns applied'
+);
+SELECT federated_room_removed_at AS removed_at_2 FROM chat_channels WHERE id = :ch_d \gset
+SELECT is(:'removed_at_1'::timestamptz, :'removed_at_2'::timestamptz,
+  'MINOR #5: the second remove delivery did NOT re-stamp removed_at — truly idempotent'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

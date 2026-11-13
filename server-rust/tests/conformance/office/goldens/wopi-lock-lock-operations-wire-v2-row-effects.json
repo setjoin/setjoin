@@ -1,0 +1,47 @@
+{
+  "case": "lock-operations-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "base_version_id": "<version:0>",
+          "branch_id": null,
+          "cohort_key": "cohort1",
+          "created_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<session:0>",
+          "lease_expires_at": "<timestamp>",
+          "lock_epoch": 2,
+          "provider_id": "office1",
+          "space_id": "<space>",
+          "status": "active",
+          "terminal_reason": null,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "before": [
+        {
+          "base_version_id": "<version:0>",
+          "branch_id": null,
+          "cohort_key": "cohort1",
+          "created_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<session:0>",
+          "lease_expires_at": "<timestamp>",
+          "lock_epoch": 1,
+          "provider_id": "office1",
+          "space_id": "<space>",
+          "status": "active",
+          "terminal_reason": null,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "table": "sessions"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /office/wopi/files/{id}"
+}

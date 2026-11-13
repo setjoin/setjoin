@@ -1,0 +1,128 @@
+[
+  {
+    "blob_requests": [
+      "GET /mail/blobs/existing"
+    ],
+    "case": {
+      "blobs": {
+        "blobs/existing": "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IFN0b3JlZCBTL01JTUUgY2lwaGVydGV4dA0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wa2NzNy1taW1lDQoNCm9wYXF1ZSAuY2lwaGVydGV4dA0K"
+      },
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "stored-existing",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'blobs/existing',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "failed to read blob content: Last-Modified time format is invalid, failed with unable to parse  in any of the input formats: [Mon, 2 Jan 2006 15:04:05 GMT Mon, _2 Jan 2006 15:04:05 GMT Mon, _2 Jan 06 15:04:05 GMT]",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  },
+  {
+    "blob_requests": [
+      "GET /mail/blobs/missing"
+    ],
+    "case": {
+      "blobs": {
+        "blobs/existing": "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IFN0b3JlZCBTL01JTUUgY2lwaGVydGV4dA0KQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wa2NzNy1taW1lDQoNCm9wYXF1ZSAuY2lwaGVydGV4dA0K"
+      },
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "stored-missing",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'blobs/missing',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "failed to read blob content: The specified key does not exist.",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  }
+]

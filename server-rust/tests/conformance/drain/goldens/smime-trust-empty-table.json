@@ -1,0 +1,97 @@
+{
+  "case": "smime-trust-empty-table",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after_tick": {
+      "0": {
+        "a": false,
+        "b": true,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910001": {
+        "a": false,
+        "b": true,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910002": {
+        "a": false,
+        "b": true,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910003": {
+        "a": false,
+        "b": true,
+        "c": false,
+        "d": false,
+        "e": false
+      }
+    },
+    "cached": {
+      "0": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910001": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910002": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910003": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      }
+    },
+    "seeded": {
+      "0": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910001": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910002": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      },
+      "910003": {
+        "a": false,
+        "b": false,
+        "c": false,
+        "d": false,
+        "e": false
+      }
+    }
+  }
+}

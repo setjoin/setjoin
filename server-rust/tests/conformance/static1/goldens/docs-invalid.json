@@ -1,0 +1,33 @@
+{
+  "case": "docs-invalid",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/api/docs"
+    },
+    "response": {
+      "body_length": 1697,
+      "body_sha256": "277e9c262075a189e3beb9525148ab5ee5c68c7339cb5b4f8588d7bce819508c",
+      "body_text": "<!doctype html>\n<html>\n  <head>\n    <title>setjoin API reference</title>\n    <meta charset=\"utf-8\"/>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n    <style>\n      body { margin: 0; padding: 0; }\n      /* IBM Plex Sans, vendored + served same-origin (gateway CSP is font-src\n         'self', so a CDN/Google-Fonts URL would be blocked and the page would\n         degrade to system-ui). The Redoc theme below already prefers this family;\n         once the face loads it is used. */\n      @font-face {\n        font-family: 'IBM Plex Sans';\n        font-style: normal;\n        font-weight: 400;\n        font-display: swap;\n        src: url('/api/fonts/ibm-plex-sans-400.woff2') format('woff2');\n      }\n      @font-face {\n        font-family: 'IBM Plex Sans';\n        font-style: normal;\n        font-weight: 500;\n        font-display: swap;\n        src: url('/api/fonts/ibm-plex-sans-500.woff2') format('woff2');\n      }\n    </style>\n  </head>\n  <body>\n    <!-- Branded: indigo (#4A50D0) + IBM Plex Sans (degrades to system-ui if the\n         font isn't present); the logo comes from the spec's info.x-logo. Theme is\n         a JSON attribute on the element, so no inline script is needed. -->\n    <redoc spec-url=\"/api/openapi.yaml\"\n           theme='{\"colors\":{\"primary\":{\"main\":\"#4A50D0\"}},\"typography\":{\"fontFamily\":\"IBM Plex Sans, system-ui, -apple-system, sans-serif\",\"headings\":{\"fontFamily\":\"IBM Plex Sans, system-ui, sans-serif\"}},\"logo\":{\"maxHeight\":\"40px\",\"gutter\":\"16px\"}}'></redoc>\n    <!-- Redoc (MIT), vendored + served same-origin so it passes the gateway CSP and works offline. -->\n    <script src=\"/api/redoc.standalone.js\"></script>\n  </body>\n</html>\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-docs_invalid"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /api/docs"
+}

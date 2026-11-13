@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca coverage:\n  -fail-on-gap\n    \tExit non-zero if any gaps found\nError: flag: help requested\n",
+  "exit": 1
+}

@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "go_version": "go1.26.6",
+  "auth_binary_sha256": "43e361e6c45bb4b1cc8b41fff150dbc43e1286a4b57f2b40e62276a9523a2046",
+  "mail_binary_sha256": "179f6a689cebc57dcbcc57d19481e3873363547ed44158c7d4e8f1ff2cc9882c",
+  "mail_build": "-p=1 -gcflags=github.com/microsoftgraph/msgraph-sdk-go/models=-N -l -cover -coverpkg=setjoin.com/mailserver/cmd/mailserverd",
+  "legacy_key_recording": "temporary go test overlay calling frozen LoadOrGenerateKey, SigningKey and go-jose; no Go product changes"
+}

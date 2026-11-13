@@ -1,0 +1,55 @@
+{
+  "case": "acme-tls-alpn-near-expiry-reuses-key",
+  "format": 1,
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "observation": {
+    "account_key": {
+      "cr_free": true,
+      "label_line": "-----BEGIN EC PRIVATE KEY-----",
+      "mode": "600",
+      "present": true
+    },
+    "certs": {
+      "alt.localhost": {
+        "chain_certificates": 2,
+        "key_first": true,
+        "key_label": "RSA PRIVATE KEY",
+        "key_reused": true,
+        "sans": [
+          "alt.localhost",
+          "localhost"
+        ],
+        "subject": "",
+        "valid_days_nearest_10": 90
+      },
+      "localhost": {
+        "chain_certificates": 2,
+        "key_first": true,
+        "key_label": "RSA PRIVATE KEY",
+        "key_reused": true,
+        "sans": [
+          "alt.localhost",
+          "localhost"
+        ],
+        "subject": "",
+        "valid_days_nearest_10": 90
+      }
+    },
+    "challenge_misses": 0,
+    "dir_mode": "700",
+    "files": [
+      {
+        "changed": true,
+        "domain": "localhost",
+        "mode": "600"
+      },
+      {
+        "changed": true,
+        "domain": "alt.localhost",
+        "mode": "600"
+      }
+    ],
+    "other_entries": 0,
+    "temp_files": 0
+  }
+}

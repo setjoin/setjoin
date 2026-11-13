@@ -1,0 +1,21 @@
+{
+  "case": "push-guest-digest-store-fails",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "object_puts": [
+      {
+        "body": "From: \"SetJoin\" <noreply@gofree-drain.test>\r\nTo: <gofree-guest-h@guest.test>\r\nSubject: New activity in your organization\r\nMessage-ID: <digest/{N}@gofree-drain.test>\r\nDate: {DATE}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nNew message from User S Name: \"Direct hello\"\r\n\r\nThis message was sent because you have a guest account in your organization=\r\n.\r\nLog in to view full content: https://gofree-drain.test\r\n\r\n",
+        "content_type": "message/rfc822",
+        "path": "/mailblobs/digest/{HASH}.eml"
+      }
+    ],
+    "requests": [],
+    "rows": {
+      "guest_intents": [
+        "gofree-drain-h:dm:9100002:9200002:false"
+      ],
+      "outbound": []
+    }
+  }
+}

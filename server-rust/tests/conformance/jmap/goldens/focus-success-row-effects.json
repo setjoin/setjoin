@@ -1,0 +1,106 @@
+{
+  "case": "focus-success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "focused": false,
+        "sender": "sender@oracle.example",
+        "updated_at": "<timestamp>",
+        "user_id": "<user>"
+      },
+      "change": "insert",
+      "row": "sender@oracle.example",
+      "table": "focus_sender_overrides"
+    },
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<inbox-only>",
+        "mailbox_id": "<mailbox>",
+        "op": "updated",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<inbox-only>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 1,
+          "before": 0
+        },
+        "jmap_tag_state": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "added_by": "user",
+        "imap_modseq": 1,
+        "imap_uid": 1,
+        "is_primary": false,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Other>"
+      },
+      "change": "insert",
+      "row": "<inbox-only>:<tag:Other>",
+      "table": "message_tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "imap_modseq": {
+          "after": 2,
+          "before": 1
+        },
+        "imap_uid_next": {
+          "after": 2,
+          "before": 1
+        },
+        "jmap_state": {
+          "after": 1,
+          "before": 0
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 0
+        },
+        "total_count": {
+          "after": 1,
+          "before": 0
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "Other",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "5401e459c13f9847960747644c802b496caae35e",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /messages/{id}/focus"
+}

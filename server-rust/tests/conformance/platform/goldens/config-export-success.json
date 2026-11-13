@@ -1,0 +1,314 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "description": "Number of days before soft-deleted emails are permanently purged. 0 = disable auto-purge.",
+            "encrypted": false,
+            "key": "deleted_items_purge_days",
+            "value": 30
+          },
+          {
+            "description": "Identity provider: local | ad | ldap",
+            "encrypted": false,
+            "key": "identity_source",
+            "value": "local"
+          },
+          {
+            "description": "Maximum inbound message size in bytes (150 MB)",
+            "encrypted": false,
+            "key": "max_message_bytes",
+            "value": "157286400"
+          },
+          {
+            "description": "MFA mode: optional | required",
+            "encrypted": false,
+            "key": "mfa_enforcement_mode",
+            "value": "required"
+          },
+          {
+            "description": "Minimum password length",
+            "encrypted": false,
+            "key": "password_min_length",
+            "value": "8"
+          },
+          {
+            "description": "Require at least one digit",
+            "encrypted": false,
+            "key": "password_require_digit",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one lowercase letter",
+            "encrypted": false,
+            "key": "password_require_lowercase",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one special character",
+            "encrypted": false,
+            "key": "password_require_special",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one uppercase letter",
+            "encrypted": false,
+            "key": "password_require_uppercase",
+            "value": "true"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.big",
+            "value": 12345678901234567890
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.flag_enc",
+            "value": "cipher"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.huge",
+            "value": 1e25
+          },
+          {
+            "description": "nested <desc>",
+            "encrypted": false,
+            "key": "plat1.nested",
+            "value": {
+              "a": true,
+              "b": [
+                1,
+                2,
+                {
+                  "a": "<&>",
+                  "z": null
+                }
+              ]
+            }
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.null",
+            "value": null
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.number",
+            "value": 1.5
+          },
+          {
+            "description": null,
+            "encrypted": true,
+            "key": "plat1.secret",
+            "value": "cipher2"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.small",
+            "value": 1e-7
+          },
+          {
+            "description": "a string",
+            "encrypted": false,
+            "key": "plat1.string",
+            "value": "hello <b> &   \b é"
+          },
+          {
+            "description": "Number of days before spam-tagged messages are permanently purged. 0 = disable.",
+            "encrypted": false,
+            "key": "spam_purge_days",
+            "value": 30
+          }
+        ],
+        "before": [
+          {
+            "description": "Number of days before soft-deleted emails are permanently purged. 0 = disable auto-purge.",
+            "encrypted": false,
+            "key": "deleted_items_purge_days",
+            "value": 30
+          },
+          {
+            "description": "Identity provider: local | ad | ldap",
+            "encrypted": false,
+            "key": "identity_source",
+            "value": "local"
+          },
+          {
+            "description": "Maximum inbound message size in bytes (150 MB)",
+            "encrypted": false,
+            "key": "max_message_bytes",
+            "value": "157286400"
+          },
+          {
+            "description": "MFA mode: optional | required",
+            "encrypted": false,
+            "key": "mfa_enforcement_mode",
+            "value": "required"
+          },
+          {
+            "description": "Minimum password length",
+            "encrypted": false,
+            "key": "password_min_length",
+            "value": "8"
+          },
+          {
+            "description": "Require at least one digit",
+            "encrypted": false,
+            "key": "password_require_digit",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one lowercase letter",
+            "encrypted": false,
+            "key": "password_require_lowercase",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one special character",
+            "encrypted": false,
+            "key": "password_require_special",
+            "value": "true"
+          },
+          {
+            "description": "Require at least one uppercase letter",
+            "encrypted": false,
+            "key": "password_require_uppercase",
+            "value": "true"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.big",
+            "value": 12345678901234567890
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.flag_enc",
+            "value": "cipher"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.huge",
+            "value": 1e25
+          },
+          {
+            "description": "nested <desc>",
+            "encrypted": false,
+            "key": "plat1.nested",
+            "value": {
+              "a": true,
+              "b": [
+                1,
+                2,
+                {
+                  "a": "<&>",
+                  "z": null
+                }
+              ]
+            }
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.null",
+            "value": null
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.number",
+            "value": 1.5
+          },
+          {
+            "description": null,
+            "encrypted": true,
+            "key": "plat1.secret",
+            "value": "cipher2"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "plat1.small",
+            "value": 1e-7
+          },
+          {
+            "description": "a string",
+            "encrypted": false,
+            "key": "plat1.string",
+            "value": "hello <b> &   \b é"
+          },
+          {
+            "description": "Number of days before spam-tagged messages are permanently purged. 0 = disable.",
+            "encrypted": false,
+            "key": "spam_purge_days",
+            "value": 30
+          }
+        ],
+        "table": "system_config"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/system/config/export",
+      "method": "GET",
+      "path": "/admin/system/config/export"
+    },
+    "response": {
+      "body": "[{\"description\":\"Auto-create departments from AD\",\"key\":\"ad_sync_auto_create_depts\",\"value\":\"false\"},{\"description\":\"AD service account DN\",\"key\":\"ad_sync_bind_dn\",\"value\":\"\"},{\"description\":\"Active Directory domain name\",\"key\":\"ad_sync_domain\",\"value\":\"\"},{\"description\":\"Enable automatic AD user sync\",\"key\":\"ad_sync_enabled\",\"value\":\"false\"},{\"description\":\"AD sync interval in minutes\",\"key\":\"ad_sync_interval_min\",\"value\":\"15\"},{\"description\":\"AD LDAP host override (auto-discovered from DNS if empty)\",\"key\":\"ad_sync_ldap_host\",\"value\":\"\"},{\"description\":\"AD service account password (AES-256-GCM encrypted)\",\"key\":\"ad_sync_password_enc\",\"value\":\"[ENCRYPTED]\"},{\"description\":\"Sync proxyAddresses as email aliases\",\"key\":\"ad_sync_proxy_as_aliases\",\"value\":\"false\"},{\"description\":\"Comma-separated admin emails for health alerts\",\"key\":\"alert_email_addresses\",\"value\":\"\"},{\"description\":\"Consecutive health check failures before alerting\",\"key\":\"alert_min_consecutive\",\"value\":\"3\"},{\"description\":\"pg_trgm similarity threshold for display-name fuzzy matching (0.0–1.0)\",\"key\":\"antiphish.name_similarity_threshold\",\"value\":0.85},{\"description\":\"High-value domains for lookalike detection (JSON array of strings, e.g. [\\\"microsoft.com\\\",\\\"google.com\\\",\\\"paypal.com\\\"])\",\"key\":\"antiphish.protected_domains\",\"value\":[]},{\"description\":\"\",\"key\":\"approval.default_approver_user_id\",\"value\":0},{\"description\":\"\",\"key\":\"approval.hr_expense_tier_cents\",\"value\":500000},{\"description\":\"\",\"key\":\"approval.hr_long_leave_days\",\"value\":3},{\"description\":\"\",\"key\":\"approval.request_ttl_minutes\",\"value\":2880},{\"description\":\"Hours to keep JWT valid if AD is unreachable\",\"key\":\"auth_grace_hours\",\"value\":\"4\"},{\"description\":\"\",\"key\":\"auto_update.auto_apply_safe\",\"value\":false},{\"description\":\"\",\"key\":\"auto_update.channel\",\"value\":\"stable\"},{\"description\":\"\",\"key\":\"auto_update.check_interval\",\"value\":\"daily\"},{\"description\":\"\",\"key\":\"auto_update.enabled\",\"value\":false},{\"description\":\"\",\"key\":\"auto_update.notify_admin\",\"value\":true},{\"description\":\"\",\"key\":\"auto_update.require_confirm_breaking\",\"value\":true},{\"description\":\"\",\"key\":\"auto_update.source_path\",\"value\":\"/opt/mailserver/releases\"},{\"description\":\"Conditional-access break-glass: user ids always excluded from every on+global+block policy (set BEFORE the first block policy; consulted by ca_lockout_guard + the engine)\",\"key\":\"ca_break_glass_user_ids\",\"value\":[]},{\"description\":\"\",\"key\":\"ca_fail_mode\",\"value\":\"closed\"},{\"description\":\"Number of days to retain ca_signin_log rows. 0 = keep forever.\",\"key\":\"ca_signin_log_retain_days\",\"value\":30},{\"description\":\"Default storage quota per new mailbox (50 GB)\",\"key\":\"default_quota_bytes\",\"value\":\"53687091200\"},{\"description\":\"Default daily sending limit per new mailbox\",\"key\":\"default_sending_quota_day\",\"value\":\"500\"},{\"description\":\"Number of days before soft-deleted emails are permanently purged. 0 = disable auto-purge.\",\"key\":\"deleted_items_purge_days\",\"value\":30},{\"description\":\"Allow SMS-based password reset\",\"key\":\"enable_sms_reset\",\"value\":\"false\"},{\"description\":\"Allow TOTP-based password reset\",\"key\":\"enable_totp_reset\",\"value\":\"true\"},{\"description\":\"\",\"key\":\"external_sender.enabled\",\"value\":true},{\"description\":\"\",\"key\":\"external_sender.warn_color\",\"value\":\"#FFD60A\"},{\"description\":\"\",\"key\":\"external_sender.warn_text\",\"value\":\"This message is from an external sender. Use caution when clicking links or opening attachments.\"},{\"description\":\"Auth failure rate error threshold (failed attempts per 5-minute window)\",\"key\":\"hc_auth_fail_error\",\"value\":\"200\"},{\"description\":\"Auth failure rate warn threshold (failed attempts per 5-minute window)\",\"key\":\"hc_auth_fail_warn\",\"value\":\"50\"},{\"description\":\"Consecutive failure escalation window (minutes)\",\"key\":\"hc_consec_fail_window_min\",\"value\":\"20\"},{\"description\":\"Crash event detection window (minutes)\",\"key\":\"hc_crash_window_min\",\"value\":\"10\"},{\"description\":\"Database size error threshold (GB)\",\"key\":\"hc_db_size_error_gb\",\"value\":\"100\"},{\"description\":\"Database size warn threshold (GB)\",\"key\":\"hc_db_size_warn_gb\",\"value\":\"80\"},{\"description\":\"DKIM key expiry error threshold (days)\",\"key\":\"hc_dkim_expiry_error_days\",\"value\":\"7\"},{\"description\":\"DKIM key expiry warn threshold (days)\",\"key\":\"hc_dkim_expiry_warn_days\",\"value\":\"30\"},{\"description\":\"Oldest queue item age error threshold (minutes)\",\"key\":\"hc_outbound_queue_age_error_min\",\"value\":\"60\"},{\"description\":\"Oldest queue item age warn threshold (minutes)\",\"key\":\"hc_outbound_queue_age_warn_min\",\"value\":\"15\"},{\"description\":\"Outbound queue depth error threshold (messages)\",\"key\":\"hc_outbound_queue_error\",\"value\":\"500\"},{\"description\":\"Outbound queue depth warn threshold (messages)\",\"key\":\"hc_outbound_queue_warn\",\"value\":\"100\"},{\"description\":\"Replication lag error threshold (seconds)\",\"key\":\"hc_replication_lag_error_sec\",\"value\":\"60\"},{\"description\":\"Replication lag warn threshold (seconds)\",\"key\":\"hc_replication_lag_warn_sec\",\"value\":\"30\"},{\"description\":\"Stable deployment identity used as authenticated context for connector-secret envelopes\",\"key\":\"identity.deployment_id\",\"value\":\"084e1c89-6fd9-4830-ad06-3e028447f3f5\"},{\"description\":\"Identity provider: local | ad | ldap\",\"key\":\"identity_source\",\"value\":\"local\"},{\"description\":\"\",\"key\":\"jit.default_max_minutes\",\"value\":480},{\"description\":\"\",\"key\":\"jit.default_require_justification\",\"value\":false},{\"description\":\"\",\"key\":\"login_events_retain_days\",\"value\":180},{\"description\":\"Number of days to retain auth_event_log rows. NULL or 0 = keep forever.\",\"key\":\"log_retention_auth_event_days\",\"value\":90},{\"description\":\"Number of days to retain delivery_attempts rows. NULL or 0 = keep forever.\",\"key\":\"log_retention_delivery_attempts_days\",\"value\":30},{\"description\":\"Number of days to retain mailbox_audit_log rows. NULL or 0 = keep forever.\",\"key\":\"log_retention_mailbox_audit_days\",\"value\":90},{\"description\":\"Number of days to retain message_trace rows. NULL or 0 = keep forever.\",\"key\":\"log_retention_message_trace_days\",\"value\":30},{\"description\":\"Number of days to retain webhook_deliveries rows. NULL or 0 = keep forever.\",\"key\":\"log_retention_webhook_delivery_days\",\"value\":30},{\"description\":\"\",\"key\":\"maintenance_window.day_of_week\",\"value\":\"sunday\"},{\"description\":\"\",\"key\":\"maintenance_window.end_time\",\"value\":\"05:00\"},{\"description\":\"\",\"key\":\"maintenance_window.idle_duration\",\"value\":\"10m\"},{\"description\":\"\",\"key\":\"maintenance_window.max_connections\",\"value\":5},{\"description\":\"\",\"key\":\"maintenance_window.max_wait\",\"value\":\"2h\"},{\"description\":\"\",\"key\":\"maintenance_window.mode\",\"value\":\"manual\"},{\"description\":\"\",\"key\":\"maintenance_window.start_time\",\"value\":\"03:00\"},{\"description\":\"\",\"key\":\"maintenance_window.timezone\",\"value\":\"UTC\"},{\"description\":\"Maximum inbound message size in bytes (150 MB)\",\"key\":\"max_message_bytes\",\"value\":\"157286400\"},{\"description\":\"MFA mode: optional | required\",\"key\":\"mfa_enforcement_mode\",\"value\":\"required\"},{\"description\":\"Root-only E2E seam for loopback Collabora/WOPI HTTP; never a product setting\",\"key\":\"office.insecure_test_transport\",\"value\":false},{\"description\":\"Minimum password length\",\"key\":\"password_min_length\",\"value\":\"8\"},{\"description\":\"Require at least one digit\",\"key\":\"password_require_digit\",\"value\":\"true\"},{\"description\":\"Require at least one lowercase letter\",\"key\":\"password_require_lowercase\",\"value\":\"true\"},{\"description\":\"Require at least one special character\",\"key\":\"password_require_special\",\"value\":\"true\"},{\"description\":\"Require at least one uppercase letter\",\"key\":\"password_require_uppercase\",\"value\":\"true\"},{\"description\":\"\",\"key\":\"plat1.big\",\"value\":12345678901234567890},{\"description\":\"\",\"key\":\"plat1.flag_enc\",\"value\":\"[ENCRYPTED]\"},{\"description\":\"\",\"key\":\"plat1.huge\",\"value\":10000000000000000000000000},{\"description\":\"nested \\u003cdesc\\u003e\",\"key\":\"plat1.nested\",\"value\":{\"a\":true,\"b\":[1,2,{\"a\":\"\\u003c\\u0026\\u003e\",\"z\":null}]}},{\"description\":\"\",\"key\":\"plat1.null\",\"value\":null},{\"description\":\"\",\"key\":\"plat1.number\",\"value\":1.50},{\"description\":\"\",\"key\":\"plat1.secret\",\"value\":\"[ENCRYPTED]\"},{\"description\":\"\",\"key\":\"plat1.small\",\"value\":0.0000001},{\"description\":\"a string\",\"key\":\"plat1.string\",\"value\":\"hello \\u003cb\\u003e \\u0026 \\u2028 \\b é\"},{\"description\":\"\",\"key\":\"security_event_outbox_retain_days\",\"value\":90},{\"description\":\"Set to true after first-run wizard completes\",\"key\":\"setup_complete\",\"value\":\"false\"},{\"description\":\"Number of days before spam-tagged messages are permanently purged. 0 = disable.\",\"key\":\"spam_purge_days\",\"value\":30},{\"description\":\"Spam score above which messages go to Spam tag\",\"key\":\"spam_threshold\",\"value\":\"5.0\"},{\"description\":\"med-shard3-007 F-004: per-role SSO login-time minting authority; authorized_perms is the ceiling the role group's live permissions must stay within (Rule A at mint time)\",\"key\":\"sso_admin_role_grant_authority\",\"value\":{\"auditor\":{\"legacy\":true,\"authorized_at\":\"2026-11-02T21:45:23Z\",\"authorized_by\":null,\"authorized_perms\":[\"audit.read\",\"reports.read\"]},\"read_only\":{\"legacy\":true,\"authorized_at\":\"2026-11-02T21:45:23Z\",\"authorized_by\":null,\"authorized_perms\":[\"users.read\",\"domains.read\",\"audit.read\",\"mam.read\",\"queue.read\",\"reports.read\",\"compliance.read\",\"backup.read\"]},\"user_admin\":{\"legacy\":true,\"authorized_at\":\"2026-11-02T21:45:23Z\",\"authorized_by\":null,\"authorized_perms\":[\"audit.read\",\"domains.read\",\"users.create\",\"users.password_reset\",\"users.read\",\"users.suspend\"]},\"super_admin\":{\"legacy\":true,\"authorized_at\":\"2026-11-02T21:45:23Z\",\"authorized_by\":null,\"authorized_perms\":[\"approvals.manage\",\"approvals.view\",\"apps.manage\",\"apps.view\",\"audit.read\",\"backup.read\",\"backup.write\",\"chat.compliance_manage\",\"chat.compliance_view\",\"chat.ediscovery\",\"compliance.read\",\"compliance.write\",\"directory.groups.manage\",\"directory.groups.read\",\"domains.read\",\"domains.write\",\"drive.manage\",\"drive.view\",\"exchange.assessment.attest\",\"exchange.assessment.audit\",\"exchange.assessment.decide\",\"exchange.assessment.delete\",\"exchange.assessment.publish\",\"exchange.assessment.read\",\"exchange.assessment.run\",\"federation.manage\",\"guests.manage\",\"guests.view\",\"identity.write\",\"mail.offline_policy\",\"mail.pipeline\",\"mail.security\",\"mam.read\",\"mam.write\",\"office.manage\",\"office.view\",\"queue.read\",\"queue.write\",\"reports.read\",\"roles.manage\",\"scope_sets.manage\",\"security.write\",\"sharing.manage\",\"sharing.read\",\"system.config\",\"system.recovery\",\"system.upgrade\",\"users.create\",\"users.delete\",\"users.impersonate\",\"users.password_reset\",\"users.read\",\"users.suspend\"]}}},{\"description\":\"\",\"key\":\"telemetry_retention_days\",\"value\":90},{\"description\":\"Challenge: tls-alpn-01 (port 443) | http-01 (port 80)\",\"key\":\"tls_autocert_challenge\",\"value\":\"tls-alpn-01\"},{\"description\":\"Comma-separated Let's Encrypt domains\",\"key\":\"tls_autocert_domains\",\"value\":\"\"},{\"description\":\"Let's Encrypt notification email\",\"key\":\"tls_autocert_email\",\"value\":\"\"},{\"description\":\"Auto-renew Let's Encrypt certificates\",\"key\":\"tls_auto_renew\",\"value\":\"true\"},{\"description\":\"TLS mode: none | static | autocert\",\"key\":\"tls_mode\",\"value\":\"none\"},{\"description\":\"Comma-separated trusted proxy IPs/CIDRs for X-Forwarded-For\",\"key\":\"trusted_proxy_ips\",\"value\":[\"127.0.0.1\",\"::1\"]},{\"description\":\"Welcome email sent on mailbox creation (admin-editable; see /admin/system/welcome-email)\",\"key\":\"welcome_email\",\"value\":{\"enabled\":true,\"locales\":{\"de\":{\"subject\":\"Willkommen bei SetJoin — Ihre E-Mail ist bereit\",\"body_html\":\"\",\"body_text\":\"Willkommen bei SetJoin!\\n\\nIhr E-Mail-Konto wurde erstellt und ist einsatzbereit.\\n\\nErste Schritte:\\n• Webmail: Öffnen Sie die Webmail-URL Ihrer Organisation im Browser\\n• Desktop: Laden Sie die SetJoin Desktop-App für Windows, Mac oder Linux herunter\\n• Mobil: Holen Sie sich die SetJoin-App für iOS aus dem App Store oder für Android von Google Play\\n\\nIhr Postfach umfasst E-Mail, Kalender, Kontakte und Aufgaben — alles integriert.\\n\\nBrauchen Sie Hilfe? Wenden Sie sich an Ihren IT-Administrator.\\n\\n——Das SetJoin-Team\"},\"en\":{\"subject\":\"Welcome to SetJoin — Your New Email Is Ready\",\"body_html\":\"\",\"body_text\":\"Welcome to SetJoin!\\n\\nYour email account has been created and is ready to use.\\n\\nQuick Start:\\n• Webmail: open your browser and go to your organization's webmail URL\\n• Desktop: download the SetJoin Desktop app for Windows, Mac, or Linux\\n• Mobile: get the SetJoin app on iOS from the App Store, or on Android from Google Play\\n\\nYour mailbox includes email, calendar, contacts, and tasks — all integrated.\\n\\nNeed help? Contact your IT administrator.\\n\\n——The SetJoin Team\"},\"zh\":{\"subject\":\"欢迎使用 SetJoin — 您的邮箱已就绪\",\"body_html\":\"\",\"body_text\":\"欢迎使用 SetJoin！\\n\\n您的邮箱账户已创建，可以开始使用了。\\n\\n快速上手：\\n• Webmail：在浏览器中打开您组织的 Webmail 网址\\n• 桌面端：下载 SetJoin 桌面应用（支持 Windows、Mac、Linux）\\n• 移动端：从 App Store 下载 iOS 版 SetJoin，或从应用商店下载 Android 版\\n\\n您的邮箱集成了邮件、日历、联系人和任务功能。\\n\\n需要帮助？请联系您的 IT 管理员。\\n\\n——SetJoin 团队\"}},\"default_locale\":\"en\"}}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=mailserver-config.json"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/system/config/export"
+}

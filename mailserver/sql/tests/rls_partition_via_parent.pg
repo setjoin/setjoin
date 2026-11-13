@@ -1,0 +1,155 @@
+-- pgTAP: rls_partition_via_parent.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE LOAD-BEARING PARTITION-RLS PROOF (native-rls-backstop; reprices fork 1,
+-- validates fork 6). It empirically PINS what PostgreSQL does for RLS on a
+-- RANGE-partitioned table when a freshly-rolled partition got NO per-partition RLS
+-- handling — comparing access VIA THE PARENT against DIRECT access to the leaf.
+--
+-- It is strictly TEST-LOCAL: a throwaway partitioned table `rls_pp` (shaped like
+-- the messages slice), forced + policied on the PARENT only, all inside one
+-- BEGIN…ROLLBACK so no table, policy, or role survives. It NEVER touches messages /
+-- message_tags or any production table (mirrors rls_mechanism.pg discipline).
+--
+-- ┌─ EMPIRICAL FINDING (observed on this cluster, 2026-06-19) ─────────────────┐
+-- │ Setup: parent rls_pp ENABLE+FORCE + a mailbox_id=GUC policy on the PARENT   │
+-- │ ONLY. Partition A (handled month) holds mailbox 1001 ×2 + mailbox 2002 ×1.  │
+-- │ Partition B (the "freshly rolled" month) has NO per-partition              │
+-- │ ENABLE/FORCE/policy and holds a mailbox-2002 row. GUC = 1001, non-superuser.│
+-- │                                                                            │
+-- │   pg_class flags: parent rowsecurity=t,force=t ; leaf A/B rowsecurity=f,    │
+-- │                   force=f  (per-partition RLS flags are NOT inherited)      │
+-- │                                                                            │
+-- │   SELECT count(*) FROM rls_pp          (VIA PARENT)  → 2   ← ISOLATES       │
+-- │   SELECT count(*) FROM rls_pp WHERE mailbox_id=2002  → 0   ← B's 2002 row   │
+-- │                                                              is EXCLUDED    │
+-- │   SELECT count(*) FROM rls_pp_b        (DIRECT LEAF) → 1   ← LEAKS the 2002 │
+-- │                                                              row            │
+-- │                                                                            │
+-- │ ⇒ FORK 1 ASSUMPTION **CONFIRMED**. The parent FORCE+policy governs the      │
+-- │   ENTIRE hierarchy on the via-parent path — even a partition that received  │
+-- │   NO per-partition handling is isolated when accessed through the parent    │
+-- │   (RLS keys on the NAMED relation in the query = the parent, whose policy   │
+-- │   applies to every row it routes to/from). DIRECT-leaf access names the     │
+-- │   leaf, whose own rowsecurity=f → the policy never runs → it LEAKS.         │
+-- │                                                                            │
+-- │ THE RULE THIS PINS: "forbid direct-leaf access; always go via the parent."  │
+-- │ Fork 6's per-partition handling (the W1 event trigger that owns/forces each │
+-- │ new partition) defends ONLY the direct-leaf path; the via-parent path is    │
+-- │ already safe from the parent's FORCE alone. The gateway only ever names the │
+-- │ parent (`FROM messages`), so via-parent isolation is the operative          │
+-- │ guarantee — but a freshly-rolled partition MUST still be force'd/owned so a  │
+-- │ stray direct-leaf reference (or a future code path that names a leaf) does   │
+-- │ not become a silent cross-tenant read.                                      │
+-- └────────────────────────────────────────────────────────────────────────────┘
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(7);
+
+-- A throwaway NON-superuser stand-in (mirror rls_mechanism.pg). DROP IF EXISTS
+-- makes the test idempotent against a leaked role from an interrupted prior run
+-- (the role is cluster-global; the ROLLBACK undoes the CREATE on a clean run, but
+-- load-test-schema.sh rebuilds only the DATABASE, never the cluster roles).
+DROP ROLE IF EXISTS rls_pp_app;
+CREATE ROLE rls_pp_app NOLOGIN;
+
+-- A throwaway partitioned table shaped like the messages slice (range-partitioned
+-- by received_at, mailbox_id is the tenant key — ADR-003).
+CREATE TABLE rls_pp (
+  id          BIGINT,
+  mailbox_id  BIGINT,
+  received_at TIMESTAMPTZ
+) PARTITION BY RANGE (received_at);
+
+-- Partition A — the HANDLED month. Rows for mailbox 1001 (×2) and 2002 (×1).
+CREATE TABLE rls_pp_a PARTITION OF rls_pp
+  FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+INSERT INTO rls_pp (id, mailbox_id, received_at) VALUES
+  (1, 1001, '2026-06-10'),
+  (2, 1001, '2026-06-11'),
+  (3, 2002, '2026-06-12');   -- foreign row in the handled partition
+
+-- ENABLE + FORCE on the PARENT only; policy on the PARENT only. NULLIF(...,'') so an
+-- unset/empty GUC casts to NULL (→ no row qualifies, fail-closed) rather than
+-- raising on ''::BIGINT.
+ALTER TABLE rls_pp ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rls_pp FORCE  ROW LEVEL SECURITY;
+CREATE POLICY rls_pp_tenant_isolation ON rls_pp
+  USING (mailbox_id = NULLIF(current_setting('app.current_mailbox_id', true), '')::BIGINT);
+
+-- Partition B — the "freshly rolled monthly partition": NO per-partition
+-- ENABLE/FORCE/policy. Holds a mailbox-2002 row in B's range.
+CREATE TABLE rls_pp_b PARTITION OF rls_pp
+  FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
+INSERT INTO rls_pp (id, mailbox_id, received_at) VALUES
+  (4, 2002, '2026-07-05');   -- foreign row in the UNHANDLED partition
+
+GRANT SELECT ON rls_pp, rls_pp_a, rls_pp_b TO rls_pp_app;
+-- Runtime roles intentionally have no blanket EXECUTE on public functions.
+-- pgTAP assertions call several unexposed helper functions internally, so this
+-- throwaway role needs the schema's function set while assertions run. The role
+-- and grant are both removed by the surrounding transaction rollback.
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO rls_pp_app;
+
+-- ── Pin the per-partition RLS-flag fact: flags are NOT inherited ─────────────
+-- The parent is force'd; the leaves are NOT. This is the precondition that makes
+-- the via-parent-vs-direct-leaf distinction meaningful.
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE relname = 'rls_pp'),
+  true,
+  'partition RLS: parent rls_pp has row security ENABLED'
+);
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'rls_pp'),
+  true,
+  'partition RLS: parent rls_pp has row security FORCED'
+);
+SELECT is(
+  (SELECT bool_or(relrowsecurity) FROM pg_class WHERE relname IN ('rls_pp_a','rls_pp_b')),
+  false,
+  'partition RLS: NEITHER leaf has row security enabled (flags are NOT inherited)'
+);
+
+-- Switch to the unprivileged role (superuser bypasses RLS) and scope to mailbox 1001.
+SET LOCAL ROLE rls_pp_app;
+SELECT set_config('app.current_mailbox_id', '1001', true);
+
+-- ── VIA-PARENT: isolates the WHOLE hierarchy, incl. the unhandled partition B ─
+-- Observed: 2. Only mailbox 1001's two rows in partition A. The foreign 2002 rows
+-- in BOTH A (handled) and B (unhandled) are excluded by the parent's policy.
+SELECT is(
+  (SELECT count(*) FROM rls_pp)::INT,
+  2,
+  'VIA PARENT: mailbox 1001 sees exactly its 2 rows — the parent policy governs the whole hierarchy'
+);
+
+-- Observed: 0. The unhandled-partition foreign row is invisible via the parent —
+-- this is the CONFIRMATION of the fork-1 assumption (FORCE on the parent isolates
+-- even a partition that got no per-partition handling).
+SELECT is(
+  (SELECT count(*) FROM rls_pp WHERE mailbox_id = 2002)::INT,
+  0,
+  'VIA PARENT: the mailbox-2002 row in the UNHANDLED partition B is EXCLUDED — fork 1 CONFIRMED'
+);
+
+-- ── DIRECT-LEAF: names the leaf, whose own rowsecurity=f → policy never runs ──
+-- Direct access to the HANDLED leaf A still bypasses RLS (leaf flag is f): all 3
+-- rows visible. Observed: 3.
+SELECT is(
+  (SELECT count(*) FROM rls_pp_a)::INT,
+  3,
+  'DIRECT LEAF A: naming the leaf bypasses RLS (leaf rowsecurity=f) — all 3 rows visible, including foreign'
+);
+
+-- Direct access to the UNHANDLED leaf B LEAKS the foreign mailbox-2002 row.
+-- Observed: 1. This is WHY the rule is "forbid direct-leaf access, always go via
+-- the parent" — and why fork 6's event trigger must still force/own each new
+-- partition to defend any code path that names a leaf directly.
+SELECT is(
+  (SELECT count(*) FROM rls_pp_b)::INT,
+  1,
+  'DIRECT LEAF B: the unhandled partition LEAKS the foreign mailbox-2002 row — the direct-leaf hazard'
+);
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

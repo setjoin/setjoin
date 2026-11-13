@@ -1,0 +1,31 @@
+-- pgTAP: rust_mailsec_quarantine.sql (#320) — frozen Go's quarantine release/reject as one
+-- transaction. Proves the owner predicate rides in the UPDATE's WHERE (R3), the admin flag
+-- lifts it, and release restores the original location tag.
+BEGIN;
+SELECT plan(10);
+SELECT mk_account('mqown') AS mb \gset
+SELECT mk_account('mqoth') AS omb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ou FROM mailboxes WHERE id = :omb \gset
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8951, :mb, get_tag_id('Inbox', :mb), '<q1@mq.test>', 'Own', 'x@ext.com', 100, 'thr-8951', 'raw-8951', now(), FALSE),
+         (8952, :mb, get_tag_id('Inbox', :mb), '<q2@mq.test>', 'Own2', 'x@ext.com', 100, 'thr-8952', 'raw-8952', now(), FALSE);
+SELECT tag_message(8951, (SELECT received_at FROM messages WHERE id = 8951), 'Inbox', :mb, 'deliver', TRUE);
+SELECT tag_message(8952, (SELECT received_at FROM messages WHERE id = 8952), 'Inbox', :mb, 'deliver', TRUE);
+SELECT quarantine_message(8951, :mb, 'r1', 'virus', NULL, FALSE);
+SELECT quarantine_message(8952, :mb, 'r2', 'virus', NULL, FALSE);
+SELECT id AS q1 FROM quarantined_messages WHERE message_id = 8951 \gset
+SELECT id AS q2 FROM quarantined_messages WHERE message_id = 8952 \gset
+
+SELECT is(rust_mailsec_quarantine_release(:ou, :q1, FALSE), false, 'a foreign user cannot release (owner predicate)');
+SELECT is((SELECT released_at IS NULL FROM quarantined_messages WHERE id = :q1), true, 'the foreign release changed nothing');
+SELECT is(rust_mailsec_quarantine_release(:u, :q1, FALSE), true, 'the owner releases');
+SELECT is((SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.message_id = 8951 AND t.exclusive_group = 'location'), 'Inbox', 'release restores the original location tag');
+SELECT is(rust_mailsec_quarantine_release(:u, :q1, FALSE), false, 'a second release finds no active row');
+SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, FALSE), false, 'a foreign user cannot reject');
+SELECT is(rust_mailsec_quarantine_reject(:u, :q2, FALSE), true, 'the owner rejects (soft delete)');
+SELECT is((SELECT is_deleted FROM messages WHERE id = 8952), true, 'user reject soft-deletes the message');
+SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, TRUE), true, 'admin reject lifts the owner predicate and may repeat');
+SELECT is((SELECT count(*)::int FROM messages WHERE id = 8952), 0, 'admin reject hard-deletes the message');
+SELECT * FROM finish();
+ROLLBACK;

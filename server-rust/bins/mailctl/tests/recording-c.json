@@ -1,0 +1,8 @@
+{
+  "sourceCommit": "1086f3f34efe3f640e6e1739a306dee088fe93cd",
+  "sourceTreeSha256": "aa359b813630af940b192f76a236703982cf8d947c380b1043131f4bf27b7bc0",
+  "binarySha256": "086674d1933bf0929bf8d15147479427c4b04ef35a46ff14d24c4144cdff634d",
+  "build": "CGO_ENABLED=0 go build -o /evidence/go-mailctl .",
+  "image": "setjoin-ci-linux-tc:local-amd64",
+  "scope": "MCTL4 frozen Go offline and backup process recordings"
+}

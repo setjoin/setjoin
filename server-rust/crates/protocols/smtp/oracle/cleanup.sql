@@ -1,0 +1,14 @@
+BEGIN;
+SET LOCAL session_replication_role='replica';
+DELETE FROM mailbox_audit_log WHERE mailbox_id BETWEEN 9348021 AND 9348023;
+COMMIT;
+DELETE FROM aliases WHERE mailbox_id BETWEEN 9348021 AND 9348023;
+UPDATE domains SET catch_all_mailbox_id=NULL WHERE id BETWEEN 9348001 AND 9348003;
+DELETE FROM messages WHERE mailbox_id BETWEEN 9348021 AND 9348023;
+DELETE FROM mailboxes WHERE id BETWEEN 9348021 AND 9348023;
+DELETE FROM users WHERE id BETWEEN 9348011 AND 9348013;
+DELETE FROM domains WHERE id BETWEEN 9348001 AND 9348003;
+DELETE FROM rate_limit_counters WHERE key='smtp:conn:127.0.0.1';
+DELETE FROM smtp_sessions WHERE remote_ip='127.0.0.1';
+DELETE FROM greylist WHERE recipient LIKE '%@smtp1.test' OR recipient LIKE '%@smtp1-other.test';
+DELETE FROM greylist_whitelist WHERE entry_type='domain' AND entry_value='whitelist.smtp1.test';

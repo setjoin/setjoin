@@ -1,0 +1,688 @@
+{
+  "case": "request_create-invalid-v1",
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "normalization": [
+    "typed fixture identities",
+    "first-seen generated ids",
+    "RFC3339/PostgreSQL timestamps",
+    "verified audit chain (checksum removed)"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "space.create",
+        "after_state": {
+          "classification": "regular",
+          "isPersonal": false,
+          "name": "Drive4"
+        },
+        "before_state": null,
+        "id": "<audit.id#1>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<space>",
+        "target_type": "space",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "kind": "folder",
+          "name": "Root",
+          "parentId": null
+        },
+        "before_state": null,
+        "id": "<audit.id#2>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<root>",
+        "target_type": "node",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "kind": "folder",
+          "name": "Restricted",
+          "parentId": "<root>"
+        },
+        "before_state": null,
+        "id": "<audit.id#3>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<folder>",
+        "target_type": "node",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "kind": "file",
+          "name": "Budget.txt",
+          "parentId": "<folder>"
+        },
+        "before_state": null,
+        "id": "<audit.id#4>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<file>",
+        "target_type": "node",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "member.grant",
+        "after_state": {
+          "role": "viewer",
+          "userId": "<extra0-user>"
+        },
+        "before_state": null,
+        "id": "<audit.id#5>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<extra0-user>",
+        "target_type": "member",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "policy.change",
+        "after_state": {
+          "anchorNodeId": "<folder>",
+          "emergencyAllowed": true,
+          "enabled": true,
+          "maxDurationMinutes": 120,
+          "maxPropagation": "self",
+          "subjectKind": "user"
+        },
+        "before_state": null,
+        "id": "<audit.id#6>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<ts>",
+        "space_id": "<space>",
+        "target_id": "<audit.target_id#1>",
+        "target_type": "drive_access_policy",
+        "user_id": "<owner-user>"
+      }
+    ],
+    "before": {
+      "approvals": [],
+      "audit": [
+        {
+          "action": "space.create",
+          "after_state": {
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Drive4"
+          },
+          "before_state": null,
+          "id": "<audit.id#1>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<space>",
+          "target_type": "space",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "folder",
+            "name": "Root",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": "<audit.id#2>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<root>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "folder",
+            "name": "Restricted",
+            "parentId": "<root>"
+          },
+          "before_state": null,
+          "id": "<audit.id#3>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<folder>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "file",
+            "name": "Budget.txt",
+            "parentId": "<folder>"
+          },
+          "before_state": null,
+          "id": "<audit.id#4>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<file>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "member.grant",
+          "after_state": {
+            "role": "viewer",
+            "userId": "<extra0-user>"
+          },
+          "before_state": null,
+          "id": "<audit.id#5>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<extra0-user>",
+          "target_type": "member",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "policy.change",
+          "after_state": {
+            "anchorNodeId": "<folder>",
+            "emergencyAllowed": true,
+            "enabled": true,
+            "maxDurationMinutes": 120,
+            "maxPropagation": "self",
+            "subjectKind": "user"
+          },
+          "before_state": null,
+          "id": "<audit.id#6>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<audit.target_id#1>",
+          "target_type": "drive_access_policy",
+          "user_id": "<owner-user>"
+        }
+      ],
+      "breaks": [],
+      "changes": [
+        {
+          "at": "<ts>",
+          "node_id": "<changes.node_id#1>",
+          "op": "space",
+          "seq": "<changes.seq#1>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<root>",
+          "op": "create",
+          "seq": "<changes.seq#2>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<folder>",
+          "op": "create",
+          "seq": "<changes.seq#3>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<file>",
+          "op": "create",
+          "seq": "<changes.seq#4>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<changes.node_id#1>",
+          "op": "member",
+          "seq": "<changes.seq#5>",
+          "space_id": "<space>"
+        }
+      ],
+      "files": [
+        {
+          "content_type": null,
+          "head_version_id": null,
+          "node_id": "<file>",
+          "size_bytes": 0,
+          "space_id": "<space>"
+        }
+      ],
+      "folder_admins": [],
+      "generations": [
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<space>",
+          "updated_at": "<ts>"
+        }
+      ],
+      "grants": [],
+      "invalidations": [],
+      "locks": [],
+      "members": [
+        {
+          "granted_at": "<ts>",
+          "granted_by": "<owner-user>",
+          "role": "manager",
+          "space_id": "<space>",
+          "user_id": "<owner-user>"
+        },
+        {
+          "granted_at": "<ts>",
+          "granted_by": "<owner-user>",
+          "role": "viewer",
+          "space_id": "<space>",
+          "user_id": "<extra0-user>"
+        }
+      ],
+      "nodes": [
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<root>",
+          "kind": "folder",
+          "name": "Root",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        },
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<folder>",
+          "kind": "folder",
+          "name": "Restricted",
+          "parent_id": "<root>",
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        },
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<file>",
+          "kind": "file",
+          "name": "Budget.txt",
+          "parent_id": "<folder>",
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        }
+      ],
+      "policies": [
+        {
+          "anchor_node_id": "<folder>",
+          "approval_policy_id": "<policies.approval_policy_id#1>",
+          "capabilities": [
+            "modify_content",
+            "rename",
+            "preview",
+            "download"
+          ],
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "emergency_allowed": true,
+          "enabled": true,
+          "id": "<policies.id#1>",
+          "max_duration_minutes": 120,
+          "max_propagation": "self",
+          "max_uses": 2,
+          "space_id": "<space>",
+          "subject_kind": "user",
+          "updated_at": "<ts>"
+        }
+      ],
+      "rate": [],
+      "request_details": [],
+      "spaces": [
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "acl",
+          "acl_protocol_version": 1,
+          "change_seq": 5,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<ts>",
+          "export_policy": {},
+          "id": "<space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Drive4",
+          "owner_user_id": "<owner-user>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 0,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        }
+      ],
+      "watches": []
+    },
+    "effects": {
+      "approvals": [],
+      "audit": [
+        {
+          "action": "space.create",
+          "after_state": {
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Drive4"
+          },
+          "before_state": null,
+          "id": "<audit.id#1>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<space>",
+          "target_type": "space",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "folder",
+            "name": "Root",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": "<audit.id#2>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<root>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "folder",
+            "name": "Restricted",
+            "parentId": "<root>"
+          },
+          "before_state": null,
+          "id": "<audit.id#3>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<folder>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "kind": "file",
+            "name": "Budget.txt",
+            "parentId": "<folder>"
+          },
+          "before_state": null,
+          "id": "<audit.id#4>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<file>",
+          "target_type": "node",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "member.grant",
+          "after_state": {
+            "role": "viewer",
+            "userId": "<extra0-user>"
+          },
+          "before_state": null,
+          "id": "<audit.id#5>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<extra0-user>",
+          "target_type": "member",
+          "user_id": "<owner-user>"
+        },
+        {
+          "action": "policy.change",
+          "after_state": {
+            "anchorNodeId": "<folder>",
+            "emergencyAllowed": true,
+            "enabled": true,
+            "maxDurationMinutes": 120,
+            "maxPropagation": "self",
+            "subjectKind": "user"
+          },
+          "before_state": null,
+          "id": "<audit.id#6>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<ts>",
+          "space_id": "<space>",
+          "target_id": "<audit.target_id#1>",
+          "target_type": "drive_access_policy",
+          "user_id": "<owner-user>"
+        }
+      ],
+      "breaks": [],
+      "changes": [
+        {
+          "at": "<ts>",
+          "node_id": "<changes.node_id#1>",
+          "op": "space",
+          "seq": "<changes.seq#1>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<root>",
+          "op": "create",
+          "seq": "<changes.seq#2>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<folder>",
+          "op": "create",
+          "seq": "<changes.seq#3>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<file>",
+          "op": "create",
+          "seq": "<changes.seq#4>",
+          "space_id": "<space>"
+        },
+        {
+          "at": "<ts>",
+          "node_id": "<changes.node_id#1>",
+          "op": "member",
+          "seq": "<changes.seq#5>",
+          "space_id": "<space>"
+        }
+      ],
+      "files": [
+        {
+          "content_type": null,
+          "head_version_id": null,
+          "node_id": "<file>",
+          "size_bytes": 0,
+          "space_id": "<space>"
+        }
+      ],
+      "folder_admins": [],
+      "generations": [
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<space>",
+          "updated_at": "<ts>"
+        }
+      ],
+      "grants": [],
+      "invalidations": [],
+      "locks": [],
+      "members": [
+        {
+          "granted_at": "<ts>",
+          "granted_by": "<owner-user>",
+          "role": "manager",
+          "space_id": "<space>",
+          "user_id": "<owner-user>"
+        },
+        {
+          "granted_at": "<ts>",
+          "granted_by": "<owner-user>",
+          "role": "viewer",
+          "space_id": "<space>",
+          "user_id": "<extra0-user>"
+        }
+      ],
+      "nodes": [
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<root>",
+          "kind": "folder",
+          "name": "Root",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        },
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<folder>",
+          "kind": "folder",
+          "name": "Restricted",
+          "parent_id": "<root>",
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        },
+        {
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "deleted_at": null,
+          "id": "<file>",
+          "kind": "file",
+          "name": "Budget.txt",
+          "parent_id": "<folder>",
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        }
+      ],
+      "policies": [
+        {
+          "anchor_node_id": "<folder>",
+          "approval_policy_id": "<policies.approval_policy_id#1>",
+          "capabilities": [
+            "modify_content",
+            "rename",
+            "preview",
+            "download"
+          ],
+          "created_at": "<ts>",
+          "created_by": "<owner-user>",
+          "emergency_allowed": true,
+          "enabled": true,
+          "id": "<policies.id#1>",
+          "max_duration_minutes": 120,
+          "max_propagation": "self",
+          "max_uses": 2,
+          "space_id": "<space>",
+          "subject_kind": "user",
+          "updated_at": "<ts>"
+        }
+      ],
+      "rate": [],
+      "request_details": [],
+      "spaces": [
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "acl",
+          "acl_protocol_version": 1,
+          "change_seq": 5,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<ts>",
+          "export_policy": {},
+          "id": "<space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Drive4",
+          "owner_user_id": "<owner-user>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 0,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        }
+      ],
+      "watches": []
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/drive/nodes/{id}/access-requests"
+    },
+    "response": {
+      "body": {
+        "detail": "invalid JSON",
+        "instance": "/drive/nodes/<file>/access-requests",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "drive4-oracle"
+      },
+      "status": 400,
+      "text": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":#,\"detail\":\"invalid JSON\",\"instance\":\"/drive/nodes/<file>/access-requests\"}\n"
+    }
+  },
+  "route": "POST /drive/nodes/{id}/access-requests"
+}

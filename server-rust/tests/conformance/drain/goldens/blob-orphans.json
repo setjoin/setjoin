@@ -1,0 +1,68 @@
+{
+  "case": "blob-orphans",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "blobs": [],
+    "orphans": [
+      "inbound/<refused>"
+    ],
+    "queue": [],
+    "s3": {
+      "keys": [
+        "inbound/<refused>",
+        "inbound/<referenced>"
+      ],
+      "requests": [
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<bare>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/<flaky>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/blobs/<out>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/dmarc/<report>.eml"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/dsn/7/8"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/inbound/<in>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/inbound/<no-object>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/inbound/<refused>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/inbound/<refused>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/system:welcome:42"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/weird key+plus/é"
+        }
+      ]
+    }
+  }
+}

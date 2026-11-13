@@ -1,0 +1,347 @@
+-- rls_allow_backfill.pg — ALLOW-side RLS flow proofs (arch review #A4, TOP
+-- REC). Closes scripts/rls-allow-allowlist.txt COVERED entries for every
+-- FORCE'd table that had a reducer writer + a write-capable policy but NO
+-- proof anywhere in the suite that the table's own LEGITIMATE writer
+-- actually succeeds under the constrained setjoin_app runtime role — the
+-- exact blind spot check-rls-denial.sh cannot see (it only proves a foreign
+-- tenant is DENIED, never that the owning tenant is ADMITTED). Both recent
+-- native-RLS flip-blockers (V125 meet: `meetings` shipped SELECT-only,
+-- meeting_create 500'd live; V135 drive: the chunk-insert WITH CHECK denied
+-- every chat-derived member) were exactly this shape.
+--
+-- Genre: rls_meet.pg / rls_chat.pg's "V134 flow proof" sections — drive the
+-- REAL reducer as `SET LOCAL ROLE setjoin_app` with the correct
+-- `app.current_user_id` / `app.current_mailbox_id` GUC and assert the write
+-- actually lands, not merely that it doesn't throw. One BEGIN…ROLLBACK per
+-- logical group of tables (shared fixtures), all inside the file's own
+-- transaction so nothing persists.
+--
+-- Tables intentionally NOT here (already COVERED by an existing V134-era
+-- flow test — see scripts/rls-allow-allowlist.txt): meetings,
+-- meeting_participants, meeting_join_requests, meeting_breakouts,
+-- meeting_recordings (rls_meet.pg); chat_channels, chat_channel_members,
+-- chat_messages, chat_message_reactions, chat_message_revisions (rls_chat.pg);
+-- drive_file_locks, drive_folder_admins (rls_drive_versioning.pg);
+-- drive_export_grants (drive_export_gate.pg); task_lists
+-- (rls_task_lists.pg); mailbox_delegates (rls_mailbox_delegates.pg);
+-- jmap_changes_journal (journal_op.pg); messages (rls_smtp_delivery.pg);
+-- ca_signin_log (ca_signin_log.pg).
+BEGIN;
+SELECT plan(48);
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 1: mail-core (message_tags, jmap_entity_state, saved_searches) —
+-- mailbox-keyed (app.current_mailbox_id GUC).
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT mk_account('bafMail') AS mb1 \gset
+SELECT user_id AS u1 FROM mailboxes WHERE id = :mb1 \gset
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr,
+                      size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (960001, :mb1, get_tag_id('Inbox', :mb1), '<baf1@rls.test>', 'baf fixture',
+        'x@ext.example', 100, 'thr-960001', 'raw-960001', now(), FALSE);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', :mb1::text, true);
+
+-- message_tags: tag_message() (V001 baseline, called from every A4 datatype
+-- trigger + jmap_email.sql) is the app-role's own write path.
+SELECT lives_ok(
+  $$ SELECT tag_message(960001, (SELECT received_at FROM messages WHERE id = 960001), 'Starred', $$ || :mb1 || $$) $$,
+  'tag_message: app role tags its own message under setjoin_app (message_tags ALLOW)');
+SELECT is((SELECT count(*) FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+            WHERE mt.message_id = 960001 AND t.name = 'Starred')::int, 1,
+  'the tag row is readable back by the same GUC');
+
+-- jmap_entity_state: bump_entity_state() is the ONE write path (journal_op.pg
+-- proves jmap_changes_journal via the same GUC shape; this closes the sibling
+-- table's own assertion, which journal_op.pg grants but never directly checks).
+SELECT is(bump_entity_state(:mb1, 'Task'), 1::bigint,
+  'bump_entity_state: first bump returns seq=1 as setjoin_app (jmap_entity_state ALLOW)');
+SELECT is((SELECT seq FROM jmap_entity_state WHERE mailbox_id = :mb1 AND datatype = 'Task'), 1::bigint,
+  'the bumped row is readable back by the same GUC');
+
+-- saved_searches: saved_search_set().
+SELECT lives_ok(
+  $$ SELECT saved_search_set($$ || :mb1 || $$, 'baf search', 'from:baf') $$,
+  'saved_search_set: app role creates its own saved search under setjoin_app (saved_searches ALLOW)');
+SELECT is((SELECT count(*) FROM saved_searches WHERE mailbox_id = :mb1 AND name = 'baf search')::int, 1,
+  'the saved search is readable back by the same GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 1b: task_list_members — task_list_create() seeds the owner's own
+-- roster row in the SAME transaction as the list (task_lists itself is
+-- already COVERED via rls_task_lists.pg's raw-INSERT proof; that file never
+-- exercises the reducer's own task_list_members write).
+-- ══════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u1::text, true);
+SELECT (task_list_create(:u1, 'baf task list')->>'id')::bigint AS baflistid \gset
+SELECT is((SELECT count(*) FROM task_list_members WHERE list_id = :baflistid AND user_id = :u1 AND role = 'owner')::int, 1,
+  'task_list_create: app role seeds its own owner roster row under setjoin_app (task_list_members ALLOW)');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 2: user-keyed self-service tables (terms_of_use_acceptance,
+-- focus_sender_overrides, vip_senders) — app.current_user_id GUC.
+-- ══════════════════════════════════════════════════════════════════════════
+INSERT INTO terms_of_use (name, version, body_md) VALUES ('baf-tou', 1, 'body')
+  RETURNING id AS tou_id \gset
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u1::text, true);
+
+SELECT lives_ok(
+  $$ SELECT record_tou_acceptance($$ || :u1 || $$, $$ || :tou_id || $$, 1, '203.0.113.5'::inet) $$,
+  'record_tou_acceptance: app role accepts ToU for itself under setjoin_app (terms_of_use_acceptance ALLOW)');
+SELECT is((SELECT count(*) FROM terms_of_use_acceptance WHERE user_id = :u1 AND tou_id = :tou_id)::int, 1,
+  'the acceptance row is readable back by the same GUC');
+
+SELECT lives_ok(
+  $$ SELECT set_message_focus(960001, (SELECT received_at FROM messages WHERE id = 960001), true, $$ || :mb1 || $$) $$,
+  'set_message_focus: app role focuses its own message under setjoin_app (focus_sender_overrides ALLOW)');
+SELECT is((SELECT count(*) FROM focus_sender_overrides WHERE user_id = :u1)::int, 1,
+  'the focus override row is readable back by the same GUC');
+
+SELECT lives_ok(
+  $$ SELECT vip_sender_set($$ || :u1 || $$, 'vip@baf.test', true) $$,
+  'vip_sender_set: app role VIPs a sender for itself under setjoin_app (vip_senders ALLOW)');
+SELECT is((SELECT count(*) FROM vip_senders WHERE user_id = :u1 AND sender_email = 'vip@baf.test')::int, 1,
+  'the vip row is readable back by the same GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 3: native device governance (devices, user_devices,
+-- device_enroll_events) — app.current_user_id GUC (devices_self /
+-- user_devices_self / dee_self all key off it).
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT mk_account('bafDev') AS mb2 \gset
+SELECT user_id AS u2 FROM mailboxes WHERE id = :mb2 \gset
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u2::text, true);
+
+SELECT lives_ok(
+  $$ SELECT offline_device_register($$ || :mb2 || $$, 'baf-device-fp', 'desktop') $$,
+  'offline_device_register: app role registers its own native device under setjoin_app (devices + user_devices ALLOW)');
+SELECT is((SELECT count(*) FROM devices WHERE user_id = :u2 AND fingerprint = 'baf-device-fp')::int, 1,
+  'the devices row is readable back by the same GUC');
+SELECT is((SELECT count(*) FROM user_devices ud JOIN devices d ON d.id = ud.device_id
+            WHERE d.user_id = :u2 AND d.fingerprint = 'baf-device-fp')::int, 1,
+  'the user_devices row is readable back by the same GUC');
+
+SELECT id AS bafdevid FROM devices WHERE user_id = :u2 AND fingerprint = 'baf-device-fp' \gset
+SELECT lives_ok(
+  $$ SELECT device_enroll_transition($$ || :u2 || $$, $$ || :bafdevid || $$, 'enrolled', 'baf test') $$,
+  'device_enroll_transition: app role enrolls its own device under setjoin_app (device_enroll_events ALLOW)');
+SELECT is((SELECT count(*) FROM device_enroll_events WHERE device_id = :bafdevid AND to_state = 'enrolled')::int, 1,
+  'the enroll-event row is readable back by the same GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 4: session revocation — session_revocations_app_insert is
+-- FOR INSERT WITH CHECK (true), the widest-open write policy in the suite;
+-- still unproven under a real setjoin_app connection until now.
+-- ══════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(
+  $$ SELECT revoke_user_sessions($$ || :u2 || $$, 'jti', 'baf test revoke', $$ || :u2 || $$, 'baf-jti-1', NULL) $$,
+  'revoke_user_sessions: app role inserts a revocation row under setjoin_app (session_revocations ALLOW — WITH CHECK (true))');
+SELECT is((SELECT count(*) FROM session_revocations WHERE user_id = :u2 AND jti = 'baf-jti-1')::int, 1,
+  'the revocation row is readable back');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 5: approval engine (approval_requests, held_inbound_messages,
+-- hr_expense_receipts) — app.current_user_id GUC = the requester or approver
+-- named in the row itself (approval_requests_row_visibility's OR ladder).
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT mk_account('bafReq') AS mb3 \gset
+SELECT user_id AS u3 FROM mailboxes WHERE id = :mb3 \gset
+SELECT mk_account('bafAppr') AS mb4 \gset
+SELECT user_id AS u4 FROM mailboxes WHERE id = :mb4 \gset
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u3::text, true);
+SELECT approval_request_create('mail.group_moderation', :u3, 'baf approval subject',
+         '{}'::jsonb, NULL, 'user', :u4, 60) AS bafreqid \gset
+SELECT ok(:bafreqid > 0,
+  'approval_request_create: app role creates a request as its own requester under setjoin_app (approval_requests ALLOW)');
+SELECT is((SELECT count(*) FROM approval_requests WHERE id = :bafreqid AND requester_user_id = :u3)::int, 1,
+  'the request row is readable back by the requester GUC');
+RESET ROLE;
+
+-- held_inbound_messages: group_moderation_hold() (requester is NULL —
+-- external sender — so the WITH CHECK arm that must pass is the APPROVER
+-- one; app.current_user_id must be the moderator).
+INSERT INTO distribution_groups (id, mailbox_id, moderated, moderator_mailbox_id)
+  VALUES (970001, :mb3, true, :mb4);
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u4::text, true);
+SELECT group_moderation_hold(970001, 'ext@outside.test', 's3://raw-baf', '{}'::jsonb, '{}'::jsonb) AS bafheldreq \gset
+SELECT ok(:bafheldreq > 0,
+  'group_moderation_hold: app role (the moderator) parks a held inbound message under setjoin_app (held_inbound_messages ALLOW)');
+SELECT is((SELECT count(*) FROM held_inbound_messages WHERE approval_request_id = :bafheldreq)::int, 1,
+  'the held-message row is readable back by the approver GUC');
+RESET ROLE;
+
+-- hr_expense_receipts: proves the fix for the flip-blocker this proof
+-- ORIGINALLY found (and was left PENDING for). hr_request_create is SECURITY
+-- INVOKER and internally calls approval_match_policies() over approval_policies
+-- (FORCE-RLS admin-only, approval_policies_admin_only V070/V073). Before the
+-- fix a non-admin employee — the reducer's only realistic caller — saw ZERO
+-- policy rows under setjoin_app → required=false → RETURN NULL (no receipt row,
+-- silent approval bypass). The fix (arch #A4/#80) made approval_match_policies
+-- SECURITY DEFINER + worker-owned (approval_match_policies.sql): matching is a
+-- fail-closed SYSTEM decision over org config, returning only a decision, never
+-- policy rows — so a non-admin now gets policies APPLIED without reading them.
+-- This case runs as setjoin_app under a NON-admin requester's GUC (u3 holds no
+-- admin_role_assignments) — the exact production shape that returned NULL before.
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES ('baf00receipt000000000000000000000000000000000000000000000001', 'minio:baf-receipt-1', 2048, 'application/pdf', 0);
+INSERT INTO approval_policies (consumer_type, name, priority, conditions, requires_approval, approver_spec)
+  VALUES ('hr.expense', 'baf-expense-all', 9200, '{}'::jsonb, true, jsonb_build_object('kind','named','user_id',:u4));
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u3::text, true);
+SELECT hr_request_create(:u3, 'hr.expense',
+         jsonb_build_object(
+           'currency','USD', 'total_cents', 6000,
+           'line_items', jsonb_build_array(jsonb_build_object(
+             'amount_cents', 6000, 'description','taxi', 'category','travel',
+             'receipt_sha256','baf00receipt000000000000000000000000000000000000000000000001',
+             'receipt_filename','taxi.pdf')))) AS bafhrid \gset
+SELECT ok(:bafhrid > 0,
+  'hr_request_create: NON-admin employee files an expense under setjoin_app — approval_match_policies (now DEFINER) matches, so the request is created (hr_expense_receipts ALLOW; pre-fix this returned NULL)');
+SELECT is((SELECT count(*) FROM hr_expense_receipts WHERE approval_request_id = :bafhrid AND blob_sha256 = 'baf00receipt000000000000000000000000000000000000000000000001')::int, 1,
+  'the receipt row is readable back by the requester GUC (hr_expense_receipts_via_request)');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 6: sharing_defaults — self-scope arm (owner_scope='user' AND
+-- owner_ref=actor bypasses the sharing.manage admin ladder entirely).
+-- ══════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u3::text, true);
+SELECT sharing_default_set(:u3, 'calendar', 'user', :u3, 'everyone',
+         (SELECT id FROM domains WHERE name = 'mk.test'), 'freebusy') AS bafshareid \gset
+SELECT ok(:bafshareid > 0,
+  'sharing_default_set: app role sets its own self-scope sharing default under setjoin_app (sharing_defaults ALLOW)');
+SELECT is((SELECT count(*) FROM sharing_defaults WHERE id = :bafshareid AND owner_ref = :u3)::int, 1,
+  'the sharing-default row is readable back by the owner GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 7: booking_pages (owner CRUD; mailbox-keyed).
+-- ══════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', :mb1::text, true);
+SELECT lives_ok(
+  $$ SELECT booking_page_upsert($$ || :mb1 || $$, '{"slug":"baf-booking","title":"Baf Meeting"}'::jsonb) $$,
+  'booking_page_upsert: app role creates its own booking page under setjoin_app (booking_pages ALLOW)');
+SELECT is((SELECT count(*) FROM booking_pages WHERE mailbox_id = :mb1 AND slug = 'baf-booking')::int, 1,
+  'the booking page is readable back by the same GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 8: drive (drive_audit_alarms, drive_file_branches,
+-- drive_version_labels) — app.current_user_id GUC.
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT mk_account('bafDrM') AS mb5 \gset
+SELECT mk_account('bafDrE') AS mb6 \gset
+SELECT user_id AS u5 FROM mailboxes WHERE id = :mb5 \gset
+SELECT user_id AS u6 FROM mailboxes WHERE id = :mb6 \gset
+
+-- Super Admin (role_group_id 1, V114 §E) for the drive.manage-gated alarm write.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:u5, 1, :u5);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u5::text, true);
+SELECT drive_alarm_create(:u5, NULL, 'export.deny', 5, 10) AS bafalarmid \gset
+SELECT ok(:bafalarmid > 0,
+  'drive_alarm_create: a drive.manage admin creates an org-wide alarm under setjoin_app (drive_audit_alarms ALLOW)');
+SELECT is((SELECT count(*) FROM drive_audit_alarms WHERE id = :bafalarmid)::int, 1,
+  'the alarm row is readable back by the admin GUC');
+RESET ROLE;
+
+SELECT drive_space_create(:u5, 'baf-drive-space', 'regular') AS bafsid \gset
+SELECT drive_member_grant(:u5, :bafsid, :u6, 'editor');
+SELECT drive_node_create(:u5, :bafsid, NULL, 'file', 'baf.bin') AS bafnid \gset
+SELECT drive_chunk_register(:u5, :bafsid, repeat('e', 64), 10);
+SELECT (drive_file_put_version(:u5, :bafnid, repeat('e', 64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('e', 64))::jsonb, NULL, 'test')->>'versionId')::bigint AS bafv1 \gset
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u6::text, true);
+SELECT lives_ok(
+  $$ SELECT drive_branch_create($$ || :u6 || $$, $$ || :bafnid || $$, 'baf-branch', $$ || :bafv1 || $$) $$,
+  'drive_branch_create: an editor creates a branch under setjoin_app (drive_file_branches ALLOW)');
+SELECT is((SELECT count(*) FROM drive_file_branches WHERE file_node_id = :bafnid AND name = 'baf-branch')::int, 1,
+  'the branch row is readable back by the editor GUC');
+SELECT lives_ok(
+  $$ SELECT drive_version_label_set($$ || :u6 || $$, $$ || :bafv1 || $$, 'baf-label') $$,
+  'drive_version_label_set: an editor labels a version under setjoin_app (drive_version_labels ALLOW)');
+SELECT is((SELECT count(*) FROM drive_version_labels WHERE version_id = :bafv1 AND label = 'baf-label')::int, 1,
+  'the label row is readable back by the editor GUC');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- Group 9: chat QoL surfaces (chat_mentions, chat_message_attachments,
+-- chat_message_pins, chat_polls/options/votes, chat_saved_messages,
+-- chat_send_counters) — one channel, one send call proves three tables at
+-- once (mentions + attachments + the send-rate counter), matching the exact
+-- risk class of the V135 chunk-insert bug: a chat-derived member (zero
+-- drive_space_members rows) uploading an attachment.
+-- ══════════════════════════════════════════════════════════════════════════
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'baf-chat', :u5);
+SELECT id AS bafchan FROM chat_channels WHERE name = 'baf-chat' \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:bafchan, :u5, 'owner');
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:bafchan, :u6, 'member');
+SELECT drive_chunk_register(:u5, :bafsid, repeat('f', 64), 12);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u5::text, true);
+SELECT (chat_message_send(:u5, :bafchan, 'ping', NULL, ARRAY[:u6]::bigint[], NULL,
+    ('[{"sha256":"' || repeat('f', 64) || '","size":12,"name":"baf.pdf","contentType":"application/pdf",'
+     || '"manifest":[{"sha256":"' || repeat('f', 64) || '","size":12}]}]')::jsonb)
+    ->>'messageId')::bigint AS bafmsgid \gset
+SELECT ok(:bafmsgid > 0,
+  'chat_message_send: a member sends a mention+attachment message under setjoin_app (chat_mentions + chat_message_attachments + chat_send_counters ALLOW)');
+SELECT is((SELECT count(*) FROM chat_mentions WHERE message_id = :bafmsgid AND mentioned_user_id = :u6)::int, 1,
+  'the mention row is readable back by the sender GUC');
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :bafmsgid)::int, 1,
+  'the attachment link row is readable back by the sender GUC');
+SELECT is((SELECT count(*) FROM chat_send_counters WHERE user_id = :u5)::int, 1,
+  'the send-rate counter row is readable back by the sender GUC');
+
+SELECT lives_ok(
+  $$ SELECT chat_pin_toggle($$ || :u5 || $$, $$ || :bafmsgid || $$) $$,
+  'chat_pin_toggle: an owner pins a message under setjoin_app (chat_message_pins ALLOW)');
+SELECT is((SELECT count(*) FROM chat_message_pins WHERE message_id = :bafmsgid)::int, 1,
+  'the pin row is readable back by the pinner GUC');
+
+SELECT set_config('app.current_user_id', :u6::text, true);
+SELECT lives_ok(
+  $$ SELECT chat_save_toggle($$ || :u6 || $$, $$ || :bafmsgid || $$) $$,
+  'chat_save_toggle: a member saves a message under setjoin_app (chat_saved_messages ALLOW)');
+SELECT is((SELECT count(*) FROM chat_saved_messages WHERE user_id = :u6 AND message_id = :bafmsgid)::int, 1,
+  'the save row is readable back by the same GUC');
+
+SELECT set_config('app.current_user_id', :u5::text, true);
+SELECT (chat_poll_create(:u5, :bafchan, 'Coffee or tea?', ARRAY['Coffee','Tea'])->>'pollId')::bigint AS bafpollid \gset
+SELECT ok(:bafpollid > 0,
+  'chat_poll_create: an owner creates a poll under setjoin_app (chat_polls + chat_poll_options ALLOW)');
+SELECT is((SELECT count(*) FROM chat_poll_options WHERE poll_id = :bafpollid)::int, 2,
+  'both poll options are readable back by the creator GUC');
+SELECT id AS bafoptid FROM chat_poll_options WHERE poll_id = :bafpollid ORDER BY ordinal LIMIT 1 \gset
+SELECT set_config('app.current_user_id', :u6::text, true);
+SELECT lives_ok(
+  $$ SELECT chat_poll_vote($$ || :u6 || $$, $$ || :bafpollid || $$, $$ || :bafoptid || $$) $$,
+  'chat_poll_vote: a member votes under setjoin_app (chat_poll_votes ALLOW)');
+SELECT is((SELECT count(*) FROM chat_poll_votes WHERE poll_id = :bafpollid AND user_id = :u6)::int, 1,
+  'the vote row is readable back by the voter GUC');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,34 @@
+-- prune_session_runtime.pg — pgTAP: prune_session_runtime() removes expired rows, keeps live.
+-- CA-3a Task 16. Two assertions: prune returns ≥1, live revocation survives.
+BEGIN;
+SELECT plan(3);
+
+-- Regression: prune must be SECURITY DEFINER. session_revocations / session_activity
+-- are FORCE RLS'd with no DELETE policy, so under the default (NOBYPASSRLS) worker
+-- pool a plain DELETE is default-deny → 0 rows, no error (the bug). pg_prove connects
+-- as superuser here, masking the runtime failure — so assert the marker directly.
+SELECT is(
+  (SELECT prosecdef FROM pg_proc WHERE proname = 'prune_session_runtime'),
+  TRUE,
+  'prune_session_runtime is SECURITY DEFINER (works under the default app pool)');
+
+-- Seed: domain + user 4242 as FK target for session_revocations. High id avoids
+-- fixture collision; ON CONFLICT DO NOTHING is idempotent within a ROLLBACK session.
+INSERT INTO domains (id, name, is_local)
+  VALUES (4242, 'prune.session.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (4242, 'prunesessionuser', 4242, 'p@prune.session.test', 'Prune Session User', 'x')
+  ON CONFLICT DO NOTHING;
+
+INSERT INTO session_revocations(user_id, scope, reason, expires_at)
+  VALUES (4242, 'all', 'r', now() - interval '1 day'); -- already expired
+INSERT INTO session_revocations(user_id, scope, reason, expires_at)
+  VALUES (4242, 'all', 'r', now() + interval '1 day'); -- live
+
+SELECT is(prune_session_runtime() >= 1, TRUE, 'prune removes at least the expired row');
+SELECT is(
+  (SELECT count(*)::int FROM session_revocations WHERE user_id=4242 AND expires_at > now()),
+  1, 'the live revocation survives prune');
+
+SELECT finish();
+ROLLBACK;

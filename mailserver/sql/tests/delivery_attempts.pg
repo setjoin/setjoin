@@ -1,0 +1,124 @@
+-- pgTAP: delivery_attempts.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Tests for V017__delivery_attempts.sql:
+--   (a) delivery_attempts table and columns exist.
+--   (b) outbound_queue.message_pk column exists.
+--   (c) RLS isolation: under SET LOCAL ROLE setjoin_app with
+--       app.current_mailbox_id = A, delivery_attempts rows for mailbox B are
+--       invisible; empty GUC is fail-closed (0 rows).
+--
+-- Mirrors rls_policies.pg structure: ENABLE+FORCE inside BEGIN…ROLLBACK, then
+-- SET LOCAL ROLE setjoin_app + set_config, then is(count, …) assertions.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(21);
+
+-- ── (a) Table and column existence ────────────────────────────────────────────
+SELECT has_table('public', 'delivery_attempts',
+  'delivery_attempts table exists');
+
+SELECT has_column('public', 'delivery_attempts', 'id',              'column: id');
+SELECT has_column('public', 'delivery_attempts', 'message_pk',      'column: message_pk');
+SELECT has_column('public', 'delivery_attempts', 'received_at',     'column: received_at');
+SELECT has_column('public', 'delivery_attempts', 'mailbox_id',      'column: mailbox_id');
+SELECT has_column('public', 'delivery_attempts', 'recipient_email', 'column: recipient_email');
+SELECT has_column('public', 'delivery_attempts', 'mx_host',         'column: mx_host');
+SELECT has_column('public', 'delivery_attempts', 'attempt_number',  'column: attempt_number');
+SELECT has_column('public', 'delivery_attempts', 'attempted_at',    'column: attempted_at');
+SELECT has_column('public', 'delivery_attempts', 'smtp_code',       'column: smtp_code');
+SELECT has_column('public', 'delivery_attempts', 'smtp_text',       'column: smtp_text');
+SELECT has_column('public', 'delivery_attempts', 'outcome',         'column: outcome');
+SELECT has_column('public', 'delivery_attempts', 'tls',             'column: tls');
+
+-- ── (a2) outcome CHECK constraint: closed enum is enforced ────────────────────
+-- Runs as superuser (bypasses RLS); only the CHECK can reject this row. The read
+-- path (Task 4) groups on these exact values, so an out-of-enum write must fail
+-- at the DB, not surface later as an unrecognized status.
+SELECT throws_ok(
+  $$ INSERT INTO public.delivery_attempts
+       (message_pk, received_at, mailbox_id, recipient_email, attempt_number, outcome)
+     VALUES (9999, now(), 1, 'x@example.com', 1, 'bogus') $$,
+  '23514',
+  NULL,
+  'delivery_attempts.outcome CHECK rejects an out-of-enum value');
+
+-- ── (b) outbound_queue.message_pk column exists ───────────────────────────────
+SELECT has_column('public', 'outbound_queue', 'message_pk',
+  'outbound_queue.message_pk column exists');
+
+-- ── (b2) hot/cold queue column parity regression ─────────────────────────────
+-- drain_outbound_hot() uses positional SELECT * INSERT; the two tables must stay
+-- column-identical (same names, same ordinal positions).  This catches any future
+-- migration that adds a column to one table but forgets the other.
+SELECT is(
+  (SELECT array_agg(column_name::text ORDER BY ordinal_position::int)
+     FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'outbound_queue'),
+  (SELECT array_agg(column_name::text ORDER BY ordinal_position::int)
+     FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'outbound_queue_hot'),
+  'outbound_queue and outbound_queue_hot have identical column lists (drain parity)');
+
+SELECT is(
+  (SELECT array_agg(ordinal_position::text ORDER BY ordinal_position::int)
+     FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'outbound_queue'),
+  (SELECT array_agg(ordinal_position::text ORDER BY ordinal_position::int)
+     FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'outbound_queue_hot'),
+  'outbound_queue and outbound_queue_hot have identical ordinal positions (drain parity)');
+
+-- ── (b3) V017 itself ENABLE+FORCE'd RLS (prove the migration's posture landed) ─
+-- Not just "FORCE works when applied" — assert the table is already forced after
+-- the load, since the RLS posture is the documented defense-in-depth contract.
+SELECT is(
+  (SELECT relrowsecurity AND relforcerowsecurity
+     FROM pg_class WHERE oid = 'public.delivery_attempts'::regclass),
+  true,
+  'V017 ENABLE+FORCE row security on delivery_attempts (migration posture)');
+
+-- ── (c) RLS isolation ─────────────────────────────────────────────────────────
+-- Two mailboxes: A is the subject; B is the foreign tenant.
+SELECT mk_account('daA') AS mba \gset
+SELECT mk_account('daB') AS mbb \gset
+
+-- Insert delivery_attempts rows for A and B as superuser (before SET ROLE).
+INSERT INTO public.delivery_attempts
+  (message_pk, received_at, mailbox_id, recipient_email, attempt_number, outcome, tls)
+VALUES
+  (1001, now(), :mba, 'alice@example.com', 1, 'accepted', true),
+  (1002, now(), :mbb, 'bob@example.com',   1, 'accepted', false);
+
+-- Enable + FORCE RLS on delivery_attempts — TEST-LOCAL, rolled back at end.
+ALTER TABLE public.delivery_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.delivery_attempts FORCE  ROW LEVEL SECURITY;
+
+-- Grant the constrained runtime role access (defensively, provision-roles.sql
+-- also covers this via default privileges but may not run in all test envs).
+GRANT SELECT, INSERT ON public.delivery_attempts TO setjoin_app;
+
+-- Switch to the real constrained runtime role.
+SET LOCAL ROLE setjoin_app;
+
+-- GUC = A: should see exactly A's 1 row; B's row is invisible.
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM public.delivery_attempts)::INT, 1,
+  'delivery_attempts / GUC=A: sees exactly A''s 1 row');
+
+SELECT is(
+  (SELECT count(*) FROM public.delivery_attempts WHERE mailbox_id = :mbb)::INT, 0,
+  'delivery_attempts / GUC=A: B''s row is invisible — runtime deny');
+
+-- FAIL-CLOSED: empty GUC → zero rows (un-wrapped-connection case).
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM public.delivery_attempts)::INT, 0,
+  'delivery_attempts / empty GUC: fail-closed — ZERO rows visible');
+
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

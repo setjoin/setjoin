@@ -1,0 +1,102 @@
+{
+  "case": "set_default-repeat-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 2
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [
+        {
+          "audience": "everyone",
+          "audience_ref": "<owner-domain>",
+          "created_at": "<time>",
+          "created_by": "<owner-user>",
+          "id": "<owner-user-default>",
+          "level": "read",
+          "owner_ref": "<owner-user>",
+          "owner_scope": "user",
+          "resource": "calendar",
+          "updated_at": "<time>"
+        }
+      ],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permission": "read",
+          "user_id": "<foreign-user>"
+        }
+      ]
+    },
+    [
+      {
+        "action": "sharing_default_set",
+        "after_state": {
+          "audience": "everyone",
+          "audience_ref": "<owner-domain>",
+          "level": "read",
+          "owner_ref": "<owner-user>",
+          "owner_scope": "user",
+          "resource": "calendar"
+        },
+        "before_state": null,
+        "ip": null,
+        "notes": null,
+        "target_id": "<owner-user-default>",
+        "target_type": "sharing_default",
+        "user_id": "<owner-user>"
+      },
+      {
+        "action": "sharing_default_set",
+        "after_state": {
+          "audience": "everyone",
+          "audience_ref": "<owner-domain>",
+          "level": "read",
+          "owner_ref": "<owner-user>",
+          "owner_scope": "user",
+          "resource": "calendar"
+        },
+        "before_state": {
+          "audience": "everyone",
+          "audience_ref": "<owner-domain>",
+          "created_at": "<time>",
+          "created_by": "<owner-user>",
+          "id": "<owner-user-default>",
+          "level": "read",
+          "owner_ref": "<owner-user>",
+          "owner_scope": "user",
+          "resource": "calendar",
+          "updated_at": "<time>"
+        },
+        "ip": null,
+        "notes": null,
+        "target_id": "<owner-user-default>",
+        "target_type": "sharing_default",
+        "user_id": "<owner-user>"
+      }
+    ],
+    [
+      {
+        "channel": "owner",
+        "payload": {
+          "calendar_id": "<owner-calendar>",
+          "event": "calendar_shared",
+          "event_id": null
+        }
+      }
+    ]
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "PUT /me/sharing/default"
+}

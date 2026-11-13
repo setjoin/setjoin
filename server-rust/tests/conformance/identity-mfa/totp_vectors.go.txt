@@ -1,0 +1,26 @@
+// Test-only recorder overlay; never compiled into frozen Go runtime.
+package authn_test
+
+import (
+ "encoding/json"
+ "os"
+ "testing"
+ "time"
+ "github.com/pquerna/otp/totp"
+ "setjoin.com/authserver/internal/authn"
+)
+func TestRecordIDMFA1Vectors(t *testing.T) {
+ const secret="GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+ now:=time.Now()
+ if now.Second()%30>25 {t.Fatal("record near a step boundary; rerun")}
+ cases:=[]map[string]any{}
+ for _,offset:=range []int{-60,-30,0,30,60} {
+  code,err:=totp.GenerateCode(secret,now.Add(time.Duration(offset)*time.Second));if err!=nil{t.Fatal(err)}
+  cases=append(cases,map[string]any{"code":code,"secret":secret,"unix":now.Unix(),"accepted":authn.ValidateTOTPCode(code,secret),"offset_seconds":offset})
+ }
+ for _,code:=range []string{"","12345","1234567","abcdef"," 287082"} {
+  cases=append(cases,map[string]any{"code":code,"secret":secret,"unix":now.Unix(),"accepted":authn.ValidateTOTPCode(code,secret)})
+ }
+ f,err:=os.OpenFile(os.Getenv("GOFREE_TOTP_VECTORS"),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err!=nil{t.Fatal(err)};defer f.Close()
+ e:=json.NewEncoder(f);e.SetIndent("","  ");if err=e.Encode(map[string]any{"format":1,"go_source":"db12f37ff","cases":cases});err!=nil{t.Fatal(err)}
+}

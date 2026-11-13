@@ -1,0 +1,93 @@
+-- pgTAP test for startup_recovery reducer
+BEGIN;
+SELECT plan(5);
+
+-- Setup fixtures
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+  v_folder_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testrecover.example', TRUE) RETURNING id INTO v_domain_id;
+
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('recover', 'recover@testrecover.example', 'Recover', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+  VALUES (v_user_id, v_domain_id, 'recover@testrecover.example', 'Recover', TRUE)
+  RETURNING id INTO v_mailbox_id;
+
+  -- Use the inbox folder auto-created by the trigger
+  SELECT id INTO v_folder_id FROM folders WHERE mailbox_id = v_mailbox_id AND role = 'inbox';
+
+  -- Insert a message so counts should be non-zero after recovery
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, thread_id, raw_ref,
+    received_at, size_bytes, is_read, is_deleted
+  ) VALUES (
+    v_mailbox_id, v_folder_id, '<msg-1@test>', 'a@b.com', '[]'::jsonb, 'thread-recovery-1', 'raw/recovery/1',
+    now(), 100, FALSE, FALSE
+  );
+
+  -- Tag the message into Inbox (the message_tags counter trigger sets the Inbox
+  -- tag counter to 1), then corrupt that counter so startup_recovery's tag
+  -- recompute (step 3b) has something to repair. V077 removed the folder-counter
+  -- recompute; tag counters are the live equivalent.
+  INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+  SELECT m.id, m.received_at, t.id, 'system', TRUE
+  FROM messages m, tags t
+  WHERE m.mailbox_id = v_mailbox_id AND t.mailbox_id = v_mailbox_id
+    AND t.name = 'Inbox' AND t.exclusive_group = 'location';
+  UPDATE tags SET total_count = 0, unread_count = 0, size_bytes = 0
+  WHERE mailbox_id = v_mailbox_id AND name = 'Inbox' AND exclusive_group = 'location';
+  UPDATE tags SET total_count = 3, unread_count = 2, size_bytes = 50
+  WHERE mailbox_id = v_mailbox_id AND name = 'Trash' AND exclusive_group = 'location';
+  UPDATE mailboxes SET used_bytes = 999 WHERE id = v_mailbox_id;
+
+  -- Insert a stuck outbound queue item
+  INSERT INTO outbound_queue (message_id, from_addr, rcpt_addrs, raw_ref, status, queued_at)
+  VALUES ('<stuck@test>', 'a@b.com', ARRAY['c@d.com'], 'raw/stuck/1', 'sending', now() - interval '10 minutes');
+
+  PERFORM set_config('app.rec_mb', v_mailbox_id::TEXT, TRUE);
+END;
+$$;
+
+-- Run recovery, capturing the JSONB summary it returns.
+CREATE TEMP TABLE _recovery AS SELECT startup_recovery() AS summary;
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM outbound_queue
+          WHERE status = 'pending' AND last_error LIKE '%startup_recovery%'),
+  'startup_recovery resets stuck queue items');
+
+-- The Inbox *tag* counters were repaired from message_tags (step 3b).
+SELECT is(
+  (SELECT ARRAY[total_count, unread_count, size_bytes] FROM tags
+   WHERE mailbox_id = current_setting('app.rec_mb')::BIGINT
+     AND name = 'Inbox' AND exclusive_group = 'location'),
+  ARRAY[1::BIGINT, 1::BIGINT, 100::BIGINT],
+  'startup_recovery repairs tag counts and bytes');
+
+SELECT is(
+  (SELECT ARRAY[total_count, unread_count, size_bytes] FROM tags
+   WHERE mailbox_id = current_setting('app.rec_mb')::BIGINT
+     AND name = 'Trash' AND exclusive_group = 'location'),
+  ARRAY[0::BIGINT, 0::BIGINT, 0::BIGINT],
+  'startup_recovery zeroes stale counters on an empty tag');
+
+SELECT is(
+  (SELECT used_bytes FROM mailboxes WHERE id = current_setting('app.rec_mb')::BIGINT),
+  100::BIGINT,
+  'startup_recovery counts each live message once for mailbox quota');
+
+-- The summary reports exactly our one reset queue item.
+SELECT is(
+  (SELECT (summary->>'reset_outbound_queue')::INT FROM _recovery),
+  1,
+  'startup_recovery returns JSON summary');
+
+SELECT * FROM finish();
+ROLLBACK;

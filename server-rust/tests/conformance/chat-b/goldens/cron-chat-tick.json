@@ -1,0 +1,112 @@
+{
+  "case": "cron-chat-tick",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "anchors": [],
+          "lastPurgedSeq": 0,
+          "messages": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "notaryRowsAdded": 0,
+          "otherActs": []
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "anchors": [
+            {
+              "count": 3,
+              "digestLen": 64,
+              "idFrom": 0,
+              "idTo": 2
+            }
+          ],
+          "lastPurgedSeq": 0,
+          "messages": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "notaryRowsAdded": 1,
+          "otherActs": []
+        },
+        "phase": "anchor"
+      },
+      {
+        "after": {
+          "anchors": [
+            {
+              "count": 3,
+              "digestLen": 64,
+              "idFrom": 0,
+              "idTo": 2
+            }
+          ],
+          "lastPurgedSeq": 3,
+          "messages": [
+            3
+          ],
+          "notaryRowsAdded": 1,
+          "otherActs": [
+            {
+              "action": "purge.execute",
+              "after": {
+                "idFrom": 0,
+                "idTo": 2,
+                "purgedCount": 3,
+                "retentionDays": 1,
+                "scheduledDestroyedCount": 0,
+                "scheduledDestroyedIds": [],
+                "seqMax": 3,
+                "source": "retention"
+              }
+            }
+          ]
+        },
+        "phase": "purge"
+      },
+      {
+        "after": {
+          "anchors": [
+            {
+              "count": 3,
+              "digestLen": 64,
+              "idFrom": 0,
+              "idTo": 2
+            }
+          ],
+          "lastPurgedSeq": 3,
+          "messages": [
+            3
+          ],
+          "notaryRowsAdded": 2,
+          "otherActs": [
+            {
+              "action": "purge.execute",
+              "after": {
+                "idFrom": 0,
+                "idTo": 2,
+                "purgedCount": 3,
+                "retentionDays": 1,
+                "scheduledDestroyedCount": 0,
+                "scheduledDestroyedIds": [],
+                "seqMax": 3,
+                "source": "retention"
+              }
+            }
+          ]
+        },
+        "phase": "anchor-again"
+      }
+    ]
+  }
+}

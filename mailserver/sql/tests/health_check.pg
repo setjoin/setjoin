@@ -1,0 +1,239 @@
+-- pgTAP test for health_check reducer, including the L2-C4 additions:
+--   * the two security_event_outbox checks (3f failed-depth, 3g stale-pending
+--     age with lease+backoff gating);
+--   * the per-check consecutive-STREAK escalation (r3): most-recent run of
+--     all-'error' samples per check_name, any ok/warn resets, window only a
+--     freshness bound, call-site COALESCE defaults 20 minutes / 3 checks.
+--
+-- All phases run inside this file's transaction; between phases the monitoring
+-- tables are cleared so each scenario starts from a controlled state. The
+-- final ROLLBACK discards everything.
+BEGIN;
+SELECT plan(25);
+
+-- crash_events is append-only (trg_crash_events_immutable): a plain DELETE
+-- silently no-ops (the BEFORE DELETE trigger returns NULL, cancelling the row
+-- removal), so between-phase resets must use TRUNCATE — no row trigger fires,
+-- and the final ROLLBACK of this file discards everything anyway.
+TRUNCATE crash_events;
+
+-- ── Phase 1: baseline run on a clean system ─────────────────────────────────
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history),
+  0,
+  'health_history starts empty'
+);
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT cmp_ok(
+  (SELECT COUNT(*)::INT FROM health_history),
+  '>=',
+  4,
+  'health_check inserts multiple rows'
+);
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'replication_lag_seconds'),
+  1,
+  'health_check includes replication_lag_seconds'
+);
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'outbound_queue_depth'),
+  1,
+  'health_check includes outbound_queue_depth'
+);
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'journal_queue_depth'),
+  1, 'health_check includes journal_queue_depth');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'journal_dead_letter'),
+  1, 'health_check includes journal_dead_letter');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'scheduled_actions_depth'),
+  1, 'health_check includes scheduled_actions_depth');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'scheduled_actions_failed'),
+  1, 'health_check includes scheduled_actions_failed');
+
+-- L2-C4: the two security-event outbox checks are written and healthy on a
+-- clean outbox (no failed rows, no due pending rows).
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'security_event_outbox_failed'),
+  1, 'health_check includes security_event_outbox_failed');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM health_history WHERE check_name = 'security_event_outbox_pending_age_minutes'),
+  1, 'health_check includes security_event_outbox_pending_age_minutes');
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_failed'),
+  'ok', 'clean outbox: failed-depth check is ok');
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_pending_age_minutes'),
+  'ok', 'clean outbox: pending-age check is ok');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events WHERE description LIKE '%consecutive checks%'),
+  0, 'clean system escalates nothing (streak needs threshold consecutive errors)');
+
+-- ── Phase 2: failed-only — terminal outbox failures alert, age stays ok ─────
+DELETE FROM health_history;
+INSERT INTO security_event_outbox (event_type, payload, status, last_error)
+VALUES ('secevents_hc_failed_only', '{}', 'failed', 'sink down');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_failed'),
+  'error', 'failed-only: terminal outbox failure is an error');
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_pending_age_minutes'),
+  'ok', 'failed-only: no pending rows, age check stays ok');
+
+-- ── Phase 3: stale-only — due pending age alerts, in-flight lease does not ──
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+-- Old DUE pending row: lease expired long ago, nobody claimed it.
+INSERT INTO security_event_outbox (event_type, payload, created_at, next_attempt_at)
+VALUES ('secevents_hc_stale', '{}', now() - interval '2 hours', now() - interval '30 minutes');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_pending_age_minutes'),
+  'error', 'stale-only: due pending row past the error age is an error');
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_failed'),
+  'ok', 'stale-only: no failed rows, failed check stays ok');
+
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+-- In-flight lease/backoff must NOT be an incident: the row is old but its
+-- next_attempt_at is still in the future (active claim lease or backoff).
+INSERT INTO security_event_outbox (event_type, payload, created_at, next_attempt_at)
+VALUES ('secevents_hc_inflight', '{}', now() - interval '2 hours', now() + interval '2 minutes');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT status FROM health_history WHERE check_name = 'security_event_outbox_pending_age_minutes'),
+  'ok', 'in-flight lease is not an incident (age evaluated against lease+backoff)');
+
+-- ── Phase 4: missing-config escalation — defaults 20min/3 engage (r3) ───────
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+TRUNCATE crash_events;
+DELETE FROM system_config WHERE key IN ('hc_consec_fail_window_min', 'alert_min_consecutive');
+
+-- Two seeded consecutive errors + the current run's own error (seeded failed
+-- row below) = a 3-error streak for security_event_outbox_failed. The absent
+-- config keys must NOT silence this (NULL would disable make_interval and the
+-- threshold comparison entirely).
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '10 minutes'),
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '5 minutes');
+INSERT INTO security_event_outbox (event_type, payload, status, last_error)
+VALUES ('secevents_hc_missingcfg', '{}', 'failed', 'sink down');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events
+    WHERE description LIKE '%security_event_outbox_failed%consecutive checks%'),
+  1, 'missing-config escalation: absent keys engage 20min/3 defaults — 3 consecutive errors insert crash_events');
+SELECT ok(
+  (SELECT description FROM crash_events
+    WHERE description LIKE '%security_event_outbox_failed%')
+  LIKE 'security_event_outbox_failed has been in error state for 3 consecutive checks',
+  'missing-config escalation: crash description names the escalated check and streak');
+
+-- ── Phase 5: recovery reset — a healthy sample resets the streak (r3) ───────
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+TRUNCATE crash_events;
+
+-- error(t-15), OK(t-10), error(t-5) + current run error ⇒ current streak is
+-- 2, not 3 — the ok sample reset it. The old windowed COUNT would have seen 3
+-- errors in-window and escalated on flapping; streak semantics must not.
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '15 minutes'),
+  ('security_event_outbox_failed', 'ok',    0, 0, 'pgTAP streak reset', now() - interval '10 minutes'),
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '5 minutes');
+INSERT INTO security_event_outbox (event_type, payload, status, last_error)
+VALUES ('secevents_hc_recovery', '{}', 'failed', 'sink down');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events WHERE description LIKE '%security_event_outbox%'),
+  0, 'recovery reset: ok sample breaks the streak — errors after it do not escalate until a fresh streak accrues');
+
+-- ── Phase 6: non-pooling — independent checks never pool counts (r3) ────────
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+TRUNCATE crash_events;
+
+-- security_event_outbox_failed: 1 seeded + current error = streak 2 (< 3).
+-- security_event_outbox_pending_age_minutes: 2 seeded errors but the current
+-- run is ok (clean outbox) ⇒ streak 0. Pooling 3 errors across the two checks
+-- would wrongly escalate; per-check streaks must escalate neither.
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '5 minutes'),
+  ('security_event_outbox_pending_age_minutes', 'error', 61, 60, 'pgTAP streak seed', now() - interval '10 minutes'),
+  ('security_event_outbox_pending_age_minutes', 'error', 61, 60, 'pgTAP streak seed', now() - interval '5 minutes');
+INSERT INTO security_event_outbox (event_type, payload, status, last_error)
+VALUES ('secevents_hc_pooling', '{}', 'failed', 'sink down');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events WHERE description LIKE '%security_event_outbox%'),
+  0, 'non-pooling: errors spread across independent checks escalate neither');
+
+-- ── Phase 7: window is a freshness bound only (r3) ──────────────────────────
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+TRUNCATE crash_events;
+
+-- In-window streak: current error + error(t-15) = 2. The error at t-25 (older
+-- than the 20-minute window) must NOT count toward the streak — windowless
+-- counting would reach 3 and escalate on stale evidence.
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '25 minutes'),
+  ('security_event_outbox_failed', 'error', 1, 0, 'pgTAP streak seed', now() - interval '15 minutes');
+INSERT INTO security_event_outbox (event_type, payload, status, last_error)
+VALUES ('secevents_hc_window', '{}', 'failed', 'sink down');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events WHERE description LIKE '%security_event_outbox%'),
+  0, 'window bound: samples older than the escalation window do not count toward the streak');
+
+-- ── Phase 8: r2 escalation, re-grounded — consecutive errors with config ────
+-- present escalate on the age check's own streak.
+DELETE FROM health_history;
+DELETE FROM security_event_outbox;
+TRUNCATE crash_events;
+INSERT INTO system_config (key, value) VALUES
+  ('hc_consec_fail_window_min', '20'::jsonb),
+  ('alert_min_consecutive', '3'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('security_event_outbox_pending_age_minutes', 'error', 61, 60, 'pgTAP streak seed', now() - interval '10 minutes'),
+  ('security_event_outbox_pending_age_minutes', 'error', 61, 60, 'pgTAP streak seed', now() - interval '5 minutes');
+-- Due old pending row ⇒ the current run's age sample is error too: streak 3.
+INSERT INTO security_event_outbox (event_type, payload, created_at, next_attempt_at)
+VALUES ('secevents_hc_escalate_age', '{}', now() - interval '2 hours', now() - interval '30 minutes');
+
+DO $$ BEGIN PERFORM health_check(); END $$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events
+    WHERE description LIKE '%security_event_outbox_pending_age_minutes%consecutive checks%'),
+  1, 'streak escalation: 3 CONSECUTIVE per-check errors insert crash_events (r2 test re-grounded)');
+SELECT is(
+  (SELECT COUNT(*)::INT FROM crash_events WHERE description LIKE '%security_event_outbox_failed%'),
+  0, 'streak escalation: the other independent check does not escalate');
+
+SELECT * FROM finish();
+ROLLBACK;

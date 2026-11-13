@@ -1,0 +1,207 @@
+{
+  "case": "backup-verify-success-rows",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "backups": [
+          {
+            "hashes": [],
+            "owner": "actor"
+          },
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "foreign"
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [
+            {
+              "details": null,
+              "email": "actor@idmfa3.test",
+              "event": "login",
+              "id": "<auth_event_log-1>",
+              "ip_address": "127.0.0.1",
+              "occurred_at": "<time>",
+              "provider": "jwt",
+              "user_id": "actor"
+            }
+          ],
+          "login_events": [
+            {
+              "auth_method": "password",
+              "client": "web",
+              "correlation_id": null,
+              "device_fingerprint": null,
+              "device_name": null,
+              "fail_reason": null,
+              "id": "<login_events-1>",
+              "location": null,
+              "occurred_at": "<time>",
+              "platform": null,
+              "protocol": "http",
+              "session_id": null,
+              "source_ip": "127.0.0.1",
+              "success": true,
+              "user_id": "actor"
+            }
+          ],
+          "oauth_tokens": [
+            {
+              "client_id": null,
+              "expires_at": "<time>",
+              "family_id": "<family>",
+              "id": "<oauth_tokens-1>",
+              "issued_at": "<time>",
+              "last_used_at": null,
+              "last_used_protocol": null,
+              "previous_token_hash": null,
+              "revoked_at": null,
+              "revoked_by": null,
+              "rotated_at": null,
+              "scope": [],
+              "token_hash": "<SHA256>",
+              "token_type": "refresh",
+              "user_id": "actor"
+            }
+          ],
+          "sessions": [
+            {
+              "ad_grace_until": null,
+              "auth_method": "password",
+              "created_at": "<time>",
+              "expires_at": "<time>",
+              "id": "<sessions-1>",
+              "ip": "127.0.0.1",
+              "last_seen_at": "<time>",
+              "token_hash": "<SHA256>",
+              "user_agent": "IDMFA3 oracle",
+              "user_id": "actor"
+            }
+          ]
+        },
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "backups": [
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "actor"
+          },
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "foreign"
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "table": "possession"
+    }
+  ],
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "route": "POST /auth/backup-codes/verify"
+}

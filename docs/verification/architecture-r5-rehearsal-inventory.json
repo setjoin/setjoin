@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "caseId": "R5-REHEARSAL-BOOTSTRAP-BOUNDARY",
+  "authority": "docs/architecture.md",
+  "decision": "implemented-pure-totp-only",
+  "sources": [
+    {"path":"scripts/rehearsal-totp.sh","sha256":"b27e80529ab6f67a19238e9875593fc3033db50cf624ce9a545654d7a7caa355"},
+    {"path":"scripts/rehearsal-totp.test.sh","sha256":"7cf87e66fcf624dd98032517d7b835dc6e5e391cfc443eff9c9006385f96da62"},
+    {"path":"scripts/unified-deployment-d3.sh","sha256":"769e233cc334b775954b487a46a1259dbd63b5383f0b2a6ddd78f635d100020a"},
+    {"path":"scripts/unified-deployment-d4.sh","sha256":"2c7e4c3f8d5c4ae197a47314a6123fd6f5c805c9f6e70ecdd50f25c65269668e"},
+    {"path":"scripts/unified-deployment-d4-oidc-flow.sh","sha256":"282681fc3384ba6e1c500cb3fd19f345210fecf42a4a680b6747b71acbb13fd4"},
+    {"path":"scripts/unified-deployment-d5.sh","sha256":"9708ad0fe9562aa90a8fa5fd99fa731a3491e7b7e5b5c3920ea300308a854fd1"},
+    {"path":"scripts/unified-deployment-readiness.sh","sha256":"d1b6b7a40990c0aee94666e108f9ad8c6a78ac29ad2e3a76aea23aa4d4a5661c"},
+    {"path":"scripts/transactional-upgrade-rehearsal.sh","sha256":"78a93074e7b7efa5dbc8d13d12cf360afa0ace70bb4de1cd5fb42b9fbfcf3845"},
+    {"path":"scripts/transactional-updater-rehearsal.sh","sha256":"496c0d262e1ac7a65227c104bd61646c5b54b9ce8d3d49cf11d49c686bfd7079"},
+    {"path":"scripts/transactional-continuity-rewind.sh","sha256":"b0e8d4f112758b8004e6eadcf5c087e0cf0eb4822ecd35d847a5c83579952194"}
+  ],
+  "operations": [
+    {
+      "id": "totp-uri-and-code",
+      "participants": ["d3", "d4-directory", "d4-oidc", "d5", "updater", "rewind"],
+      "matchingDimensions": ["provisioning-uri secret query", "RFC4226 dynamic truncation", "SHA-1", "30-second step", "six digits", "unpadded case-insensitive Base32"],
+      "differences": [],
+      "disposition": "extracted-pure-leaf",
+      "owner": "scripts/rehearsal-totp.sh"
+    },
+    {
+      "id": "http-response-capture",
+      "participants": ["d3", "d4-directory", "d4-oidc", "d5", "updater", "rewind"],
+      "matchingDimensions": ["bounded curl request", "body retained separately from status"],
+      "differences": ["D4 OIDC retains headers and a cookie jar", "D5 selects an environment address", "updater and rewind add audit-reason and idempotency headers", "body diagnostics have different disclosure bounds"],
+      "disposition": "scenario-local",
+      "owner": "each rehearsal controller"
+    },
+    {
+      "id": "status-retry-policy",
+      "participants": ["d3", "d4-directory", "d4-oidc", "d5", "updater", "rewind"],
+      "matchingDimensions": ["exact expected HTTP status"],
+      "differences": ["D4 directory retries HTTP 429 five times with 20-second waits", "other enrollment paths do not retry 429", "rewind accepts an existing HTTP 200 token before enrollment", "failure-body retention differs"],
+      "disposition": "scenario-local",
+      "owner": "each rehearsal controller"
+    },
+    {
+      "id": "cookie-and-session-policy",
+      "participants": ["d4-oidc", "d3", "d4-directory", "d5", "updater", "rewind"],
+      "matchingDimensions": [],
+      "differences": ["D4 OIDC owns browser-equivalent cookie continuity across redirects", "all other paths use bearer tokens and no cookie jar"],
+      "disposition": "scenario-local",
+      "owner": "scripts/unified-deployment-d4-oidc-flow.sh"
+    },
+    {
+      "id": "enrollment-reset-policy",
+      "participants": ["d3", "d4-directory", "d5", "updater", "rewind"],
+      "matchingDimensions": ["disposable factor reset", "token-family revocation"],
+      "differences": ["D3 checks auth service activity", "D4 and D5 clear a loopback rate-limit counter", "rewind may retain an already-valid login", "labels and evidence bodies differ"],
+      "disposition": "scenario-local",
+      "owner": "each rehearsal controller"
+    },
+    {
+      "id": "readiness-wait",
+      "participants": ["readiness", "d3", "d4-directory", "d5", "updater", "rewind"],
+      "matchingDimensions": ["bounded readiness observation"],
+      "differences": ["deadlines and intervals differ", "rewind requires PostgreSQL and object storage in the same boundary", "D3 also waits on the SMTP sink", "failure diagnostics and repair actions differ"],
+      "disposition": "scenario-local",
+      "owner": "each rehearsal controller"
+    },
+    {
+      "id": "topology-and-checkpoint-orchestration",
+      "participants": ["readiness", "d3", "d4-directory", "d5", "updater", "rewind"],
+      "matchingDimensions": ["exact-prefix disposable resources", "fail-closed checkpoints"],
+      "differences": ["resource sets, phase order, cleanup boundary, fault injection, status output and resume policy are scenario-specific"],
+      "disposition": "scenario-local",
+      "owner": "each rehearsal controller"
+    }
+  ]
+}

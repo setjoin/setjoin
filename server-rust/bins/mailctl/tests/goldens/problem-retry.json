@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/health",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 429: {\"status\":200,\"detail\":\"slow down\",\"retryAfter\":\"2m\",\"remediation\":\"try later\"} (retry after: 30)\n",
+  "exit": 1
+}

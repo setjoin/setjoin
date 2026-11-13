@@ -1,0 +1,45 @@
+// Recording-only overlay (#302): runs frozen Go's real publication worker for its first
+// drain (the one `Run` makes before its 5 s ticker), then waits for the immediate
+// deliveries it handed to the executor. Same loopback-capable client as the retry overlay.
+package webhook
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/cryptokey"
+	"setjoin.com/shared/pgxutil"
+	wh "setjoin.com/shared/webhook"
+)
+
+func goFreeWaitIdlePub(d *Dispatcher) {
+	deadline := time.Now().Add(30 * time.Second)
+	for len(d.admission) > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestGoFreeWebhookPublicationTick(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := wh.NewSecretCodec([]byte(os.Getenv("GOFREE_WEBHOOK_MASTER")), cryptokey.ProfileStandard)
+	d := NewDispatcher(pool, slog.Default(), WithSecretCodec(codec))
+	d.httpClient = &http.Client{
+		Timeout:       deliveryTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	d.startExecutor(ctx)
+	w := NewPublicationWorker(pgxutil.WorkerPool{Pool: pool}, d, slog.Default())
+	w.drain(ctx)
+	goFreeWaitIdlePub(d)
+	cancel()
+	d.executorWG.Wait()
+}

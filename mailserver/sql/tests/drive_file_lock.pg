@@ -1,0 +1,126 @@
+-- mailserver/sql/tests/drive_file_lock.pg — lock acquire/heartbeat/release/
+-- break, TTL, lock list. Spec §5.4/§6.3; AUTOPLAN batch-1 #1 (race), batch-3
+-- #2 (heartbeat vs escalation).
+BEGIN;
+SELECT plan(37);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- M=manager, E=editor, B=editor(second saver/break), V=viewer, O=outsider,
+-- FA=subtree folder admin, ADM=drive.manage admin (non-member)
+SELECT mk_account('dfla') AS mba \gset
+SELECT mk_account('dflb') AS mbb \gset
+SELECT mk_account('dflc') AS mbc \gset
+SELECT mk_account('dfld') AS mbd \gset
+SELECT mk_account('dfle') AS mbe \gset
+SELECT mk_account('dflf') AS mbf \gset
+SELECT mk_account('dflg') AS mbg \gset
+SELECT user_id AS m  FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS e  FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS b  FROM mailboxes WHERE id = :mbc \gset
+SELECT user_id AS v  FROM mailboxes WHERE id = :mbd \gset
+SELECT user_id AS o  FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS fa FROM mailboxes WHERE id = :mbf \gset
+SELECT user_id AS adm FROM mailboxes WHERE id = :mbg \gset
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:adm, 1, :adm);
+
+SELECT drive_space_create(:m, 'L', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+SELECT drive_member_grant(:m, :sid, :b, 'editor');
+SELECT drive_member_grant(:m, :sid, :v, 'viewer');
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'dept') AS pfid \gset
+SELECT drive_node_create(:m, :sid, :pfid, 'file', 'F.bin') AS nid \gset
+INSERT INTO drive_folder_admins (node_id, space_id, user_id, granted_by) VALUES (:pfid, :sid, :fa, :m);
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 'test')->>'versionId')::bigint AS v1 \gset
+
+-- outsider / viewer / bad-mode guards
+SELECT throws_ok(format($$ SELECT drive_file_lock(%s, %s, 'soft') $$, :o, :nid), 'BZ139', NULL, 'outsider lock → BZ139');
+SELECT throws_ok(format($$ SELECT drive_file_lock(%s, %s, 'soft') $$, :v, :nid), 'BZ140', NULL, 'viewer lock → BZ140');
+SELECT throws_ok(format($$ SELECT drive_file_lock(%s, %s, 'sideways') $$, :e, :nid), 'BZ141', NULL, 'bad mode → BZ141');
+
+-- fresh acquire: soft, by E. notify_count('drive') is cumulative across the
+-- WHOLE txn (drive_notify_change also nudges 'drive' for the setup calls
+-- above) -- snapshot the baseline first and assert the DELTA.
+SELECT notify_count('drive') AS n0 \gset
+SELECT drive_file_lock(:e, :nid, 'soft', NULL, NULL, 'laptop', 480) AS r1 \gset
+SELECT is(:'r1'::jsonb->>'status', 'acquired', 'fresh soft acquire');
+SELECT is(:'r1'::jsonb->>'mode', 'soft', 'mode echoed');
+SELECT ok((SELECT expires_at - acquired_at FROM drive_file_locks WHERE node_id=:nid)
+          BETWEEN interval '479 minutes' AND interval '481 minutes', 'TTL ~480min');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='lock.acquire' AND user_id=:e),
+  'fresh acquire audited lock.acquire');
+SELECT is(notify_count('drive') - :n0, 1, 'fresh acquire nudges app_notify(drive) exactly once');
+SELECT is((last_notify_payload('drive')::jsonb->>'kind'), 'lock', 'nudge payload kind=lock');
+
+-- heartbeat by the SAME holder: renewed, no new audit row, no new nudge
+SELECT drive_file_lock(:e, :nid, 'soft') AS r2 \gset
+SELECT is(:'r2'::jsonb->>'status', 'renewed', 'same-holder re-acquire is a heartbeat');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:sid AND action='lock.acquire')::int, 1, 'heartbeat writes NO second lock.acquire audit row');
+SELECT is(notify_count('drive') - :n0, 1, 'heartbeat does not nudge again');
+
+-- second user B: soft request against E's soft hold → held (soft never errors)
+SELECT drive_file_lock(:b, :nid, 'soft') AS r3 \gset
+SELECT is(:'r3'::jsonb->>'status', 'held', 'second user soft request → held');
+SELECT is((:'r3'::jsonb->>'holderId')::bigint, :e::bigint, 'held response names the holder');
+-- B requesting HARD against a held soft lock → same held answer
+SELECT drive_file_lock(:b, :nid, 'hard') AS r4 \gset
+SELECT is(:'r4'::jsonb->>'status', 'held', 'hard request against another holder → held, not an error');
+
+-- soft→hard ESCALATION by the SAME holder (batch-3 #2): audited like a fresh
+-- acquire, mode flips to hard.
+SELECT drive_file_lock(:e, :nid, 'hard') AS r5 \gset
+SELECT is(:'r5'::jsonb->>'status', 'acquired', 'soft→hard escalation is audited like a fresh acquire');
+SELECT is(:'r5'::jsonb->>'mode', 'hard', 'mode escalated to hard');
+SELECT is((SELECT mode FROM drive_file_locks WHERE node_id=:nid), 'hard', 'row reflects hard');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:sid AND action='lock.acquire')::int, 2, 'escalation IS its own lock.acquire audit row');
+
+-- hard + p_mode='soft' heartbeat: NEVER a silent downgrade, no new audit row
+SELECT drive_file_lock(:e, :nid, 'soft') AS r6 \gset
+SELECT is(:'r6'::jsonb->>'status', 'renewed', 'hard-holder requesting soft is just a heartbeat');
+SELECT is(:'r6'::jsonb->>'mode', 'hard', 'effective mode stays hard (never silently downgraded)');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:sid AND action='lock.acquire')::int, 2, 'soft heartbeat on a hard lock writes no audit row');
+
+-- expired lock: superuser fixture rewind, then B's acquire replaces it
+RESET ROLE;
+UPDATE drive_file_locks SET expires_at = now() - interval '1 minute' WHERE node_id=:nid;
+SELECT drive_file_lock(:b, :nid, 'soft') AS r7 \gset
+SELECT is(:'r7'::jsonb->>'status', 'acquired', 'expired lock self-heals: B''s acquire replaces it');
+SELECT is((SELECT user_id FROM drive_file_locks WHERE node_id=:nid), :b::bigint, 'row now belongs to B');
+
+-- release: holder releases own lock
+SELECT drive_file_unlock(:b, :nid, false);
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 0, 'holder release deletes the row');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='lock.release' AND user_id=:b), 'release audited lock.release');
+
+-- unlock on an already-unlocked file: idempotent no-op (viewer-close race)
+SELECT lives_ok(format($$ SELECT drive_file_unlock(%s, %s, false) $$, :e, :nid), 'unlock on unlocked file is a no-op');
+
+-- re-acquire (E, soft) then exercise break authority + unlock-without-break
+SELECT drive_file_lock(:e, :nid, 'soft');
+SELECT throws_ok(format($$ SELECT drive_file_unlock(%s, %s, false) $$, :b, :nid), 'BZ140', NULL, 'unlock by non-holder without break → BZ140');
+SELECT throws_ok(format($$ SELECT drive_file_unlock(%s, %s, true) $$, :b, :nid), 'BZ140', NULL, 'break by a plain (non-admin) editor → BZ140');
+SELECT drive_file_unlock(:m, :nid, true);   -- manager break
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 0, 'manager break succeeds');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='lock.break' AND user_id=:m), 'manager break audited lock.break');
+
+SELECT drive_file_lock(:e, :nid, 'hard');
+SELECT drive_file_unlock(:fa, :nid, true);  -- subtree folder-admin break
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 0, 'subtree folder-admin break succeeds');
+
+SELECT drive_file_lock(:e, :nid, 'hard');
+SELECT drive_file_unlock(:adm, :nid, true); -- drive.manage admin non-member break (LR-4)
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 0, 'drive.manage admin (non-member) break succeeds (LR-4)');
+
+-- lock list: member, drive.view-style admin (reuse drive.manage adm here),
+-- and outsider
+SELECT drive_file_lock(:e, :nid, 'soft', NULL, NULL, 'laptop');
+SELECT drive_lock_list(:v, :sid) AS ll1 \gset
+SELECT is(jsonb_array_length(:'ll1'::jsonb->'locks'), 1, 'member lock_list sees the live lock');
+SELECT is((:'ll1'::jsonb->'locks'->0->>'holderId')::bigint, :e::bigint, 'lock_list row names the holder');
+SELECT drive_lock_list(:adm, :sid) AS ll2 \gset
+SELECT is(jsonb_array_length(:'ll2'::jsonb->'locks'), 1, 'drive.manage admin non-member also sees the lock list');
+SELECT throws_ok(format($$ SELECT drive_lock_list(%s, %s) $$, :o, :sid), 'BZ139', NULL, 'outsider lock_list → BZ139');
+
+SELECT * FROM finish();
+ROLLBACK;

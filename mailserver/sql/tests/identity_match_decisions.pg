@@ -1,0 +1,442 @@
+-- pgTAP: bounded People detail and Conflict decision authority.
+BEGIN;
+SELECT plan(36);
+
+INSERT INTO domains(name,is_local) VALUES('identity-match.test',true)
+ON CONFLICT(name) DO UPDATE SET is_local=true;
+
+CREATE TEMP TABLE imd_fixture (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+INSERT INTO imd_fixture VALUES
+    ('actor_mailbox', mk_account('imd-actor')),
+    ('person_mailbox', mk_account('imd-person')),
+    ('protected_mailbox', mk_account('imd-protected'));
+INSERT INTO imd_fixture
+SELECT 'actor_user',m.user_id::text FROM mailboxes m
+ WHERE m.id=(SELECT value::bigint FROM imd_fixture WHERE key='actor_mailbox');
+INSERT INTO imd_fixture
+SELECT 'person_user',m.user_id::text FROM mailboxes m
+ WHERE m.id=(SELECT value::bigint FROM imd_fixture WHERE key='person_mailbox');
+INSERT INTO imd_fixture
+SELECT 'protected_user',m.user_id::text FROM mailboxes m
+ WHERE m.id=(SELECT value::bigint FROM imd_fixture WHERE key='protected_mailbox');
+
+CREATE TEMP TABLE imd_reader_role(id BIGINT);
+WITH inserted AS (
+INSERT INTO admin_role_groups(name,permissions)
+    VALUES('imd-global-reader',ARRAY['users.read','identity.write'])
+    RETURNING id
+)
+INSERT INTO imd_reader_role SELECT id FROM inserted;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+SELECT (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+       id::bigint,
+       (SELECT value::bigint FROM imd_fixture WHERE key='actor_user')
+  FROM imd_reader_role;
+
+CREATE TEMP TABLE imd_protected_role(id BIGINT);
+WITH inserted AS (
+    INSERT INTO admin_role_groups(name,permissions)
+    VALUES('imd-protected-role',ARRAY['users.delete'])
+    RETURNING id
+)
+INSERT INTO imd_protected_role SELECT id FROM inserted;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+SELECT (SELECT value::bigint FROM imd_fixture WHERE key='protected_user'),
+       id::bigint,
+       (SELECT value::bigint FROM imd_fixture WHERE key='actor_user')
+  FROM imd_protected_role;
+
+CREATE TEMP TABLE imd_source(id BIGINT);
+WITH inserted AS (
+INSERT INTO identity_sources(
+    source_key,display_name,kind,capabilities,state
+) VALUES(
+    'imd:ldap','Identity match LDAP','ldap',
+    '{"authenticate":false,"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+    'active'
+) RETURNING id
+)
+INSERT INTO imd_source SELECT id FROM inserted;
+
+SELECT ok(
+    admin_can_reach(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+    ),
+    'fixture actor has global reach'
+);
+
+INSERT INTO imd_fixture
+SELECT 'hard_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'hard-subject-imd',
+    (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+    'hard',digest('hard-imd','sha256'),'immutable anchor matched',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_candidates
+      WHERE id=(SELECT value::uuid FROM imd_fixture WHERE key='hard_candidate')),
+    1,
+    'identity_match_record stores one bounded candidate'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+      WHERE action='candidate_recorded'
+        AND metadata->>'candidateId'=
+            (SELECT value FROM imd_fixture WHERE key='hard_candidate')),
+    1,
+    'candidate recording appends redacted evidence'
+);
+SELECT is(
+    identity_match_record(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT id::bigint FROM imd_source),1,'hard-subject-imd',
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+        'hard',digest('hard-imd','sha256'),'immutable anchor matched',
+        statement_timestamp()+interval '1 day'
+    )->>'id',
+    (SELECT value FROM imd_fixture WHERE key='hard_candidate'),
+    'candidate record replay returns the open stable candidate'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+      WHERE action='candidate_recorded'
+        AND metadata->>'candidateId'=
+            (SELECT value FROM imd_fixture WHERE key='hard_candidate')),
+    1,
+    'candidate replay does not duplicate its event'
+);
+
+INSERT INTO imd_fixture VALUES
+  ('hard_key','00000000-0000-4000-8000-000000001001');
+SELECT is(
+    identity_match_decide(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::uuid FROM imd_fixture WHERE key='hard_candidate'),
+        1,'link',
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+        'reviewed immutable LDAP anchor',
+        (SELECT value::uuid FROM imd_fixture WHERE key='hard_key')
+    )->>'state',
+    'linked',
+    'hard evidence can be linked by one explicit decision'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM user_identity_links
+      WHERE source_id=(SELECT id::bigint FROM imd_source)
+        AND external_subject='hard-subject-imd'
+        AND user_id=(SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+        AND state='active'),
+    1,
+    'link decision creates one active source-subject link'
+);
+SELECT is(
+    (SELECT authority_kind FROM user_lifecycle_authorities
+      WHERE user_id=(SELECT value::bigint FROM imd_fixture WHERE key='person_user')),
+    'source',
+    'provisioning-source link becomes the explicit lifecycle authority'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+      WHERE correlation_id=
+            (SELECT value::uuid FROM imd_fixture WHERE key='hard_key')
+        AND action IN ('link_activated','conflict_decided')),
+    2,
+    'link and decision evidence share the operator idempotency correlation'
+);
+SELECT is(
+    identity_match_decide(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::uuid FROM imd_fixture WHERE key='hard_candidate'),
+        1,'link',
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+        'reviewed immutable LDAP anchor',
+        (SELECT value::uuid FROM imd_fixture WHERE key='hard_key')
+    )->>'replayed',
+    'true',
+    'same idempotency key and request replays the stored result'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_decisions
+      WHERE idempotency_key=
+            (SELECT value::uuid FROM imd_fixture WHERE key='hard_key')),
+    1,
+    'idempotent replay leaves exactly one durable decision'
+);
+SELECT throws_ok(
+    format(
+      'UPDATE identity_match_decisions SET reason=%L WHERE idempotency_key=%L::uuid',
+      'tampered reason',
+      (SELECT value FROM imd_fixture WHERE key='hard_key')
+    ),
+    'BZ017',
+    'identity match decisions are append-only',
+    'durable decision evidence rejects update and delete-style tampering'
+);
+
+INSERT INTO imd_fixture
+SELECT 'soft_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'soft-subject-imd',
+    (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+    'soft',digest('soft-imd','sha256'),'email resembled existing person',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+SELECT throws_ok(
+    format(
+      'SELECT identity_match_decide(%s,%L::uuid,1,''link'',%s,%L,%L::uuid)',
+      (SELECT value FROM imd_fixture WHERE key='actor_user'),
+      (SELECT value FROM imd_fixture WHERE key='soft_candidate'),
+      (SELECT value FROM imd_fixture WHERE key='person_user'),
+      'address is not proof',
+      '00000000-0000-4000-8000-000000001002'
+    ),
+    'BZ231',
+    'soft evidence cannot authorize an identity link',
+    'soft evidence can never enter the link branch'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM user_identity_links
+      WHERE source_id=(SELECT id::bigint FROM imd_source)
+        AND external_subject='soft-subject-imd'),
+    0,
+    'soft-evidence refusal creates no link'
+);
+
+INSERT INTO imd_fixture
+SELECT 'protected_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'protected-subject-imd',
+    (SELECT value::bigint FROM imd_fixture WHERE key='protected_user'),
+    'hard',digest('protected-imd','sha256'),'immutable anchor matched protected person',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+SELECT throws_ok(
+    format(
+      'SELECT identity_match_decide(%s,%L::uuid,1,''link'',%s,%L,%L::uuid)',
+      (SELECT value FROM imd_fixture WHERE key='actor_user'),
+      (SELECT value FROM imd_fixture WHERE key='protected_candidate'),
+      (SELECT value FROM imd_fixture WHERE key='protected_user'),
+      'protected takeover',
+      '00000000-0000-4000-8000-000000001003'
+    ),
+    'BZ236',
+    'protected identity takeover requires an approved transition',
+    'protected target requires an independently approved transition'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM user_identity_links
+      WHERE source_id=(SELECT id::bigint FROM imd_source)
+        AND external_subject='protected-subject-imd'),
+    0,
+    'protected-target refusal creates no link'
+);
+
+INSERT INTO imd_fixture
+SELECT 'defer_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'defer-subject-imd',
+    (SELECT value::bigint FROM imd_fixture WHERE key='person_user'),
+    'composite',digest('defer-imd','sha256'),'employee evidence requires review',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+SELECT is(
+    identity_match_decide(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::uuid FROM imd_fixture WHERE key='defer_candidate'),
+        1,'defer',NULL,'awaiting HR verification',
+        '00000000-0000-4000-8000-000000001004'::uuid
+    )->>'state',
+    'deferred',
+    'defer leaves the candidate in the review queue'
+);
+SELECT is(
+    identity_match_decide(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::uuid FROM imd_fixture WHERE key='defer_candidate'),
+        1,'reject',NULL,'HR disproved the composite evidence',
+        '00000000-0000-4000-8000-000000001005'::uuid
+    )->>'state',
+    'rejected',
+    'a deferred candidate can later receive a final decision'
+);
+SELECT is(
+    identity_match_decide(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::uuid FROM imd_fixture WHERE key='defer_candidate'),
+        1,'defer',NULL,'awaiting HR verification',
+        '00000000-0000-4000-8000-000000001004'::uuid
+    )->>'state',
+    'deferred',
+    'old deferred request still replays its original durable response'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_decisions
+      WHERE candidate_id=
+            (SELECT value::uuid FROM imd_fixture WHERE key='defer_candidate')),
+    2,
+    'both defer and final decision remain in append-only evidence'
+);
+SELECT throws_ok(
+    format(
+      'SELECT identity_match_decide(%s,%L::uuid,1,''reject'',NULL,%L,%L::uuid)',
+      (SELECT value FROM imd_fixture WHERE key='actor_user'),
+      (SELECT value FROM imd_fixture WHERE key='soft_candidate'),
+      'different request with reused key',
+      '00000000-0000-4000-8000-000000001004'
+    ),
+    'BZ240',
+    'identity conflict idempotency key was reused',
+    'same actor idempotency key cannot authorize a different request'
+);
+
+INSERT INTO imd_fixture
+SELECT 'create_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'create-subject-imd',
+    NULL,'hard',digest('create-imd','sha256'),'unique immutable source object',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+INSERT INTO identity_source_inbox(
+    source_id,batch_id,object_key,source_generation,
+    remote_cursor,remote_cursor_digest,immutable_subject,sanitized_payload
+) VALUES(
+    (SELECT id::bigint FROM imd_source),
+    '00000000-0000-4000-8000-000000001100'::uuid,
+    'create-object',1,'{"page":1}'::jsonb,digest('cursor','sha256'),
+    'create-subject-imd',
+    '{"email":"created@identity-match.test","displayName":"Created Person","enabled":true}'::jsonb
+);
+SELECT throws_ok(
+    format(
+      'SELECT identity_match_decide(%s,%L::uuid,1,''create'',NULL,%L,%L::uuid)',
+      (SELECT value FROM imd_fixture WHERE key='actor_user'),
+      (SELECT value FROM imd_fixture WHERE key='create_candidate'),
+      'approved a distinct immutable source object',
+      '00000000-0000-4000-8000-000000001006'
+    ),
+    'BZ234',
+    'conflict create requires a current insert-only source object',
+    'create stays disabled until a batch-bound insert-only workflow exists'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM users
+      WHERE lower(email)='created@identity-match.test'),
+    0,
+    'disabled create cannot resolve or mutate an existing account'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM user_identity_links
+      WHERE source_id=(SELECT id FROM imd_source)
+        AND external_subject='create-subject-imd'),
+    0,
+    'disabled create cannot reserve the immutable source subject'
+);
+SELECT is(
+    (SELECT status FROM identity_match_candidates
+      WHERE id=(SELECT value::uuid FROM imd_fixture WHERE key='create_candidate')),
+    'pending',
+    'disabled create leaves the candidate pending for a supported decision'
+);
+
+INSERT INTO imd_fixture
+SELECT 'no_payload_candidate', identity_match_record(
+    (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+    (SELECT id::bigint FROM imd_source),1,'no-payload-subject-imd',
+    NULL,'hard',digest('no-payload-imd','sha256'),'immutable evidence without payload',
+    statement_timestamp()+interval '1 day'
+)->>'id';
+SELECT throws_ok(
+    format(
+      'SELECT identity_match_decide(%s,%L::uuid,1,''create'',NULL,%L,%L::uuid)',
+      (SELECT value FROM imd_fixture WHERE key='actor_user'),
+      (SELECT value FROM imd_fixture WHERE key='no_payload_candidate'),
+      'cannot invent profile data',
+      '00000000-0000-4000-8000-000000001007'
+    ),
+    'BZ234',
+    'conflict create requires a current insert-only source object',
+    'create always fails closed with typed remediation'
+);
+
+SELECT ok(
+    identity_person_read(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+    ) IS NOT NULL,
+    'People detail returns a reachable member'
+);
+SELECT is(
+    identity_person_read(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+    )->'lifecycleAuthority'->>'kind',
+    'source',
+    'People detail exposes lifecycle authority'
+);
+SELECT ok(
+    jsonb_array_length(identity_person_read(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+    )->'links') >= 1,
+    'People detail exposes bounded link provenance'
+);
+SELECT ok(
+    identity_person_read(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        (SELECT value::bigint FROM imd_fixture WHERE key='person_user')
+    )::text !~ 'hard-subject-imd',
+    'People detail never exposes the raw external subject'
+);
+SELECT is(
+    identity_person_read(
+        (SELECT value::bigint FROM imd_fixture WHERE key='actor_user'),
+        999999999
+    ),
+    NULL::jsonb,
+    'unreachable or absent People detail is a no-oracle null'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_candidates
+      WHERE status IN ('pending','deferred')),
+    4,
+    'only unresolved evidence remains in the review queue'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM feature_toggles
+         WHERE key IN (
+             'feature.identity_model_v2',
+             'feature.identity_normalized_reads',
+             'feature.identity_transitions'
+         ) AND enabled
+    ),
+    'all identity rollout flags remain OFF'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid='identity_match_decisions'::regclass),
+    'decision evidence is FORCE-RLS protected'
+);
+SELECT is(
+    (SELECT pg_get_userbyid(relowner)
+       FROM pg_class WHERE oid='identity_match_decisions'::regclass),
+    'setjoin_owner',
+    'decision evidence is owned by the separated schema owner'
+);
+SELECT ok(
+    has_function_privilege(
+        'setjoin_worker',
+        'identity_match_decide(bigint,uuid,bigint,text,bigint,text,uuid)',
+        'EXECUTE'
+    ),
+    'worker role can execute the authoritative decision reducer'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

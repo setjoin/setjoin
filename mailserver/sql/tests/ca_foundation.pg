@@ -1,0 +1,162 @@
+-- pgTAP: ca_foundation.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- V025 CA-Foundation assertions. This file grows as later CA-F tasks land;
+-- each task adds arms inside this single BEGIN…ROLLBACK transaction.
+--
+-- Task 1: user_group_members table + RLS
+--   Asserts: table exists, expected columns, RLS enabled, FORCE set, policy
+--   ugm_self is registered. The FORCE assertion also confirms that the table
+--   is structurally ready for the constrained setjoin_app runtime role.
+--   Policy correctness (read isolation, fail-closed) is tested inline via
+--   SET LOCAL ROLE setjoin_app within the same transaction.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(17);
+
+-- ── 1. Table exists ──────────────────────────────────────────────────────────
+SELECT has_table('public', 'user_group_members', 'user_group_members table exists');
+
+-- ── 2. Column: user_id ───────────────────────────────────────────────────────
+SELECT has_column('public', 'user_group_members', 'user_id',
+  'user_group_members has user_id column');
+
+-- ── 3. Column: group_id ──────────────────────────────────────────────────────
+SELECT has_column('public', 'user_group_members', 'group_id',
+  'user_group_members has group_id column');
+
+-- ── 4. Column: created_at ────────────────────────────────────────────────────
+SELECT has_column('public', 'user_group_members', 'created_at',
+  'user_group_members has created_at column');
+
+-- ── 5. RLS enabled ───────────────────────────────────────────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class
+    WHERE oid = 'public.user_group_members'::regclass),
+  TRUE,
+  'user_group_members has RLS enabled (relrowsecurity)');
+
+-- ── 6. RLS FORCE'd ───────────────────────────────────────────────────────────
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class
+    WHERE oid = 'public.user_group_members'::regclass),
+  TRUE,
+  'user_group_members has RLS FORCE''d (relforcerowsecurity)');
+
+-- ── 7. Policy ugm_self exists ────────────────────────────────────────────────
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM pg_policy p
+      JOIN pg_class c ON c.oid = p.polrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'user_group_members'
+      AND p.polname = 'ugm_self'
+  ),
+  'policy ugm_self exists on user_group_members');
+
+-- ── 8. RLS read isolation: GUC-scoped user sees only own rows ─────────────
+-- Create two real users via mk_account (satisfies the user_id FK + gives us
+-- canonical user IDs). Insert one membership row per user, same group.
+SELECT mk_account('ugm_a') AS mba \gset
+SELECT mk_account('ugm_b') AS mbb \gset
+
+-- Derive the user_id for each account (mk_account returns mailbox_id; users
+-- are always id = mailbox_id - 20000 per ADR-003 / mk_account convention).
+-- Use a direct lookup to be safe.
+SELECT u.id AS uid_a
+  FROM public.users u
+  JOIN public.mailboxes mb ON mb.user_id = u.id
+ WHERE mb.id = :mba LIMIT 1 \gset
+
+SELECT u.id AS uid_b
+  FROM public.users u
+  JOIN public.mailboxes mb ON mb.user_id = u.id
+ WHERE mb.id = :mbb LIMIT 1 \gset
+
+-- Insert membership rows as superuser (bypasses RLS for fixture setup).
+INSERT INTO public.user_group_members (user_id, group_id)
+  VALUES (:uid_a, 99), (:uid_b, 99);
+
+-- Grant the runtime role access for the SET LOCAL ROLE test.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_group_members TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+SELECT set_config('app.current_user_id', :uid_a::text, true);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.user_group_members),
+  1,
+  'ugm_self / GUC=uid_a: sees only own row (1 of 2)');
+
+-- ── 9. RLS fail-closed: empty GUC → zero rows ────────────────────────────────
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.user_group_members),
+  0,
+  'ugm_self / empty GUC: fail-closed — zero rows visible');
+
+-- ── 10. user_devices.device_id column exists ─────────────────────────────────
+SELECT has_column('public', 'user_devices', 'device_id', 'user_devices.device_id exists');
+
+-- ── 11. user_devices.device_id is a FK to devices.id with ON DELETE SET NULL ──
+SELECT is(
+  (SELECT confdeltype FROM pg_constraint
+    WHERE conrelid = 'public.user_devices'::regclass
+      AND confrelid = 'public.devices'::regclass
+      AND contype = 'f'
+    LIMIT 1),
+  'n',
+  'user_devices.device_id FK -> devices.id with ON DELETE SET NULL'
+);
+
+-- ── 12. oauth_tokens.family_id column exists (refresh family substrate) ─────
+SELECT has_column('public', 'oauth_tokens', 'family_id', 'oauth_tokens.family_id exists');
+
+-- ── 13. ca_notify_policy_change fires app_notify on the 'conditional_access' channel
+SET app.capture_notify = 'on';
+SELECT ca_notify_policy_change('policy_saved');
+SELECT is(
+  (SELECT channel FROM _test_notify_log ORDER BY seq DESC LIMIT 1),
+  'conditional_access',
+  'ca_notify_policy_change pushes on the conditional_access channel'
+);
+SET app.capture_notify = 'off';
+
+-- ── F6: ca_validate_policy_document allow-list (defence-in-depth CHECK helper) ─
+-- 14. Unknown condition key → FALSE (the fail-open regression test).
+SELECT is(
+  ca_validate_policy_document('{"geo_risk_teir":"high"}'::jsonb, NULL),
+  FALSE,
+  'ca_validate_policy_document rejects an unknown condition key');
+
+-- 15. Out-of-domain enum → FALSE.
+SELECT is(
+  ca_validate_policy_document('{"device_trust":"trustworthy"}'::jsonb, NULL),
+  FALSE,
+  'ca_validate_policy_document rejects an out-of-domain enum');
+
+-- 16. Valid document (conditions + grants) → TRUE.
+SELECT is(
+  ca_validate_policy_document(
+    '{"device_trust":"managed","geo_risk_tier":"high","user_group":99}'::jsonb,
+    '{"action":"block","operator":"all"}'::jsonb),
+  TRUE,
+  'ca_validate_policy_document accepts a valid document');
+
+-- 17. pg_restore runs with an empty search_path. The validator's nested-grant
+-- recursion must still resolve through its function-local pinned search_path.
+SET LOCAL search_path = pg_catalog;
+SELECT public.ca_validate_policy_document(
+  NULL,
+  '{"operator":"all","grants":[{"action":"block"}]}'::jsonb
+) AS restore_safe \gset
+SET LOCAL search_path = public, pg_catalog;
+SELECT is(
+  :'restore_safe'::boolean,
+  TRUE,
+  'ca_validate_policy_document resolves nested grants with an empty caller search_path');
+
+SELECT * FROM finish();
+ROLLBACK;

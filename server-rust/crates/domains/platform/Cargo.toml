@@ -1,0 +1,38 @@
+[package]
+name = "setjoin-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Test-only: restores the frozen-Go update-device scope defect (SETJOIN_SECFIX3_MUTANT).
+oracle-mutants = ["setjoin-contracts/oracle-mutants"]
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+setjoin-schema = { path = "../../schema" }
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+sha2 = "=0.10.9"
+hickory-resolver = { version = "=0.26.3", default-features = false, features = ["system-config", "tokio"] }
+# Webhook signing secrets: EK01 column envelopes (#302) and the v1 HMAC header.
+setjoin-config-secret = { path = "../../config-secret" }
+hmac = "=0.12.1"
+getrandom = "=0.2.17"
+# Offline update purpose-separated Ed25519 verification (shared release authority).
+setjoin-release-format = { path = "../../release-format" }
+serde = { version = "=1.0.229", features = ["derive"] }
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+tempfile = "=3.27.0"
+rustix = { version = "=1.1.6", features = ["fs"] }
+# Native SSH keeps exit-status evidence; private RSA signing uses OpenSSL only.
+russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["rsa"] }
+ssh-encoding = "=0.3.0"
+openssl = { version = "=0.10.82", features = ["vendored"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "sync", "time", "net", "macros"] }
+tokio-util = { version = "=0.7.20", features = ["rt"] }
+regex = "=1.13.1"

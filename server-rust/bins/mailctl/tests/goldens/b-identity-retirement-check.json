@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/upgrade/retirement-check",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity legacy retirement ready: true\nPASS coverage — continue\nNext: review release\n",
+  "stderr": "",
+  "exit": 0
+}

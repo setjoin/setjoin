@@ -1,0 +1,24 @@
+-- Public app-role contracts; HTTP content_revoked proves the two-snapshot race.
+BEGIN;
+SELECT plan(8);
+SELECT mk_account('drive3-snap-owner') AS mb \gset
+SELECT mk_account('drive3-snap-other') AS other_mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:mb \gset
+SELECT user_id AS other_actor FROM mailboxes WHERE id=:other_mb \gset
+SELECT drive_space_create(:actor,'Drive3 snapshots','regular') AS space \gset
+SELECT drive_node_create(:actor,:space,NULL,'file','empty.txt') AS node \gset
+SELECT (drive_file_put_version(:actor,:node,repeat('a',64),0,NULL,NULL,'[]'::jsonb,NULL,NULL)->>'versionId')::bigint AS version \gset
+SELECT set_config('app.current_user_id',:'actor',true);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(format('SELECT rust_drive_content_meta(%s,%s)',:actor,:version),'app reads admitted metadata and manifest');
+SELECT is(rust_drive_content_meta(:actor,:version)->'manifest','[]'::jsonb,'empty source manifest remains empty');
+SELECT is((rust_drive_content_meta(:actor,:version)->>'spaceId')::bigint,:space::bigint,'metadata remains tied to the admitted space');
+SELECT lives_ok(format('SELECT rust_drive_restore_version(%s,%s,jsonb_build_object(''sourceVersionId'',%s))',:actor,:node,:version),'restore data and source-manifest read are one reducer transaction');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE file_node_id=:node),2::bigint,'restore appends one version');
+SELECT ok((SELECT bool_and(valid) FROM verify_drive_audit_chain(:space)),'restored audit chain verifies');
+SELECT set_config('app.current_user_id',:'other_actor',true);
+SELECT is(rust_drive_content_meta(:other_actor,:version),NULL::jsonb,'foreign metadata is absent');
+SELECT throws_ok(format('SELECT rust_drive_restore_version(%s,%s,''{}''::jsonb)',:actor,:node),'42501','actor does not match authenticated context','request-owned actor cannot replace the app context');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

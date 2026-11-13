@@ -1,0 +1,23 @@
+-- Public seam for the F05 mailbox admin transactions (#292): scope fences,
+-- the best-effort paired tag statement and Go's delete order.
+BEGIN;
+SELECT plan(12);
+CREATE TEMP TABLE mbx_acc(kind text,mailbox_id bigint,domain_id bigint);
+INSERT INTO mbx_acc(kind,mailbox_id) VALUES('home',mk_account('mbx-home')),('away',mk_account('mbx-away'));
+UPDATE mbx_acc a SET domain_id=m.domain_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+INSERT INTO domains(name,is_local) VALUES('mbx-away.test',TRUE);
+CREATE TEMP TABLE mbx_folder AS SELECT (rust_admin_folder_create((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),0,NULL,'Projects')->>'id')::bigint AS id;
+SELECT is((SELECT path FROM folders WHERE id=(SELECT id FROM mbx_folder)),'Projects','create stores the name as the path');
+SELECT is((SELECT count(*)::int FROM tags WHERE mailbox_id=(SELECT mailbox_id FROM mbx_acc WHERE kind='home') AND name='Projects'),1,'create adds the paired tag');
+SELECT is(rust_admin_folder_create((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),0,(SELECT id FROM mbx_folder),'Child')->>'status','201','a child is created under its parent');
+SELECT is((SELECT path FROM folders WHERE name='Child' AND mailbox_id=(SELECT mailbox_id FROM mbx_acc WHERE kind='home')),'Projects/Child','the child path joins the parent path');
+SELECT is(rust_admin_folder_create((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),0,999999999,'Orphan')->>'status','400','an unknown parent is 400');
+SELECT is(rust_admin_folder_create((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),(SELECT id FROM domains WHERE name='mbx-away.test'),NULL,'Nope')->>'status','403','a scope that is not the mailbox domain is refused');
+SELECT is(rust_admin_folder_create(99999999,(SELECT id FROM domains WHERE name='mbx-away.test'),NULL,'Nope')->>'status','404','a scoped actor gets 404 for a missing mailbox');
+SELECT is(rust_admin_folder_update((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),0,(SELECT id FROM mbx_folder),'Work')->>'status','204','rename succeeds');
+SELECT is((SELECT count(*)::int FROM tags WHERE mailbox_id=(SELECT mailbox_id FROM mbx_acc WHERE kind='home') AND name='Work'),1,'rename also renames the paired tag');
+SELECT is(rust_admin_folder_delete((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),(SELECT id FROM domains WHERE name='mbx-away.test'),(SELECT id FROM mbx_folder))->>'status','403','delete is fenced by scope');
+SELECT is(rust_admin_mailbox_delete((SELECT mailbox_id FROM mbx_acc WHERE kind='home'),(SELECT id FROM domains WHERE name='mbx-away.test')),false,'mailbox delete is fenced by scope');
+SELECT is(rust_admin_mailbox_delete(99999999,0),true,'a missing mailbox is a no-op success, as Go answers 204');
+SELECT * FROM finish();
+ROLLBACK;

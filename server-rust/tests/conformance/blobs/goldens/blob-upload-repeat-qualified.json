@@ -1,0 +1,187 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "e144c714a9a94d73a8032e2467181e927efbbc72",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "content_type": "text/plain",
+          "created_at": "<timestamp>",
+          "minio_ref": "mailblobs/<hash>",
+          "ref_count": 0,
+          "sha256": "<hash>",
+          "size_bytes": 24
+        },
+        "table": "blobs"
+      },
+      {
+        "after": {
+          "blob_sha256": "<hash>",
+          "charged_at": "<timestamp>",
+          "size_bytes": 24,
+          "user_id": "<actor>"
+        },
+        "table": "blob_user_charges"
+      },
+      {
+        "after": {
+          "charged_bytes": 24,
+          "updated_at": "<timestamp>",
+          "user_id": "<actor>"
+        },
+        "table": "blob_user_usage"
+      },
+      {
+        "after": {
+          "blob_sha256": "<hash>",
+          "delay_minutes": 1440,
+          "scheduled_at": "<timestamp>"
+        },
+        "table": "blob_cleanup_queue"
+      }
+    ],
+    "notify": [],
+    "objects": [
+      {
+        "length": 24,
+        "operation": "upload-temp",
+        "type": "text/plain"
+      },
+      {
+        "operation": "promote"
+      },
+      {
+        "operation": "delete-temp"
+      },
+      {
+        "length": 24,
+        "operation": "upload-temp",
+        "type": "text/plain"
+      },
+      {
+        "operation": "promote"
+      },
+      {
+        "operation": "delete-temp"
+      }
+    ],
+    "request": {
+      "case": "repeat",
+      "method": "PUT",
+      "path": "/blobs/{sha256}"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "0"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-upload-oracle"
+        ]
+      },
+      "status": 201
+    },
+    "responses": [
+      {
+        "body": "",
+        "headers": {
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "0"
+          ],
+          "content-security-policy": [
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs1-upload-oracle"
+          ]
+        },
+        "status": 201
+      },
+      {
+        "body": "",
+        "headers": {
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "0"
+          ],
+          "content-security-policy": [
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs1-upload-oracle"
+          ]
+        },
+        "status": 201
+      }
+    ]
+  },
+  "route": "PUT /blobs/{sha256}"
+}

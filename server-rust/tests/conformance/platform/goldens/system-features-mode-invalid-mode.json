@@ -1,0 +1,122 @@
+{
+  "case": "invalid-mode",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "description": "等保三级 三权分立 mode. When ON: super-admin is unassignable, every role must carry a non-NULL sod_class, and the trg_sod_exclusion trigger enforces hard mutual exclusion across system/security/audit classes. Flip via the dedicated gated endpoint (security.write required); the OFF→ON flip runs admin_sod_precheck() in the same transaction. DEFAULT OFF — fully inert until deliberately enabled by a qualified security administrator.",
+            "enabled": false,
+            "key": "dengbao.sod_mode"
+          },
+          {
+            "description": "IMAP4rev2 server on ports 143 and 993",
+            "enabled": true,
+            "key": "feature.imap"
+          },
+          {
+            "description": "Background-detected stale-thread / no-reply-in-3-days inbox nudges. Seeded OFF.",
+            "enabled": false,
+            "key": "feature.stale_nudges"
+          },
+          {
+            "description": "legacy <row>",
+            "enabled": true,
+            "key": "plat1b.legacy"
+          }
+        ],
+        "before": [
+          {
+            "description": "等保三级 三权分立 mode. When ON: super-admin is unassignable, every role must carry a non-NULL sod_class, and the trg_sod_exclusion trigger enforces hard mutual exclusion across system/security/audit classes. Flip via the dedicated gated endpoint (security.write required); the OFF→ON flip runs admin_sod_precheck() in the same transaction. DEFAULT OFF — fully inert until deliberately enabled by a qualified security administrator.",
+            "enabled": false,
+            "key": "dengbao.sod_mode"
+          },
+          {
+            "description": "IMAP4rev2 server on ports 143 and 993",
+            "enabled": true,
+            "key": "feature.imap"
+          },
+          {
+            "description": "Background-detected stale-thread / no-reply-in-3-days inbox nudges. Seeded OFF.",
+            "enabled": false,
+            "key": "feature.stale_nudges"
+          },
+          {
+            "description": "legacy <row>",
+            "enabled": true,
+            "key": "plat1b.legacy"
+          }
+        ],
+        "table": "feature_toggles"
+      },
+      {
+        "after": [
+          {
+            "mode": "observe",
+            "registry_digest": "0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf"
+          }
+        ],
+        "before": [
+          {
+            "mode": "observe",
+            "registry_digest": "0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf"
+          }
+        ],
+        "table": "feature_toggle_registry_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"mode\":\"maybe\"}",
+      "external_path": "/api/admin/features/registry-mode",
+      "method": "PUT",
+      "path": "/admin/features/registry-mode"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/feature-registry/invalid_registry_mode\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"mode must be observe or enforce\",\"instance\":\"/admin/features/registry-mode\",\"code\":\"invalid_registry_mode\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "231"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat1-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "PUT /admin/features/registry-mode"
+}

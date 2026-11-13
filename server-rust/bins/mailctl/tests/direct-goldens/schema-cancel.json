@@ -1,0 +1,9 @@
+{
+  "stdout": "pending (current=274 \u2192 target=275): V275__feature_toggle_registry_projection.sql\n",
+  "stderr": "apply 1 database schema migration(s) \u2014 are you sure? (type 'yes' to confirm): Error: aborted\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

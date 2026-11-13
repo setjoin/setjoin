@@ -1,0 +1,100 @@
+[
+  {
+    "case": "login-unknown-email-timing",
+    "issue": "#487",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#487): an unknown or disabled email verifies a fixed dummy hash of the profile's own algorithm (bcrypt 10, or PBKDF2-SM3 100k for smx/hybrid) so timing does not reveal account existence",
+    "secure_test": "bins/auth/tests/secfix3.rs::unknown_email_login_costs_a_password_hash_under_every_profile",
+    "mutant": "login-no-dummy-hash, login-dummy-always-bcrypt"
+  },
+  {
+    "case": "refresh-grace-revoked-or-expired-parent",
+    "issue": "#490",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#490): the 30 s rotation grace never accepts a revoked or expired rotated parent",
+    "secure_test": "bins/auth/tests/secfix3.rs::refresh_grace_never_accepts_a_revoked_or_expired_rotated_parent",
+    "mutant": "refresh-grace-accepts-revoked-parent (SQL revert)"
+  },
+  {
+    "case": "password-change-signed-email",
+    "issue": "#490",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#490): the credential row is keyed on the signed uid, never the signed email",
+    "secure_test": "bins/auth/tests/secfix3.rs::password_change_is_keyed_on_the_signed_uid_not_the_signed_email",
+    "mutant": "password-keyed-on-email (Rust + SQL revert)"
+  },
+  {
+    "case": "revocation-list-before-first-load",
+    "issue": "#491",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#491): token-authenticated routes refuse every token until the first revocation-list load succeeds",
+    "secure_test": "bins/auth/tests/secfix3.rs::revocations_fail_closed_until_the_first_load",
+    "mutant": "revocations-fail-open"
+  },
+  {
+    "case": "request-body-caps",
+    "issue": "#491",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#491): PUT /auth/password, internal-key JSON and the other auth JSON routes read at most 1 MiB",
+    "secure_test": "bins/auth/tests/secfix3.rs::oversized_password_and_internal_key_bodies_are_refused",
+    "mutant": "unbounded-request-bodies"
+  },
+  {
+    "baseline": "goldens/refresh-expired-grace-rotation.json",
+    "sha256": "1f16358d01d56860883636baab3796605ee02fa823aa105f45f47577deddebab",
+    "expectation": "security/refresh-expired-grace-rotation.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts an expired rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/refresh-expired-grace-state.json",
+    "sha256": "219bc5f61bb9e370ac120179008b8f90572d78ce15564fbd42fd5dd051d4f243",
+    "expectation": "security/refresh-expired-grace-state.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts an expired rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/refresh-expired-grace.json",
+    "sha256": "8e10487d091ebc85fc4def2504c49026c3d3f862bcf03e407f62fa960fbbbab6",
+    "expectation": "security/refresh-expired-grace.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts an expired rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/refresh-revoked-grace-rotation.json",
+    "sha256": "15388195a4a57eb3eafd8669c67ad37892cefec1b6a6fa08ffadfe1dfdd958fd",
+    "expectation": "security/refresh-revoked-grace-rotation.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts a revoked rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/refresh-revoked-grace-state.json",
+    "sha256": "5b9ab4a63763212351b51ac8beb767420b0f6599130b09c141bfc2617013295d",
+    "expectation": "security/refresh-revoked-grace-state.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts a revoked rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/refresh-revoked-grace.json",
+    "sha256": "56b93c1c67dc42beb326f7e18691f83cd5303759a63a83abd18771f56162e121",
+    "expectation": "security/refresh-revoked-grace.json",
+    "reason": "owner-approved security fix 2026-11-05 (#490: the 30 s rotation grace never accepts a revoked rotated parent).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  }
+]

@@ -1,0 +1,70 @@
+{
+  "case": "worker-unfurl-image",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "blob": {
+      "contentType": "image/png",
+      "ref": "mailblobs/73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965",
+      "refCount": 1,
+      "sha256": "73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965",
+      "size": 17
+    },
+    "http": [
+      {
+        "method": "GET",
+        "uri": "/image/<actor>"
+      },
+      {
+        "method": "GET",
+        "uri": "/cover.png"
+      }
+    ],
+    "notify": [
+      {
+        "channelId": "<channel>",
+        "event": "message_edited",
+        "messageId": "<message>",
+        "seq": null
+      }
+    ],
+    "preview": {
+      "description": null,
+      "image": "73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965",
+      "status": "ok",
+      "title": "Picture article"
+    },
+    "row": {
+      "changeSeq": 1,
+      "payload": {
+        "preview": {
+          "appliedBy": "chat_message_unfurl_apply",
+          "description": null,
+          "imageSha256": "73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965",
+          "title": "Picture article",
+          "url": "<url>"
+        }
+      },
+      "seq": 1
+    },
+    "s3": [
+      {
+        "body": "",
+        "contentType": null,
+        "method": "GET",
+        "signatureValid": true,
+        "uri": "/mailblobs/?location="
+      },
+      {
+        "body": {
+          "length": 17,
+          "sha256": "73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965"
+        },
+        "contentType": "image/png",
+        "method": "PUT",
+        "signatureValid": true,
+        "uri": "/mailblobs/73fe60f7bb46255406e5e53cd67d00da69814dcc1be028b80674bb3f2e63e965"
+      }
+    ]
+  }
+}

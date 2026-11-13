@@ -1,0 +1,36 @@
+# ── Mailserver E2E Test Infrastructure ──────────────────────────────────
+# Starts all external services needed for integration tests.
+# Usage: docker compose -f deploy/docker-compose.test.yml up -d
+#
+# Port mapping (all on 127.0.0.1):
+#   3143 — IMAP    (Dovecot, plaintext test profile)
+#   3144 — IMAP    (Apache James, verified STARTTLS profile)
+#   3025 — SMTP    (Postfix)
+#   3389 — LDAP    (OpenLDAP)
+
+services:
+  imap-test:
+    build:
+      context: ./docker/test-imap
+    ports:
+      - "127.0.0.1:3143:143"
+
+  imap-james:
+    platform: linux/amd64
+    build:
+      context: ./docker/test-james
+    ports:
+      - "127.0.0.1:3144:143"
+      - "127.0.0.1:38000:8000"
+
+  smtp-test:
+    build:
+      context: ./docker/test-smtp
+    ports:
+      - "127.0.0.1:3025:25"
+
+  ldap-test:
+    build:
+      context: ./docker/test-ldap
+    ports:
+      - "127.0.0.1:3389:389"

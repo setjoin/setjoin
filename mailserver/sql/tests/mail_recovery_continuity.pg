@@ -1,0 +1,325 @@
+-- pgTAP: U5-U7 continuity evidence, incident authority, bounded upload,
+-- quarantine, reducer-only ingestion, replay, and native-RLS posture.
+BEGIN;
+SELECT plan(58);
+SET LOCAL app.capture_notify='on';
+
+SELECT has_table('public','continuity_client_witnesses','continuity witnesses are durable');
+SELECT has_table('public','mail_recovery_incidents','recovery incidents are authoritative');
+SELECT has_table('public','mail_recovery_incident_accounts','incident scope is normalized');
+SELECT has_table('public','mail_recovery_upload_sessions','upload sessions are durable');
+SELECT has_table('public','mail_recovery_upload_items','upload item offsets are durable');
+SELECT has_table('public','mail_recovery_upload_chunks','bounded chunk evidence is durable');
+SELECT has_table('public','mail_recovery_quarantine_artifacts','quarantine is separate from ordinary mail');
+SELECT has_table('public','mail_recovery_ledger','artifact outcomes are idempotent');
+
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='continuity_client_witnesses'::regclass),
+  'continuity witnesses enforce native RLS');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='mail_recovery_incidents'::regclass),
+  'incidents enforce native RLS');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='mail_recovery_upload_sessions'::regclass),
+  'upload sessions enforce native RLS');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='mail_recovery_quarantine_artifacts'::regclass),
+  'quarantine artifacts enforce native RLS');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='mail_recovery_ledger'::regclass),
+  'recovery ledger enforces native RLS');
+
+SELECT ok(NOT (SELECT enabled FROM feature_toggles WHERE key='feature.client_recovery_receipts'),
+  'recovery receipt issuance seeds OFF');
+SELECT ok(NOT (SELECT enabled FROM feature_toggles WHERE key='feature.client_recovery_cache'),
+  'native recovery cache seeds OFF');
+SELECT ok(NOT (SELECT enabled FROM feature_toggles WHERE key='feature.client_recovery_ingest'),
+  'recovery intake seeds OFF');
+SELECT is((SELECT is_sensitive FROM admin_permissions WHERE permission_key='system.recovery'),true,
+  'system.recovery is sensitive authority');
+
+CREATE TEMP TABLE mrc(key text PRIMARY KEY,value text NOT NULL);
+INSERT INTO mrc VALUES
+ ('actor_mb',mk_account('recovery-actor')::text),
+ ('approver_mb',mk_account('recovery-approver')::text),
+ ('affected_mb',mk_account('recovery-affected')::text),
+ ('outsider_mb',mk_account('recovery-outsider')::text),
+ ('guest_mb',mk_account('recovery-guest')::text),
+ ('incident_id',gen_random_uuid()::text),
+ ('session_id',gen_random_uuid()::text),
+ ('device_id',gen_random_uuid()::text),
+ ('quarantine_id',gen_random_uuid()::text),
+ ('idempotency',gen_random_uuid()::text),
+ ('upload_idempotency',gen_random_uuid()::text),
+ ('mismatch_session',gen_random_uuid()::text),
+ ('mismatch_idempotency',gen_random_uuid()::text),
+ ('quota_limit_session',gen_random_uuid()::text),
+ ('quota_limit_idempotency',gen_random_uuid()::text),
+ ('quota_cleanup_session',gen_random_uuid()::text),
+ ('quota_cleanup_idempotency',gen_random_uuid()::text),
+ ('quota_after_cleanup_session',gen_random_uuid()::text),
+ ('quota_after_cleanup_idempotency',gen_random_uuid()::text);
+INSERT INTO mrc SELECT 'actor',user_id::text FROM mailboxes WHERE id=(SELECT value::bigint FROM mrc WHERE key='actor_mb');
+INSERT INTO mrc SELECT 'approver',user_id::text FROM mailboxes WHERE id=(SELECT value::bigint FROM mrc WHERE key='approver_mb');
+INSERT INTO mrc SELECT 'affected',user_id::text FROM mailboxes WHERE id=(SELECT value::bigint FROM mrc WHERE key='affected_mb');
+INSERT INTO mrc SELECT 'outsider',user_id::text FROM mailboxes WHERE id=(SELECT value::bigint FROM mrc WHERE key='outsider_mb');
+INSERT INTO mrc SELECT 'guest',user_id::text FROM mailboxes WHERE id=(SELECT value::bigint FROM mrc WHERE key='guest_mb');
+INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status)
+SELECT (SELECT value::bigint FROM mrc WHERE key='guest'),
+       'recovery-guest@example.test','recovery-actor@example.test',domain_id,'active'
+  FROM users WHERE id=(SELECT value::bigint FROM mrc WHERE key='actor');
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES
+ ((SELECT value::bigint FROM mrc WHERE key='actor'),1,(SELECT value::bigint FROM mrc WHERE key='actor')),
+ ((SELECT value::bigint FROM mrc WHERE key='approver'),1,(SELECT value::bigint FROM mrc WHERE key='actor'));
+
+SELECT ok(mail_recovery_has_global_permission((SELECT value::bigint FROM mrc WHERE key='actor')),
+  'unscoped live system.recovery assignment authorizes the actor');
+SELECT ok(NOT mail_recovery_has_global_permission((SELECT value::bigint FROM mrc WHERE key='affected')),
+  'ordinary affected users do not gain recovery administration');
+SELECT ok(mail_recovery_user_can_upload((SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::bigint FROM mrc WHERE key='affected_mb')),
+  'affected mailbox owner may explicitly offer their own recovery copy');
+SELECT ok(NOT mail_recovery_user_can_upload((SELECT value::bigint FROM mrc WHERE key='outsider'),
+  (SELECT value::bigint FROM mrc WHERE key='affected_mb')),
+  'cross-account recovery upload is denied');
+SELECT ok(NOT mail_recovery_user_can_upload((SELECT value::bigint FROM mrc WHERE key='guest'),
+  (SELECT value::bigint FROM mrc WHERE key='guest_mb')),
+  'mailbox-bearing legacy Guest cannot upload a recovery copy');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.client_recovery_ingest';
+SELECT set_config('app.current_mailbox_id',(SELECT value FROM mrc WHERE key='affected_mb'),true);
+SELECT value AS witness_mailbox FROM mrc WHERE key='affected_mb' \gset
+SELECT installation_id AS witness_installation,
+       timeline_generation+1 AS witness_timeline
+  FROM upgrade_control_state WHERE singleton \gset
+GRANT SELECT ON continuity_client_witnesses TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT continuity_client_witness_record(
+  :witness_mailbox,repeat('aa',32),:'witness_installation',
+  :witness_timeline,1,
+  statement_timestamp(),gen_random_uuid()
+) AS witness \gset
+SELECT is(:'witness'::jsonb->>'signalClass','client_observed_newer_timeline',
+  'a valid client token from a newer timeline becomes credible evidence');
+SELECT is((SELECT count(*)::integer FROM continuity_client_witnesses
+            WHERE mailbox_id=:witness_mailbox),1,
+  'setjoin_app records and reads its own continuity witness under FORCE RLS');
+RESET ROLE;
+SELECT is((continuity_client_witness_record(
+  (SELECT value::bigint FROM mrc WHERE key='affected_mb'),repeat('aa',32),
+  (SELECT installation_id FROM upgrade_control_state WHERE singleton),
+  (SELECT timeline_generation+1 FROM upgrade_control_state WHERE singleton),1,
+  statement_timestamp(),gen_random_uuid())->>'replayed')::boolean,true,
+  'the same witness token is idempotent across boot replay');
+
+SELECT throws_ok(format($sql$SELECT mail_recovery_incident_open(
+  %s,%L::uuid,ARRAY[%s],jsonb_build_object(%L,repeat('bb',32)),
+  (SELECT timeline_generation+1 FROM upgrade_control_state WHERE singleton),
+  (SELECT timeline_generation+1 FROM upgrade_control_state WHERE singleton),
+  statement_timestamp()+interval '1 day','credible rollback review',true,
+  digest('fresh-aal2','sha256'),%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='actor'),(SELECT value FROM mrc WHERE key='incident_id'),
+  (SELECT value FROM mrc WHERE key='affected_mb'),(SELECT value FROM mrc WHERE key='affected_mb'),
+  (SELECT value FROM mrc WHERE key='idempotency')),
+  'BZ251',NULL,'an incident cannot open with invented evidence');
+SELECT lives_ok(format($sql$SELECT mail_recovery_incident_open(
+  %s,%L::uuid,ARRAY[%s],jsonb_build_object(%L,repeat('aa',32)),
+  (SELECT timeline_generation+1 FROM upgrade_control_state WHERE singleton),
+  (SELECT timeline_generation+1 FROM upgrade_control_state WHERE singleton),
+  statement_timestamp()+interval '1 day','credible rollback review',true,
+  digest('fresh-aal2','sha256'),%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='actor'),(SELECT value FROM mrc WHERE key='incident_id'),
+  (SELECT value FROM mrc WHERE key='affected_mb'),(SELECT value FROM mrc WHERE key='affected_mb'),
+  (SELECT value FROM mrc WHERE key='idempotency')),
+  'credible evidence opens one bounded incident');
+SELECT throws_ok(format($sql$SELECT mail_recovery_incident_approve(%s,%L::uuid,'self approval denied')$sql$,
+  (SELECT value FROM mrc WHERE key='actor'),(SELECT value FROM mrc WHERE key='incident_id')),
+  'BZ003',NULL,'incident opener cannot self-approve');
+SELECT lives_ok(format($sql$SELECT mail_recovery_incident_approve(%s,%L::uuid,'independent approval')$sql$,
+  (SELECT value FROM mrc WHERE key='approver'),(SELECT value FROM mrc WHERE key='incident_id')),
+  'a second recovery administrator can approve');
+SELECT is(jsonb_array_length(mail_recovery_user_incident_list(
+  (SELECT value::bigint FROM mrc WHERE key='affected'))->'list'),1,
+  'affected user sees exactly the approved incident they may contribute to');
+
+SELECT mail_recovery_upload_begin(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='session_id'),
+  (SELECT value::uuid FROM mrc WHERE key='incident_id'),
+  (SELECT value::bigint FROM mrc WHERE key='affected_mb'),
+  (SELECT value::uuid FROM mrc WHERE key='device_id'),
+  encode(digest(convert_to('v1','UTF8')||decode('00','hex')||
+    convert_to((SELECT installation_id::text FROM upgrade_control_state WHERE singleton),'UTF8')||decode('00','hex')||
+    convert_to((SELECT value FROM mrc WHERE key='affected_mb'),'UTF8')||decode('00','hex')||
+    convert_to('missing-message-1','UTF8')||decode('00','hex')||convert_to(repeat('cc',32),'UTF8'),'sha256'),'hex'),
+  'received',jsonb_build_object('claims',jsonb_build_object(
+    'installationId',(SELECT installation_id::text FROM upgrade_control_state WHERE singleton),
+    'accountId',(SELECT value FROM mrc WHERE key='affected_mb'),'originalMessageId','missing-message-1',
+    'eligibility','received',
+    'rawMimeSha256',repeat('cc',32),'rawMimeSize','10','blobs','[]'::jsonb,
+    'timelineGeneration',(SELECT (timeline_generation+1)::text FROM upgrade_control_state WHERE singleton),
+    'stateWatermark','1','bootEpoch',gen_random_uuid())),
+  jsonb_build_array(jsonb_build_object('itemId','raw','role','raw','sha256',repeat('cc',32),'size','10')),
+  statement_timestamp(),(SELECT value::uuid FROM mrc WHERE key='upload_idempotency')) AS upload \gset
+SELECT is(:'upload'::jsonb->>'status','uploading','valid signed-scope metadata begins a bounded upload');
+SELECT is((mail_recovery_upload_begin(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='session_id'),
+  (SELECT value::uuid FROM mrc WHERE key='incident_id'),
+  (SELECT value::bigint FROM mrc WHERE key='affected_mb'),
+  (SELECT value::uuid FROM mrc WHERE key='device_id'),
+  (SELECT encode(artifact_identity,'hex') FROM mail_recovery_upload_sessions
+    WHERE id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+  'received',
+  (SELECT receipt FROM mail_recovery_upload_sessions
+    WHERE id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+  (SELECT jsonb_agg(jsonb_build_object('itemId',item_id,'role',role,'sha256',encode(sha256,'hex'),'size',declared_size::text))
+     FROM mail_recovery_upload_items WHERE session_id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+  statement_timestamp(),
+  (SELECT value::uuid FROM mrc WHERE key='upload_idempotency'))->>'replayed')::boolean,true,
+  'upload idempotency returns acknowledged offsets for an exact replay');
+
+CREATE FUNCTION pg_temp.mrc_begin(p_session_id uuid,p_idempotency_key uuid,p_eligibility text DEFAULT 'received')
+RETURNS jsonb LANGUAGE sql VOLATILE AS $$
+  SELECT mail_recovery_upload_begin(
+    (SELECT value::bigint FROM mrc WHERE key='affected'),p_session_id,
+    (SELECT value::uuid FROM mrc WHERE key='incident_id'),
+    (SELECT value::bigint FROM mrc WHERE key='affected_mb'),
+    (SELECT value::uuid FROM mrc WHERE key='device_id'),
+    (SELECT encode(artifact_identity,'hex') FROM mail_recovery_upload_sessions
+      WHERE id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+    p_eligibility,
+    (SELECT receipt FROM mail_recovery_upload_sessions
+      WHERE id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+    (SELECT jsonb_agg(jsonb_build_object('itemId',item_id,'role',role,'sha256',encode(sha256,'hex'),'size',declared_size::text))
+       FROM mail_recovery_upload_items WHERE session_id=(SELECT value::uuid FROM mrc WHERE key='session_id')),
+    statement_timestamp(),p_idempotency_key)
+$$;
+
+SELECT throws_ok(format($sql$SELECT pg_temp.mrc_begin(%L::uuid,%L::uuid,'sent-terminal')$sql$,
+  (SELECT value FROM mrc WHERE key='mismatch_session'),
+  (SELECT value FROM mrc WHERE key='mismatch_idempotency')),
+  'BZ251',NULL,'request eligibility cannot override the signed receipt claim');
+
+CREATE TEMP TABLE mrc_quota_sessions(session_id uuid PRIMARY KEY,idempotency_key uuid NOT NULL);
+INSERT INTO mrc_quota_sessions
+SELECT gen_random_uuid(),gen_random_uuid() FROM generate_series(1,7);
+SELECT pg_temp.mrc_begin(session_id,idempotency_key) FROM mrc_quota_sessions;
+SELECT is((SELECT count(*)::integer FROM mail_recovery_upload_sessions
+            WHERE device_id=(SELECT value::uuid FROM mrc WHERE key='device_id') AND status='uploading'),8,
+  'one device may reserve at most eight active recovery sessions');
+SELECT throws_ok(format($sql$SELECT pg_temp.mrc_begin(%L::uuid,%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='quota_limit_session'),
+  (SELECT value FROM mrc WHERE key='quota_limit_idempotency')),
+  'BZ001',NULL,'a ninth active device upload is rejected atomically');
+
+INSERT INTO mrc
+SELECT 'quota_abort_session',session_id::text FROM mrc_quota_sessions ORDER BY session_id LIMIT 1;
+SELECT mail_recovery_upload_abort(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='quota_abort_session'));
+SELECT lives_ok(format($sql$SELECT pg_temp.mrc_begin(%L::uuid,%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='quota_cleanup_session'),
+  (SELECT value FROM mrc WHERE key='quota_cleanup_idempotency')),
+  'an aborted session without chunks immediately releases its reservation');
+SELECT mail_recovery_upload_chunk_record(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='quota_cleanup_session'),'raw',0,10,repeat('dd',32),
+  'recovery-quarantine/'||(SELECT value FROM mrc WHERE key='incident_id')||'/'||
+  (SELECT value FROM mrc WHERE key='quota_cleanup_session')||'/'||repeat('11',32)||'/0-'||repeat('dd',32));
+SELECT mail_recovery_upload_abort(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='quota_cleanup_session'));
+SELECT is((SELECT count(*)::integer FROM mail_recovery_upload_sessions session
+            WHERE session.device_id=(SELECT value::uuid FROM mrc WHERE key='device_id')
+              AND (session.status IN ('uploading','committing') OR EXISTS(
+                    SELECT 1 FROM mail_recovery_upload_chunks chunk WHERE chunk.session_id=session.id))),8,
+  'terminal sessions keep their reservation until every staged chunk is cleaned');
+SELECT throws_ok(format($sql$SELECT pg_temp.mrc_begin(%L::uuid,%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='quota_after_cleanup_session'),
+  (SELECT value FROM mrc WHERE key='quota_after_cleanup_idempotency')),
+  'BZ001',NULL,'pending cleanup cannot be used to bypass the cumulative quota');
+SELECT is(mail_recovery_chunk_cleanup_complete(
+  (SELECT value::uuid FROM mrc WHERE key='quota_cleanup_session'),'raw',0,
+  'recovery-quarantine/'||(SELECT value FROM mrc WHERE key='incident_id')||'/'||
+  (SELECT value FROM mrc WHERE key='quota_cleanup_session')||'/'||repeat('11',32)||'/0-'||repeat('dd',32)),true,
+  'verified terminal cleanup releases the staged chunk reservation');
+SELECT lives_ok(format($sql$SELECT pg_temp.mrc_begin(%L::uuid,%L::uuid)$sql$,
+  (SELECT value FROM mrc WHERE key='quota_after_cleanup_session'),
+  (SELECT value FROM mrc WHERE key='quota_after_cleanup_idempotency')),
+  'a new upload is admitted only after terminal chunk cleanup completes');
+
+SELECT throws_ok(format($sql$SELECT mail_recovery_upload_chunk_record(%s,%L::uuid,'raw',1,9,%L,%L)$sql$,
+  (SELECT value FROM mrc WHERE key='affected'),(SELECT value FROM mrc WHERE key='session_id'),
+  repeat('dd',32),'recovery-quarantine/'||(SELECT value FROM mrc WHERE key='incident_id')||'/'||
+  (SELECT value FROM mrc WHERE key='session_id')||'/'||repeat('11',32)||'/1-'||repeat('dd',32)),
+  'BZ002',NULL,'out-of-order recovery chunks are denied');
+SELECT lives_ok(format($sql$SELECT mail_recovery_upload_chunk_record(%s,%L::uuid,'raw',0,10,%L,%L)$sql$,
+  (SELECT value FROM mrc WHERE key='affected'),(SELECT value FROM mrc WHERE key='session_id'),
+  repeat('dd',32),'recovery-quarantine/'||(SELECT value FROM mrc WHERE key='incident_id')||'/'||
+  (SELECT value FROM mrc WHERE key='session_id')||'/'||repeat('11',32)||'/0-'||repeat('dd',32)),
+  'the exact acknowledged recovery chunk records');
+SELECT lives_ok(format($sql$SELECT mail_recovery_upload_item_verify(%s,%L::uuid,'raw',%L)$sql$,
+  (SELECT value FROM mrc WHERE key='affected'),(SELECT value FROM mrc WHERE key='session_id'),repeat('cc',32)),
+  'a fully acknowledged item verifies only against its receipt digest');
+
+SELECT mail_recovery_artifact_quarantine(
+  (SELECT value::bigint FROM mrc WHERE key='affected'),
+  (SELECT value::uuid FROM mrc WHERE key='session_id'),
+  (SELECT value::uuid FROM mrc WHERE key='quarantine_id'),
+  jsonb_build_object('messageId','<missing-1@example.test>','subject','Recovered fixture',
+    'fromAddr','sender@example.test','fromName','Sender','toAddrs','[]'::jsonb,'ccAddrs','[]'::jsonb,
+    'bccAddrs','[]'::jsonb,'inReplyTo','','references','','bodyText','body','bodyHtml','',
+    'receivedAt',statement_timestamp(),'eligibility','received'),'clean',NULL
+) AS quarantine \gset
+SELECT is(:'quarantine'::jsonb->>'status','quarantined','verified clean MIME enters quarantine, not mail');
+SELECT is((SELECT count(*)::integer FROM messages WHERE message_id='<missing-1@example.test>'),0,
+  'quarantine has no ordinary-mail side effect');
+SELECT mail_recovery_artifact_ingest(
+  (SELECT value::bigint FROM mrc WHERE key='actor'),
+  (SELECT value::uuid FROM mrc WHERE key='quarantine_id'),'accept','reviewed clean recovery copy'
+) AS accepted \gset
+SELECT is(:'accepted'::jsonb->>'status','accepted','trusted reducer accepts one reviewed artifact');
+SELECT is((SELECT count(*)::integer FROM messages WHERE message_id='<missing-1@example.test>'),1,
+  'accepted recovery creates exactly one recovered message');
+SELECT is((SELECT count(*)::integer FROM message_tags mt JOIN tags tag ON tag.id=mt.tag_id
+  WHERE mt.message_id=(:'accepted'::jsonb->>'messageId')::bigint AND tag.name='Recovered from device'),1,
+  'accepted message has a visible recovered label');
+SELECT is((mail_recovery_artifact_ingest(
+  (SELECT value::bigint FROM mrc WHERE key='actor'),
+  (SELECT value::uuid FROM mrc WHERE key='quarantine_id'),'accept','exact reducer replay review')->>'replayed')::boolean,true,
+  'recovery ingestion is exactly idempotent');
+
+SELECT is((SELECT count(*)::integer FROM (VALUES
+  (EXISTS(SELECT 1 FROM continuity_client_witnesses)),
+  (EXISTS(SELECT 1 FROM mail_recovery_incidents)),
+  (EXISTS(SELECT 1 FROM mail_recovery_incident_accounts)),
+  (EXISTS(SELECT 1 FROM mail_recovery_upload_sessions)),
+  (EXISTS(SELECT 1 FROM mail_recovery_upload_items)),
+  (EXISTS(SELECT 1 FROM mail_recovery_upload_chunks)),
+  (EXISTS(SELECT 1 FROM mail_recovery_quarantine_artifacts)),
+  (EXISTS(SELECT 1 FROM mail_recovery_ledger))
+) AS fixture(nonempty) WHERE nonempty),8,
+  'mail recovery RLS denial fixtures are non-vacuous across all eight tables');
+SELECT set_config('app.current_user_id',(SELECT value FROM mrc WHERE key='outsider'),true);
+SELECT set_config('app.current_mailbox_id',(SELECT value FROM mrc WHERE key='outsider_mb'),true);
+GRANT SELECT ON continuity_client_witnesses,mail_recovery_incidents,
+  mail_recovery_incident_accounts,mail_recovery_upload_sessions,
+  mail_recovery_upload_items,mail_recovery_upload_chunks,
+  mail_recovery_quarantine_artifacts,mail_recovery_ledger TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM continuity_client_witnesses),0::bigint,
+  'native RLS hides another account continuity witness');
+SELECT is((SELECT count(*) FROM mail_recovery_incidents),0::bigint,
+  'native RLS hides worker-only recovery incidents');
+SELECT is((SELECT count(*) FROM mail_recovery_incident_accounts),0::bigint,
+  'native RLS hides another account incident scope');
+SELECT is((SELECT count(*) FROM mail_recovery_upload_sessions),0::bigint,
+  'native RLS hides another account upload session');
+SELECT is((SELECT count(*) FROM mail_recovery_upload_items),0::bigint,
+  'native RLS hides worker-only recovery upload items');
+SELECT is((SELECT count(*) FROM mail_recovery_upload_chunks),0::bigint,
+  'native RLS hides worker-only recovery upload chunks');
+SELECT is((SELECT count(*) FROM mail_recovery_quarantine_artifacts),0::bigint,
+  'native RLS hides another account quarantine artifact');
+SELECT is((SELECT count(*) FROM mail_recovery_ledger),0::bigint,
+  'native RLS hides worker-only recovery ledger entries');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

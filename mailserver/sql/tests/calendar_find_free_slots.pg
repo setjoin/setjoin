@@ -1,0 +1,91 @@
+-- pgTAP: calendar_find_free_slots — conflict-ranked scheduling assistant (QoL #19)
+--
+-- Extends the reducer to surface partial-conflict candidates (ranked, not
+-- discarded) instead of only fully-free slots. Guard: with one attendee busy
+-- the whole window, results must still be non-empty, every slot carries a
+-- conflictCount, and any conflictCount=1 candidate sorts after every
+-- conflictCount=0 candidate (there are none here, so all must be 1).
+BEGIN;
+-- Hermetic TZ: the fixtures and working hours (09:00–17:00) are both expressed in
+-- UTC, and calendar_find_free_slots derives its working-hours window in the session
+-- timezone. Pin UTC so the assertions don't depend on the server's TZ (e.g. the CI
+-- box runs Asia/Shanghai, which would shift the window entirely out of range).
+SET LOCAL timezone = 'UTC';
+SELECT plan(4);
+
+CREATE TEMP TABLE _o AS SELECT mk_account('ffs-organizer') AS mb_id;
+CREATE TEMP TABLE _busy AS SELECT mk_account('ffs-busy') AS mb_id;
+
+-- The busy attendee's default calendar, booked solid for the whole window.
+INSERT INTO calendars (id, mailbox_id, name, is_default, resource_type)
+VALUES (95001, (SELECT mb_id FROM _busy), 'FFS Busy Calendar', TRUE, 'personal');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+VALUES (95001, 95001, 'ffs-evt-1', 'All-day block',
+        '2026-06-15 09:00:00+00', '2026-06-15 17:00:00+00');
+
+-- Find a 30-minute slot in a window where the only attendee is busy the
+-- entire working day: every candidate should come back with conflictCount=1.
+SELECT ok(
+  jsonb_array_length(
+    calendar_find_free_slots(
+      (SELECT mb_id FROM _o),
+      ARRAY[(SELECT mb_id FROM _busy)]::BIGINT[],
+      '2026-06-15 09:00:00+00'::TIMESTAMPTZ,
+      '2026-06-15 17:00:00+00'::TIMESTAMPTZ,
+      30, 15, '09:00', '17:00', 5)
+  ) > 0,
+  'a fully double-booked window still returns ranked conflict candidates (not empty)'
+);
+
+SELECT is(
+  (
+    SELECT COUNT(*)::INT FROM jsonb_array_elements(
+      calendar_find_free_slots(
+        (SELECT mb_id FROM _o),
+        ARRAY[(SELECT mb_id FROM _busy)]::BIGINT[],
+        '2026-06-15 09:00:00+00'::TIMESTAMPTZ,
+        '2026-06-15 17:00:00+00'::TIMESTAMPTZ,
+        30, 15, '09:00', '17:00', 5)
+    ) AS v
+    WHERE (v->>'conflictCount')::INT = 1
+  ),
+  5,
+  'every returned candidate is conflictCount=1 (the sole attendee is busy throughout)'
+);
+
+-- No conflictCount=0 candidates should appear ahead of any conflictCount=1 one
+-- (there are zero free slots here, so this also confirms none were fabricated).
+SELECT is(
+  (
+    SELECT COUNT(*)::INT FROM jsonb_array_elements(
+      calendar_find_free_slots(
+        (SELECT mb_id FROM _o),
+        ARRAY[(SELECT mb_id FROM _busy)]::BIGINT[],
+        '2026-06-15 09:00:00+00'::TIMESTAMPTZ,
+        '2026-06-15 17:00:00+00'::TIMESTAMPTZ,
+        30, 15, '09:00', '17:00', 5)
+    ) AS v
+    WHERE (v->>'conflictCount')::INT = 0
+  ),
+  0,
+  'no conflictCount=0 candidates when the only attendee is busy the whole window'
+);
+
+-- A genuinely free window (attendee has no events) still returns
+-- conflictCount=0 slots, unchanged from pre-existing behavior.
+SELECT is(
+  (
+    calendar_find_free_slots(
+      (SELECT mb_id FROM _o),
+      ARRAY[(SELECT mb_id FROM _busy)]::BIGINT[],
+      '2026-06-16 09:00:00+00'::TIMESTAMPTZ,
+      '2026-06-16 17:00:00+00'::TIMESTAMPTZ,
+      30, 15, '09:00', '17:00', 5) -> 0 ->> 'conflictCount'
+  )::INT,
+  0,
+  'a genuinely free window still ranks conflictCount=0 slots first (backward compatible)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

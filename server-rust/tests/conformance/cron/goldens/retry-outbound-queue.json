@@ -1,0 +1,37 @@
+{
+  "case": "retry-outbound-queue",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "queue": [
+              "gofree-cron-q1:deferred:1:false",
+              "gofree-cron-q2:deferred:20:false",
+              "gofree-cron-q3:deferred:1:false"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "queue": [
+              "gofree-cron-q1:pending:1:false",
+              "gofree-cron-q2:deferred:20:false",
+              "gofree-cron-q3:deferred:1:false"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

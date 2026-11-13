@@ -1,0 +1,23 @@
+{
+  "case": "empty-row-effects",
+  "effects": [
+    {
+      "after": {
+        "attempts": 0,
+        "feed_blocks": 0,
+        "ip_rules": [],
+        "lockouts": 0
+      },
+      "before": {
+        "attempts": 0,
+        "feed_blocks": 0,
+        "ip_rules": [],
+        "lockouts": 0
+      },
+      "table": "threat"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "DELETE /admin/threat/ip-rules/{id}"
+}

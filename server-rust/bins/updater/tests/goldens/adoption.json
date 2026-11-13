@@ -1,0 +1,36 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "stdout": "adopted release legacy-adopted-52620bbf98dde4c9d00a9e7a647f172b4e3525376b09669aa92f246f4ec8c599\n",
+    "current": "releases/legacy-adopted-52620bbf98dde4c9d00a9e7a647f172b4e3525376b09669aa92f246f4ec8c599",
+    "evidence": {
+      "schema_version": 1,
+      "release_id": "legacy-adopted-52620bbf98dde4c9d00a9e7a647f172b4e3525376b09669aa92f246f4ec8c599",
+      "database_schema": "<schema-version>",
+      "config_sha256": "380f39e98b982692b329bc562644f83ed856207204f26d230902cab93fa05989",
+      "artifacts": {
+        "authserverd": "efa345a0655185a788b05275a888ffd4bfb444e0d9b0a1c116a1626578267351",
+        "mailctl": "fe7ebd13d476293047629868c669ecded94d927e8a9ce38c79986a83f205d7bf",
+        "mailserverd": "6c75a1acd6bbe64d4b3761792f78663941d5bc5da93ff80ec8d7e81e5cc91e2f",
+        "setjoin-gateway": "814be467827d8d63d77193d4276f8b4b7174f2d918824f9aebe773a8ebf123cd",
+        "webmail": "7de75d2efbbd2efe84655d04cbf05c35a5c9673f8d4a0bbf244767deb42d82f6"
+      }
+    },
+    "modes": {
+      "webmail": 365,
+      "authserverd": 365,
+      "mailserverd": 365,
+      "adoption.json": 292,
+      "setjoin-gateway": 365,
+      "mailctl": 365,
+      "webmail/index.html": 292
+    },
+    "quarantine": [
+      "authserverd.prev",
+      "mailctl.prev",
+      "mailserverd.prev",
+      "setjoin-gateway.prev",
+      "webmail.prev"
+    ]
+  }
+}

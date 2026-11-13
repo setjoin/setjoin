@@ -1,0 +1,52 @@
+{
+  "case": "tampered",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "external_path": "/api/office/wopi/files/{id}/contents",
+      "headers": {
+        "x-setjoin-operation-key": "office1-save",
+        "x-wopi-lock": "office1-lock",
+        "x-wopi-override": "LOCK"
+      },
+      "method": "GET",
+      "path": "/office/wopi/files/{id}/contents",
+      "query": "access_token=<launch-token>"
+    },
+    "response": {
+      "body": "bad gateway\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "status": 502
+    },
+    "responses": [
+      {
+        "body": "bad gateway\n",
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "status": 502
+      }
+    ],
+    "storage": [
+      {
+        "body": "",
+        "content_type": "",
+        "copy_source": "",
+        "key": "mailblobs/drive/g/84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882",
+        "method": "GET",
+        "signature_valid": true
+      }
+    ]
+  },
+  "route": "GET /office/wopi/files/{id}/contents"
+}

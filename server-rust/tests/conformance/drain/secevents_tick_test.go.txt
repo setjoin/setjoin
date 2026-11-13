@@ -1,0 +1,76 @@
+// Recording-only overlay (#304): runs frozen Go's real secevents.Worker.Run for
+// one drain (the first drain is immediate; the 3 s ticker never fires inside
+// the 1.5 s context). GOFREE_SECEVENTS_SINK=none keeps Go's production posture
+// (nil sink, fully inert); "test" injects a sink that answers by event type:
+// sec.ok succeeds, sec.fail and sec.long return errors, sec.block waits for its
+// deadline, sec.steal bumps the row's claim_generation (a superseding claim). Every delivery is appended to GOFREE_SECEVENTS_LOG as a JSON line.
+package secevents
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+type goFreeSink struct {
+	log  *os.File
+	pool pgxutil.WorkerPool
+}
+
+func (s goFreeSink) Deliver(ctx context.Context, ev Event) error {
+	line, _ := json.Marshal(map[string]any{
+		"type": ev.EventType, "payload": string(ev.Payload), "attempts": ev.Attempts,
+	})
+	_, _ = s.log.Write(append(line, '\n'))
+	switch {
+	case strings.HasPrefix(ev.EventType, "sec.fail"):
+		return errors.New("sink refused " + ev.EventType)
+	case strings.HasPrefix(ev.EventType, "sec.long"):
+		return errors.New(strings.Repeat("x", 3000))
+	case strings.HasPrefix(ev.EventType, "sec.steal"):
+		// Another claimant bumps the generation mid-delivery: the late
+		// settlement must be a stale no-op.
+		_, err := s.pool.Exec(ctx, "UPDATE security_event_outbox SET claim_generation = claim_generation + 1 WHERE id = $1", ev.ID)
+		return err
+	case strings.HasPrefix(ev.EventType, "sec.block"):
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+
+func TestGoFreeSecEventsTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_SECEVENTS_DSN"), 2, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	var sink Sink
+	if os.Getenv("GOFREE_SECEVENTS_SINK") == "test" {
+		f, err := os.OpenFile(os.Getenv("GOFREE_SECEVENTS_LOG"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		sink = goFreeSink{log: f, pool: pgxutil.WorkerPool{Pool: pool}}
+	}
+	w := NewWorker(pgxutil.WorkerPool{Pool: pool}, sink, slog.Default())
+	if ms, _ := strconv.Atoi(os.Getenv("GOFREE_SECEVENTS_DEADLINE_MS")); ms > 0 {
+		w.SetDeliverDeadline(time.Duration(ms) * time.Millisecond)
+	}
+	if n, _ := strconv.Atoi(os.Getenv("GOFREE_SECEVENTS_BATCH")); n > 0 {
+		w.drainBatch = n
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	w.Run(runCtx)
+}

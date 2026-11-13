@@ -1,0 +1,120 @@
+-- content_purge.pg: content_purge_messages — the Content Search & Purge admin
+-- tool's destructive, PRIVILEGED hard-delete across mailboxes.
+--
+-- Authorization is now ROUTE-DECLARED: the calling Go route is gated on
+-- compliance.write (RequirePermAudited(PermComplianceWrite, …)) in main.go.
+-- The reducer no longer self-authorizes on admin_role / is_local_admin — that
+-- check has been removed as part of the RBAC unification (Task 5).
+--
+-- Contract under test:
+--   * NO admin-role gate in the reducer — any caller that reaches the function
+--     can purge (authorization is upstream at the route layer).
+--   * Hard-deletes messages ACROSS mailboxes (cross-tenant by design — this is
+--     the compliance purge tool), returning (deleted, held, not_found) counts.
+--   * SKIPS messages under litigation hold (messages.held = TRUE → the DELETE
+--     trigger raises BZ015, caught per-row and counted as held; the row
+--     survives).
+--   * Writes EXACTLY ONE admin_audit_log row for the whole batch, recording the
+--     affected mailbox_ids + counts.
+--
+-- ADR-003: every account comes from mk_account(), so user_id != mailbox_id by
+-- construction. content_purge keys on messages.id (its own namespace) and crosses
+-- mailboxes, so the divergent ids keep any stray user/mailbox confusion observable.
+BEGIN;
+SELECT plan(10);
+
+-- Two distinct victim mailboxes (the purge crosses both).
+CREATE TEMP TABLE _cp AS
+  SELECT mk_account('cpA') AS mbA, mk_account('cpB') AS mbB;
+
+-- A plain (non-admin) user — proves the reducer no longer gates on admin_role.
+-- (users.admin_role column was dropped by V017; authority is governed assignments only.)
+INSERT INTO users (id, username, domain_id, email, display_name, is_local_admin, enabled)
+VALUES (70951, 'cpnobody', (SELECT domain_id FROM mailboxes WHERE id = (SELECT mbA FROM _cp)),
+        'cpnobody@mk.test', 'CP Nobody', FALSE, TRUE);
+
+-- Messages: one normal in A, one normal in B, one HELD in A.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read, held)
+VALUES
+  (8401, (SELECT mbA FROM _cp), get_tag_id('Inbox', (SELECT mbA FROM _cp)), '<cp1@mk.test>', 'A1', 'x@ext.com', 100, 'thr-8401', 'raw-8401', now(), FALSE, FALSE),
+  (8402, (SELECT mbB FROM _cp), get_tag_id('Inbox', (SELECT mbB FROM _cp)), '<cp2@mk.test>', 'B1', 'x@ext.com', 100, 'thr-8402', 'raw-8402', now(), FALSE, FALSE),
+  (8403, (SELECT mbA FROM _cp), get_tag_id('Inbox', (SELECT mbA FROM _cp)), '<cp3@mk.test>', 'A-HELD', 'x@ext.com', 100, 'thr-8403', 'raw-8403', now(), FALSE, TRUE);
+
+-- ── Test 1: a non-admin p_admin_user_id no longer raises BZ001 — the route gate
+-- is the authority; the reducer accepts the call and performs the purge. ──
+-- (This invocation also drives Tests 2-6 which read the same _res table.)
+CREATE TEMP TABLE _res AS
+  SELECT * FROM content_purge_messages(ARRAY[8401, 8402, 8403, 999999]::BIGINT[],
+                                       'cpnobody', 'legal request 42', 70951);
+
+SELECT is((SELECT deleted_count   FROM _res), 2, 'two normal messages deleted (A1 + B1, across mailboxes)');
+SELECT is((SELECT held_count      FROM _res), 1, 'one litigation-held message SKIPPED (counted as held)');
+SELECT is((SELECT not_found_count FROM _res), 1, 'one unknown id counted as not_found');
+
+-- the two normal rows are gone...
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE id IN (8401, 8402)),
+  0,
+  'the two purged messages are hard-deleted across both mailboxes');
+
+-- ...and the HELD row survives (the trigger blocked its DELETE).
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE id = 8403),
+  1,
+  'the litigation-held message survives the purge');
+
+-- ── Test 2: a NULL p_admin_user_id also succeeds (no gate, param is advisory) ──
+-- Seed a fresh message to confirm the no-user-id path still purges.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read, held)
+VALUES (8404, (SELECT mbA FROM _cp), get_tag_id('Inbox', (SELECT mbA FROM _cp)), '<cp4@mk.test>', 'A2', 'x@ext.com', 100, 'thr-8404', 'raw-8404', now(), FALSE, FALSE);
+
+SELECT is(
+  (SELECT deleted_count FROM content_purge_messages(ARRAY[8404]::BIGINT[], 'system', 'batch-prune', NULL)),
+  1,
+  'NULL p_admin_user_id: purge succeeds (no gate applied)');
+
+-- ── Test 3: EXACTLY ONE audit row for the batch, with the right shape ──
+SELECT is(
+  (SELECT count(*)::INT FROM admin_audit_log
+     WHERE action = 'content_purge'
+       AND before_state->>'reason' = 'legal request 42'),
+  1,
+  'exactly one admin_audit_log row written for the batch');
+
+SELECT is(
+  (SELECT (before_state->>'deleted_count')::INT FROM admin_audit_log
+     WHERE action = 'content_purge' AND before_state->>'reason' = 'legal request 42'),
+  2,
+  'the audit row records the batch deleted_count');
+
+-- the audit row records BOTH affected mailboxes (cross-mailbox provenance).
+SELECT ok(
+  (SELECT (before_state->'mailbox_ids') @> to_jsonb((SELECT mbA FROM _cp))
+      AND (before_state->'mailbox_ids') @> to_jsonb((SELECT mbB FROM _cp))
+   FROM admin_audit_log WHERE action = 'content_purge' AND before_state->>'reason' = 'legal request 42'),
+  'the audit row records both affected mailbox ids');
+
+-- ── Test 4: a NON-litigation-hold error during DELETE must PROPAGATE, not be silently
+-- counted as held + reported as success. The old `EXCEPTION WHEN OTHERS` swallowed every
+-- error (OOM, constraint, permission, replication lag) as if it were a litigation hold;
+-- the fix catches ONLY BZ015. A BEFORE DELETE trigger that raises a non-BZ015 error on a
+-- sentinel row proves the purge now fails loudly. ──
+CREATE OR REPLACE FUNCTION _cp_boom() RETURNS trigger LANGUAGE plpgsql AS $boom$
+BEGIN
+  IF OLD.subject = 'CP-BOOM' THEN
+    RAISE EXCEPTION 'unexpected DELETE failure' USING ERRCODE = 'XX000';
+  END IF;
+  RETURN OLD;
+END $boom$;
+CREATE TRIGGER _cp_boom_trg BEFORE DELETE ON messages FOR EACH ROW EXECUTE FUNCTION _cp_boom();
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read, held)
+VALUES (8405, (SELECT mbA FROM _cp), get_tag_id('Inbox', (SELECT mbA FROM _cp)), '<cp5@mk.test>', 'CP-BOOM', 'x@ext.com', 100, 'thr-8405', 'raw-8405', now(), FALSE, FALSE);
+
+SELECT throws_ok(
+  $$ SELECT content_purge_messages(ARRAY[8405]::BIGINT[], 'system', 'boom', NULL) $$,
+  'XX000', NULL,
+  'a non-BZ015 DELETE error propagates (no longer swallowed + miscounted as held)');
+
+SELECT * FROM finish();
+ROLLBACK;

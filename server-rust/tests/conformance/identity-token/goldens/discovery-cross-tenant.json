@@ -1,0 +1,24 @@
+{
+  "case": "discovery-cross-tenant",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/.well-known/setjoin"
+    },
+    "response": {
+      "body": "{\"client_version\":\"https://auth.idlogin3.test/api/v1/version\",\"clients_base\":\"https://auth.idlogin3.test/clients\",\"jmap_session\":\"https://auth.idlogin3.test/jmap/session\",\"version\":\"2.5.0\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /.well-known/setjoin"
+}

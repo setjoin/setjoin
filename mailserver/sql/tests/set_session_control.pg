@@ -1,0 +1,164 @@
+-- set_session_control.pg — pgTAP: session_control validator + policy_session_view read-model.
+-- CA-3a Task 3 + confirmed-finding fixes:
+--   BZ098 on bad enum/unknown key/bad action verb/non-bool strict_location/bad sign_in_frequency,
+--   BZ081 on unknown policy_id, admin_audit_log written (CA-0b).
+BEGIN;
+SELECT plan(24);
+
+SELECT has_function(
+  'public', 'ca_policy_effective_action', ARRAY['jsonb'],
+  'shared effective-action extractor is loaded');
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('set_session_control(bigint,jsonb,jsonb,bigint,inet)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM ca_reachability_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('set_session_control(bigint,jsonb,jsonb,bigint,inet)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM ca_reachability_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('set_session_control(bigint,jsonb,jsonb,bigint,inet)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'FOR UPDATE'),
+  'loaded session-control reducer takes the reachability fence before its policy row lock');
+
+-- Seed domain + actor (admin_audit_log.user_id FK → users.id).
+INSERT INTO domains (id, name, is_local) VALUES (9200, 'sc.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (99001, 'sc_actor', 9200, 'actor@sc.test', 'Actor', TRUE)
+  ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_groups (id, name, sod_class)
+  VALUES (99101, 'sc-admin-role', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at)
+  VALUES (99001, 99101, NULL) ON CONFLICT DO NOTHING;
+INSERT INTO system_config (key, value) VALUES ('ca_break_glass_user_ids', '[]'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = '[]'::jsonb;
+
+-- Seed a policy to mutate.
+INSERT INTO conditional_access_policies (id, priority, name, enabled, scope_type, conditions, actions)
+VALUES (9100, 10, 'tst', TRUE, 'global', '{}'::jsonb, '{"action":"allow"}'::jsonb);
+
+-- Valid session_control + valid actions → stored.
+SELECT lives_ok(
+  $$ SELECT set_session_control(9100,
+       '{"action":"allow"}'::jsonb,
+       '{"sign_in_frequency":{"value":8,"unit":"hours"},"persistent_session":"never","idle_timeout_minutes":30,"require_token_binding":"report_only","strict_location":true,"cae":"enabled"}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'valid actions + session_control saved');
+SELECT is(
+  (SELECT session_control->>'persistent_session' FROM conditional_access_policies WHERE id=9100),
+  'never', 'session_control persisted');
+
+-- Invalid enum in session_control → BZ098.
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"allow"}'::jsonb,
+       '{"persistent_session":"sometimes"}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'bad persistent_session enum → BZ098');
+
+-- Unknown key in session_control → BZ098.
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"allow"}'::jsonb,
+       '{"bogus_key":1}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'unknown session_control key → BZ098');
+
+-- Invalid actions verb → BZ098 (same single validator).
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"teleport"}'::jsonb, '{}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'unknown action verb → BZ098');
+
+-- Read-model merges both.
+SELECT is(
+  (SELECT policy_session_view(9100)->>'persistent_session'),
+  'never', 'policy_session_view exposes persistent_session');
+
+-- strict_location must be a JSON boolean, not a string — BZ098.
+-- A stored string causes a runtime ::bool cast error in policy_session_view on every read.
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"allow"}'::jsonb,
+       '{"strict_location":"yes"}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'strict_location non-boolean string → BZ098');
+
+-- sign_in_frequency must be {value:<number>,unit:"hours"|"days"} — BZ098.
+-- Enforcement engine reads .unit; a garbage shape silently skips the restriction (fail-open).
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"allow"}'::jsonb,
+       '{"sign_in_frequency":"garbage"}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'sign_in_frequency non-object → BZ098');
+
+-- Unknown policy_id → BZ081 (not a silent no-op + spurious notify).
+SELECT throws_ok(
+  $$ SELECT set_session_control(99999, '{"action":"allow"}'::jsonb, '{}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ081', NULL, 'nonexistent policy_id → BZ081');
+
+-- CA-0b: admin_audit_log row written for the successful write above.
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_audit_log
+           WHERE action = 'ca_session_control_update'
+             AND target_type = 'conditional_access_policy'
+             AND target_id = 9100),
+  'admin_audit_log row written (CA-0b)');
+
+-- Fix 3: require_strength is now a valid action verb (previously rejected with BZ098).
+SELECT lives_ok(
+  $$ SELECT set_session_control(9100, '{"action":"require_strength"}'::jsonb, '{}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'require_strength is a valid action verb (Fix 3)');
+
+-- Fix 7: non-integer idle_timeout_minutes → BZ098 (not PostgreSQL 22P02 → 500).
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100, '{"action":"allow"}'::jsonb,
+       '{"idle_timeout_minutes":"not-a-number"}'::jsonb,
+       99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'non-integer idle_timeout_minutes → BZ098 (Fix 7)');
+
+-- Canonical/schema-v1 discriminator parity across write validation and view.
+SELECT lives_ok(
+  $$ SELECT set_session_control(9100,
+       '{"operator":"all","grants":[{"type":"limited_web"}]}'::jsonb,
+       '{}'::jsonb, 99001, '127.0.0.1'::inet) $$,
+  'canonical nested type is accepted');
+SELECT is(policy_session_view(9100)->>'action', 'limited_web',
+  'session view extracts canonical nested type');
+SELECT is(policy_session_view(9100)->>'limited_web', 'true',
+  'session view limited_web flag uses the shared extractor');
+
+SELECT lives_ok(
+  $$ SELECT set_session_control(9100,
+       '{"operator":"all","grants":[{"action":"notify"}]}'::jsonb,
+       '{}'::jsonb, 99001, '127.0.0.1'::inet) $$,
+  'schema-v1 nested action is accepted');
+SELECT is(policy_session_view(9100)->>'action', 'notify',
+  'session view extracts schema-v1 nested action');
+
+SELECT lives_ok(
+  $$ SELECT set_session_control(9100,
+       '{"operator":"all","grants":[{"type":"require_strength","action":"require_strength"}]}'::jsonb,
+       '{}'::jsonb, 99001, '127.0.0.1'::inet) $$,
+  'matching dual nested discriminators are accepted');
+SELECT is(policy_session_view(9100)->>'action', 'require_strength',
+  'session view extracts matching dual discriminator');
+
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100,
+       '{"operator":"all","grants":[{"type":"allow","action":"block"}]}'::jsonb,
+       '{}'::jsonb, 99001, '127.0.0.1'::inet) $$,
+  'BZ098', NULL, 'conflicting nested discriminators fail closed');
+
+-- Standalone writes preserve the lockout floor and leave the row unchanged.
+SELECT throws_ok(
+  $$ SELECT set_session_control(9100,
+       '{"operator":"all","grants":[{"type":"block"}]}'::jsonb,
+       '{}'::jsonb, 99001, '127.0.0.1'::inet) $$,
+  'BZ080', NULL, 'standalone canonical block update runs ca_lockout_guard');
+SELECT is(policy_session_view(9100)->>'action', 'require_strength',
+  'failed standalone lockout update leaves actions unchanged');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of audit verify-chain:\n  -from int\n    \tStart row ID (inclusive; 0 = from the beginning)\n  -to int\n    \tEnd row ID (inclusive; 0 = to the end)\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

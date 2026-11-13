@@ -1,0 +1,57 @@
+-- pgTAP coverage for the lockout_escalate audit + notify pairing
+-- (D-AUTHSERVER-SQL-REDUCERS-003): every lock-ARMING (threshold-crossing)
+-- call writes an audit_log row in the SAME transaction — the pg_notify half
+-- rides trg_audit_log_notify, whose presence on the live table is asserted
+-- below — while sub-threshold failures and the first-failure insert branch
+-- stay audit-silent. The escalated metadata records the identity key, the
+-- post-increment failure count, the new level, and the armed window.
+BEGIN;
+SELECT plan(7);
+
+-- The notify seam: the escalation audit row notifies via this live trigger.
+SELECT is(
+    (SELECT COUNT(*) FROM pg_trigger
+      WHERE tgrelid = 'audit_log'::regclass
+        AND tgname = 'trg_audit_log_notify'
+        AND NOT tgisinternal),
+    1::bigint,
+    'audit_log carries trg_audit_log_notify — the escalation audit INSERT notifies atomically');
+
+-- Fresh key: the first (sub-threshold) failure takes the insert branch and
+-- must stay audit-silent.
+SELECT is(lockout_escalate('ip:203.0.113.171', 5), 0,
+    'first failure creates the row at level 0 (insert branch, no lock armed)');
+SELECT is(
+    (SELECT COUNT(*) FROM audit_log WHERE metadata->>'lockout_key' = 'ip:203.0.113.171'),
+    0::bigint,
+    'sub-threshold / first-failure calls write NO audit row');
+
+-- Crossing the threshold (threshold 1 on the existing count-1 row) arms the
+-- lock AND writes the escalation audit row, carrying the key, post-increment
+-- count, new level, and armed window.
+SELECT is(lockout_escalate('ip:203.0.113.171', 1), 1,
+    'threshold-crossing call escalates to level 1');
+SELECT is(
+    (SELECT COUNT(*) FROM audit_log
+      WHERE event_type = 'lockout_escalate'
+        AND user_id IS NULL
+        AND metadata->>'lockout_key' = 'ip:203.0.113.171'
+        AND (metadata->>'failed_count')::int = 2
+        AND (metadata->>'escalation_level')::int = 1
+        AND (metadata->>'locked_until')::timestamptz > now()),
+    1::bigint,
+    'lock-arming call wrote the lockout_escalate audit row (atomic with the state bump)');
+
+-- A later failure on the armed row escalates further (level 2) and re-arms —
+-- its own audit row must land too.
+SELECT is(lockout_escalate('ip:203.0.113.171', 1), 2,
+    'failure on an armed lock escalates to level 2 and re-arms');
+SELECT is(
+    (SELECT COUNT(*) FROM audit_log
+      WHERE event_type = 'lockout_escalate'
+        AND metadata->>'lockout_key' = 'ip:203.0.113.171'),
+    2::bigint,
+    'each lock-arming call wrote its own audit row');
+
+SELECT * FROM finish();
+ROLLBACK;

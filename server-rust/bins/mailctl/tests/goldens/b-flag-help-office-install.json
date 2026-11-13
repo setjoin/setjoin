@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of office install:\n  -generation int\n    \texpected inactive provider generation\n  -idempotency-key string\n    \tcanonical UUID; generated when omitted\n  -ingress string\n    \tingress configuration JSON (default \"{}\")\n  -profile string\n    \tmanaged ingress profile (default \"managed-customer-proxy\")\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\nError: usage: mailctl office install --generation N --profile managed-customer-proxy --ingress JSON --reason TEXT --yes\n",
+  "exit": 1
+}

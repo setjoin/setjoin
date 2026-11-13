@@ -1,0 +1,9 @@
+go 1.26.6
+
+use (
+	./authserver
+	./mailctl
+	./mailserver
+	./shared
+	./tools/setjoin-release
+)

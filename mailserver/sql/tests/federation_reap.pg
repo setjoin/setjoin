@@ -1,0 +1,283 @@
+-- federation_reap.pg — Pillar C2 Task 8 Steps 3/4: the federation_inbox/
+-- federation_outbox residue reaper (federation_reap) and the outbox purge
+-- scrub (federation_outbox_redact_purged), called from chat_purge_expired's
+-- destroy leg. Requires: V140 (federated_origin_domain/federated_room_id),
+-- federation_reap.sql, federation_outbox_redact_purged.sql,
+-- chat_purge_expired.sql (C2 Task 8 Step 4 call site), federation_room_
+-- create.sql (C2 Task 2), chat_channel.sql.
+--
+-- Step 2 (the cursor-regression guard) is covered in
+-- federation_chat_inbound.pg / federation_room_inbound.pg (it lives in the
+-- three federation_apply_* reducers, not in the reaper itself) — this file
+-- covers ONLY Steps 3 and 4.
+BEGIN;
+SELECT plan(37);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_reap: inbox + outbox residue reaping
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_inbox_cursor (peer_domain, last_applied_seq) VALUES ('reap-a.test', 5);
+INSERT INTO federation_inbox (peer_domain, peer_seq, stanza_id, content_type, payload, applied_at)
+  VALUES
+    ('reap-a.test', 1, 's1', 'application/x-setjoin-chat', '{}', now() - interval '10 days'),
+    ('reap-a.test', 2, 's2', 'application/x-setjoin-chat', '{}', now() - interval '1 day');
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('reap-a.test', 3, 3);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, acked_at)
+  VALUES
+    ('reap-a.test', 1, 'o1', 'application/x-setjoin-chat', '{}', now() - interval '10 days'),
+    ('reap-a.test', 2, 'o2', 'application/x-setjoin-chat', '{}', now() - interval '1 day'),
+    ('reap-a.test', 3, 'o3', 'application/x-setjoin-chat', '{}', NULL);
+
+SELECT is((federation_reap('7 days') ->> 'inboxReaped')::int, 1,
+  'federation_reap reaps exactly the one applied_at-older-than-7-days inbox row');
+SELECT is((SELECT count(*)::int FROM federation_inbox WHERE peer_domain = 'reap-a.test'), 1,
+  'the young (1-day-old) inbox row survives');
+SELECT is((SELECT count(*)::int FROM federation_inbox WHERE peer_domain = 'reap-a.test' AND stanza_id = 's2'), 1,
+  'specifically the young row (s2) survives, not an arbitrary one');
+
+-- second call: nothing left to reap (idempotent, no error on an empty set).
+SELECT is((federation_reap('7 days') ->> 'inboxReaped')::int, 0,
+  'a second federation_reap call finds nothing left to reap (idempotent)');
+
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'reap-a.test'), 2,
+  'outbox reap already ran alongside the inbox reap above — only the acked+young and the unacked rows survive');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'reap-a.test' AND stanza_id = 'o1'), 0,
+  'the old ACKED outbox row (o1) was reaped');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'reap-a.test' AND stanza_id = 'o2'), 1,
+  'the young ACKED outbox row (o2) survives');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'reap-a.test' AND stanza_id = 'o3'), 1,
+  'the UNACKED outbox row (o3) survives regardless of age — never legally resent below last_acked_seq, so it must stay live');
+
+-- an old, still-UNACKED row must never be reaped no matter how old (the
+-- sender may still legitimately resend it) — a fresh peer proves this in
+-- isolation from the §1 fixture above.
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('reap-stale-unacked.test', 1, 0);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, created_at, acked_at)
+  VALUES ('reap-stale-unacked.test', 1, 'o-old-unacked', 'application/x-setjoin-chat', '{}', now() - interval '30 days', NULL);
+SELECT federation_reap('7 days');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'reap-stale-unacked.test'), 1,
+  'a 30-day-old UNACKED outbox row survives federation_reap regardless of age');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 federation_outbox_redact_purged: no-op shapes
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97001, 'reap-plain-channel') AS ch_plain \gset
+SELECT is(federation_outbox_redact_purged(:ch_plain, '[{"origin":null,"key":"1"}]'::jsonb), 0,
+  'a non-federated channel: federation_outbox_redact_purged is a no-op (returns 0), never an error');
+SELECT is(federation_outbox_redact_purged(:ch_plain, NULL), 0,
+  'a NULL p_origin_keys is a no-op');
+SELECT is(federation_outbox_redact_purged(:ch_plain, '[]'::jsonb), 0,
+  'an empty p_origin_keys array is a no-op');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 federation_outbox_redact_purged: federated-DM shape
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO chat_channels (kind, federated_peer_domain, federated_remote_id, federated_local_key, member_key, created_by)
+  VALUES ('dm', 'dmpeer.test', 'bob@dmpeer.test', 'dmscrubkey1', NULL, 97002)
+  RETURNING id AS ch_dm \gset
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('dmpeer.test', 2, 0);
+-- the LOCAL author's own sent message (clientMsgId = its own id): the only
+-- shape a DM channel's outbox rows can ever carry (a remote-origin DM body
+-- never gets its own outbox copy — DMs never relay).
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('dmpeer.test', 1, 'dm-local-1',
+          'application/x-setjoin-chat', '{"fromAddr":"alice@local.test","toAddr":"bob@dmpeer.test","body":"secret dm body","clientMsgId":"dm-local-1"}'::jsonb);
+-- a decoy row on a DIFFERENT peer_domain must never be touched.
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('other-peer.test', 1, 0);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('other-peer.test', 1, 'dm-local-1',
+          'application/x-setjoin-chat', '{"fromAddr":"alice@local.test","toAddr":"carol@other-peer.test","body":"unrelated body","clientMsgId":"dm-local-1"}'::jsonb);
+
+SELECT is(federation_outbox_redact_purged(:ch_dm, '[{"origin":null,"key":"dm-local-1"}]'::jsonb), 1,
+  'DM shape: redacts exactly the one matching (peer_domain, clientMsgId) row');
+SELECT is((SELECT payload FROM federation_outbox WHERE peer_domain = 'dmpeer.test' AND stanza_id = 'dm-local-1'),
+  '{"op":null,"roomId":null,"redacted":true,"clientMsgId":"dm-local-1"}'::jsonb,
+  'the redacted payload matches the funnel''s shape — body/fromAddr/toAddr are gone');
+SELECT is((SELECT payload ->> 'body' FROM federation_outbox WHERE peer_domain = 'other-peer.test' AND stanza_id = 'dm-local-1'),
+  'unrelated body',
+  'a same-clientMsgId row on a DIFFERENT peer_domain is untouched (peer_domain-scoped matching)');
+
+-- idempotent: a second call finds nothing left to redact.
+SELECT is(federation_outbox_redact_purged(:ch_dm, '[{"origin":null,"key":"dm-local-1"}]'::jsonb), 0,
+  'a second redact call on an already-redacted row is a no-op (idempotent)');
+
+-- a remote-origin pair against a DM channel matches nothing (a DM never
+-- relays, so there is no such outbox row to find — proves the DM arm's
+-- "NULL-origin pairs ONLY" restriction is enforced, not just documented).
+-- Proven against a LIVE, unredacted candidate row — the OLD version of this
+-- test ran the remote-origin call against 'dm-local-1', which line 93 above
+-- had ALREADY redacted; "matches zero rows" was true even with a broken
+-- `d.origin IS NULL` conjunct removed, because there was nothing left to
+-- match either way (mutant-killer #1, C2 Task 8 review). A fresh, still-live
+-- clientMsgId 'X' closes that gap.
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('dmpeer.test', 2, 'dm-live-X', 'application/x-setjoin-chat',
+          '{"fromAddr":"alice@local.test","toAddr":"bob@dmpeer.test","body":"still live dm body","clientMsgId":"X"}'::jsonb);
+SELECT is(federation_outbox_redact_purged(:ch_dm, '[{"origin":"dmpeer.test","key":"X"}]'::jsonb), 0,
+  'a remote-origin pair against a DM channel matches zero rows even against a LIVE candidate (DM outbox rows are never remote-origin)');
+SELECT is((SELECT payload FROM federation_outbox WHERE peer_domain = 'dmpeer.test' AND stanza_id = 'dm-live-X'),
+  '{"fromAddr":"alice@local.test","toAddr":"bob@dmpeer.test","body":"still live dm body","clientMsgId":"X"}'::jsonb,
+  'the live DM row is byte-identical after the remote-origin no-op call — the DM arm never touched it');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 federation_outbox_redact_purged: room-bound HUB shape + THE
+-- CROSS-ORIGIN PROOF (the confirm review's bravo-42/charlie-42 scenario)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97003, 'reap-hub-room') AS ch_hub \gset
+SELECT federation_room_create(97003, :ch_hub, 'alpha.test') AS room_hub \gset
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('bravo.test', 1, 0);
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('charlie.test', 1, 0);
+
+-- bravo's msg 42 and charlie's msg 42: the SAME clientMsgId string, from
+-- TWO DIFFERENT origins, both relayed by this hub to (in this fixture)
+-- each other — exactly the V140 dedup-fix collision shape, now proven at
+-- the purge-scrub layer too.
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('charlie.test', 1, 'relay-bravo-42', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', :'room_hub', 'clientMsgId', '42',
+                              'originDomain', 'bravo.test', 'body', 'bravo says hi'));
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('bravo.test', 1, 'relay-charlie-42', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', :'room_hub', 'clientMsgId', '42',
+                              'originDomain', 'charlie.test', 'body', 'charlie says hi'));
+-- the hub's OWN send (origin NULL -> stamped with the hub's own domain,
+-- alpha.test) fanned to both members, clientMsgId '99' (this hub's own
+-- local chat_messages.id) — proves the hub-authored (NULL-origin pair)
+-- match arm alongside the two relayed rows above.
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('bravo.test', 2, 'hub-own-99', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', :'room_hub', 'clientMsgId', '99',
+                              'originDomain', 'alpha.test', 'body', 'hub says hi'));
+
+-- purge ONLY bravo's message (origin='bravo.test', key='42').
+SELECT is(federation_outbox_redact_purged(:ch_hub, '[{"origin":"bravo.test","key":"42"}]'::jsonb), 1,
+  'hub shape: purging ONLY bravo-origin stanza 42 redacts exactly one outbox row');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'relay-bravo-42')::boolean, true,
+  'bravo''s relayed copy (to charlie) is redacted');
+SELECT is((SELECT payload FROM federation_outbox WHERE stanza_id = 'relay-charlie-42'),
+  jsonb_build_object('op', 'message', 'roomId', :'room_hub', 'clientMsgId', '42',
+                      'originDomain', 'charlie.test', 'body', 'charlie says hi'),
+  'THE CROSS-ORIGIN PROOF: charlie''s payload (SAME clientMsgId ''42'', different origin) is byte-identical — untouched');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'hub-own-99'), NULL,
+  'the hub''s own unrelated send (clientMsgId 99) is untouched');
+
+-- now purge the hub's own send (origin NULL -> matches the hub_domain-
+-- stamped row via the COALESCE(pair origin, hub_domain) rule).
+SELECT is(federation_outbox_redact_purged(:ch_hub, '[{"origin":null,"key":"99"}]'::jsonb), 1,
+  'hub shape: a NULL-origin pair (hub-authored) matches the row stamped with the hub''s own domain');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'hub-own-99')::boolean, true,
+  'the hub-authored row is now redacted too');
+-- charlie's still-live copy proves this second call didn't touch it either.
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'relay-charlie-42'), NULL,
+  'charlie''s copy is STILL byte-identical after a second, unrelated redact call');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4b federation_outbox_redact_purged: hub-arm roomId belt (mutant-killer
+-- #3, C2 Task 8 review) — a SECOND room on the SAME hub with a decoy row
+-- sharing the same origin+key shape must survive. Confirms the hub arm's
+-- existing `fo.payload->>'roomId' = v_room_id` conjunct actually does the
+-- work (origin+key alone would be enough IF origin+key were guaranteed
+-- unique per origin, but the belt is one line and cheap insurance).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97006, 'reap-hub-room-2') AS ch_hub2 \gset
+SELECT federation_room_create(97006, :ch_hub2, 'alpha.test') AS room_hub2 \gset
+
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('bravo.test', 3, 'other-room-decoy-55', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', :'room_hub2', 'clientMsgId', '55', 'originDomain', 'bravo.test', 'body', 'decoy in the OTHER hub room'));
+
+SELECT is(federation_outbox_redact_purged(:ch_hub, '[{"origin":"bravo.test","key":"55"}]'::jsonb), 0,
+  'hub roomId belt: a same-origin/same-key row that lives in a DIFFERENT room on this hub is not matched');
+SELECT is((SELECT payload ->> 'body' FROM federation_outbox WHERE stanza_id = 'other-room-decoy-55'), 'decoy in the OTHER hub room',
+  'the other room''s decoy row is untouched');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 federation_outbox_redact_purged: room-bound SPOKE shape
+-- ══════════════════════════════════════════════════════════════════════
+-- Direct fixture (federation_apply_room, the reducer that would normally
+-- create this shape on a real spoke, is Task 4 — a parallel, not-yet-landed
+-- task): a spoke mirror channel is federated_room_id set + federated_peer_
+-- domain set to the hub (V140's chat_channels_room_shape_ck).
+INSERT INTO chat_channels (kind, name, federated_room_id, federated_peer_domain, created_by)
+  VALUES ('channel', 'reap-spoke-mirror', 'spokeroom1@hub-x.test', 'hub-x.test', 97004)
+  RETURNING id AS ch_spoke \gset
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id)
+  VALUES ('spokeroom1@hub-x.test', 'hub-x.test', :ch_spoke);
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('hub-x.test', 1, 0);
+-- the spoke's OWN send to the hub (no originDomain in the payload — the hub
+-- stamps that, never the spoke).
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('hub-x.test', 1, 'spoke-own-7', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', 'spokeroom1@hub-x.test', 'clientMsgId', '7', 'body', 'spoke says hi'));
+
+SELECT is(federation_outbox_redact_purged(:ch_spoke, '[{"origin":null,"key":"7"}]'::jsonb), 1,
+  'spoke shape: redacts its own outbox row by clientMsgId alone (no originDomain to match — a spoke never relays)');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'spoke-own-7')::boolean, true,
+  'the spoke''s own send is redacted');
+
+-- a remote-origin pair must be EXCLUDED on the spoke arm (a spoke never
+-- enqueues a remote-origin body — matching one would risk a foreign id-space
+-- collision against a local clientMsgId).
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('hub-x.test', 2, 'spoke-decoy-8', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', 'spokeroom1@hub-x.test', 'clientMsgId', '8', 'body', 'must survive'));
+SELECT is(federation_outbox_redact_purged(:ch_spoke, '[{"origin":"charlie.test","key":"8"}]'::jsonb), 0,
+  'spoke shape: a remote-origin pair matches nothing (the spoke arm excludes remote-origin pairs by design)');
+SELECT is((SELECT payload ->> 'body' FROM federation_outbox WHERE stanza_id = 'spoke-decoy-8'), 'must survive',
+  'the decoy row is untouched');
+
+-- mutant-killer #2 (C2 Task 8 review, the BLOCKER-1 scenario): this SAME org
+-- can ALSO be the HUB of a DIFFERENT room whose roster includes this SAME
+-- peer (hub-x.test) — that room's own fan-out would write an outbox row to
+-- hub-x.test with a COLLIDING clientMsgId (chat_messages.id is one global
+-- bigserial per org, not per-room), a DIFFERENT roomId, and (unlike a
+-- spoke's own send) an originDomain stamp. Both belts together must keep
+-- the spoke arm from redacting it.
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('hub-x.test', 3, 'spoke-own-coll', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', 'spokeroom1@hub-x.test', 'clientMsgId', 'coll1', 'body', 'spoke says hi again'));
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('hub-x.test', 4, 'other-room-relay-coll', 'application/x-setjoin-room',
+          jsonb_build_object('op', 'message', 'roomId', 'otherroom@alpha.test', 'clientMsgId', 'coll1', 'originDomain', 'someone-else.test', 'body', 'unrelated other-room relay'));
+
+SELECT is(federation_outbox_redact_purged(:ch_spoke, '[{"origin":null,"key":"coll1"}]'::jsonb), 1,
+  'spoke shape: a colliding clientMsgId fanned to the same peer from a DIFFERENT room (this org as HUB there) does not get swept up — only the intended row is redacted');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE stanza_id = 'spoke-own-coll')::boolean, true,
+  'the intended spoke-own row IS redacted');
+SELECT is((SELECT payload FROM federation_outbox WHERE stanza_id = 'other-room-relay-coll'),
+  jsonb_build_object('op', 'message', 'roomId', 'otherroom@alpha.test', 'clientMsgId', 'coll1', 'originDomain', 'someone-else.test', 'body', 'unrelated other-room relay'),
+  'THE DUAL-ROLE CROSS-ORG PROOF: the other-room relay with a colliding clientMsgId is byte-identical — untouched by the roomId+originDomain belts');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 integration: chat_purge_expired actually calls the scrub (Step 4's
+-- "ONE new call site at the existing choke point")
+-- ══════════════════════════════════════════════════════════════════════
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+INSERT INTO chat_channels (kind, federated_peer_domain, federated_remote_id, federated_local_key, member_key, created_by, retention_days)
+  VALUES ('dm', 'purgedm.test', 'dave@purgedm.test', 'purgedmkey1', NULL, 97005, 1)
+  RETURNING id AS ch_purge_dm \gset
+
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_dm, 1, 97005, 'old outgoing dm body', now() - interval '3 days')
+  RETURNING id AS purge_msg_id \gset
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('purgedm.test', 1, 0);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('purgedm.test', 1, :'purge_msg_id',
+          'application/x-setjoin-chat', jsonb_build_object('fromAddr', 'eve@local.test', 'toAddr', 'dave@purgedm.test',
+                                                            'body', 'old outgoing dm body', 'clientMsgId', :'purge_msg_id'));
+
+SELECT is((SELECT count(*)::int FROM chat_purge_expired(1000, FALSE) WHERE channel_id = :ch_purge_dm), 1,
+  'chat_purge_expired reports a real purge on the federated DM channel');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE id = :purge_msg_id::bigint), 0,
+  'the purged message is gone from chat_messages (unchanged A4a behavior)');
+SELECT is((SELECT payload ->> 'redacted' FROM federation_outbox WHERE peer_domain = 'purgedm.test' AND stanza_id = :'purge_msg_id')::boolean, true,
+  'chat_purge_expired''s real destroy pass redacted the matching federation_outbox row via the new call site — the "compliance for free" gap is closed');
+
+SELECT * FROM finish();
+ROLLBACK;

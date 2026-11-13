@@ -1,0 +1,395 @@
+{
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "metric": "Go statement coverage from the pinned -cover mailserverd; Rust line/region coverage is measured by check-server-rust.sh",
+  "go_functions": [
+    {
+      "file": "setjoin.com/mailserver/internal/drive/access_sync.go",
+      "line": 34,
+      "function": "*Handler.accessInvalidations",
+      "statements_percent": 95.7
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/access_sync.go",
+      "line": 68,
+      "function": "*Handler.visibilitySnapshot",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/chunks.go",
+      "line": 109,
+      "function": "*Handler.headChunk",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/chunks.go",
+      "line": 181,
+      "function": "*Handler.putChunk",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/chunks.go",
+      "line": 300,
+      "function": "StageChunk",
+      "statements_percent": 93.8
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/chunks.go",
+      "line": 346,
+      "function": "CommitStagedChunk",
+      "statements_percent": 77.8
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/chunks.go",
+      "line": 374,
+      "function": "CommitStagedChunkBound",
+      "statements_percent": 66.7
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/content.go",
+      "line": 290,
+      "function": "*Handler.auditDedup",
+      "statements_percent": 87.5
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/members.go",
+      "line": 25,
+      "function": "*Handler.listMembers",
+      "statements_percent": 92.3
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/members.go",
+      "line": 75,
+      "function": "*Handler.grantMember",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/members.go",
+      "line": 112,
+      "function": "*Handler.revokeMember",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 38,
+      "function": "*Handler.requireNameMutationRate",
+      "statements_percent": 77.8
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 56,
+      "function": "*Handler.createNode",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 84,
+      "function": "*Handler.patchNode",
+      "statements_percent": 97.3
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 139,
+      "function": "*Handler.trashNode",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 142,
+      "function": "*Handler.restoreNode",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 149,
+      "function": "*Handler.destroyNode",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes.go",
+      "line": 155,
+      "function": "*Handler.nodeAction",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/nodes_meta.go",
+      "line": 68,
+      "function": "*Handler.nodesMeta",
+      "statements_percent": 85.7
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/preview.go",
+      "line": 363,
+      "function": "*Handler.previewMetaAndManifest",
+      "statements_percent": 91.3
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/preview.go",
+      "line": 423,
+      "function": "*Handler.getPreview",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/spaces.go",
+      "line": 47,
+      "function": "*Handler.listSpaces",
+      "statements_percent": 88.5
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/spaces.go",
+      "line": 105,
+      "function": "*Handler.listSpacesAdmin",
+      "statements_percent": 83.7
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/spaces.go",
+      "line": 188,
+      "function": "*Handler.createSpace",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/spaces.go",
+      "line": 223,
+      "function": "*Handler.patchSpace",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/spaces.go",
+      "line": 279,
+      "function": "*Handler.execSetPolicy",
+      "statements_percent": 100.0
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/tree.go",
+      "line": 44,
+      "function": "*Handler.tree",
+      "statements_percent": 89.3
+    },
+    {
+      "file": "setjoin.com/mailserver/internal/drive/tree.go",
+      "line": 156,
+      "function": "*Handler.changes",
+      "statements_percent": 100.0
+    }
+  ],
+  "case_matrix": {
+    "GET /drive/access-invalidations": [
+      "access_invalidations-bad-cursor-state",
+      "access_invalidations-foreign-state-v2",
+      "access_invalidations-invalid-state-v2",
+      "access_invalidations-missing-space-state",
+      "access_invalidations-success-state-v2",
+      "access_invalidations-success"
+    ],
+    "GET /drive/changes": [
+      "changes-foreign-state-v2",
+      "changes-invalid-state-v2",
+      "changes-missing-space-state",
+      "changes-resync-state",
+      "changes-success-state-v2",
+      "changes-success"
+    ],
+    "POST /drive/nodes": [
+      "create_node-foreign-state-v2",
+      "create_node-invalid-state-v2",
+      "create_node-json-oversize-state",
+      "create_node-json-trailer-state",
+      "create_node-locale-state",
+      "create_node-rate-state",
+      "create_node-repeat-state",
+      "create_node-success-state-v2",
+      "create_node-success"
+    ],
+    "POST /drive/spaces": [
+      "create_space-foreign-state-v2",
+      "create_space-invalid-state-v2",
+      "create_space-overflow-state",
+      "create_space-repeat-state",
+      "create_space-success-state-v2",
+      "create_space-success"
+    ],
+    "DELETE /drive/nodes/{id}": [
+      "destroy_node-foreign-state-v2",
+      "destroy_node-invalid-state-v2",
+      "destroy_node-repeat-state",
+      "destroy_node-success-state-v2",
+      "destroy_node-success"
+    ],
+    "POST /drive/spaces/{id}/members": [
+      "grant_member-bad-id-state",
+      "grant_member-folder-invalid-state",
+      "grant_member-folder-state",
+      "grant_member-foreign-state-v2",
+      "grant_member-foreign",
+      "grant_member-invalid-state-v2",
+      "grant_member-repeat-state",
+      "grant_member-success-state-v2",
+      "grant_member-success"
+    ],
+    "HEAD /drive/chunks/{sha256}": [
+      "head_chunk-bad-binding-state",
+      "head_chunk-bound-state",
+      "head_chunk-foreign-state-v2",
+      "head_chunk-invalid-state-v2",
+      "head_chunk-missing-space-state",
+      "head_chunk-query-failure-state",
+      "head_chunk-success-state-v2",
+      "head_chunk-success"
+    ],
+    "GET /drive/spaces/{id}/members": [
+      "list_members-foreign-state-v2",
+      "list_members-invalid-state-v2",
+      "list_members-query-failure-state",
+      "list_members-success-state-v2",
+      "list_members-success"
+    ],
+    "GET /drive/spaces": [
+      "list_spaces-admin-denied-state",
+      "list_spaces-admin-state",
+      "list_spaces-foreign-state-v2",
+      "list_spaces-invalid-state-v2",
+      "list_spaces-permission-failure-state",
+      "list_spaces-query-failure-state",
+      "list_spaces-repeat-state",
+      "list_spaces-success-state-v2",
+      "list_spaces-success",
+      "list_spaces-worker-query-failure-state",
+      "list_spaces-worker-row-failure-state",
+      "list_spaces-worm-failure-state"
+    ],
+    "GET /drive/nodes": [
+      "nodes_meta-deleted-node-state",
+      "nodes_meta-foreign-state-v2",
+      "nodes_meta-invalid-state-v2",
+      "nodes_meta-query-failure-state",
+      "nodes_meta-success-state-v2",
+      "nodes_meta-success",
+      "nodes_meta-too-many-state"
+    ],
+    "PATCH /drive/nodes/{id}": [
+      "patch_node-bad-name-state",
+      "patch_node-bad-parent-state",
+      "patch_node-empty-patch-state",
+      "patch_node-encoded-id-state",
+      "patch_node-foreign-state-v2",
+      "patch_node-invalid-state-v2",
+      "patch_node-move-failure-state",
+      "patch_node-rate-state",
+      "patch_node-repeat-state",
+      "patch_node-success-state-v2",
+      "patch_node-success",
+      "patch_node-utf8-id-state"
+    ],
+    "PATCH /drive/spaces/{id}": [
+      "patch_space-bad-classification-state",
+      "patch_space-bad-id-state",
+      "patch_space-bad-quota-state",
+      "patch_space-bad-retention-state",
+      "patch_space-bad-vault-state",
+      "patch_space-bad-worm-state",
+      "patch_space-empty-patch-state",
+      "patch_space-foreign-state-v2",
+      "patch_space-invalid-state-v2",
+      "patch_space-policy-state",
+      "patch_space-quota-admin-state",
+      "patch_space-quota-state",
+      "patch_space-repeat-state",
+      "patch_space-success-state-v2",
+      "patch_space-success"
+    ],
+    "GET /drive/versions/{id}/preview": [
+      "preview-audit-failure-state",
+      "preview-audited-state",
+      "preview-bad-range-state",
+      "preview-foreign-state-v2",
+      "preview-invalid-state-v2",
+      "preview-pending-state",
+      "preview-query-failure-state",
+      "preview-range-state",
+      "preview-repeat-state",
+      "preview-request-failure-state",
+      "preview-revoked-audit-state",
+      "preview-success-state-v2",
+      "preview-success"
+    ],
+    "PUT /drive/chunks/{sha256}": [
+      "put_chunk-bad-binding-state",
+      "put_chunk-bound-state",
+      "put_chunk-empty-state",
+      "put_chunk-foreign-state-v2",
+      "put_chunk-invalid-state-v2",
+      "put_chunk-mismatch-state",
+      "put_chunk-missing-space-state",
+      "put_chunk-oversize-state",
+      "put_chunk-register-failure-state",
+      "put_chunk-repeat-state",
+      "put_chunk-storage-copy-denied-state",
+      "put_chunk-storage-init-denied-state",
+      "put_chunk-success-state-v2",
+      "put_chunk-success"
+    ],
+    "POST /drive/nodes/{id}/restore": [
+      "restore_node-foreign-state-v2",
+      "restore_node-invalid-state-v2",
+      "restore_node-rate-state",
+      "restore_node-repeat-state",
+      "restore_node-success-state-v2",
+      "restore_node-success"
+    ],
+    "DELETE /drive/spaces/{id}/members/{userId}": [
+      "revoke_member-bad-id-state",
+      "revoke_member-folder-invalid-state",
+      "revoke_member-folder-state",
+      "revoke_member-foreign-state-v2",
+      "revoke_member-invalid-state-v2",
+      "revoke_member-outsider-state-v2",
+      "revoke_member-repeat-state",
+      "revoke_member-success-state-v2",
+      "revoke_member-success"
+    ],
+    "POST /drive/nodes/{id}/trash": [
+      "trash_node-foreign-state-v2",
+      "trash_node-invalid-state-v2",
+      "trash_node-repeat-state",
+      "trash_node-success-state-v2",
+      "trash_node-success"
+    ],
+    "GET /drive/spaces/{id}/tree": [
+      "tree-bad-id-state",
+      "tree-file-lock-state",
+      "tree-foreign-state-v2",
+      "tree-invalid-state-v2",
+      "tree-query-failure-state",
+      "tree-success-state-v2",
+      "tree-success"
+    ],
+    "GET /drive/visibility-snapshot": [
+      "visibility_snapshot-bad-after-state",
+      "visibility_snapshot-bad-max-state",
+      "visibility_snapshot-foreign-state-v2",
+      "visibility_snapshot-invalid-state-v2",
+      "visibility_snapshot-missing-space-state",
+      "visibility_snapshot-stale-epoch-state",
+      "visibility_snapshot-success-state-v2",
+      "visibility_snapshot-success"
+    ]
+  },
+  "unreachable_error_arms": [
+    {
+      "source": "spaces.go:listSpacesAdmin workerPool == nil",
+      "reason": "Production main always supplies the worker pool; nil is an in-process test constructor posture. Live permission, query, iterator and WORM faults are recorded."
+    },
+    {
+      "source": "Typed Rows.Scan failures in space/member/tree/metadata/manifest readers",
+      "reason": "Canonical schema fixes result types and non-null scalar fields; optional columns scan into pointers. Schema-corrupt result conversion is outside the admitted fixed schema. Query/iterator failure and audit rollback paths have live Go recordings."
+    },
+    {
+      "source": "spaces.go:listSpacesAdmin malformed WORM JSON",
+      "reason": "Canonical drive_worm_pending returns a typed JSONB array. Function-unavailable degradation is recorded separately."
+    },
+    {
+      "source": "Cryptographic nonce generation failure",
+      "reason": "A healthy OS CSPRNG is an admission prerequisite; no request input can induce entropy-provider failure."
+    }
+  ]
+}

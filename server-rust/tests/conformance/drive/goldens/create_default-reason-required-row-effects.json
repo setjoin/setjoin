@@ -1,0 +1,45 @@
+{
+  "case": "create_default-reason-required-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 0
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permission": "read",
+          "user_id": "<foreign-user>"
+        }
+      ]
+    },
+    [
+      {
+        "action": "sensitive_action.reason_missing",
+        "after_state": null,
+        "before_state": null,
+        "ip": "127.0.0.1",
+        "notes": "sharing.manage",
+        "target_id": null,
+        "target_type": "",
+        "user_id": "<owner-user>"
+      }
+    ],
+    []
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "POST /admin/sharing/defaults"
+}

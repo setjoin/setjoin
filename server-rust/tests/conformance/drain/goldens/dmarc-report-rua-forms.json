@@ -1,0 +1,63 @@
+{
+  "case": "dmarc-report-rua-forms",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "queued": [
+      [
+        "<dmarc-report-list.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>",
+        "dmarc-reports@mx.dmarc5-oracle.test",
+        [
+          "b@x.test"
+        ],
+        "pending",
+        "From: DMARC Reporter <dmarc-reports@mx.dmarc5-oracle.test>\r\nTo: b@x.test\r\nSubject: Report Domain: list.dmarc5-oracle.test Submitter: mx.dmarc5-oracle.test\r\nDate: <date>\r\nMessage-ID: <dmarc-report-list.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=dmarc-<n>\r\n\r\n--dmarc-<n>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThis is a DMARC aggregate report for list.dmarc5-oracle.test.\r\n\r\n--dmarc-<n>\r\nContent-Type: application/gzip\r\nContent-Disposition: attachment; filename=dmarc.xml\r\nContent-Transfer-Encoding: base64\r\n\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feedback>\n  <version>1</version>\n  <report_metadata>\n    <org_name>list.dmarc5-oracle.test</org_name>\n    <email>dmarc-reports@mx.dmarc5-oracle.test</email>\n    <report_id>list.dmarc5-oracle.test.<n></report_id>\n    <date_range>\n      <begin>1790812800</begin>\n      <end>1790899200</end>\n    </date_range>\n  </report_metadata>\n  <policy_published>\n    <domain>list.dmarc5-oracle.test</domain>\n    <adkim>r</adkim>\n    <aspf>r</aspf>\n    <p>none</p>\n    <pct>100</pct>\n  </policy_published>\n  <record>\n    <source_ip>0.0.0.0</source_ip>\n    <count>3</count>\n    <policy_evaluated>\n      <disposition>none</disposition>\n      <dkim>pass</dkim>\n      <spf>pass</spf>\n    </policy_evaluated>\n    <auth_results>\n      <dkim>\n        <domain>list.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </dkim>\n      <spf>\n        <domain>list.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </spf>\n    </auth_results>\n  </record>\n</feedback>\r\n--dmarc-<n>--\r\n",
+        0
+      ],
+      [
+        "<dmarc-report-size.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>",
+        "dmarc-reports@mx.dmarc5-oracle.test",
+        [
+          "a@x.test"
+        ],
+        "pending",
+        "From: DMARC Reporter <dmarc-reports@mx.dmarc5-oracle.test>\r\nTo: a@x.test\r\nSubject: Report Domain: size.dmarc5-oracle.test Submitter: mx.dmarc5-oracle.test\r\nDate: <date>\r\nMessage-ID: <dmarc-report-size.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=dmarc-<n>\r\n\r\n--dmarc-<n>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThis is a DMARC aggregate report for size.dmarc5-oracle.test.\r\n\r\n--dmarc-<n>\r\nContent-Type: application/gzip\r\nContent-Disposition: attachment; filename=dmarc.xml\r\nContent-Transfer-Encoding: base64\r\n\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feedback>\n  <version>1</version>\n  <report_metadata>\n    <org_name>size.dmarc5-oracle.test</org_name>\n    <email>dmarc-reports@mx.dmarc5-oracle.test</email>\n    <report_id>size.dmarc5-oracle.test.<n></report_id>\n    <date_range>\n      <begin>1790812800</begin>\n      <end>1790899200</end>\n    </date_range>\n  </report_metadata>\n  <policy_published>\n    <domain>size.dmarc5-oracle.test</domain>\n    <adkim>r</adkim>\n    <aspf>r</aspf>\n    <p>none</p>\n    <pct>100</pct>\n  </policy_published>\n  <record>\n    <source_ip>0.0.0.0</source_ip>\n    <count>2</count>\n    <policy_evaluated>\n      <disposition>none</disposition>\n      <dkim>pass</dkim>\n      <spf>pass</spf>\n    </policy_evaluated>\n    <auth_results>\n      <dkim>\n        <domain>size.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </dkim>\n      <spf>\n        <domain>size.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </spf>\n    </auth_results>\n  </record>\n</feedback>\r\n--dmarc-<n>--\r\n",
+        0
+      ],
+      [
+        "<dmarc-report-space.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>",
+        "dmarc-reports@mx.dmarc5-oracle.test",
+        [
+          "d@x.test"
+        ],
+        "pending",
+        "From: DMARC Reporter <dmarc-reports@mx.dmarc5-oracle.test>\r\nTo: d@x.test\r\nSubject: Report Domain: space.dmarc5-oracle.test Submitter: mx.dmarc5-oracle.test\r\nDate: <date>\r\nMessage-ID: <dmarc-report-space.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=dmarc-<n>\r\n\r\n--dmarc-<n>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThis is a DMARC aggregate report for space.dmarc5-oracle.test.\r\n\r\n--dmarc-<n>\r\nContent-Type: application/gzip\r\nContent-Disposition: attachment; filename=dmarc.xml\r\nContent-Transfer-Encoding: base64\r\n\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feedback>\n  <version>1</version>\n  <report_metadata>\n    <org_name>space.dmarc5-oracle.test</org_name>\n    <email>dmarc-reports@mx.dmarc5-oracle.test</email>\n    <report_id>space.dmarc5-oracle.test.<n></report_id>\n    <date_range>\n      <begin>1790812800</begin>\n      <end>1790899200</end>\n    </date_range>\n  </report_metadata>\n  <policy_published>\n    <domain>space.dmarc5-oracle.test</domain>\n    <adkim>r</adkim>\n    <aspf>r</aspf>\n    <p>none</p>\n    <pct>100</pct>\n  </policy_published>\n  <record>\n    <source_ip>0.0.0.0</source_ip>\n    <count>1</count>\n    <policy_evaluated>\n      <disposition>none</disposition>\n      <dkim>pass</dkim>\n      <spf>pass</spf>\n    </policy_evaluated>\n    <auth_results>\n      <dkim>\n        <domain>space.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </dkim>\n      <spf>\n        <domain>space.dmarc5-oracle.test</domain>\n        <result>pass</result>\n      </spf>\n    </auth_results>\n  </record>\n</feedback>\r\n--dmarc-<n>--\r\n",
+        0
+      ]
+    ],
+    "remaining": [
+      [
+        "empty.dmarc5-oracle.test",
+        "",
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        null
+      ],
+      [
+        "https.dmarc5-oracle.test",
+        "https://only.test/r",
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        null
+      ]
+    ]
+  }
+}

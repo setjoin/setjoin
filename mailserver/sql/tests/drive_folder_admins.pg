@@ -1,0 +1,117 @@
+-- mailserver/sql/tests/drive_folder_admins.pg — delegated folder admins
+-- (Task 6, §5.5 v1-lite): grant/revoke + the delegated member pair + the
+-- integration re-asserts that break-lock (Task 2) and branch-resolve
+-- (Task 5) actually honor drive_subtree_admin.
+BEGIN;
+SELECT plan(20);
+
+-- M = manager/owner, E = plain editor (not a folder admin), FA = the
+-- delegated folder admin (starts as a plain viewer member — grant presumes
+-- membership), E2 = another editor (lock holder / branch creator).
+SELECT mk_account('dfaa') AS mba \gset
+SELECT mk_account('dfab') AS mbb \gset
+SELECT mk_account('dfac') AS mbc \gset
+SELECT mk_account('dfad') AS mbd \gset
+SELECT user_id AS m  FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS e  FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS fa FROM mailboxes WHERE id = :mbc \gset
+SELECT user_id AS e2 FROM mailboxes WHERE id = :mbd \gset
+
+SELECT drive_space_create(:m, 'FA', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+-- FA needs editor+ membership on top of the folder-admin row (the
+-- drive_branch_resolve.pg precedent: resolve = editor+ AND (manager OR
+-- subtree folder-admin OR creator-w/o-fa) — the folder-admin row alone
+-- widens WHO among editors may act, it doesn't replace the editor+ floor).
+SELECT drive_member_grant(:m, :sid, :fa, 'editor');
+SELECT drive_member_grant(:m, :sid, :e2, 'editor');
+
+-- D = the delegated subtree; S = a SIBLING subtree outside it.
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'D') AS d \gset
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'S') AS s \gset
+SELECT drive_node_create(:m, :sid, :d, 'file', 'inside.bin') AS finside \gset
+SELECT drive_node_create(:m, :sid, :s, 'file', 'outside.bin') AS foutside \gset
+
+-- ── grant/revoke (manager-only) ─────────────────────────────────────────
+SELECT drive_folder_admin_grant(:m, :d, :fa);
+SELECT ok(EXISTS (SELECT 1 FROM drive_folder_admins WHERE node_id=:d AND user_id=:fa), 'folder-admin row exists');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='folderadmin.grant'), 'audited folderadmin.grant');
+
+SELECT throws_ok(format($$ SELECT drive_folder_admin_grant(%s, %s, %s) $$, :e, :d, :fa),
+  'BZ140', NULL, 'grant by a plain editor → BZ140');
+SELECT throws_ok(format($$ SELECT drive_folder_admin_grant(%s, %s, %s) $$, :m, :finside, :fa),
+  'BZ141', NULL, 'grant on a FILE node → BZ141');
+
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'Trashed') AS t \gset
+SELECT drive_node_trash(:m, :t);
+SELECT throws_ok(format($$ SELECT drive_folder_admin_grant(%s, %s, %s) $$, :m, :t, :fa),
+  'BZ141', NULL, 'grant on a trashed folder → BZ141');
+
+SELECT mk_account('dfae') AS mbe \gset
+SELECT user_id AS nm FROM mailboxes WHERE id = :mbe \gset
+SELECT throws_ok(format($$ SELECT drive_folder_admin_grant(%s, %s, %s) $$, :m, :d, :nm),
+  'BZ141', NULL, 'grant to a non-member → BZ141');
+
+-- revoke symmetric, proven on a throwaway admin so FA's own grant (used
+-- below) is unaffected.
+SELECT mk_account('dfaf') AS mbf \gset
+SELECT user_id AS ta FROM mailboxes WHERE id = :mbf \gset
+SELECT drive_member_grant(:m, :sid, :ta, 'viewer');
+SELECT drive_folder_admin_grant(:m, :d, :ta);
+SELECT drive_folder_admin_revoke(:m, :d, :ta);
+SELECT ok(NOT EXISTS (SELECT 1 FROM drive_folder_admins WHERE node_id=:d AND user_id=:ta), 'revoke removes the row');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='folderadmin.revoke'), 'audited folderadmin.revoke');
+
+-- ── delegated member grant/revoke (SECURITY DEFINER) ────────────────────
+SELECT mk_account('dfag') AS mbg \gset
+SELECT user_id AS g FROM mailboxes WHERE id = :mbg \gset
+SELECT drive_folder_member_grant(:fa, :sid, :d, :g, 'editor');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id=:sid AND user_id=:g), 'editor', 'delegated grant adds an editor member');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='member.grant' AND notes='folder-admin'),
+  'delegated grant audited member.grant notes=folder-admin');
+
+SELECT mk_account('dfah') AS mbh \gset
+SELECT user_id AS g2 FROM mailboxes WHERE id = :mbh \gset
+SELECT throws_ok(format($$ SELECT drive_folder_member_grant(%s, %s, %s, %s, 'manager') $$, :fa, :sid, :d, :g2),
+  'BZ140', NULL, 'delegated grant of role=manager → BZ140');
+SELECT throws_ok(format($$ SELECT drive_folder_member_grant(%s, %s, %s, %s, 'editor') $$, :fa, :sid, :s, :g2),
+  'BZ140', NULL, 'delegated grant on a folder OUTSIDE the subtree → BZ140');
+SELECT throws_ok(format($$ SELECT drive_folder_member_grant(%s, %s, %s, %s, 'editor') $$, :e, :sid, :d, :g2),
+  'BZ140', NULL, 'a non-folder-admin caller → BZ140');
+
+SELECT drive_folder_member_revoke(:fa, :sid, :d, :g);
+SELECT ok(NOT EXISTS (SELECT 1 FROM drive_space_members WHERE space_id=:sid AND user_id=:g), 'delegated revoke removes the member row');
+SELECT throws_ok(format($$ SELECT drive_folder_member_revoke(%s, %s, %s, %s) $$, :fa, :sid, :d, :m),
+  'BZ140', NULL, 'delegated revoke cannot touch the owner''s manager row');
+
+-- ── integration: break-lock honors the subtree (Task 2) ─────────────────
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:m, :finside, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 'test');
+SELECT drive_chunk_register(:m, :sid, repeat('2',64), 10);
+SELECT drive_file_put_version(:m, :foutside, repeat('b',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 'test');
+SELECT drive_file_lock(:e2, :finside, 'hard');
+SELECT drive_file_lock(:e2, :foutside, 'hard');
+
+SELECT drive_file_unlock(:fa, :finside, true);
+SELECT ok(NOT EXISTS (SELECT 1 FROM drive_file_locks WHERE node_id=:finside), 'FA breaks a lock INSIDE the subtree');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='lock.break'), 'break audited');
+
+SELECT throws_ok(format($$ SELECT drive_file_unlock(%s, %s, true) $$, :fa, :foutside),
+  'BZ140', NULL, 'FA cannot break a lock OUTSIDE the subtree');
+
+-- ── integration: branch resolve honors the subtree (Task 5) ─────────────
+SELECT (SELECT head_version_id FROM drive_files WHERE node_id=:finside) AS hin \gset
+SELECT (SELECT head_version_id FROM drive_files WHERE node_id=:foutside) AS hout \gset
+SELECT drive_branch_create(:e2, :finside, 'fa-in-branch', :hin) AS bin \gset
+SELECT drive_branch_create(:e2, :foutside, 'fa-out-branch', :hout) AS bout \gset
+
+SELECT drive_branch_resolve(:fa, :bin, 'discard');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bin), 'discarded', 'FA resolves a branch INSIDE the subtree');
+
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :fa, :bout),
+  'BZ140', NULL, 'FA cannot resolve a branch OUTSIDE the subtree');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,53 @@
+-- chat_roster.pg: channel roster + mention-search (Pillar A1 Task 11).
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_roster.sql.
+-- Unlike chat_channel.pg's bare bigint fixtures, chat_roster joins
+-- public.users for display_name/avatar_sha256, so real user rows are needed.
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90800, 'chat-roster.test', TRUE);
+INSERT INTO blobs (sha256, minio_ref, size_bytes) VALUES ('aaaa', 'chat-roster-test-avatar', 4);
+INSERT INTO users (id, username, domain_id, email, display_name, avatar_sha256, enabled) VALUES
+  (90801, 'roster_owner', 90800, 'owner@chat-roster.test', 'Ada Owner', 'aaaa', TRUE),
+  (90802, 'roster_member', 90800, 'member@chat-roster.test', 'Bea Member', NULL, TRUE),
+  (90803, 'roster_outsider', 90800, 'outsider@chat-roster.test', 'Cas Outsider', NULL, TRUE);
+
+SELECT chat_channel_create(90801, 'roster-general') AS ch_id \gset
+SELECT chat_member_add(90801, :ch_id, 90802);
+
+-- ── chat_channel_roster: membership guard (BZ163) ─────────────────────────
+SELECT throws_ok(format($$ SELECT chat_channel_roster(90803, %s) $$, :ch_id),
+  'BZ163', NULL, 'a non-member cannot read the channel roster (BZ163)');
+
+-- ── chat_channel_roster: shape + membership scoping ───────────────────────
+SELECT is((SELECT jsonb_array_length(chat_channel_roster(90801, :ch_id))), 2,
+  'roster lists both channel members');
+SELECT is((SELECT (elem->>'displayName') FROM jsonb_array_elements(chat_channel_roster(90801, :ch_id)) elem
+            WHERE (elem->>'userId')::bigint = 90801), 'Ada Owner',
+  'roster carries the joined public.users.display_name');
+SELECT is((SELECT (elem->>'avatarSha256') FROM jsonb_array_elements(chat_channel_roster(90801, :ch_id)) elem
+            WHERE (elem->>'userId')::bigint = 90801), 'aaaa',
+  'roster carries the joined public.users.avatar_sha256');
+SELECT is((SELECT (elem->>'role') FROM jsonb_array_elements(chat_channel_roster(90801, :ch_id)) elem
+            WHERE (elem->>'userId')::bigint = 90801), 'owner',
+  'roster carries the member''s role');
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_channel_roster(90801, :ch_id),
+             format('$[*] ? (@.userId == %s)', 90803)::jsonpath)),
+  'an org user NOT in the channel never appears in its roster');
+
+-- ── chat_mention_search: membership guard (BZ163) ─────────────────────────
+SELECT throws_ok(format($$ SELECT chat_mention_search(90803, %s, 'a') $$, :ch_id),
+  'BZ163', NULL, 'a non-member cannot mention-search the channel (BZ163)');
+
+-- ── chat_mention_search: prefix match on a member's display_name ──────────
+SELECT is((SELECT jsonb_array_length(chat_mention_search(90801, :ch_id, 'Bea'))), 1,
+  'mention_search matches a member by display_name prefix');
+SELECT is((SELECT (elem->>'displayName') FROM jsonb_array_elements(chat_mention_search(90801, :ch_id, 'Bea')) elem),
+  'Bea Member', 'mention_search returns the matched member''s display_name');
+
+-- ── chat_mention_search: channel-scoped, never org-wide (F4) ──────────────
+SELECT is((SELECT jsonb_array_length(chat_mention_search(90801, :ch_id, 'Cas'))), 0,
+  'mention_search never returns an org user who is not a channel member, even on a matching-name query');
+
+SELECT * FROM finish();
+ROLLBACK;

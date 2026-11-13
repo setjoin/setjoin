@@ -1,0 +1,220 @@
+-- V188/A4 interactive ACL mutations, group invalidation, and migration proof.
+BEGIN;
+SELECT plan(48);
+
+SELECT has_column('public','drive_acl_grants','subject_kind',
+  'grant rows carry a closed principal kind');
+SELECT has_column('public','drive_acl_grants','subject_group_id',
+  'grant rows carry stable normalized group ids');
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'drive_acl_grants'::regclass,'drive_access_invalidations'::regclass)
+  AND relrowsecurity AND relforcerowsecurity),2,
+  'expanded ACL authority and journal retain FORCE RLS');
+
+SELECT mk_account('acl4-owner') AS mbo \gset
+SELECT mk_account('acl4-direct') AS mbd \gset
+SELECT mk_account('acl4-group') AS mbg \gset
+SELECT mk_account('acl4-outside') AS mbx \gset
+SELECT mk_account('acl4-manager') AS mbm \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ud FROM mailboxes WHERE id=:mbd \gset
+SELECT user_id AS ug FROM mailboxes WHERE id=:mbg \gset
+SELECT user_id AS ux FROM mailboxes WHERE id=:mbx \gset
+SELECT user_id AS um FROM mailboxes WHERE id=:mbm \gset
+SELECT domain_id AS dom FROM users WHERE id=:uo \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:uo,1,:uo);
+SELECT drive_space_create(:uo,'ACL A4','regular') AS sid \gset
+SELECT drive_node_create(:uo,:sid,NULL,'folder','Root') AS root \gset
+SELECT drive_node_create(:uo,:sid,:root,'folder','Restricted') AS folder \gset
+SELECT drive_node_create(:uo,:sid,:folder,'file','Budget') AS file \gset
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:sid;
+
+SELECT throws_ok(format($q$SELECT drive_acl_grant_preview(
+  %s,%s,'user',%s,'custom',ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'review')$q$,:uo,:folder,:ud),
+  'BZ253',NULL,'DEFAULT-OFF write gate denies grant preview');
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.drive_node_acl_reads','feature.drive_node_acl_writes',
+  'feature.directory_group_authority');
+
+SELECT is(drive_acl_grant_preview(
+  :uo,:folder,'user',:ud,'custom',
+  ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'quarterly review')->>'preset','custom',
+  'authorized preview accepts a granular custom capability set');
+SELECT throws_ok(format($q$SELECT drive_acl_grant_preview(
+  %s,%s,'user',%s,'viewer',NULL,'subtree',NULL,NULL,NULL,'self')$q$,
+  :uo,:folder,:uo),'BZ252',NULL,'self-grant is rejected');
+SELECT throws_ok(format($q$SELECT drive_acl_grant_preview(
+  %s,%s,'user',%s,'viewer',NULL,'subtree',NULL,NULL,NULL,'outside')$q$,
+  :ux,:folder,:ud),'BZ253',NULL,'caller without manage_acl cannot preview a grant');
+SELECT throws_ok(format($q$SELECT drive_acl_grant_preview(
+  %s,%s,'user',%s,'custom',ARRAY['traverse','manage_acl'],'subtree',
+  NULL,NULL,NULL,'escalate')$q$,:ud,:folder,:ux),
+  'BZ253',NULL,'delegation cannot exceed the capabilities the caller holds');
+
+SELECT (drive_acl_grant(
+  :uo,:folder,'user',:ud,'custom',
+  ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'quarterly review',0,'acl4-direct-0001')->>'grantId')::bigint AS direct_grant \gset
+SELECT ok(:direct_grant::bigint>0,'direct-user custom grant is created');
+SELECT is(drive_acl_epoch(:sid),1::bigint,
+  'grant advances the independent ACL epoch once');
+SELECT ok(drive_runtime_has_node_capability(:ud,:file,'preview'),
+  'direct subtree grant becomes live in ACL mode');
+SELECT is(drive_runtime_has_node_capability(:ud,:file,'download'),false,
+  'granular grant does not imply download');
+SELECT is((drive_acl_grant(
+  :uo,:folder,'user',:ud,'custom',
+  ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'quarterly review',0,'acl4-direct-0001')->>'grantId')::bigint,
+  :direct_grant::bigint,'commit-before-response retry returns the same grant');
+SELECT is(drive_acl_epoch(:sid),1::bigint,
+  'idempotent replay does not advance the ACL epoch');
+SELECT throws_ok(format($q$SELECT drive_acl_grant(
+  %s,%s,'user',%s,'viewer',NULL,'subtree',NULL,NULL,NULL,
+  'different payload',1,'acl4-direct-0001')$q$,:uo,:folder,:ud),
+  'BZ254',NULL,'idempotency key cannot be replayed with a different payload');
+SELECT throws_ok(format($q$SELECT drive_acl_grant(
+  %s,%s,'user',%s,'viewer',NULL,'self',NULL,NULL,NULL,
+  'stale epoch',0,'acl4-stale-0002')$q$,:uo,:file,:ux),
+  'BZ254',NULL,'stale expected epoch rejects a new grant atomically');
+
+SELECT is((drive_acl_inheritance_set(:uo,:file,true,1)->>'changed')::boolean,true,
+  'authorized caller can set an inheritance break');
+SELECT is(drive_runtime_has_node_capability(:ud,:file,'preview'),false,
+  'break stops a grant anchored strictly above it');
+SELECT is((drive_acl_inheritance_set(:uo,:file,false,2)->>'changed')::boolean,true,
+  'space manager can recover and clear a narrowing break');
+SELECT ok(drive_runtime_has_node_capability(:ud,:file,'preview'),
+  'clearing the break restores the still-live grant');
+
+SELECT directory_group_static_set(
+  :uo,NULL,:dom,'ACL A4 Group','members',ARRAY[:ug]::bigint[],NULL
+) AS gid \gset
+SELECT (drive_acl_grant(
+  :uo,:folder,'group',:gid,'custom',
+  ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'group review',3,'acl4-group-0003')->>'grantId')::bigint AS group_grant \gset
+SELECT ok(:group_grant::bigint>0,'normalized group principal receives a grant');
+SELECT ok(drive_runtime_has_node_capability(:ug,:file,'preview'),
+  'effective group member receives the granted capability');
+SELECT is(drive_runtime_has_node_capability(:ux,:file,'preview'),false,
+  'non-member does not receive group authority');
+DELETE FROM directory_group_members
+ WHERE group_id=:gid AND user_id=:ug AND membership_source='static';
+SELECT is(drive_runtime_has_node_capability(:ug,:file,'preview'),false,
+  'group member removal revokes authority in the same transaction');
+SELECT ok(EXISTS(SELECT 1 FROM drive_access_invalidations
+  WHERE space_id=:sid AND principal_kind='user' AND principal_id=:ug
+    AND reason='group_membership'),
+  'member removal appends an exact user-targeted Drive invalidation');
+INSERT INTO directory_group_members(group_id,user_id,membership_source)
+VALUES(:gid,:ug,'static');
+SELECT ok(drive_runtime_has_node_capability(:ug,:file,'preview'),
+  'group re-add restores authority without changing the grant row');
+UPDATE directory_groups SET name='ACL A4 Group Renamed' WHERE id=:gid;
+SELECT ok(drive_runtime_has_node_capability(:ug,:file,'preview'),
+  'group rename preserves stable-id authority');
+SELECT ok(EXISTS(SELECT 1 FROM drive_access_invalidations
+  WHERE space_id=:sid AND principal_kind='all' AND reason='group_membership'),
+  'group-wide metadata change emits a safe all-principal reconcile event');
+
+SELECT epoch AS epoch_for_manager FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT (drive_acl_grant(
+  :uo,:folder,'user',:um,'folder_manager',NULL,'subtree',NULL,NULL,NULL,
+  'delegated manager',:epoch_for_manager,'acl4-manager-0005')->>'grantId')::bigint AS manager_grant \gset
+SELECT epoch AS epoch_after_manager FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT throws_ok(format($q$SELECT drive_acl_grant(
+  %s,%s,'user',%s,'custom',ARRAY['traverse','read_metadata','preview'],'subtree',
+  NULL,NULL,NULL,'quarterly review',%s,'acl4-direct-0001')$q$,
+  :um,:folder,:ud,:epoch_after_manager),
+  'BZ254',NULL,'another authorized actor reusing a space key gets a typed conflict, never 500');
+SELECT (drive_acl_grant(
+  :um,:file,'user',:ux,'viewer',NULL,'self',NULL,NULL,NULL,
+  'manager review',:epoch_after_manager,'acl4-manager-child-0006')->>'grantId')::bigint AS manager_child_grant \gset
+SELECT epoch AS epoch_for_manager_revoke FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT drive_acl_revoke(:um,:manager_child_grant,:epoch_for_manager_revoke,
+  'manager review complete') AS manager_revoke_result \gset
+
+SELECT epoch AS epoch_before_revoke FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT throws_ok(format($q$SELECT drive_acl_revoke(%s,%s,0,'stale revoke')$q$,
+  :uo,:direct_grant),'BZ254',NULL,'stale revoke epoch cannot partially mutate');
+SELECT is(drive_acl_revoke(:uo,:direct_grant,:epoch_before_revoke,'review complete')->>'state',
+  'revoked','current-epoch revoke reaches a terminal state');
+SELECT is(drive_runtime_has_node_capability(:ud,:file,'preview'),false,
+  'revoked direct principal loses access immediately');
+SELECT epoch AS epoch_after_revoke FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT count(*)::bigint AS audit_after_revoke FROM drive_audit_log
+ WHERE space_id=:sid AND action='acl.revoke' \gset
+SELECT count(*)::bigint AS invalidations_after_revoke FROM drive_access_invalidations
+ WHERE space_id=:sid \gset
+SELECT is((drive_acl_revoke(
+  :uo,:direct_grant,:epoch_before_revoke,'review complete')->>'replayed')::boolean,true,
+  'same authorized revoker receives an exact no-op replay');
+SELECT is(drive_acl_epoch(:sid),:epoch_after_revoke::bigint,
+  'revoke replay does not advance the ACL epoch');
+SELECT is((SELECT count(*)::bigint FROM drive_audit_log
+            WHERE space_id=:sid AND action='acl.revoke'),:audit_after_revoke::bigint,
+  'revoke replay does not append a duplicate audit row');
+SELECT is((SELECT count(*)::bigint FROM drive_access_invalidations
+            WHERE space_id=:sid),:invalidations_after_revoke::bigint,
+  'revoke replay does not append a duplicate invalidation');
+SELECT throws_ok(format($q$SELECT drive_acl_revoke(%s,%s,%s,'other actor retry')$q$,
+  :um,:direct_grant,:epoch_after_revoke),'BZ254',NULL,
+  'a different authorized actor cannot claim another revoker replay');
+UPDATE drive_acl_grants SET state='revoked',revoked_by=:uo,revoked_at=now()
+ WHERE id=:manager_grant;
+SELECT throws_ok(format($q$SELECT drive_acl_revoke(%s,%s,%s,'lost authority retry')$q$,
+  :um,:manager_child_grant,:epoch_after_revoke),'BZ253',NULL,
+  'a revoker who lost manage_acl cannot use replay to bypass authorization');
+
+SELECT epoch AS epoch_before_expiring_grant FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT (drive_acl_grant(
+  :uo,:file,'user',:ux,'custom',ARRAY['traverse','read_metadata','preview'],'self',
+  NULL,now()+interval '1 hour',NULL,'bounded review',:epoch_before_expiring_grant,
+  'acl4-expire-0004')->>'grantId')::bigint AS expiring_grant \gset
+UPDATE drive_acl_grants SET expires_at=now()-interval '1 second'
+ WHERE id=:expiring_grant;
+SELECT is(drive_acl_expire_due(:sid,100),1,
+  'maintenance expiry drains exactly the due grant');
+SELECT is((SELECT state FROM drive_acl_grants WHERE id=:expiring_grant),'expired',
+  'due grant records an explicit expired terminal state');
+SELECT is(drive_runtime_has_node_capability(:ux,:file,'preview'),false,
+  'expired principal loses access immediately');
+
+SELECT drive_member_grant(:uo,:sid,:ud,'viewer');
+INSERT INTO drive_folder_admins(node_id,space_id,user_id,granted_by)
+VALUES(:root,:sid,:ud,:uo);
+SELECT epoch AS epoch_before_migrate FROM drive_acl_generations WHERE space_id=:sid \gset
+SELECT is((drive_acl_migrate_folder_admins(
+  :uo,:sid,:epoch_before_migrate)->>'migrated')::int,1,
+  'live folder admin migrates to one scoped ACL grant');
+SELECT is((SELECT count(*)::int FROM drive_folder_admins
+            WHERE space_id=:sid AND user_id=:ud),0,
+  'legacy folder-admin row is removed after migration');
+SELECT ok(EXISTS(SELECT 1 FROM drive_acl_grants
+  WHERE space_id=:sid AND subject_user_id=:ud
+    AND source='legacy_folder_admin' AND propagation='subtree'),
+  'migration preserves provenance and subtree scope');
+SELECT ok(drive_runtime_has_node_capability(:ud,:file,'manage_acl'),
+  'migrated folder manager has authority only through the scoped grant');
+
+SELECT chat_channel_create(:uo,'acl4-bound') AS chan \gset
+SELECT chat_space_ensure(:uo,:chan) AS bound_space \gset
+SELECT drive_node_create(:uo,:bound_space,NULL,'file','Bound') AS bound_node \gset
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:bound_space;
+SELECT throws_ok(format($q$SELECT drive_acl_grant_preview(
+  %s,%s,'user',%s,'viewer',NULL,'self',NULL,NULL,NULL,'bound')$q$,
+  :uo,:bound_node,:ux),'BZ256',NULL,'Chat-bound space rejects ad-hoc ACL grants');
+
+SELECT ok(EXISTS(SELECT 1 FROM drive_audit_log
+  WHERE space_id=:sid AND action='acl.grant'),
+  'grant mutation is recorded on the tamper-evident Drive chain');
+SELECT ok(EXISTS(SELECT 1 FROM drive_audit_log
+  WHERE space_id=:sid AND action='acl.revoke'),
+  'revoke mutation is recorded on the tamper-evident Drive chain');
+
+SELECT * FROM finish();
+ROLLBACK;

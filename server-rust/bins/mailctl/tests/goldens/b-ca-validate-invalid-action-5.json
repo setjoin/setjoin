@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: BZ085: policy[0].actions: invalid policy document: conflicting or malformed grant discriminators [key=type/action]; valid types: allow, block, limited_web, notify, require_acr, require_risk_remediation, require_strength, require_terms, step_up; canonical shape: {\"grants\":[{\"type\":\"<allow|block|limited_web|notify|require_acr|require_risk_remediation|require_strength|require_terms|step_up>\"}]}\n",
+  "exit": 2
+}

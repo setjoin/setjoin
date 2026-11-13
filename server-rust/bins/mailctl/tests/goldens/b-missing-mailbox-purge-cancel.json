@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox purge-cancel <purge-id> --reason TEXT\n",
+  "exit": 1
+}

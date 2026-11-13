@@ -1,0 +1,452 @@
+{
+  "format": 1,
+  "route": "GET /drive/versions/{id}/preview",
+  "case": "preview-success-state-v2-row-effects",
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "source_recording": {
+    "path": "server-rust/tests/conformance/drive/core/preview-success-state-v2.json",
+    "sha256": "3bb8891742d8605531ade1c41505c8e78852f8183649ec3c1e8f41143cb30a2d"
+  },
+  "effects": [
+    {
+      "audit": [
+        {
+          "action": "space.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Project"
+          },
+          "before_state": null,
+          "id": 1,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<space>",
+          "target_type": "space",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "kind": "folder",
+            "name": "Documents",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": 2,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<node>",
+          "target_type": "node",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "kind": "file",
+            "name": "preview.docx",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": 3,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<node-2>",
+          "target_type": "node",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "version.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "branchId": null,
+            "conflict": false,
+            "fileNodeId": "<node-2>",
+            "sha256": "26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+            "size": 12
+          },
+          "before_state": null,
+          "id": 4,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<space>",
+          "target_id": "<version-1>",
+          "target_type": "version",
+          "user_id": "<owner>"
+        },
+        {
+          "action": "space.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Foreign project"
+          },
+          "before_state": null,
+          "id": 1,
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<time>",
+          "space_id": "<foreign-space>",
+          "target_id": "<foreign-space>",
+          "target_type": "space",
+          "user_id": "<foreign>"
+        }
+      ],
+      "authorizations": [],
+      "changes": [
+        {
+          "at": "<time>",
+          "node_id": 0,
+          "op": "space",
+          "seq": 1,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": "<node>",
+          "op": "create",
+          "seq": 2,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": "<node-2>",
+          "op": "create",
+          "seq": 3,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": "<node-2>",
+          "op": "create",
+          "seq": 4,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<time>",
+          "node_id": 0,
+          "op": "space",
+          "seq": 1,
+          "space_id": "<foreign-space>"
+        }
+      ],
+      "chunks": [
+        {
+          "created_at": "<time>",
+          "ref_count": 1,
+          "retain_until": null,
+          "scope_key": "g",
+          "sha256": "26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+          "size_bytes": 12,
+          "storage_ref": "drive/g/26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+          "worm_applied_until": null,
+          "worm_pending": false
+        },
+        {
+          "created_at": "<time>",
+          "ref_count": 1,
+          "retain_until": null,
+          "scope_key": "g",
+          "sha256": "ff659f5348e39aab69680d2331f9974995b444baa022f6836475e570e41aa498",
+          "size_bytes": 30,
+          "storage_ref": "drive/g/ff659f5348e39aab69680d2331f9974995b444baa022f6836475e570e41aa498",
+          "worm_applied_until": null,
+          "worm_pending": false
+        }
+      ],
+      "claims": [],
+      "closure": [
+        {
+          "ancestor_id": "<node>",
+          "depth": 0,
+          "descendant_id": "<node>",
+          "space_id": "<space>"
+        },
+        {
+          "ancestor_id": "<node-2>",
+          "depth": 0,
+          "descendant_id": "<node-2>",
+          "space_id": "<space>"
+        }
+      ],
+      "core_audit": [],
+      "drive_access_request_details": [],
+      "drive_access_request_policies": [],
+      "drive_acl_breaks": [],
+      "drive_acl_cutover_evidence": [],
+      "drive_acl_shadow_mismatches": [],
+      "drive_acl_shadow_state": [],
+      "drive_export_grants": [],
+      "drive_file_branches": [],
+      "drive_file_locks": [],
+      "drive_folder_admins": [],
+      "files": [
+        {
+          "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "head_version_id": "<version-1>",
+          "node_id": "<node-2>",
+          "size_bytes": 12,
+          "space_id": "<space>"
+        }
+      ],
+      "generations": [
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<space>",
+          "updated_at": "<time>"
+        },
+        {
+          "epoch": 0,
+          "retained_after_cursor": 0,
+          "space_id": "<foreign-space>",
+          "updated_at": "<time>"
+        }
+      ],
+      "grants": [],
+      "invalidations": [],
+      "labels": [],
+      "members": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner>",
+          "role": "manager",
+          "space_id": "<space>",
+          "user_id": "<owner>"
+        },
+        {
+          "granted_at": "<time>",
+          "granted_by": "<foreign>",
+          "role": "manager",
+          "space_id": "<foreign-space>",
+          "user_id": "<foreign>"
+        }
+      ],
+      "nodes": [
+        {
+          "created_at": "<time>",
+          "created_by": "<owner>",
+          "deleted_at": null,
+          "id": "<node>",
+          "kind": "folder",
+          "name": "Documents",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        },
+        {
+          "created_at": "<time>",
+          "created_by": "<owner>",
+          "deleted_at": null,
+          "id": "<node-2>",
+          "kind": "file",
+          "name": "preview.docx",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        }
+      ],
+      "rate": [],
+      "spaces": [
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "legacy",
+          "acl_protocol_version": 1,
+          "change_seq": 1,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<time>",
+          "export_policy": {},
+          "id": "<foreign-space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Foreign project",
+          "owner_user_id": "<foreign>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 0,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        },
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "legacy",
+          "acl_protocol_version": 1,
+          "change_seq": 4,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<time>",
+          "export_policy": {},
+          "id": "<space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Project",
+          "owner_user_id": "<owner>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 12,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        }
+      ],
+      "version_chunks": [
+        {
+          "chunk_sha256": "26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+          "ordinal": 0,
+          "scope_key": "g",
+          "stream": "content",
+          "version_id": "<version-1>"
+        },
+        {
+          "chunk_sha256": "ff659f5348e39aab69680d2331f9974995b444baa022f6836475e570e41aa498",
+          "ordinal": 0,
+          "scope_key": "g",
+          "stream": "preview",
+          "version_id": "<version-1>"
+        }
+      ],
+      "versions": [
+        {
+          "author_user_id": "<owner>",
+          "branch_id": null,
+          "chunk_size": 4194304,
+          "conflict_of": null,
+          "content_sha256": "26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+          "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "created_at": "<time>",
+          "device_label": "preview",
+          "file_node_id": "<node-2>",
+          "id": "<version-1>",
+          "merged_from_version_id": null,
+          "note": "drive2",
+          "parent_version_id": null,
+          "preview_sha256": "ff659f5348e39aab69680d2331f9974995b444baa022f6836475e570e41aa498",
+          "preview_status": "ready",
+          "size_bytes": 12,
+          "space_id": "<space>"
+        }
+      ],
+      "watches": []
+    },
+    [
+      {
+        "action": "space.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "classification": "regular",
+          "isPersonal": false,
+          "name": "Project"
+        },
+        "before_state": null,
+        "id": 1,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<space>",
+        "target_type": "space",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "kind": "folder",
+          "name": "Documents",
+          "parentId": null
+        },
+        "before_state": null,
+        "id": 2,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<node>",
+        "target_type": "node",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "node.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "kind": "file",
+          "name": "preview.docx",
+          "parentId": null
+        },
+        "before_state": null,
+        "id": 3,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<node-2>",
+        "target_type": "node",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "version.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "branchId": null,
+          "conflict": false,
+          "fileNodeId": "<node-2>",
+          "sha256": "26ebd51939e0b345d9af318247fef951d05669e4795caf4c5bce2a75ca0cea2f",
+          "size": 12
+        },
+        "before_state": null,
+        "id": 4,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<space>",
+        "target_id": "<version-1>",
+        "target_type": "version",
+        "user_id": "<owner>"
+      },
+      {
+        "action": "space.create",
+        "after_state": {
+          "_checksum": "<verified-drive-checksum>",
+          "classification": "regular",
+          "isPersonal": false,
+          "name": "Foreign project"
+        },
+        "before_state": null,
+        "id": 1,
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<time>",
+        "space_id": "<foreign-space>",
+        "target_id": "<foreign-space>",
+        "target_type": "space",
+        "user_id": "<foreign>"
+      }
+    ],
+    [],
+    [
+      {
+        "body": "",
+        "content_type": "",
+        "copy_source": "",
+        "key": "/mailblobs/drive/g/ff659f5348e39aab69680d2331f9974995b444baa022f6836475e570e41aa498",
+        "method": "GET",
+        "query": "",
+        "signature_valid": true
+      }
+    ],
+    null
+  ]
+}

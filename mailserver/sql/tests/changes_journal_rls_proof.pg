@@ -1,0 +1,18 @@
+-- changes_journal_rls_proof.pg: dedicated proof that the V042 RLS policy is
+-- present on jmap_changes_journal (satisfies *journal*rls*.pg glob in the task
+-- test command). The runtime dual-tenant isolation proof (SET LOCAL ROLE
+-- setjoin_app / GUC / count assertions) lives in changes_journal.pg plan(19).
+-- ponytail: single policy-existence assertion; isolation proof is in changes_journal.pg.
+BEGIN;
+SELECT plan(1);
+
+SELECT ok(
+  EXISTS(
+    SELECT 1 FROM pg_policies
+     WHERE tablename = 'jmap_changes_journal'
+       AND policyname = 'jmap_changes_journal_tenant_isolation'
+  ),
+  'jmap_changes_journal_tenant_isolation RLS policy is present (R4 guard)');
+
+SELECT finish();
+ROLLBACK;

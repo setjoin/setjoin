@@ -1,0 +1,38 @@
+{
+  "case": "spa_extra_legacy_cache",
+  "format": 1,
+  "go_source": "f3ff02591aa3decdecec6e87f3c2ecf47df7e82e",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/",
+      "wire_method": "GET",
+      "wire_path": "/chat/unfurl/image/phantom"
+    },
+    "response": {
+      "body": "<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n<html>catchall SPA</html>\n",
+      "body_sha256": "48ab6b4a279eb6ecfb4eed0376a15e855e26ed225c19178d807ff55212ecee71",
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=31536000, immutable",
+        "content-length": "1040",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "etag": "\"sha256-48ab6b4a279eb6ecfb4eed0376a15e855e26ed225c19178d807ff55212ecee71\"",
+        "last-modified": "Tue, 14 Nov 2023 22:13:20 GMT",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "catchall-test"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /"
+}

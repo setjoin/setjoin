@@ -1,0 +1,155 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "artifacts": [
+          {
+            "aad_sha256": "<binding-sha256>",
+            "ciphertext_size": 95,
+            "created_at": "<timestamp>",
+            "crypto_profile": "standard",
+            "deleted_at": null,
+            "disposition": "active",
+            "id": "<artifact-0>",
+            "key_id": "db-encryption-key:v1",
+            "kind": "bundle",
+            "nonce": "<12-byte nonce>",
+            "object_key": "exchange-assessment/<domain-a>/<project-a>/<run-a>/<object-0>.sjae",
+            "retention_until": null,
+            "run_id": "<run-a>",
+            "sha256": "6e4e5ef08382d0d6af845984283d99e967eedc9549c5fb12e28422bc386ebf3d",
+            "wrapped_dek": "<wrapped-DEK>"
+          }
+        ],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 2,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "validating",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "before": {
+        "artifacts": [],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "table": "exchange_assessment"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/exchange-replacement/runs/{runId}/bundle"
+}

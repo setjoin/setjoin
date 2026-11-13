@@ -1,0 +1,89 @@
+-- sharing_default_resolve.pg — pgTAP tests for the defaults-only resolution
+-- ladder (spec 2026-06-27-sharing-delegation-design.md §5 / D4 / D7 / D10).
+-- Covers: tier precedence (user ▸ group ▸ ou ▸ org), most-permissive within a
+-- tier, audience membership (everyone domain-scoped / ou / group), fail-closed.
+-- The ladder is PURE — the sharing.defaults toggle gate lives in
+-- calendar_effective_acl (tested there + in sharing_resolution_matrix.pg).
+BEGIN;
+SELECT plan(10);
+
+-- ── fixtures ────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES
+  (95021, 'sdr-a.test', TRUE),
+  (95022, 'sdr-b.test', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou) VALUES
+  (95121, 'Eng', '/eng', 'ou=eng');
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, department_id) VALUES
+  (95221, 'sdr_owner',   95021, 'owner@sdr-a.test',   'Owner',   TRUE, 95121),
+  (95222, 'sdr_samedom', 95021, 'samedom@sdr-a.test', 'SameDom', TRUE, NULL),
+  (95223, 'sdr_samedep', 95021, 'samedep@sdr-a.test', 'SameDep', TRUE, 95121),
+  (95224, 'sdr_foreign', 95022, 'foreign@sdr-b.test', 'Foreign', TRUE, NULL);
+-- two groups the owner belongs to (membership is via the owner's mailbox)
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (95321, 95221, 95021, 'owner@sdr-a.test',   'Owner',   'personal', TRUE),
+  (95322, 95222, 95021, 'samedom@sdr-a.test', 'SameDom', 'personal', TRUE),
+  (95331, NULL,  95021, 'g1@sdr-a.test', 'G1', 'personal', FALSE),
+  (95332, NULL,  95021, 'g2@sdr-a.test', 'G2', 'personal', FALSE);
+INSERT INTO distribution_groups (id, mailbox_id) VALUES (95421, 95331), (95422, 95332);
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES
+  (95421, 95321),   -- owner ∈ G1
+  (95422, 95321),   -- owner ∈ G2
+  (95421, 95322);   -- samedom ∈ G1 (audience membership)
+
+-- no defaults at all → fail-closed none (D10)
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'none',
+  'no matching default resolves to none (fail-closed)');
+
+-- org default: everyone in the owner's domain sees freebusy (D7)
+-- (rows inserted directly — the set-reducer's auth ladder is covered in
+-- sharing_default_set.pg; this file tests the ladder READ math only)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'org', 95021, 'everyone', 95021, 'freebusy', 95221);
+
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'freebusy',
+  'org default gives same-domain viewer freebusy');
+SELECT is(sharing_default_resolve(95224, 95221, 'calendar'), 'none',
+  'cross-domain viewer does NOT match the everyone audience (D7)');
+
+-- ou default narrows below the org baseline (most-specific-wins, D4)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'ou', 95121, 'everyone', 95021, 'none', 95221);
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'none',
+  'ou default (none) overrides the org baseline for an owner in the OU');
+
+-- group default opens above the ou tier (group is more specific than ou)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'group', 95421, 'everyone', 95021, 'read', 95221);
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'read',
+  'group default (read) beats the ou default (none)');
+
+-- most-permissive within one tier: owner in TWO groups with different levels
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'group', 95422, 'everyone', 95021, 'none', 95221);
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'read',
+  'two same-tier group defaults: most-permissive (read) wins');
+
+-- user default beats every other tier (the owner's opt-out, D5)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'user', 95221, 'everyone', 95021, 'none', 95221);
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'none',
+  'user-scope default (none) beats group/ou/org');
+
+-- audience=ou: only viewers in the department match
+DELETE FROM sharing_defaults;
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'org', 95021, 'ou', 95121, 'read', 95221);
+SELECT is(sharing_default_resolve(95223, 95221, 'calendar'), 'read',
+  'ou audience matches a viewer in the department');
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'none',
+  'ou audience does not match a viewer outside the department');
+
+-- audience=group: only group members match
+DELETE FROM sharing_defaults;
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'org', 95021, 'group', 95421, 'read', 95221);
+SELECT is(sharing_default_resolve(95222, 95221, 'calendar'), 'read',
+  'group audience matches a member (via their mailbox)');
+
+SELECT * FROM finish();
+ROLLBACK;

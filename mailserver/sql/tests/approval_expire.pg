@@ -1,0 +1,134 @@
+-- approval_expire.pg — pgTAP: expiry sweep (Task 9).
+-- Proves approval_expire_due() expires past-due pending requests, fires per-consumer
+-- on-expire effects (NDR for mail.external_send; drop held_inbound for mail.group_moderation),
+-- and leaves non-expired / non-pending rows untouched.
+-- Seed ids: 95600 (domain), 95601–95602 (users), 95611–95612 (mailboxes), 95620 (dist group).
+-- Approval requests: 95901–95906. Held inbound: 95910.
+-- No conflict with other 956xx files.
+
+BEGIN;
+SELECT plan(9);
+
+-- ── Fixtures ──────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local)
+  OVERRIDING SYSTEM VALUE VALUES (95600, 'expire.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'exp_sender',   95600, 'sender@expire.test',   'Expire Sender',   TRUE),
+  (95602, 'exp_approver', 95600, 'approver@expire.test', 'Expire Approver', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95611, 95601, 95600, 'sender@expire.test',  'Expire Sender', 'personal', TRUE),
+  (95612, 95602, 95600, 'group@expire.test',   'Expire Group',  'personal', TRUE);
+INSERT INTO distribution_groups (id, mailbox_id, moderated)
+  OVERRIDING SYSTEM VALUE VALUES (95620, 95612, TRUE);
+
+-- ── Requests ──────────────────────────────────────────────────────────────────
+
+-- (a) rbac.jit_activation — past expires_at, pending → must expire (no side effect)
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95901, 'rbac.jit_activation', 95601, 'jit-expire-a',
+   '{}'::jsonb, 'user', 95602, now()-interval '1 minute', 'pending');
+
+-- (b) mail.external_send — past expires_at, pending → must expire + NDR to sender
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95902, 'mail.external_send', 95601, 'ext-expire-b',
+   jsonb_build_object('p_mailbox_id', 95611, 'p_subject', 'Test Expired Send'),
+   'user', 95602, now()-interval '1 minute', 'pending');
+
+-- (c) mail.group_moderation — past expires_at, pending → must expire + held row dropped
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95903, 'mail.group_moderation', 95601, 'mod-expire-c',
+   '{}'::jsonb, 'user', 95602, now()-interval '1 minute', 'pending');
+INSERT INTO held_inbound_messages
+  (id, approval_request_id, group_id, raw_ref, envelope, deliver_params)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95910, 95903, 95620, 'raw/ref/test-expire', '{"from":"ext@example.test"}'::jsonb, '{}'::jsonb);
+
+-- (d) NOT-yet-expired, pending → must NOT be swept
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95904, 'rbac.jit_activation', 95601, 'future-d',
+   '{}'::jsonb, 'user', 95602, now()+interval '1 hour', 'pending');
+
+-- (e) non-pending (denied), past expires_at → must NOT be swept
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95905, 'rbac.jit_activation', 95601, 'denied-e',
+   '{}'::jsonb, 'user', 95602, now()-interval '1 hour', 'denied');
+
+-- (f) hr.leave — past expires_at, pending → must expire, no side effect (falls
+-- through the sweep's consumer-type CASE ELSE branch cleanly, same as rbac.jit_activation)
+INSERT INTO approval_requests
+  (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at, status)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95906, 'hr.leave', 95601, 'hr-leave-expire-f',
+   '{"leave_type":"annual"}'::jsonb, 'user', 95602, now()-interval '1 minute', 'pending');
+
+-- ── Run the reducer ───────────────────────────────────────────────────────────
+SELECT is(
+  (SELECT approval_expire_due()),
+  4,
+  'approval_expire_due returns count=4 (the four past-due pending requests)');
+
+-- (a) rbac.jit_activation: status → expired
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95901),
+  'expired',
+  '(a) rbac.jit_activation past-due request is marked expired');
+
+-- (b) mail.external_send: status → expired
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95902),
+  'expired',
+  '(b) mail.external_send past-due request is marked expired');
+
+-- (b) mail.external_send: NDR delivered to sender mailbox
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM messages
+     WHERE mailbox_id = 95611
+       AND from_addr  = 'mailer-daemon@mailserver.local'
+  ),
+  '(b) mail.external_send expiry delivers an NDR to the sender mailbox');
+
+-- (c) mail.group_moderation: status → expired
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95903),
+  'expired',
+  '(c) mail.group_moderation past-due request is marked expired');
+
+-- (c) mail.group_moderation: held_inbound_messages row dropped
+SELECT is(
+  (SELECT COUNT(*)::int FROM held_inbound_messages WHERE approval_request_id = 95903),
+  0,
+  '(c) mail.group_moderation expiry drops the held_inbound_messages row');
+
+-- (d) not-yet-expired: still pending
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95904),
+  'pending',
+  '(d) not-yet-expired pending request is untouched');
+
+-- (e) non-pending (denied): unchanged
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95905),
+  'denied',
+  '(e) non-pending (denied) request is not changed by expiry sweep');
+
+-- (f) hr.leave: status → expired, no error, no on-expire side effect
+SELECT is(
+  (SELECT status FROM approval_requests WHERE id = 95906),
+  'expired',
+  '(f) hr.leave past-due request is marked expired (no on-expire side effect)');
+
+SELECT * FROM finish();
+ROLLBACK;

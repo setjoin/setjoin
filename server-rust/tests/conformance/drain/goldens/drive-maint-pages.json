@@ -1,0 +1,65 @@
+{
+  "case": "drive-maint-pages",
+  "format": 1,
+  "go_source": "2683b6ce8cd0a3eb88888117042a387ccdc25658",
+  "observation": {
+    "chunks": [],
+    "claims": [],
+    "journal": [],
+    "queue": [],
+    "s3": {
+      "keys": [],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "continuation-token": "drive/g/<orphan-084>",
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/",
+            "start-after": "drive/g/<orphan-084>"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        },
+        {
+          "deletes": 203,
+          "digest": "1437acd0a75aaa7b492c864220a329d0ea5d5b5b2f786ac48a34c8d9440a6c66"
+        }
+      ]
+    }
+  }
+}

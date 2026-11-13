@@ -1,0 +1,108 @@
+# meet-renderer-qualification.yml — MEET renderer re-qualification lane.
+#
+# GUARD — NON-REQUIRED, MANUALLY-TRIGGERED ONLY (wave-1 unit B3; accepted
+# opus-5.5 module-B fix plan, step 3):
+#   * `workflow_dispatch` is the ONLY trigger. There are deliberately NO
+#     push/pull_request hooks: this lane must never run automatically and is
+#     never required CI. Do not gate merges on it.
+#   * The required lane is .github/workflows/xinchuang-ci.yml — this workflow
+#     must never be wired into it and xinchuang-ci.yml is not modified here.
+#
+# What it runs (lane body: scripts/run-meet-renderer-qualification.sh, the
+# 2026-09-20 renderer-qualification record §11 linux-ci-host re-qualification):
+#   A1 corpus verify (frozen manifest, consumed as renderer input everywhere)
+#   A2 pinned LibreOffice engine (input `engine_version`, default 26.8.0.3;
+#      TDF deb tarball, sidecar-pinned sha256; post-install
+#      `soffice --version` must equal the pin)
+#   A3 digest-verified linux pdfium artifact (pdfium-linux-x64.tgz,
+#      chromium/8057)
+#   A4 producer capture via scripts/gen-meet-m0-corpus.sh acquire (staging
+#      only; fragment recorded for the future manifest rev-3 platform-marked
+#      rows — recorded, never re-pinned or committed by this lane)
+#   B  network-denial canary: bubblewrap smoke (must start), denied probes
+#      under --unshare-net (must FAIL), control probe (must pass). On
+#      GitHub-hosted Ubuntu 24.04, AppArmor can stop bubblewrap entirely;
+#      the canary distinguishes "bwrap failed to start" from "denial works"
+#      and fails loudly on the former — measurement never proceeds unproven.
+#   C  measurement under bwrap --unshare-net: poppler CLI + pdfium harness,
+#      3 runs x every frozen corpus PDF @150 dpi (determinism, page-count
+#      fidelity, non-blank + text correctness, latency, peak RSS).
+#   R  run-scoped receipts uploaded as a workflow artifact (platform-marked
+#      linux/amd64 rows per §11.1 conventions); nothing is committed and the
+#      frozen corpus manifest is never edited.
+#
+# Ordering is the review's: artifacts are downloaded and digest-verified
+# FIRST (A2/A3), the producer capture runs next (A4), the canary proves the
+# denial (B), and only then is anything measured (C).
+
+name: MEET renderer qualification (manual, non-required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_version:
+        description: 'Pinned LibreOffice engine version (post-install `soffice --version` must match; digest pin must exist in the lane script)'
+        required: false
+        default: '26.8.0.3'
+      pdfium_ref:
+        description: 'bblanchon/pdfium-binaries release tag (asset digest pin must exist in the lane script)'
+        required: false
+        default: 'chromium/8057'
+
+# Least privilege (same posture as xinchuang-ci.yml, D--GITHUB-004): the lane
+# only reads the checkout and uploads receipts; it never pushes.
+permissions:
+  contents: read
+
+jobs:
+  requalify:
+    name: Re-qualify renderer (linux/amd64)
+    # GitHub-hosted Ubuntu 24.04 (module-B spec: pinned platform). Hosted 24.04
+    # AppArmor blocks unprivileged user namespaces, so a step below lifts that
+    # restriction on this throwaway VM; the canary still proves bwrap starts
+    # and that network denial works before anything is measured.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install host tooling (never the pinned engines)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils time
+          # The distro LibreOffice owns /usr/bin/soffice; the pinned TDF engine
+          # debs would hit a dpkg overwrite conflict and die mid-A2. Remove the
+          # distro packages so the pinned engine owns the launcher (runner-
+          # scoped; the lane's verbatim soffice --version pin then resolves).
+          if dpkg -s libreoffice-core >/dev/null 2>&1; then
+            sudo apt-get remove -y 'libreoffice-*' 'libobasis*' 'libreoffice26*'
+            sudo apt-get autoremove -y
+          fi
+
+      - name: Allow unprivileged user namespaces for bubblewrap
+        # Hosted Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1,
+        # which stops bwrap before the canary can prove anything. The VM is
+        # discarded after the job.
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+
+      # Downloads (engine + pdfium) happen first inside the lane body, then
+      # the canary, then the measurement — the review's ordering.
+      - name: Run re-qualification lane body
+        env:
+          MEET_QUAL_ENGINE_VERSION: ${{ inputs.engine_version }}
+          MEET_QUAL_PDFIUM_REF: ${{ inputs.pdfium_ref }}
+          MEET_QUAL_RUN_DIR: ${{ github.workspace }}/meet-renderer-qual-run
+        run: bash scripts/run-meet-renderer-qualification.sh
+
+      - name: Upload run-scoped receipts (never committed)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: meet-renderer-qualification-receipts-run-${{ github.run_id }}
+          path: meet-renderer-qual-run/receipt
+          if-no-files-found: error

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"maybe\" for -password-stdin: parse error\nUsage of user create:\n  -display string\n    \tDisplay name\n  -email string\n    \tEmail address\n  -password string\n    \tinitial password; refused on the command line (process listings expose it) — use --password-file or --password-stdin\n  -password-file string\n    \t0600 regular file containing the initial password\n  -password-stdin\n    \tread the initial password from one stdin line\n",
+  "exit": 2
+}

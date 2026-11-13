@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "warning: policy[0].actions.grants[1]: allow is shadowed by an earlier block grant (unreachable)\nError: validation failed: 1 warning(s) (--strict)\n",
+  "exit": 1
+}

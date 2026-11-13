@@ -1,0 +1,1783 @@
+[
+  {
+    "name": "block",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "allow",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "allow"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "empty-grants",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "grants": []
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "auth_method-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "auth_method": "jwt_bearer"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "auth_method": "jwt_bearer"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "auth_method-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "auth_method": "jwt_bearer"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "client_type-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "client_type": "web"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "client_type": "web"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "client_type-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "client_type": "web"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_platform-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "user_agent": "Mozilla iPhone"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_platform": "ios"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_platform-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_platform": "ios"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "country_in-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "country": "US"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "country_in": [
+            "us"
+          ]
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "country_in-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "country": "CA"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "country_in": [
+            "us"
+          ]
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_bound-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "device_bound": true
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_bound": true
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_bound-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_bound": true
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "user_group-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "group_ids": [
+        5
+      ]
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "user_group": 5
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "user_group-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "user_group": 5
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "require_approved_client_app-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "device_bound": true
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "require_approved_client_app": true
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "require_approved_client_app-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "require_approved_client_app": true
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_trust-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "trust_tier_override": "managed"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_trust": "managed"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "device_trust-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "device_trust": "managed"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "ip_reputation-match",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "ip_reputation": "low"
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "user-scope-True",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "user",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "user-scope-False",
+    "context": {
+      "user_id": 8,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "user",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "group-scope-True",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "group_ids": [
+        7
+      ]
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "group",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "group-scope-False",
+    "context": {
+      "user_id": 8,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "group",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "role-scope-True",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "role_group_ids": [
+        7
+      ]
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "role",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "role-scope-False",
+    "context": {
+      "user_id": 8,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "role",
+        "scope_target": "7",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "guests-scope-True",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "is_guest": true
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "guests",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "guests-scope-False",
+    "context": {
+      "user_id": 8,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "guests",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "exclude-user",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        },
+        "exclude_users": [
+          7
+        ]
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "exclude-group",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "group_ids": [
+        5
+      ]
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        },
+        "exclude_groups": [
+          5
+        ]
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "break-glass",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": [
+      7
+    ]
+  },
+  {
+    "name": "time-utc",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "time_of_day": {
+            "start": "12:00",
+            "end": "13:00",
+            "tz": "UTC"
+          }
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "time-shanghai",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "time_of_day": {
+            "start": "20:00",
+            "end": "21:00",
+            "tz": "Asia/Shanghai"
+          }
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "time-overnight-miss",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "time_of_day": {
+            "start": "22:00",
+            "end": "06:00",
+            "tz": "UTC"
+          }
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "time-unknown-zone",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "time_of_day": {
+            "start": "12:00",
+            "end": "13:00",
+            "tz": "bad/zone"
+          }
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "named-192.0.2.5",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "source_ip": "192.0.2.5"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "location_in": 2
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [
+      {
+        "id": 2,
+        "cidrs": [
+          "192.0.2.0/24"
+        ],
+        "countries": [],
+        "trusted": true
+      }
+    ],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "named-198.51.100.5",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "source_ip": "198.51.100.5"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "location_in": 2
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [
+      {
+        "id": 2,
+        "cidrs": [
+          "192.0.2.0/24"
+        ],
+        "countries": [],
+        "trusted": true
+      }
+    ],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "named-bad",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "source_ip": "bad"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {
+          "location_in": 2
+        },
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [
+      {
+        "id": 2,
+        "cidrs": [
+          "192.0.2.0/24"
+        ],
+        "countries": [],
+        "trusted": true
+      }
+    ],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "acr-aal2-aal1",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "current_acr": "aal1"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "action": "require_acr",
+              "acr": "aal2"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "acr-aal2-aal2",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "current_acr": "aal2"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "action": "require_acr",
+              "acr": "aal2"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "acr-aal1-aal2",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "current_acr": "aal2"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "action": "require_acr",
+              "acr": "aal1"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "acr-custom-custom",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "current_acr": "custom"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "action": "require_acr",
+              "acr": "custom"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "acr-custom-aal2",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "current_acr": "aal2"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "action": "require_acr",
+              "acr": "custom"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "all-allow",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "allow"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "all-notify",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "notify"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "all-step_up",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "step_up"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "all-limited_web",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "limited_web"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "all-bogus",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "all",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "bogus"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "one-allow",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "one",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "allow"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "one-notify",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "one",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "notify"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "one-step_up",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "one",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "step_up"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "one-limited_web",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "one",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "limited_web"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "one-bogus",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "operator": "one",
+          "grants": [
+            {
+              "type": "block"
+            },
+            {
+              "type": "bogus"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "grant-dual-mismatch",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "grants": [
+            {
+              "type": "allow",
+              "action": "block"
+            }
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "grant-non-object",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "grants": [
+            1
+          ]
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "terms",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "require_terms",
+          "tou_id": 12
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "risk-none",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "risk_level": "none"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "require_risk_remediation"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "risk-medium",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "risk_level": "medium"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "require_risk_remediation"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "risk-high",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "risk_level": "high"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "require_risk_remediation"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "compliant-False",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "device_bound": false,
+      "enroll_state": "approved"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "require_compliant_device": true
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "compliant-True",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z",
+      "device_bound": true,
+      "enroll_state": "approved"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "require_compliant_device": true
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "report-only",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "report_only",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  },
+  {
+    "name": "first-on-after-report",
+    "context": {
+      "user_id": 7,
+      "request_time": "2026-11-05T12:30:00Z"
+    },
+    "policies": [
+      {
+        "id": 2,
+        "priority": 1,
+        "name": "p",
+        "state": "report_only",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      },
+      {
+        "id": 1,
+        "priority": 1,
+        "name": "p",
+        "state": "on",
+        "scope_type": "global",
+        "scope_target": "",
+        "conditions": {},
+        "actions": {
+          "action": "block"
+        }
+      }
+    ],
+    "locations": [],
+    "strengths": [],
+    "break_glass": []
+  }
+]

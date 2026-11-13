@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity source retire:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\nError: flag: help requested\n",
+  "exit": 1
+}

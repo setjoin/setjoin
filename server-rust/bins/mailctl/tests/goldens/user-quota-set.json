@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/users/8/quota",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"quotaBytes\":4096}"
+    }
+  ],
+  "stdout": "Quota set for ada@example.test: 4096 bytes.\n",
+  "stderr": "",
+  "exit": 0
+}

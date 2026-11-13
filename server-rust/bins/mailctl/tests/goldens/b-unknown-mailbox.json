@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown mailbox action: unsupported\n",
+  "exit": 1
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "source_commit": "9ea7da184425b52ca7ab2555493028ba17b0cb84",
+  "mailctl_tree": "3bda2378d2e7b6edfc2761dd19477908f3204ef5",
+  "shared_tree": "4ffbad274ebd97fc7f134c9c12abde943348a9df",
+  "go_version": "go1.26.6",
+  "goos": "linux",
+  "goarch": "amd64",
+  "CGO_ENABLED": "0",
+  "build_command": "go build -o <oracle> . (cwd mailctl/)",
+  "image": "setjoin-ci-linux-tc:local-amd64",
+  "image_id": "sha256:b5c41404ac8126e7d2ab4c7f8c7d45d926f165425d589d197f497313410511b6",
+  "binary_sha256": "a333e81f4e6b83cc93acd43ee78327d7dbbafbe7d078f8292c73f7a0f22e0bb6",
+  "cases": 270,
+  "cases_sha256": "79d1bf7b6817c95971d0719e883779a68504d2e591491e05184d543c86a6a846",
+  "goldens_sha256": "6daa82e9004b72c4161e97281b66a56c013f4402f544cc0169e404850064fcbf",
+  "goldens_digest_format": "sha256(concat(sorted filename + NUL + exact file bytes))",
+  "normalization": "private-home and port in diagnostics; transport headers excluded; explicit map_table cases compare column identity with exact cell contents and row order"
+}

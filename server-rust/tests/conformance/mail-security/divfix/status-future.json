@@ -1,0 +1,20 @@
+{
+  "case": "tls-future",
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/user/cert-status"
+    },
+    "response": {
+      "body": "{\"expires_at\":\"<expires-at>\",\"status\":\"valid\",\"subject_cn\":\"smime-oracle-future\"}\n",
+      "content_type": "application/json",
+      "status": 200
+    }
+  },
+  "route": "GET /user/cert-status"
+}

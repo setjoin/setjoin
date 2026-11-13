@@ -1,0 +1,51 @@
+// Recording-only overlay: runs frozen Go's real cron Worker for one tick of
+// the two Chat tasks at a fixed local wall-clock time. GO_WORKERS_OFF is read by
+// the unchanged scheduler exactly as in production.
+package cron
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeChatCronTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_CHAT_CRON_DSN"), 1, "", os.Getenv("GOFREE_CHAT_CRON_HMAC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	w := New(pgxutil.WorkerPool{Pool: pool}, slog.Default())
+	var chat []*Task
+	for _, task := range AllTasks() {
+		if strings.HasPrefix(task.Name, "chat-") {
+			chat = append(chat, task)
+		}
+	}
+	if len(chat) != 2 {
+		t.Fatalf("want the two Chat tasks, got %d", len(chat))
+	}
+	if err := w.Register(chat...); err != nil {
+		t.Fatal(err)
+	}
+	hm := strings.Split(os.Getenv("GOFREE_CHAT_CRON_AT"), ":")
+	hour, _ := strconv.Atoi(hm[0])
+	minute, _ := strconv.Atoi(hm[1])
+	w.mu.Lock()
+	w.accepting = true
+	w.mu.Unlock()
+	w.runDueTasks(ctx, time.Date(2026, time.October, 25, hour, minute, 0, 0, time.Local))
+	w.wg.Wait()
+	for _, task := range chat {
+		if task.lastErr != "" {
+			t.Fatalf("%s failed: %s", task.Name, task.lastErr)
+		}
+	}
+}

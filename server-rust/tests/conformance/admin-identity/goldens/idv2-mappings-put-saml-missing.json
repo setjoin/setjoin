@@ -1,0 +1,718 @@
+{
+  "case": "saml-missing",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "authority": [
+            {
+              "value": {
+                "auditor": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "audit.read",
+                    "reports.read"
+                  ],
+                  "legacy": true
+                },
+                "read_only": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "users.read",
+                    "domains.read",
+                    "audit.read",
+                    "mam.read",
+                    "queue.read",
+                    "reports.read",
+                    "compliance.read",
+                    "backup.read"
+                  ],
+                  "legacy": true
+                },
+                "super_admin": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "approvals.manage",
+                    "approvals.view",
+                    "apps.manage",
+                    "apps.view",
+                    "audit.read",
+                    "backup.read",
+                    "backup.write",
+                    "chat.compliance_manage",
+                    "chat.compliance_view",
+                    "chat.ediscovery",
+                    "compliance.read",
+                    "compliance.write",
+                    "directory.groups.manage",
+                    "directory.groups.read",
+                    "domains.read",
+                    "domains.write",
+                    "drive.manage",
+                    "drive.view",
+                    "exchange.assessment.attest",
+                    "exchange.assessment.audit",
+                    "exchange.assessment.decide",
+                    "exchange.assessment.delete",
+                    "exchange.assessment.publish",
+                    "exchange.assessment.read",
+                    "exchange.assessment.run",
+                    "federation.manage",
+                    "guests.manage",
+                    "guests.view",
+                    "identity.write",
+                    "mail.offline_policy",
+                    "mail.pipeline",
+                    "mail.security",
+                    "mam.read",
+                    "mam.write",
+                    "office.manage",
+                    "office.view",
+                    "queue.read",
+                    "queue.write",
+                    "reports.read",
+                    "roles.manage",
+                    "scope_sets.manage",
+                    "security.write",
+                    "sharing.manage",
+                    "sharing.read",
+                    "system.config",
+                    "system.recovery",
+                    "system.upgrade",
+                    "users.create",
+                    "users.delete",
+                    "users.impersonate",
+                    "users.password_reset",
+                    "users.read",
+                    "users.suspend"
+                  ],
+                  "legacy": true
+                },
+                "user_admin": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "audit.read",
+                    "domains.read",
+                    "users.create",
+                    "users.password_reset",
+                    "users.read",
+                    "users.suspend"
+                  ],
+                  "legacy": true
+                }
+              }
+            }
+          ],
+          "candidates": [
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000001",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000002",
+              "reason": "later",
+              "status": "deferred"
+            },
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 5,
+              "id": "95000000-0000-4000-8000-000000000003",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000004",
+              "reason": "no",
+              "status": "rejected"
+            }
+          ],
+          "decisions": [
+            {
+              "candidate": "95000000-0000-4000-8000-000000000001",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "earlier"
+            },
+            {
+              "candidate": "95000000-0000-4000-8000-000000000002",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "later"
+            }
+          ],
+          "envelopes": [
+            {
+              "key": "admin7-alpha",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Alpha <&>",
+                    "sourceKey": "admin7-alpha"
+                  },
+                  "spec": {
+                    "type": "local"
+                  }
+                },
+                "secrets": {}
+              }
+            },
+            {
+              "key": "admin7-beta",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Beta",
+                    "sourceKey": "admin7-beta"
+                  },
+                  "spec": {
+                    "baseDN": "dc=example,dc=test",
+                    "endpoint": {
+                      "host": "ldap.test",
+                      "port": 636,
+                      "tls": "ldaps"
+                    },
+                    "subjectAttribute": "entryUUID",
+                    "type": "ldap"
+                  }
+                },
+                "secrets": {
+                  "bindPassword": "c2VjcmV0"
+                }
+              }
+            },
+            {
+              "key": "admin7-gamma",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Gamma",
+                    "sourceKey": "admin7-gamma"
+                  },
+                  "spec": {
+                    "type": "scim"
+                  }
+                },
+                "secrets": {}
+              }
+            }
+          ],
+          "events": [],
+          "jobs": [
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000001",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000002",
+              "next_action": "wait",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000003",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000004",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            }
+          ],
+          "links": [
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-b",
+              "user_id": "<other>"
+            },
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-t",
+              "user_id": "<third>"
+            },
+            {
+              "source": "admin7-beta",
+              "state": "detached",
+              "subject": "admin7-subject-a",
+              "user_id": "<admin>"
+            }
+          ],
+          "oidc": [
+            {
+              "key": "oidc_provider_admin7a_config",
+              "value": {
+                "client_id": "c1",
+                "name": "admin7-oidc-a",
+                "scopes": [
+                  "openid"
+                ]
+              }
+            }
+          ],
+          "operations": [],
+          "saml": [
+            {
+              "group_mappings": [
+                {
+                  "idp_group": "old"
+                }
+              ],
+              "idp": "admin7-idp-a"
+            }
+          ],
+          "sources": [
+            {
+              "config_key_version": 1,
+              "generation": 3,
+              "key": "admin7-alpha",
+              "mapping_version": 2,
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 5,
+              "key": "admin7-beta",
+              "mapping_version": 2,
+              "state": "paused",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 2,
+              "key": "admin7-delta",
+              "mapping_version": 1,
+              "state": "validated",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 1,
+              "key": "admin7-gamma",
+              "mapping_version": 2,
+              "state": "draft",
+              "updated_by": null
+            }
+          ]
+        },
+        "before": {
+          "authority": [
+            {
+              "value": {
+                "auditor": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "audit.read",
+                    "reports.read"
+                  ],
+                  "legacy": true
+                },
+                "read_only": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "users.read",
+                    "domains.read",
+                    "audit.read",
+                    "mam.read",
+                    "queue.read",
+                    "reports.read",
+                    "compliance.read",
+                    "backup.read"
+                  ],
+                  "legacy": true
+                },
+                "super_admin": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "approvals.manage",
+                    "approvals.view",
+                    "apps.manage",
+                    "apps.view",
+                    "audit.read",
+                    "backup.read",
+                    "backup.write",
+                    "chat.compliance_manage",
+                    "chat.compliance_view",
+                    "chat.ediscovery",
+                    "compliance.read",
+                    "compliance.write",
+                    "directory.groups.manage",
+                    "directory.groups.read",
+                    "domains.read",
+                    "domains.write",
+                    "drive.manage",
+                    "drive.view",
+                    "exchange.assessment.attest",
+                    "exchange.assessment.audit",
+                    "exchange.assessment.decide",
+                    "exchange.assessment.delete",
+                    "exchange.assessment.publish",
+                    "exchange.assessment.read",
+                    "exchange.assessment.run",
+                    "federation.manage",
+                    "guests.manage",
+                    "guests.view",
+                    "identity.write",
+                    "mail.offline_policy",
+                    "mail.pipeline",
+                    "mail.security",
+                    "mam.read",
+                    "mam.write",
+                    "office.manage",
+                    "office.view",
+                    "queue.read",
+                    "queue.write",
+                    "reports.read",
+                    "roles.manage",
+                    "scope_sets.manage",
+                    "security.write",
+                    "sharing.manage",
+                    "sharing.read",
+                    "system.config",
+                    "system.recovery",
+                    "system.upgrade",
+                    "users.create",
+                    "users.delete",
+                    "users.impersonate",
+                    "users.password_reset",
+                    "users.read",
+                    "users.suspend"
+                  ],
+                  "legacy": true
+                },
+                "user_admin": {
+                  "authorized_at": "<timestamp>",
+                  "authorized_by": null,
+                  "authorized_perms": [
+                    "audit.read",
+                    "domains.read",
+                    "users.create",
+                    "users.password_reset",
+                    "users.read",
+                    "users.suspend"
+                  ],
+                  "legacy": true
+                }
+              }
+            }
+          ],
+          "candidates": [
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000001",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000002",
+              "reason": "later",
+              "status": "deferred"
+            },
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 5,
+              "id": "95000000-0000-4000-8000-000000000003",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000004",
+              "reason": "no",
+              "status": "rejected"
+            }
+          ],
+          "decisions": [
+            {
+              "candidate": "95000000-0000-4000-8000-000000000001",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "earlier"
+            },
+            {
+              "candidate": "95000000-0000-4000-8000-000000000002",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "later"
+            }
+          ],
+          "envelopes": [
+            {
+              "key": "admin7-alpha",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Alpha <&>",
+                    "sourceKey": "admin7-alpha"
+                  },
+                  "spec": {
+                    "type": "local"
+                  }
+                },
+                "secrets": {}
+              }
+            },
+            {
+              "key": "admin7-beta",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Beta",
+                    "sourceKey": "admin7-beta"
+                  },
+                  "spec": {
+                    "baseDN": "dc=example,dc=test",
+                    "endpoint": {
+                      "host": "ldap.test",
+                      "port": 636,
+                      "tls": "ldaps"
+                    },
+                    "subjectAttribute": "entryUUID",
+                    "type": "ldap"
+                  }
+                },
+                "secrets": {
+                  "bindPassword": "c2VjcmV0"
+                }
+              }
+            },
+            {
+              "key": "admin7-gamma",
+              "key_version": 1,
+              "plaintext": {
+                "document": {
+                  "apiVersion": "setjoin.io/v1",
+                  "kind": "IdentitySource",
+                  "metadata": {
+                    "displayName": "Admin7 Gamma",
+                    "sourceKey": "admin7-gamma"
+                  },
+                  "spec": {
+                    "type": "scim"
+                  }
+                },
+                "secrets": {}
+              }
+            }
+          ],
+          "events": [],
+          "jobs": [
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000001",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000002",
+              "next_action": "wait",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000003",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000004",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            }
+          ],
+          "links": [
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-b",
+              "user_id": "<other>"
+            },
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-t",
+              "user_id": "<third>"
+            },
+            {
+              "source": "admin7-beta",
+              "state": "detached",
+              "subject": "admin7-subject-a",
+              "user_id": "<admin>"
+            }
+          ],
+          "oidc": [
+            {
+              "key": "oidc_provider_admin7a_config",
+              "value": {
+                "client_id": "c1",
+                "name": "admin7-oidc-a",
+                "scopes": [
+                  "openid"
+                ]
+              }
+            }
+          ],
+          "operations": [],
+          "saml": [
+            {
+              "group_mappings": [
+                {
+                  "idp_group": "old"
+                }
+              ],
+              "idp": "admin7-idp-a"
+            }
+          ],
+          "sources": [
+            {
+              "config_key_version": 1,
+              "generation": 3,
+              "key": "admin7-alpha",
+              "mapping_version": 2,
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 5,
+              "key": "admin7-beta",
+              "mapping_version": 2,
+              "state": "paused",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 2,
+              "key": "admin7-delta",
+              "mapping_version": 1,
+              "state": "validated",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 1,
+              "key": "admin7-gamma",
+              "mapping_version": 2,
+              "state": "draft",
+              "updated_by": null
+            }
+          ]
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "[{\"idp_group\":\"eng\",\"distribution_group_id\":5,\"department_id\":9},{\"IDP_GROUP\":\"ops <&>\"}]",
+      "external_path": "/api/admin/identity/group-mappings/{type}/{id}",
+      "headers": [
+        "content-type",
+        "x-audit-reason"
+      ],
+      "method": "PUT",
+      "path": "/admin/identity/group-mappings/{type}/{id}"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/identity/group-mappings/{type}/{id}"
+}

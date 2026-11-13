@@ -1,0 +1,81 @@
+{
+  "case": "future",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "anchors": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBlDCCATugAwIBAgIUPi2oFNb6H6aHP7knDeNPCeVVA30wCgYIKoZIzj0EAwIw\nHjEcMBoGA1UEAwwTc21pbWUtb3JhY2xlLWZ1dHVyZTAiGA8yMDkwMDEwMTAwMDAw\nMFoYDzIwOTUwMTAxMDAwMDAwWjAeMRwwGgYDVQQDDBNzbWltZS1vcmFjbGUtZnV0\ndXJlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEYEETn+cAXcgmPKkDGr1e5UZe\nVQMgO50/8e+Bn/npwwbLf0lY0S4vTWEaiqDMvGE/wZF5h/UvFoGQd2mbKK4W7aNT\nMFEwHQYDVR0OBBYEFBYRzv2JKGlyDiJ2PEDGdFkpIbqaMB8GA1UdIwQYMBaAFBYR\nzv2JKGlyDiJ2PEDGdFkpIbqaMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwID\nRwAwRAIgd9Fpos1A+zndN+PkQRteBb6gQWSAU9/lzHXlS+rRhucCIEyLB6JPwzd/\nx3Ud8U0qqrM1w2izcfo8E0EJEPzCMTUO\n-----END CERTIFICATE-----\n",
+              "created_by": "<actor>",
+              "domain_id": null,
+              "fingerprint": "689a6baf19b8e62c55b0e604ebe4cc46b8dfb96b705b88e6ff75107d006ba9f4",
+              "label": "future",
+              "not_after": 3944678400,
+              "not_before": 3786912000,
+              "subject_cn": "smime-oracle-future"
+            }
+          ]
+        },
+        "before": {
+          "anchors": []
+        },
+        "table": "smime"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "smime_trust_changed",
+        "payload": "1"
+      }
+    ],
+    "request": {
+      "external_path": "/api/admin/smime/trust-anchors",
+      "method": "POST",
+      "path": "/admin/smime/trust-anchors"
+    },
+    "response": {
+      "body": "{\"fingerprint\":\"689a6baf19b8e62c55b0e604ebe4cc46b8dfb96b705b88e6ff75107d006ba9f4\",\"ok\":true}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "93"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/smime/trust-anchors"
+}

@@ -1,0 +1,106 @@
+package authn
+
+// Test-only frozen-Go cryptographic oracle. All keys are synthetic; export only
+// public COSE, browser messages/signatures, and frozen verifier outcomes.
+import (
+ "bytes"
+ "crypto"
+ "crypto/ecdsa"
+ "crypto/ed25519"
+ "crypto/elliptic"
+ "crypto/rand"
+ "crypto/rsa"
+ "crypto/sha256"
+ "crypto/sha512"
+ "crypto/x509"
+ "crypto/x509/pkix"
+ "math/big"
+ "time"
+ "github.com/golang-jwt/jwt/v5"
+ "encoding/base64"
+ "encoding/binary"
+ "encoding/hex"
+ "encoding/json"
+ "os"
+ "testing"
+
+ "github.com/fxamacker/cbor/v2"
+ "github.com/go-webauthn/webauthn/protocol"
+ "github.com/go-webauthn/webauthn/protocol/webauthncose"
+ "github.com/go-webauthn/webauthn/webauthn"
+)
+type idmfa2User struct{ cred []webauthn.Credential }
+func (u idmfa2User) WebAuthnID() []byte {return bytes.Repeat([]byte{2},32)}
+func (u idmfa2User) WebAuthnName() string{return "fixture@example.test"}
+func (u idmfa2User) WebAuthnDisplayName() string{return "Fixture"}
+func (u idmfa2User) WebAuthnCredentials() []webauthn.Credential{return u.cred}
+func TestIDMFA2Vectors(t *testing.T) {
+ enc:=base64.RawURLEncoding.EncodeToString
+ wa,err:=webauthn.New(&webauthn.Config{RPID:"localhost",RPDisplayName:"SetJoin",RPOrigins:[]string{"http://localhost:8080"}});if err!=nil{t.Fatal(err)}
+ challenge:=enc(bytes.Repeat([]byte{1},32)); handle:=bytes.Repeat([]byte{2},32)
+ out:=[]any{}
+ algorithms:=[]int{-7,-35,-36,-257,-8,-37,-38,-39};if os.Getenv("GOFREE_IDMFA2_EXTENDED")=="1"{algorithms=append(algorithms,-258,-259)}
+ if os.Getenv("GOFREE_IDMFA2_FORMAT")=="android-safetynet"{algorithms=[]int{-7}}
+ for _,alg:=range algorithms {
+  var signer crypto.Signer; var cose map[int]any
+  switch alg {
+  case -7,-35,-36:
+   curve:=elliptic.P256();crv,n:=1,32;if alg==-35{curve=elliptic.P384();crv,n=2,48};if alg==-36{curve=elliptic.P521();crv,n=3,66}
+   k,e:=ecdsa.GenerateKey(curve,rand.Reader);if e!=nil{t.Fatal(e)};signer=k;cose=map[int]any{1:2,3:alg,-1:crv,-2:k.X.FillBytes(make([]byte,n)),-3:k.Y.FillBytes(make([]byte,n))}
+  case -8:
+   pub,k,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)};signer=k;cose=map[int]any{1:1,3:alg,-1:6,-2:[]byte(pub)}
+  default:
+   k,e:=rsa.GenerateKey(rand.Reader,2048);if e!=nil{t.Fatal(e)};signer=k;cose=map[int]any{1:3,3:alg,-1:k.N.Bytes(),-2:[]byte{1,0,1}}
+  }
+  key,e:=cbor.Marshal(cose);if e!=nil{t.Fatal(e)};id:=[]byte("idmfa2-key-"+hex.EncodeToString([]byte{byte(-alg)}))
+  rp:=sha256.Sum256([]byte("localhost"))
+  registrationData:=append([]byte{},rp[:]...);flag:=byte(0x45);if os.Getenv("GOFREE_IDMFA2_BACKUP")=="1"{flag|=8};registrationData=append(registrationData,flag);registrationData=binary.BigEndian.AppendUint32(registrationData,7);registrationData=append(registrationData,make([]byte,16)...);registrationData=binary.BigEndian.AppendUint16(registrationData,uint16(len(id)));registrationData=append(registrationData,id...);registrationData=append(registrationData,key...)
+  att,e:=cbor.Marshal(map[string]any{"fmt":"none","authData":registrationData,"attStmt":map[string]any{}});if e!=nil{t.Fatal(e)}
+  cd,_:=json.Marshal(map[string]any{"type":"webauthn.create","challenge":challenge,"origin":"http://localhost:8080"})
+  registration,_:=json.Marshal(map[string]any{"id":enc(id),"rawId":enc(id),"type":"public-key","response":map[string]any{"clientDataJSON":enc(cd),"attestationObject":enc(att)}})
+  if format:=os.Getenv("GOFREE_IDMFA2_FORMAT");format!="" {
+   ch:=sha256.Sum256(cd);message:=append(append([]byte{},registrationData...),ch[:]...)
+   statement:=map[string]any{}
+   if format=="packed"||format=="compound" {
+    h:=crypto.SHA256;var digest []byte
+    switch alg {case -8:h=crypto.Hash(0);digest=message;case -35,-38,-258:h=crypto.SHA384;d:=sha512.Sum384(message);digest=d[:];case -36,-39,-259:h=crypto.SHA512;d:=sha512.Sum512(message);digest=d[:];default:d:=sha256.Sum256(message);digest=d[:]}
+    var opts crypto.SignerOpts=h;if alg<=-37&&alg>=-39{opts=&rsa.PSSOptions{SaltLength:rsa.PSSSaltLengthEqualsHash,Hash:h}}
+    signature,e:=signer.Sign(rand.Reader,digest,opts);if e!=nil{t.Fatal(e)}
+    statement=map[string]any{"alg":alg,"sig":signature}
+    if format=="compound"{statement=map[string]any{"attStmt":[]any{map[string]any{"fmt":"packed","attStmt":statement},map[string]any{"fmt":"packed","attStmt":statement}}}}
+   }else if format=="android-safetynet"{
+    attKey,e:=rsa.GenerateKey(rand.Reader,2048);if e!=nil{t.Fatal(e)}
+    template:=&x509.Certificate{SerialNumber:big.NewInt(335),Subject:pkix.Name{CommonName:"attest.android.com"},DNSNames:[]string{"attest.android.com"},NotBefore:time.Unix(0,0),NotAfter:time.Unix(4102444800,0),KeyUsage:x509.KeyUsageDigitalSignature}
+    cert,e:=x509.CreateCertificate(rand.Reader,template,template,&attKey.PublicKey,attKey);if e!=nil{t.Fatal(e)}
+    nonce:=sha256.Sum256(message);token:=jwt.NewWithClaims(jwt.SigningMethodRS256,jwt.MapClaims{"nonce":base64.StdEncoding.EncodeToString(nonce[:]),"ctsProfileMatch":true,"timestampMs":int64(0)})
+    token.Header["x5c"]=[]string{base64.StdEncoding.EncodeToString(cert)}
+    signed,e:=token.SignedString(attKey);if e!=nil{t.Fatal(e)};statement=map[string]any{"ver":"1","response":[]byte(signed)}
+   }else{t.Fatalf("unknown format %s",format)}
+   att,e=cbor.Marshal(map[string]any{"fmt":format,"authData":registrationData,"attStmt":statement});if e!=nil{t.Fatal(e)}
+   registration,_=json.Marshal(map[string]any{"id":enc(id),"rawId":enc(id),"type":"public-key","response":map[string]any{"clientDataJSON":enc(cd),"attestationObject":enc(att)}})
+  }
+  parsed,e:=protocol.ParseCredentialCreationResponseBytes(registration);if e!=nil{t.Fatal(e)}
+  params:=[]protocol.CredentialParameter{{Type:protocol.PublicKeyCredentialType,Algorithm:webauthncose.COSEAlgorithmIdentifier(alg)}}
+  sd:=webauthn.SessionData{Challenge:challenge,UserID:handle,CredParams:params,UserVerification:protocol.VerificationPreferred}
+  cred,e:=wa.CreateCredential(idmfa2User{},sd,parsed);if e!=nil{t.Fatalf("registration alg%d: %v",alg,e)}
+  key=cred.PublicKey // Persist exactly the bytes frozen Go returns to its store.
+  assertions:=map[string]any{}
+  for _,count:=range []uint32{8,6,0} {
+   data:=append([]byte{},rp[:]...);flag:=byte(5);if os.Getenv("GOFREE_IDMFA2_BACKUP")=="1"{flag|=8};data=append(data,flag);data=binary.BigEndian.AppendUint32(data,count)
+   client,_:=json.Marshal(map[string]any{"type":"webauthn.get","challenge":challenge,"origin":"http://localhost:8080"})
+   ch:=sha256.Sum256(client);msg:=append(append([]byte{},data...),ch[:]...)
+   h:=crypto.SHA256;var digest []byte
+   switch alg {case -8:h=crypto.Hash(0);digest=msg;case -35,-38,-258:h=crypto.SHA384;d:=sha512.Sum384(msg);digest=d[:];case -36,-39,-259:h=crypto.SHA512;d:=sha512.Sum512(msg);digest=d[:];default:d:=sha256.Sum256(msg);digest=d[:]}
+   var opts crypto.SignerOpts=h;if alg<=-37&&alg>=-39 {salt:=rsa.PSSSaltLengthEqualsHash;if os.Getenv("GOFREE_IDMFA2_EXTENDED")=="1"&&count==0{salt=rsa.PSSSaltLengthAuto};opts=&rsa.PSSOptions{SaltLength:salt,Hash:h}}
+   sig,e:=signer.Sign(rand.Reader,digest,opts);if e!=nil{t.Fatal(e)}
+   assertion,_:=json.Marshal(map[string]any{"id":enc(id),"rawId":enc(id),"type":"public-key","response":map[string]any{"clientDataJSON":enc(client),"authenticatorData":enc(data),"signature":enc(sig),"userHandle":enc(handle)}})
+   p,e:=protocol.ParseCredentialRequestResponseBytes(assertion);if e!=nil{t.Fatal(e)}
+   session:=webauthn.SessionData{Challenge:challenge,UserID:handle,AllowedCredentialIDs:[][]byte{id},UserVerification:protocol.VerificationPreferred}
+   verified,e:=wa.ValidateLogin(idmfa2User{[]webauthn.Credential{*cred}},session,p);if e!=nil{t.Fatalf("login alg%d count%d: %v",alg,count,e)}
+   label:="success";if count==6{label="regression"};if count==0{label="zero"}
+   assertions[label]=map[string]any{"request":json.RawMessage(assertion),"stored_count":verified.Authenticator.SignCount,"clone_warning":verified.Authenticator.CloneWarning,"message":hex.EncodeToString(msg),"signature":hex.EncodeToString(sig)}
+  }
+  out=append(out,map[string]any{"algorithm":alg,"id":enc(id),"key":hex.EncodeToString(key),"handle":enc(handle),"challenge":challenge,"registration":json.RawMessage(registration),"attestation_type":cred.AttestationType,"assertions":assertions})
+ }
+ path:=os.Getenv("GOFREE_IDMFA2_VECTORS");if path==""{t.Fatal("output required")};f,e:=os.OpenFile(path,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if e!=nil{t.Fatal(e)};defer f.Close();if e=json.NewEncoder(f).Encode(map[string]any{"format":1,"go_source":"6c1a7fee2c8d147965cc84ed94ea4663488a89c7","cases":out});e!=nil{t.Fatal(e)}
+}

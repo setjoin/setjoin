@@ -1,0 +1,47 @@
+{
+  "case": "scope-upper-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+          "peer_domain": "alpha.example",
+          "scope": "dm",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": false,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUEUi33XEPgUbfAcgtkSM0FY5gnJ8wCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci10d28uZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItdHdvLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAASmJ2JcGhIDsHBS74qqcRfVpz89xcgJQLCJRUgX\nrwKKXJ7OdxaGyTeuRMWnN8uVaBx41Hui2xNzNAOFt6MYrfWmo1MwUTAdBgNVHQ4E\nFgQUrwDtgdHAUerSVGQSl4hgMXGtfcgwHwYDVR0jBBgwFoAUrwDtgdHAUerSVGQS\nl4hgMXGtfcgwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAlNC/\nirHjgIpy2aRSyVjj2yYwfsHrHjGo18bsWY2jZJQCIGqA440KViZ3Y7s58F0Csz2X\n+sDUqRm4JknhXDveXUm2\n-----END CERTIFICATE-----\n",
+          "peer_domain": "beta.example",
+          "scope": "room",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        }
+      ],
+      "before": [
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+          "peer_domain": "alpha.example",
+          "scope": "dm",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": false,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUEUi33XEPgUbfAcgtkSM0FY5gnJ8wCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci10d28uZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItdHdvLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAASmJ2JcGhIDsHBS74qqcRfVpz89xcgJQLCJRUgX\nrwKKXJ7OdxaGyTeuRMWnN8uVaBx41Hui2xNzNAOFt6MYrfWmo1MwUTAdBgNVHQ4E\nFgQUrwDtgdHAUerSVGQSl4hgMXGtfcgwHwYDVR0jBBgwFoAUrwDtgdHAUerSVGQS\nl4hgMXGtfcgwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAlNC/\nirHjgIpy2aRSyVjj2yYwfsHrHjGo18bsWY2jZJQCIGqA440KViZ3Y7s58F0Csz2X\n+sDUqRm4JknhXDveXUm2\n-----END CERTIFICATE-----\n",
+          "peer_domain": "beta.example",
+          "scope": "room",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        }
+      ],
+      "table": "federation_allowlist"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/federation/peers"
+}

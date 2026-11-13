@@ -1,0 +1,70 @@
+-- rls_chat_oversight.pg — Chat A4b Task 1: FORCE-RLS denial proof for the
+-- three new V127 oversight tables (chat_case_holds, chat_case_hold_channels,
+-- chat_ediscovery_searches). All three are deny-all under FORCE RLS with
+-- ZERO policies (the chat_audit_log V126 precedent) — a case hold or a
+-- search record must stay invisible to the custodian it targets (tipping-off,
+-- spec L2). Every read is an admin route on workerPool (BYPASSRLS); the
+-- writers are SECURITY DEFINER worker-owned reducers (Task 2/3).
+-- Spec: retired-docs:superpowers/specs/2026-07-15-chat-A4b-oversight-design.md §5, §9.
+BEGIN;
+SELECT plan(7);
+
+-- ── fixture: an ediscovery case + a channel + a custodian membership, and
+-- one row in each of the three V127 tables (inserted as the superuser owner
+-- — the writer reducers land in Task 2/3 and aren't built yet).
+-- ediscovery_cases.created_by FK-references users(id) (chat_* tables don't),
+-- so a minimal real user row is required here.
+INSERT INTO domains (name, is_local) VALUES ('v127-oversight.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 92000, 'v127-admin', id, 'v127-admin@v127-oversight.test', 'v127 admin', 'x'
+    FROM domains WHERE name = 'v127-oversight.test';
+
+INSERT INTO ediscovery_cases (id, name, status, created_by)
+  VALUES (92100, 'rls-oversight-case', 'active', 92000);
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'v127-oversight', 92000);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 92001, 'member' FROM chat_channels WHERE name = 'v127-oversight';
+
+INSERT INTO chat_case_holds (id, case_id, custodian_user_id, reason, created_by)
+  VALUES (92200, 92100, 92001, 'rls fixture hold', 92000);
+INSERT INTO chat_case_hold_channels (hold_id, channel_id, source)
+  SELECT 92200, id, 'snapshot' FROM chat_channels WHERE name = 'v127-oversight';
+INSERT INTO chat_ediscovery_searches (case_id, kind, query, result_count, executed_by)
+  VALUES (92100, 'search', '{"terms":"rls fixture"}'::jsonb, 0, 92000);
+
+-- ── relforcerowsecurity TRUE for all three tables ─────────────────────────
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_case_holds'::regclass),
+  TRUE, 'chat_case_holds RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_case_hold_channels'::regclass),
+  TRUE, 'chat_case_hold_channels RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_ediscovery_searches'::regclass),
+  TRUE, 'chat_ediscovery_searches RLS FORCED');
+
+-- ── denial proof: the custodian THEMSELVES sees zero rows on all three
+-- (deny-all, not custodian-scoped — the tipping-off proof, spec L2) ───────
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '92001', true);
+SELECT is((SELECT count(*) FROM chat_case_holds)::int, 0,
+  'chat_case_holds denies ALL app-role access, even the targeted custodian (zero policies, FORCE)');
+SELECT is((SELECT count(*) FROM chat_case_hold_channels)::int, 0,
+  'chat_case_hold_channels denies ALL app-role access, even the targeted custodian (zero policies, FORCE)');
+SELECT is((SELECT count(*) FROM chat_ediscovery_searches)::int, 0,
+  'chat_ediscovery_searches denies ALL app-role access (zero policies, FORCE)');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+-- ── denial proof: an INSERT by the app role into chat_case_holds is
+-- rejected (deny-all covers writes too, not just reads) ───────────────────
+GRANT INSERT ON public.chat_case_holds TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '92001', true);
+SELECT throws_ok(
+  $$ INSERT INTO chat_case_holds (case_id, custodian_user_id, reason, created_by)
+       VALUES (92100, 92002, 'app-role attempt', 92001) $$,
+  NULL, NULL, 'app-role INSERT into chat_case_holds is rejected (zero policies, FORCE)');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT * FROM finish(); ROLLBACK;

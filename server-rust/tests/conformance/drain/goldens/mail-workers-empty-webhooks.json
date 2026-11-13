@@ -1,0 +1,95 @@
+{
+  "case": "mail-workers-empty-webhooks",
+  "format": 1,
+  "go_source": "f532066df27a404a5eaddc064719951cc92dbff7",
+  "observation": {
+    "deliveries": [
+      0
+    ],
+    "lifecycle": [
+      [
+        "completed",
+        1,
+        null,
+        true
+      ]
+    ],
+    "lifecycle-outbox": [
+      [
+        "completed",
+        1,
+        null,
+        true
+      ]
+    ],
+    "work": [
+      [
+        "mbox4-empty-0",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-1",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-2",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-3",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-4",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-5",
+        "completed",
+        1,
+        null,
+        {
+          "eventId": "29550000-0000-4000-8000-000000000001",
+          "outcome": "enqueued"
+        }
+      ],
+      [
+        "mbox4-empty-6",
+        "pending",
+        1,
+        "mail-work webhook event is not approved",
+        null
+      ]
+    ]
+  }
+}

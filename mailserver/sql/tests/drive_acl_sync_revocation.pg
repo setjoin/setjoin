@@ -1,0 +1,151 @@
+-- V192/A7 managed-client access cursor, stable visibility, and bound-artifact
+-- revocation.  The whole fixture rolls back; production flags remain OFF.
+BEGIN;
+SELECT plan(30);
+
+SELECT has_column('public','drive_access_invalidations','scan_token',
+  'access journal exposes an opaque UUID scan token');
+SELECT has_index('public','drive_access_invalidations',
+  'drive_access_invalidations_scan_token_uniq',
+  'opaque scan tokens are unique');
+SELECT has_column('public','drive_export_grants','revoked_at',
+  'export grants record explicit revocation time');
+SELECT has_column('public','drive_export_grants','revoked_reason',
+  'export grants record a bounded revocation reason');
+
+SELECT mk_account('acl7-owner') AS mbo \gset
+SELECT mk_account('acl7-reader') AS mbr \gset
+SELECT mk_account('acl7-hidden') AS mbh \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ur FROM mailboxes WHERE id=:mbr \gset
+SELECT user_id AS uh FROM mailboxes WHERE id=:mbh \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:uo,1,:uo);
+
+SELECT drive_space_create(:uo,'ACL A7','regular') AS sid \gset
+SELECT drive_node_create(:uo,:sid,NULL,'folder','Hidden parent') AS hidden_parent \gset
+SELECT drive_node_create(:uo,:sid,:hidden_parent,'folder','Shared folder') AS folder \gset
+SELECT drive_node_create(:uo,:sid,:folder,'file','Report.bin') AS file \gset
+SELECT drive_chunk_register(:uo,:sid,repeat('7',64),10);
+SELECT (drive_file_put_version(
+  :uo,:file,repeat('a',64),10,'application/octet-stream',NULL,
+  format('[{"sha256":"%s","size":10}]',repeat('7',64))::jsonb,
+  NULL,'acl7-owner')->>'versionId')::bigint AS vid \gset
+
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:sid;
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.drive_node_acl_reads','feature.drive_node_acl_writes');
+SELECT (drive_acl_grant(
+  :uo,:folder,'user',:ur,'editor',NULL,'subtree',NULL,NULL,NULL,
+  'managed sync proof',0,'acl7-reader-grant')->>'grantId')::bigint AS grant_id \gset
+
+CREATE TEMP TABLE _acl7_visibility AS
+SELECT drive_visibility_snapshot_page(:ur,:sid,0,NULL,500) AS doc;
+SELECT is((SELECT jsonb_array_length(doc->'nodes') FROM _acl7_visibility),2,
+  'visibility snapshot returns the shared folder and child, not hidden ancestors');
+SELECT is((SELECT (doc->'nodes'->0->>'nodeId')::bigint FROM _acl7_visibility),
+  :folder::bigint,'stable page begins at the visible shared anchor');
+SELECT is((SELECT doc->'nodes'->0->>'parentId' FROM _acl7_visibility),NULL,
+  'a shared anchor is remapped to the virtual root without leaking hidden parent id');
+SELECT is((SELECT (doc->'nodes'->1->>'parentId')::bigint FROM _acl7_visibility),
+  :folder::bigint,'a visible child keeps its visible parent relationship');
+SELECT ok((SELECT doc->'nodes'->1->'capabilities' ? 'download'
+             FROM _acl7_visibility),
+  'snapshot carries exact effective capabilities for each visible node');
+SELECT is((SELECT jsonb_array_length(doc->'rootCapabilities')
+             FROM _acl7_visibility),0,
+  'virtual shared root does not inherit capabilities from a hidden real root');
+
+CREATE TEMP TABLE _acl7_one AS
+SELECT drive_visibility_snapshot_page(:ur,:sid,0,1,1) AS doc;
+SELECT ok((SELECT (doc->>'hasMore')::boolean FROM _acl7_one),
+  'visibility paging reports a remaining visible row');
+SELECT is((SELECT (doc->>'nextAfter')::bigint FROM _acl7_one),:folder::bigint,
+  'visibility cursor advances to the last scanned visible node');
+SELECT throws_ok(format(
+  'SELECT drive_visibility_snapshot_page(%s,%s,0,0,500)',:ur,:sid),
+  'BZ254',NULL,'stale expected ACL epoch rejects a mixed snapshot');
+
+CREATE TEMP TABLE _acl7_initial AS
+SELECT drive_access_invalidation_page(:ur,:sid,NULL,100) AS doc;
+SELECT ok((SELECT jsonb_array_length(doc->'invalidations')>=1 FROM _acl7_initial),
+  'initial access page returns the reader grant invalidation');
+SELECT doc->>'cursor' AS base_token FROM _acl7_initial \gset
+
+INSERT INTO drive_access_invalidations(
+  space_id,principal_kind,principal_id,anchor_node_id,resulting_epoch,reason)
+VALUES
+  (:sid,'user',:uh,:folder,1,'grant'),
+  (:sid,'user',:ur,:folder,1,'grant');
+CREATE TEMP TABLE _acl7_hidden_page AS
+SELECT drive_access_invalidation_page(:ur,:sid,:'base_token'::uuid,1) AS doc;
+SELECT is((SELECT jsonb_array_length(doc->'invalidations') FROM _acl7_hidden_page),0,
+  'a hidden-only access page reveals no foreign principal event');
+SELECT isnt((SELECT doc->>'cursor' FROM _acl7_hidden_page),:'base_token',
+  'hidden-only scan still advances the opaque cursor');
+SELECT ok((SELECT (doc->>'hasMore')::boolean FROM _acl7_hidden_page),
+  'hidden-only scan reports the following page without starving it');
+SELECT doc->>'cursor' AS hidden_token FROM _acl7_hidden_page \gset
+CREATE TEMP TABLE _acl7_relevant_page AS
+SELECT drive_access_invalidation_page(:ur,:sid,:'hidden_token'::uuid,1) AS doc;
+SELECT is((SELECT jsonb_array_length(doc->'invalidations') FROM _acl7_relevant_page),1,
+  'the next page returns the relevant event before advancing past it');
+
+SELECT ok((drive_access_invalidation_page(
+  :ur,:sid,'00000000-0000-0000-0000-000000000001'::uuid,10)->>'fullReconcile')::boolean,
+  'an unknown opaque token requests content-free full reconcile');
+SELECT cursor AS relevant_cursor FROM drive_access_invalidations
+ WHERE scan_token=(SELECT (doc->>'cursor')::uuid FROM _acl7_relevant_page) \gset
+UPDATE drive_acl_generations SET retained_after_cursor=:relevant_cursor
+ WHERE space_id=:sid;
+SELECT is(drive_access_invalidation_page(
+  :ur,:sid,:'hidden_token'::uuid,10)->>'reason','cursorExpired',
+  'a cursor below the retained floor receives a typed full-reconcile reason');
+UPDATE drive_acl_generations SET retained_after_cursor=0 WHERE space_id=:sid;
+
+INSERT INTO drive_watches(node_id,user_id) VALUES(:file,:ur);
+INSERT INTO drive_export_grants(
+  version_id,space_id,grantee,action,token_hash,minted_by,expires_at)
+VALUES(:vid,:sid,:ur,'download',repeat('e',64),:uo,now()+interval '1 hour');
+INSERT INTO drive_access_use_leases(
+  grant_id,user_id,capability,idempotency_key,request_digest,expires_at)
+VALUES(:grant_id,:ur,'download','acl7-use-lease',repeat('d',64),now()+interval '5 minutes');
+SELECT drive_chunk_register_bound(
+  :ur,:sid,:file,1,repeat('8',64),10) AS upload_scope \gset
+SELECT is((SELECT count(*)::int FROM drive_upload_authorizations
+            WHERE user_id=:ur AND target_node_id=:file),1,
+  'an ACL-bound upload authorization exists before revoke');
+
+GRANT SELECT ON drive_upload_authorizations TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:uh::text,true);
+SELECT is((SELECT count(*)::int FROM drive_upload_authorizations),0,
+  'unrelated user cannot read another principal upload authorization');
+SELECT set_config('app.current_user_id',:ur::text,true);
+SELECT is((SELECT count(*)::int FROM drive_upload_authorizations),1,
+  'bound uploader reads their own upload authorization under FORCE RLS');
+RESET ROLE;
+
+SELECT is(drive_acl_revoke(:uo,:grant_id,1,'reader access ended')->>'state',
+  'revoked','grant revoke reaches its terminal state');
+SELECT is((SELECT count(*)::int FROM drive_watches
+            WHERE user_id=:ur AND node_id=:file),0,
+  'revoke removes now-unauthorized watches');
+SELECT ok((SELECT revoked_at IS NOT NULL AND revoked_reason='revoke'
+             FROM drive_export_grants WHERE token_hash=repeat('e',64)),
+  'revoke marks an unconsumed export token unusable with a reason');
+SELECT is((SELECT state FROM drive_access_use_leases
+            WHERE grant_id=:grant_id),'abandoned',
+  'revoke abandons a reserved bounded-use lease');
+SELECT is((SELECT count(*)::int FROM drive_upload_authorizations
+            WHERE user_id=:ur AND target_node_id=:file),0,
+  'revoke removes stale ACL-bound upload authorization');
+SELECT throws_ok(format(
+  'SELECT drive_export_consume(%s,%L)',:ur,repeat('e',64)),
+  'BZ146',NULL,'revoked export consumption uses the opaque invalid-grant failure');
+SELECT throws_ok(format(
+  'SELECT drive_visibility_snapshot_page(%s,%s,0,NULL,500)',:ur,:sid),
+  'BZ139',NULL,'fully revoked client cannot fetch a new visibility snapshot');
+
+SELECT * FROM finish();
+ROLLBACK;

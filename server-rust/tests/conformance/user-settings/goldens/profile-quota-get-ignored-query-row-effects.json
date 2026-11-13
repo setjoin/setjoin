@@ -1,0 +1,119 @@
+{
+  "case": "ignored-query-row-effects",
+  "effects": [
+    {
+      "after": {
+        "mailboxes": [
+          {
+            "rows": [
+              {
+                "enabled": false,
+                "quota": 60,
+                "used": 40
+              },
+              {
+                "enabled": true,
+                "quota": 5000,
+                "used": 1000
+              },
+              {
+                "enabled": true,
+                "quota": 20000,
+                "used": 2500
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "enabled": true,
+                "quota": 888888,
+                "used": 777777
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "users": [
+          {
+            "rows": [
+              {
+                "display_name": "Actor Original",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "display_name": "Other Original",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "before": {
+        "mailboxes": [
+          {
+            "rows": [
+              {
+                "enabled": false,
+                "quota": 60,
+                "used": 40
+              },
+              {
+                "enabled": true,
+                "quota": 5000,
+                "used": 1000
+              },
+              {
+                "enabled": true,
+                "quota": 20000,
+                "used": 2500
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "enabled": true,
+                "quota": 888888,
+                "used": 777777
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "users": [
+          {
+            "rows": [
+              {
+                "display_name": "Actor Original",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "display_name": "Other Original",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "table": "user_settings"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /user/quota"
+}

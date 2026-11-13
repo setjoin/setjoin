@@ -1,0 +1,152 @@
+[
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "",
+    "device_auths": 2,
+    "effects": {
+      "attempts": [
+        {
+          "outcome": "success",
+          "protocol": "imap",
+          "source_ip": "127.0.0.1",
+          "geo_country": "",
+          "failure_reason": null,
+          "target_username": "alice@imap1.test",
+          "device_fingerprint": "|127.0.0.0"
+        }
+      ],
+      "audit": [
+        {
+          "user_id": 9343011,
+          "metadata": {
+            "device_hash": "b039eb3edd28f5171a478f89c698e2d66b4abfffbf53bf717fe12cfc3f31fa0d"
+          },
+          "protocol": null,
+          "device_id": null,
+          "source_ip": "127.0.0.1",
+          "event_type": "device_new",
+          "session_id": null,
+          "geo_country": null
+        }
+      ],
+      "devices": [
+        {
+          "country": "",
+          "flagged": false,
+          "user_id": 9343011,
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 2,
+          "trust_tier": "unknown",
+          "user_agent": "",
+          "device_hash": "b039eb3edd28f5171a478f89c698e2d66b4abfffbf53bf717fe12cfc3f31fa0d",
+          "device_secret": null,
+          "device_secret_enc": null,
+          "device_fingerprint": null,
+          "device_secret_key_id": null
+        }
+      ],
+      "lockouts": [],
+      "signins": [
+        {
+          "client": "imap",
+          "success": true,
+          "user_id": 9343011,
+          "location": null,
+          "platform": null,
+          "protocol": "imap",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ]
+    },
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "device_country_null",
+    "payload": "",
+    "reply": "a OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 1
+  },
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 2,
+    "effects": {
+      "attempts": [
+        {
+          "outcome": "success",
+          "protocol": "imap",
+          "source_ip": "127.0.0.1",
+          "geo_country": "",
+          "failure_reason": null,
+          "target_username": "alice@imap1.test",
+          "device_fingerprint": "|127.0.0.0"
+        }
+      ],
+      "audit": [
+        {
+          "user_id": 9343011,
+          "metadata": {
+            "device_hash": "b039eb3edd28f5171a478f89c698e2d66b4abfffbf53bf717fe12cfc3f31fa0d"
+          },
+          "protocol": null,
+          "device_id": null,
+          "source_ip": "127.0.0.1",
+          "event_type": "device_new",
+          "session_id": null,
+          "geo_country": null
+        }
+      ],
+      "devices": [
+        {
+          "country": "",
+          "flagged": false,
+          "user_id": 9343011,
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 2,
+          "trust_tier": "unknown",
+          "user_agent": "",
+          "device_hash": "b039eb3edd28f5171a478f89c698e2d66b4abfffbf53bf717fe12cfc3f31fa0d",
+          "device_secret": null,
+          "device_secret_enc": null,
+          "device_fingerprint": null,
+          "device_secret_key_id": null
+        }
+      ],
+      "lockouts": [],
+      "signins": [
+        {
+          "client": "imap",
+          "success": true,
+          "user_id": 9343011,
+          "location": null,
+          "platform": null,
+          "protocol": "imap",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ]
+    },
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "device_country_null",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a OK AUTHENTICATE completed\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 1
+  }
+]

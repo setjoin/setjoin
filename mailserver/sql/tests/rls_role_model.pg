@@ -1,0 +1,102 @@
+-- pgTAP: rls_role_model.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The native-RLS ROLE-MODEL guard (native-rls-backstop W1; fork 1(b) structural
+-- guard). It asserts the provisioned role MODEL is what makes "non-owner app role"
+-- structurally load-bearing — the guard that would catch a regression silently
+-- re-importing owner-bypass or BYPASSRLS onto the tenant-facing app role.
+--
+-- The roles are provisioned by scripts/provision-roles.sql (loader step 4) — they
+-- are CLUSTER-GLOBAL, so this test READS them via pg_roles / pg_authid and asserts
+-- privilege attributes + that the runtime GRANTs landed. It is strictly TEST-LOCAL
+-- and NON-MUTATING: BEGIN…ROLLBACK with no CREATE/ALTER/GRANT inside.
+--
+-- WHY THIS IS THE STRUCTURAL GUARD (fork 1): "the app role can't forget RLS because
+-- it doesn't own the tables" has exactly one hole — `CREATE TABLE … PARTITION OF`
+-- makes the EXECUTING role the owner (ownership is NOT inherited from the parent),
+-- and messages/message_tags ARE range-partitioned. If the app role ever created a
+-- monthly partition it would OWN it → owner-bypass revives silently on that leaf.
+-- So this test pins two invariants: (a) setjoin_app is NOT superuser and NOT
+-- bypassrls; (b) NO partition of messages/message_tags is owned by setjoin_app.
+-- Today the partitions are owned by `mail` (dev), so (b) holds trivially — but the
+-- assertion is the tripwire that fires the day a partition is created on the app
+-- role instead of the owner role.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(11);
+
+-- ── 1) The three roles exist ────────────────────────────────────────────────
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_owner'),
+  'role model: setjoin_owner exists (the isolated DDL/ownership identity)'
+);
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app'),
+  'role model: setjoin_app exists (the tenant-facing runtime role)'
+);
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker'),
+  'role model: setjoin_worker exists (the cross-tenant carve-out role)'
+);
+
+-- ── 2) setjoin_app is CONSTRAINED — the load-bearing attributes ──────────────
+-- NOT superuser AND NOT bypassrls: this is the whole point. Under FORCE'd RLS at
+-- the flip, this is the role the policies actually constrain. If either flips
+-- true, every tenant policy becomes a no-op against the gateway runtime.
+SELECT is(
+  (SELECT rolsuper FROM pg_authid WHERE rolname = 'setjoin_app'),
+  false,
+  'role model: setjoin_app is NOT a superuser (superuser would bypass RLS)'
+);
+SELECT is(
+  (SELECT rolbypassrls FROM pg_authid WHERE rolname = 'setjoin_app'),
+  false,
+  'role model: setjoin_app does NOT have BYPASSRLS (it must be policy-constrained)'
+);
+
+-- ── 3) setjoin_worker IS the bypass role (cross-tenant carve-out) ────────────
+SELECT is(
+  (SELECT rolbypassrls FROM pg_authid WHERE rolname = 'setjoin_worker'),
+  true,
+  'role model: setjoin_worker HAS BYPASSRLS (delivery/cron/journaling cross mailboxes)'
+);
+SELECT is(
+  (SELECT rolsuper FROM pg_authid WHERE rolname = 'setjoin_worker'),
+  false,
+  'role model: setjoin_worker is NOT a superuser (bypass scoped to RLS, not the cluster)'
+);
+
+-- ── 4) The runtime GRANTs landed on the loaded schema ────────────────────────
+SELECT ok(
+  has_table_privilege('setjoin_app', 'public.messages', 'SELECT'),
+  'role model: setjoin_app has SELECT on messages (runtime GRANT landed)'
+);
+SELECT ok(
+  has_table_privilege('setjoin_app', 'public.message_tags', 'INSERT'),
+  'role model: setjoin_app has INSERT on message_tags (write-path GRANT landed)'
+);
+SELECT ok(
+  has_table_privilege('setjoin_worker', 'public.messages', 'SELECT'),
+  'role model: setjoin_worker has SELECT on messages (BYPASSRLS still needs the GRANT)'
+);
+
+-- ── 5) THE PARTITION-OWNERSHIP INVARIANT (fork 1 — the structural tripwire) ──
+-- No partition (leaf) of messages OR message_tags may be owned by setjoin_app.
+-- pg_inherits links each partition to its parent; pg_class.relowner is the owner.
+-- In dev the partitions are owned by `mail`, so the count is 0 trivially now — but
+-- this is the assertion that catches a CREATE TABLE … PARTITION OF executed on the
+-- app role (which would make the app the partition owner → owner-bypass on that
+-- leaf, defeating non-ownership). Must stay 0 forever.
+SELECT is(
+  (SELECT count(*)::INT
+     FROM pg_inherits i
+     JOIN pg_class child  ON child.oid  = i.inhrelid
+     JOIN pg_class parent ON parent.oid = i.inhparent
+     JOIN pg_authid owner ON owner.oid  = child.relowner
+    WHERE parent.relname IN ('messages', 'message_tags')
+      AND owner.rolname = 'setjoin_app'),
+  0,
+  'role model: NO partition of messages/message_tags is owned by setjoin_app (no owner-bypass hole)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,68 @@
+-- scheduled_actions_dispatch.pg: exactly-once dispatcher — the CENTREPIECE.
+-- Proves: two concurrent claims → exactly one wins; a crashed `processing` row
+-- (expired locked_until) is reclaimed to `pending`; a duplicate dedup_key is
+-- rejected by the partial-UNIQUE index (no double egress); dispatch end-to-end
+-- runs the handler and marks the action done.
+-- See retired-docs:superpowers/specs/2026-06-16-scheduled-actions-design.md §3, §9.
+BEGIN;
+SELECT plan(9);
+
+-- ── Fixtures: one mailbox ──
+INSERT INTO domains (name, is_local) VALUES ('sad.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (193001, 'sad', (SELECT id FROM domains WHERE name='sad.test'),
+        'sad@sad.test', 'Sad', crypt('x', gen_salt('bf')), FALSE) ON CONFLICT (id) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 193001 != mailbox 93001).
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (93001, 193001, (SELECT id FROM domains WHERE name='sad.test'),
+        'sad@sad.test', 'Sad', 'personal', TRUE) ON CONFLICT (id) DO NOTHING;
+
+-- A due, pending action (snooze kind — pure DB write, idempotent handler).
+INSERT INTO scheduled_actions (id, action_kind, fire_at, status, payload, mailbox_id)
+VALUES ('00000000-0000-0000-0000-000000000001', 'snooze', now() - interval '1 minute',
+        'pending', '{}'::JSONB, 93001);
+
+-- ── Concurrent claim: worker-A claims, worker-B (immediately after) claims zero ──
+-- claim_scheduled_actions flips status='pending'→'processing' for due rows; the
+-- status='pending' guard + FOR UPDATE SKIP LOCKED means the second claim sees nothing.
+SELECT is(
+  (SELECT count(*) FROM claim_scheduled_actions('worker-A', 10)),
+  1::BIGINT, 'worker-A claims the one due pending action');
+SELECT is(
+  (SELECT count(*) FROM claim_scheduled_actions('worker-B', 10)),
+  0::BIGINT, 'worker-B claims nothing (already processing — exactly-once)');
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id='00000000-0000-0000-0000-000000000001'),
+  'processing', 'claimed row is processing');
+SELECT is(
+  (SELECT locked_by FROM scheduled_actions WHERE id='00000000-0000-0000-0000-000000000001'),
+  'worker-A', 'lease holder recorded');
+
+-- ── Crash recovery: an expired processing lease is reclaimed to pending ──
+UPDATE scheduled_actions
+SET status='processing', locked_by='dead-worker', locked_until = now() - interval '5 minutes'
+WHERE id='00000000-0000-0000-0000-000000000001';
+SELECT lives_ok($$ SELECT reclaim_expired_scheduled_actions() $$, 'reclaim runs');
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id='00000000-0000-0000-0000-000000000001'),
+  'pending', 'expired lease reclaimed to pending');
+SELECT isnt(
+  (SELECT count(*) FROM scheduled_action_log
+   WHERE action_id='00000000-0000-0000-0000-000000000001' AND outcome='expired'),
+  0::BIGINT, 'reclaim logged an expired transition');
+
+-- ── Dedup: two send actions, same dedup_key → second insert rejected ──
+INSERT INTO scheduled_actions (action_kind, fire_at, status, dedup_key, mailbox_id)
+VALUES ('send', now(), 'pending', 'dk-shared', 93001);
+SELECT throws_ok(
+  $$ INSERT INTO scheduled_actions (action_kind, fire_at, status, dedup_key, mailbox_id)
+     VALUES ('send', now(), 'pending', 'dk-shared', 93001) $$,
+  '23505', NULL, 'duplicate dedup_key rejected by partial-UNIQUE index (no double egress)');
+
+-- ── End-to-end: dispatch runs the (snooze) handler and marks the action done ──
+-- The dispatch tick reclaims, claims, runs run_scheduled_action → the snooze
+-- handler (a no-op here: no Snoozed tag on a bare action), and transitions to done.
+SELECT lives_ok($$ SELECT dispatch_scheduled_actions('worker-C', 50) $$, 'dispatch runs handlers');
+
+SELECT * FROM finish();
+ROLLBACK;

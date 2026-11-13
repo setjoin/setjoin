@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown upgrade action: unsupported (try: status, watch, cancel, history, diagnostics)\n",
+  "exit": 1
+}

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/quarantine/7/preview",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"html\": \"\\u003cb\\u003etest\\u003c/b\\u003e\",\n  \"subject\": \"Subject\",\n  \"fromAddr\": \"sender\",\n  \"quarantinedAt\": \"now\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

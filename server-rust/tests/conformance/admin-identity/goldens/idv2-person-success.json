@@ -1,0 +1,58 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/v2/people/{id}",
+      "method": "GET",
+      "path": "/admin/identity/v2/people/{id}"
+    },
+    "response": {
+      "body": "{\"email\": \"admin7-other@host-b.test\", \"links\": [{\"id\": \"<n>\", \"state\": \"active\", \"purposes\": [\"authenticate\", \"provision\"], \"sourceKey\": \"admin7-alpha\", \"detachedAt\": null, \"generation\": \"1\", \"lastSeenAt\": \"<timestamp>\", \"linkMethod\": \"operator\", \"sourceKind\": \"local\", \"firstSeenAt\": \"<timestamp>\", \"subjectFingerprint\": \"73b50acce2c473aa\"}], \"userId\": \"<other>\", \"enabled\": true, \"recovery\": {\"passkeyCount\": 0, \"hasLocalPassword\": true, \"activeAuthenticationLinks\": 1}, \"protected\": false, \"displayName\": \"admin7-other\", \"linkHistory\": [{\"id\": \"<n>\", \"action\": \"link_activated\", \"linkId\": \"<n>\", \"reason\": \"seeded\", \"sourceKey\": \"admin7-alpha\", \"occurredAt\": \"2026-10-06T00:00:00+00:00\", \"correlationId\": \"96000000-0000-4000-8000-000000000001\"}], \"relationship\": \"member\", \"fieldAuthority\": [], \"transitionHistory\": [], \"lifecycleAuthority\": {\"kind\": \"source\", \"linkId\": \"<n>\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"1\"}, \"entitlementProvenance\": []}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "958"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "<etag>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/identity/v2/people/{id}"
+}

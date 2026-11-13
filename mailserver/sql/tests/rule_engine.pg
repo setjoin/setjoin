@@ -1,0 +1,436 @@
+-- pgTAP tests for rule_engine reducer
+BEGIN;
+SELECT plan(19);
+
+-- Setup test fixtures
+INSERT INTO domains (name, is_local) VALUES ('rule.test', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('alice', (SELECT id FROM domains WHERE name = 'rule.test'), 'alice@rule.test', 'Alice');
+INSERT INTO mailboxes (user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (
+    (SELECT id FROM users WHERE email = 'alice@rule.test'),
+    (SELECT id FROM domains WHERE name = 'rule.test'),
+    'alice@rule.test', 'personal', TRUE, 'Alice'
+  );
+
+-- Insert a message
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM folders WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND role = 'inbox'),
+  '<msg1>', 'Test Subject', 'bob@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'hello world', 100, FALSE, '<msg1>', 'ref1', now(), now();
+
+-- Test 1: rule with invalid regex should be skipped, not crash
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'bad regex', TRUE, 0, 'server',
+  '[{"field":"from_addr", "op":"matches_regex", "value":"[invalid"}]'::JSONB,
+  '[{"type":"flag"}]'::JSONB);
+
+SELECT lives_ok(
+  $$ SELECT apply_rules(
+    (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT received_at FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+    'server') $$,
+  'rule with invalid regex should be skipped without crashing'
+);
+
+-- Test 2: rule with numeric op on text field should be skipped
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'bad numeric', TRUE, 1, 'server',
+  '[{"field":"from_addr", "op":"gt", "value":"100"}]'::JSONB,
+  '[{"type":"flag"}]'::JSONB);
+
+SELECT lives_ok(
+  $$ SELECT apply_rules(
+    (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT received_at FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+    'server') $$,
+  'rule with numeric op on text field should be skipped without crashing'
+);
+
+-- Test 3: valid rule should still apply after bad rules
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'valid flag', TRUE, 2, 'server',
+  '[{"field":"subject", "op":"contains", "value":"test"}]'::JSONB,
+  '[{"type":"flag"}]'::JSONB);
+
+SELECT lives_ok(
+  $$ SELECT apply_rules(
+    (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT received_at FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+    'server') $$,
+  'valid rule should apply after skipped bad rules'
+);
+
+SELECT is(
+  (SELECT is_flagged FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+  TRUE,
+  'valid flag rule should set is_flagged = TRUE'
+);
+
+-- Test 4: unread_count should not go negative when moving a read message
+UPDATE messages SET is_read = TRUE WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test');
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'move to trash', TRUE, 3, 'server',
+  '[{"field":"subject", "op":"contains", "value":"test"}]'::JSONB,
+  '[{"type":"delete"}]'::JSONB);
+
+SELECT lives_ok(
+  $$ SELECT apply_rules(
+    (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT received_at FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') LIMIT 1),
+    (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+    'server') $$,
+  'move read message should not crash'
+);
+
+-- Test 5: Inbox unread_count should remain correct. (Repointed from the dropped
+-- folders.unread_count [V077] to the live Inbox *tag* counter — the real counter
+-- rule_engine maintains; the old folders assertion was vacuous on a dead column.)
+SELECT is(
+  (SELECT unread_count FROM tags
+   WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+     AND name = 'Inbox' AND exclusive_group = 'location'),
+  0::INTEGER,
+  'inbox unread_count should be 0 after moving read message'
+);
+
+-- Test 6 — notify_state_change adoption: a mailbox-wide action (flag) advances
+-- jmap_email_state exactly once. Seed a fresh inbox message for a clean delta.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-nsc-flag>', 'Flag me', 'carol@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'flag body', 120, FALSE, '<msg-nsc-flag>', 'ref-nsc-flag', now(), now();
+
+CREATE TEMP TABLE _re_base_flag AS
+SELECT jmap_email_state AS e0 FROM mailboxes WHERE email = 'alice@rule.test';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-nsc-flag>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-nsc-flag>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"flag"}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT e0 + 1 FROM _re_base_flag),
+  'rule flag action bumps email state exactly once via notify_state_change');
+
+-- Test 7 — a move_to action advances BOTH jmap_email_state and jmap_tag_state
+-- exactly once (the location tag membership changed).
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-nsc-move>', 'Move me', 'dave@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'move body', 130, FALSE, '<msg-nsc-move>', 'ref-nsc-move', now(), now();
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.message_id = '<msg-nsc-move>'
+  AND t.mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+  AND t.name = 'Inbox';
+
+CREATE TEMP TABLE _re_base_move AS
+SELECT jmap_email_state AS e0, jmap_tag_state AS t0 FROM mailboxes WHERE email = 'alice@rule.test';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-nsc-move>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-nsc-move>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"move_to","params":{"folder":"Trash"}}'::JSONB,
+  0);
+
+SELECT is(
+  ARRAY[
+    (SELECT jmap_email_state FROM mailboxes WHERE email = 'alice@rule.test'),
+    (SELECT jmap_tag_state   FROM mailboxes WHERE email = 'alice@rule.test')
+  ],
+  ARRAY[
+    (SELECT e0 + 1 FROM _re_base_move),
+    (SELECT t0 + 1 FROM _re_base_move)
+  ],
+  'rule move_to action bumps email state AND tag state exactly once each');
+
+-- Part 2 (seam adoption): move_to now consolidates set_message_location + notify
+-- into transition_message_location. Verify the swap landed (exactly one location
+-- tag = Trash) and the 'rule' provenance was threaded through (p_added_by).
+SELECT is(
+  ARRAY[
+    (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+       WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<msg-nsc-move>')
+         AND t.exclusive_group = 'location'),
+    (SELECT (t.name = 'Trash' AND mt.added_by = 'rule')::INT
+       FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+       WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<msg-nsc-move>')
+         AND t.exclusive_group = 'location')
+  ],
+  ARRAY[1, 1],
+  'move_to lands exactly one location tag (Trash) with rule provenance via the seam');
+
+-- Test 8 — discard action (via delete_draft_message): deletes the message when
+-- there is no litigation hold, and removes its location tag.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-discard>', 'Discard me', 'spam@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'discard body', 140, FALSE, '<msg-discard>', 'ref-discard', now(), now();
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.message_id = '<msg-discard>'
+  AND t.mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+  AND t.name = 'Inbox';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-discard>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-discard>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"discard"}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE message_id = '<msg-discard>'),
+  0,
+  'discard deletes the message when no litigation hold');
+
+-- Test 9 — discard is a no-op under litigation hold (message survives).
+UPDATE mailboxes SET litigation_hold = TRUE WHERE email = 'alice@rule.test';
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-held>', 'Held', 'spam@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'held body', 150, FALSE, '<msg-held>', 'ref-held', now(), now();
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.message_id = '<msg-held>'
+  AND t.mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+  AND t.name = 'Inbox';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-held>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-held>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"discard"}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE message_id = '<msg-held>'),
+  1,
+  'discard is a no-op under litigation hold');
+
+-- Test 10 — bcc action appends an address to bcc_addrs.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-bcc>', 'Bcc me', 'erin@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'bcc body', NULL, 160, FALSE, '<msg-bcc>', 'ref-bcc', now(), now();
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-bcc>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-bcc>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"bcc","params":{"address":"Compliance@rule.test"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT bcc_addrs @> '[{"email":"compliance@rule.test"}]'::JSONB FROM messages WHERE message_id = '<msg-bcc>'),
+  TRUE,
+  'bcc action appends the address (lowercased) to bcc_addrs');
+
+-- Test 11 — a repeated bcc action for the SAME address does not duplicate it
+-- (stacking-safe idempotence).
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-bcc>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-bcc>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"bcc","params":{"address":"compliance@rule.test"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT jsonb_array_length(bcc_addrs) FROM messages WHERE message_id = '<msg-bcc>'),
+  1,
+  'a repeated bcc action for the same address is deduped, not appended twice');
+
+-- Test 12 — append_footer appends text to body_text and body_html (once).
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-footer>', 'Footer me', 'erin@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'footer body', '<p>footer body</p>', 170, FALSE, '<msg-footer>', 'ref-footer', now(), now();
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-footer>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-footer>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"append_footer","params":{"text":"Confidential — internal use only"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT (body_text LIKE 'footer body%Confidential — internal use only'
+           AND body_html LIKE '<p>footer body</p>%Confidential — internal use only%')
+   FROM messages WHERE message_id = '<msg-footer>'),
+  TRUE,
+  'append_footer appends the footer text to body_text and body_html, after the existing content');
+
+-- Test 13 — a repeated append_footer with the SAME text is idempotent (applied
+-- once even if multiple footer actions somehow stack).
+CREATE TEMP TABLE _re_footer_once AS
+SELECT body_text AS bt, body_html AS bh FROM messages WHERE message_id = '<msg-footer>';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-footer>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-footer>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"append_footer","params":{"text":"Confidential — internal use only"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT (body_text, body_html) FROM messages WHERE message_id = '<msg-footer>'),
+  (SELECT (bt, bh) FROM _re_footer_once),
+  'a repeated append_footer with the same text is a no-op (not appended twice)');
+
+-- Test 14 — append_footer is skipped entirely on the encrypted-at-rest path
+-- (crypto_type = 'smime-encrypted'): body_text/body_html must stay NULL.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at, crypto_type)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-enc-footer>', 'Enc footer', 'erin@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  NULL, NULL, 180, FALSE, '<msg-enc-footer>', 'ref-enc-footer', now(), now(), 'smime-encrypted';
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-enc-footer>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-enc-footer>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"append_footer","params":{"text":"Confidential"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT (body_text IS NULL AND body_html IS NULL) FROM messages WHERE message_id = '<msg-enc-footer>'),
+  TRUE,
+  'append_footer is skipped on the encrypted-at-rest path (body cols stay NULL)');
+
+-- Test 15 — redirect REPLACES the recipient set (Exchange parity): to_addrs
+-- becomes just the redirect target, cc_addrs/bcc_addrs are cleared.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-redirect>', 'Redirect me', 'erin@rule.test',
+  '[{"email":"original-to@rule.test"}]'::JSONB, '[{"email":"original-cc@rule.test"}]'::JSONB, '[{"email":"original-bcc@rule.test"}]'::JSONB,
+  'redirect body', NULL, 190, FALSE, '<msg-redirect>', 'ref-redirect', now(), now();
+
+SELECT apply_action(
+  (SELECT id FROM messages WHERE message_id = '<msg-redirect>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-redirect>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  '{"type":"redirect","params":{"address":"Compliance-Archive@rule.test"}}'::JSONB,
+  0);
+
+SELECT is(
+  (SELECT (to_addrs = '[{"email":"compliance-archive@rule.test"}]'::JSONB
+           AND cc_addrs = '[]'::JSONB AND bcc_addrs = '[]'::JSONB)
+   FROM messages WHERE message_id = '<msg-redirect>'),
+  TRUE,
+  'redirect replaces to/cc/bcc with only the redirect target (original addressee dropped, not notified)');
+
+-- Test 16/17 — order-dependence: bcc and redirect touch overlapping columns
+-- (redirect clears bcc_addrs), so the two orderings of the SAME two actions
+-- must produce DIFFERENT results. This proves apply_rules() runs a rule's
+-- actions in stored array order, not some other order.
+
+-- (16) bcc THEN redirect: the bcc add is wiped by the later redirect.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-order-a>', 'Order A', 'erin@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'order body', NULL, 200, FALSE, '<msg-order-a>', 'ref-order-a', now(), now();
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.message_id = '<msg-order-a>'
+  AND t.mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+  AND t.name = 'Inbox';
+
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'order bcc-then-redirect', TRUE, 10, 'server',
+  '[{"field":"subject", "op":"contains", "value":"Order A"}]'::JSONB,
+  '[{"type":"bcc","params":{"address":"x@rule.test"}},{"type":"redirect","params":{"address":"y@rule.test"}}]'::JSONB);
+
+SELECT apply_rules(
+  (SELECT id FROM messages WHERE message_id = '<msg-order-a>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-order-a>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'server');
+
+SELECT is(
+  (SELECT (to_addrs = '[{"email":"y@rule.test"}]'::JSONB AND bcc_addrs = '[]'::JSONB)
+   FROM messages WHERE message_id = '<msg-order-a>'),
+  TRUE,
+  'order bcc-then-redirect: the earlier bcc is wiped by the later redirect');
+
+-- (17) redirect THEN bcc: the bcc survives the earlier redirect's clear.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments, thread_id, raw_ref, sent_at, received_at)
+SELECT
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test') AND name = 'Inbox'),
+  '<msg-order-b>', 'Order B', 'erin@rule.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'order body', NULL, 210, FALSE, '<msg-order-b>', 'ref-order-b', now(), now();
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m, tags t
+WHERE m.message_id = '<msg-order-b>'
+  AND t.mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@rule.test')
+  AND t.name = 'Inbox';
+
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@rule.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'order redirect-then-bcc', TRUE, 11, 'server',
+  '[{"field":"subject", "op":"contains", "value":"Order B"}]'::JSONB,
+  '[{"type":"redirect","params":{"address":"y@rule.test"}},{"type":"bcc","params":{"address":"x@rule.test"}}]'::JSONB);
+
+SELECT apply_rules(
+  (SELECT id FROM messages WHERE message_id = '<msg-order-b>'),
+  (SELECT received_at FROM messages WHERE message_id = '<msg-order-b>'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@rule.test'),
+  'server');
+
+SELECT is(
+  (SELECT (to_addrs = '[{"email":"y@rule.test"}]'::JSONB
+           AND bcc_addrs @> '[{"email":"x@rule.test"}]'::JSONB)
+   FROM messages WHERE message_id = '<msg-order-b>'),
+  TRUE,
+  'order redirect-then-bcc: the later bcc survives the earlier redirect''s clear — proves array-order execution');
+
+SELECT * FROM finish();
+ROLLBACK;

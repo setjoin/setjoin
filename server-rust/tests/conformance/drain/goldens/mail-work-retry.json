@@ -1,0 +1,54 @@
+{
+  "case": "mail-work-retry",
+  "format": 1,
+  "go_source": "f532066df27a404a5eaddc064719951cc92dbff7",
+  "observation": {
+    "outbox": [
+      [
+        "mbox4-retry-1",
+        "pending",
+        2,
+        "mail-work webhook dispatcher unavailable",
+        null,
+        null,
+        false
+      ],
+      [
+        "mbox4-retry-2",
+        "failed",
+        10,
+        "mail-work webhook dispatcher unavailable",
+        null,
+        null,
+        true
+      ],
+      [
+        "mbox4-retry-3",
+        "failed",
+        100,
+        "mail-work webhook dispatcher unavailable",
+        null,
+        null,
+        true
+      ],
+      [
+        "mbox4-retry-4",
+        "claimed",
+        1,
+        null,
+        null,
+        true,
+        false
+      ],
+      [
+        "mbox4-retry-5",
+        "pending",
+        3,
+        "mail-work webhook dispatcher unavailable",
+        null,
+        null,
+        false
+      ]
+    ]
+  }
+}

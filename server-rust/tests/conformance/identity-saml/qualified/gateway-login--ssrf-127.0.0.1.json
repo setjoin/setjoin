@@ -1,0 +1,27 @@
+{
+  "case": "ssrf-127.0.0.1",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "private_tcp_connections": 0,
+    "request": {
+      "metadata_url": "https://127.0.0.1:_private_port/metadata",
+      "method": "*",
+      "path": "/auth/saml/",
+      "wire_method": "GET",
+      "wire_path": "/auth/saml/idfed3/login"
+    },
+    "response": {
+      "body": "404 page not found\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 404
+    }
+  },
+  "route": "* /auth/saml/ login"
+}

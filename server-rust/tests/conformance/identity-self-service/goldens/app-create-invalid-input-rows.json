@@ -1,0 +1,58 @@
+{
+  "case": "invalid-input-row-effects",
+  "effects": [
+    {
+      "after": {
+        "app_passwords": [
+          {
+            "expires": false,
+            "id": "<app-a>",
+            "label": "fixture",
+            "last_used": false,
+            "name": "app-a",
+            "revoked": false,
+            "token_hash": "seed-app-a",
+            "user_id": "<a>"
+          },
+          {
+            "expires": false,
+            "id": "<app-b>",
+            "label": "fixture",
+            "last_used": false,
+            "name": "app-b",
+            "revoked": false,
+            "token_hash": "seed-app-b",
+            "user_id": "<b>"
+          }
+        ]
+      },
+      "before": {
+        "app_passwords": [
+          {
+            "expires": false,
+            "id": "<app-a>",
+            "label": "fixture",
+            "last_used": false,
+            "name": "app-a",
+            "revoked": false,
+            "token_hash": "seed-app-a",
+            "user_id": "<a>"
+          },
+          {
+            "expires": false,
+            "id": "<app-b>",
+            "label": "fixture",
+            "last_used": false,
+            "name": "app-b",
+            "revoked": false,
+            "token_hash": "seed-app-b",
+            "user_id": "<b>"
+          }
+        ]
+      }
+    }
+  ],
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "route": "POST /auth/me/app-passwords"
+}

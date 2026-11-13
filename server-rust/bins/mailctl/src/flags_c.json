@@ -1,0 +1,225 @@
+{
+  "dane generate": {
+    "flags": {
+      "cert": "String",
+      "hostname": "String",
+      "usage": "Int",
+      "selector": "Int",
+      "matching": "Int"
+    },
+    "mode": "exit",
+    "help": "Usage of dane generate:\n  -cert string\n    \tPath to PEM-encoded certificate file\n  -hostname string\n    \tMail server hostname (e.g., mail.example.com)\n  -matching int\n    \tTLSA matching type: 0=exact, 1=SHA-256 (default), 2=SHA-512 (default 1)\n  -selector int\n    \tTLSA selector: 0=full cert, 1=SPKI (default 1) (default 1)\n  -usage int\n    \tTLSA usage: 2=DANE-TA, 3=DANE-EE (default 3) (default 3)\n",
+    "override_error": null
+  },
+  "backup-db": {
+    "flags": {
+      "dsn": "String",
+      "provider": "String",
+      "endpoint": "String",
+      "region": "String",
+      "bucket": "String",
+      "access-key": "String",
+      "secret-key": "String",
+      "access-key-file": "String",
+      "secret-key-file": "String",
+      "dump-hmac-key-file": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of backup-db:\n  -access-key string\n    \tS3 access key; refused on the command line (set BACKUP_ACCESS_KEY or pass --access-key-file)\n  -access-key-file string\n    \t0600 file containing the S3 access key\n  -bucket string\n    \tBackup bucket name\n  -dsn string\n    \tPostgreSQL DSN (defaults to owner-first DB_*_DSN precedence)\n  -dump-hmac-key-file string\n    \t0600 file containing the dump-authentication HMAC key (required: binds every uploaded dump so restore can verify it fail-closed before pg_restore runs)\n  -endpoint string\n    \tS3 endpoint (host or https://host)\n  -provider string\n    \tS3 provider (e.g. minio, aws)\n  -region string\n    \tS3 region\n  -secret-key string\n    \tS3 secret key; refused on the command line (set BACKUP_SECRET_KEY or pass --secret-key-file)\n  -secret-key-file string\n    \t0600 file containing the S3 secret key\n",
+    "override_error": null
+  },
+  "restore": {
+    "flags": {
+      "provider": "String",
+      "endpoint": "String",
+      "region": "String",
+      "bucket": "String",
+      "access-key": "String",
+      "secret-key": "String",
+      "access-key-file": "String",
+      "secret-key-file": "String",
+      "type": "String",
+      "hashes": "String",
+      "dry-run": "Bool",
+      "yes": "Bool",
+      "control-socket": "String",
+      "dsn": "String",
+      "dump-hmac-key-file": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of restore:\n  -access-key string\n    \tS3 access key; refused on the command line (set BACKUP_ACCESS_KEY or pass --access-key-file)\n  -access-key-file string\n    \t0600 file containing the S3 access key\n  -bucket string\n    \tBackup bucket name\n  -control-socket string\n    \tlocal setup control Unix socket\n  -dry-run\n    \tPreview only (POST /setup/preflight)\n  -dsn string\n    \tPostgreSQL DSN for pg_restore (type=full; defaults to owner-first DB_*_DSN precedence)\n  -dump-hmac-key-file string\n    \t0600 file containing the dump-authentication HMAC key (required for type=full: verifies the dump's published binding fail-closed before pg_restore runs)\n  -endpoint string\n    \tS3 endpoint (host or https://host)\n  -hashes string\n    \tComma-separated blob hashes (type=blobs)\n  -provider string\n    \tS3 provider\n  -region string\n    \tS3 region\n  -secret-key string\n    \tS3 secret key; refused on the command line (set BACKUP_SECRET_KEY or pass --secret-key-file)\n  -secret-key-file string\n    \t0600 file containing the S3 secret key\n  -type string\n    \tRestore scope: full | config | blobs (default \"full\")\n  -yes\n    \tSkip the destructive-restore confirmation\n",
+    "override_error": null
+  },
+  "exchange-a0 registry": {
+    "flags": {
+      "output": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of exchange-a0 registry:\n  -output string\n    \twrite the embedded v0 registry to a new file\n",
+    "override_error": null
+  },
+  "exchange-a0 validate": {
+    "flags": {
+      "input": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of exchange-a0 validate:\n  -input string\n    \tA0/v0 collector JSON\n",
+    "override_error": null
+  },
+  "exchange-a0 report": {
+    "flags": {
+      "input": "String",
+      "output": "String",
+      "locale": "String",
+      "pdf": "Bool",
+      "generated-at": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of exchange-a0 report:\n  -generated-at string\n    \tcanonical UTC RFC3339 time (test/reproduction override)\n  -input string\n    \tA0/v0 collector JSON\n  -locale string\n    \tzh-CN or en-US (default \"zh-CN\")\n  -output string\n    \tnew output directory\n  -pdf\n    \talso render report.pdf with locally installed Microsoft Edge\n",
+    "override_error": null
+  },
+  "exchange-a0 attest": {
+    "flags": {
+      "kind": "String",
+      "report": "String",
+      "organization": "String",
+      "actor": "String",
+      "decision": "String",
+      "purpose": "String",
+      "retention-days": "Int",
+      "issued-at": "String",
+      "output": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of exchange-a0 attest:\n  -actor string\n    \tnamed attesting actor\n  -decision string\n    \taccepted|rejected for handling; go|no-go|defer for decision-use\n  -issued-at string\n    \tcanonical UTC RFC3339 time\n  -kind string\n    \thandling or decision-use\n  -organization string\n    \tattesting organization\n  -output string\n    \tnew receipt JSON path\n  -purpose string\n    \treal handling or decision purpose\n  -report string\n    \treport.json path\n  -retention-days int\n    \taccepted local retention in days\n",
+    "override_error": null
+  },
+  "exchange-a0 verify-receipt": {
+    "flags": {
+      "receipt": "String",
+      "report": "String"
+    },
+    "mode": "continue",
+    "help": "Usage of exchange-a0 verify-receipt:\n  -receipt string\n    \tA0/v0 receipt JSON\n  -report string\n    \tbound report.json\n",
+    "override_error": null
+  },
+  "exchange assess preflight": {
+    "flags": {
+      "offline": "Bool",
+      "doctor": "Bool",
+      "json": "Bool",
+      "write-config": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": null,
+    "status": 2
+  },
+  "exchange assess sample": {
+    "flags": {
+      "output": "String",
+      "json": "Bool"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess sample --output <new-dir> [--json]",
+    "status": 2
+  },
+  "exchange assess collect": {
+    "flags": {
+      "output": "String",
+      "input": "String",
+      "resume": "String",
+      "non-interactive": "Bool"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess collect --input collector.json --output DIR [--resume checkpoint.json]",
+    "status": 2
+  },
+  "exchange assess inspect": {
+    "flags": {
+      "json": "Bool"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess inspect <bundle.sja> [--json]",
+    "status": 2
+  },
+  "exchange assess report": {
+    "flags": {
+      "output": "String",
+      "format": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess report <bundle.sja> --output <new-dir> [--format html,json]",
+    "status": 2
+  },
+  "exchange assess import": {
+    "flags": {
+      "project-id": "Int64",
+      "server": "String",
+      "json": "Bool"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess import <bundle.sja> --project-id ID [--server URL] [--json]",
+    "status": 2
+  },
+  "exchange assess diagnose": {
+    "flags": {
+      "output": "String"
+    },
+    "mode": "silent",
+    "help": "",
+    "override_error": "usage: mailctl exchange assess diagnose <bundle.sja> --output <new-file>",
+    "status": 2
+  },
+  "backup create": {
+    "flags": {
+      "pre-upgrade": "Bool",
+      "dsn": "String",
+      "provider": "String",
+      "endpoint": "String",
+      "region": "String",
+      "bucket": "String",
+      "access-key": "String",
+      "secret-key": "String",
+      "access-key-file": "String",
+      "secret-key-file": "String",
+      "recovery-key-file": "String",
+      "protected-key-file": "String",
+      "protected-key-id": "String",
+      "reason": "String",
+      "timeout": "Duration",
+      "json": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of backup create:\n  -access-key string\n    \tS3 access key\n  -access-key-file string\n    \t0600 file containing the S3 access key\n  -bucket string\n    \tbackup bucket\n  -dsn string\n    \tdirect owner PostgreSQL DSN\n  -endpoint string\n    \tS3 endpoint\n  -json\n    \tJSON output\n  -pre-upgrade\n    \tcreate or verify a transactional-upgrade recovery set\n  -protected-key-file string\n    \t0600 file containing the protected-configuration recovery key\n  -protected-key-id string\n    \tnon-secret protected-key identifier (default \"db-encryption-key\")\n  -provider string\n    \tS3 provider\n  -reason string\n    \taudit reason (default \"create pre-upgrade application recovery point\")\n  -recovery-key-file string\n    \t0600 file containing the recovery-set HMAC key\n  -region string\n    \tS3 region\n  -secret-key string\n    \tS3 secret key\n  -secret-key-file string\n    \t0600 file containing the S3 secret key\n  -timeout duration\n    \tbackup completion timeout (default 10m0s)\n",
+    "override_error": null
+  },
+  "backup verify": {
+    "flags": {
+      "pre-upgrade": "Bool",
+      "dsn": "String",
+      "provider": "String",
+      "endpoint": "String",
+      "region": "String",
+      "bucket": "String",
+      "access-key": "String",
+      "secret-key": "String",
+      "access-key-file": "String",
+      "secret-key-file": "String",
+      "recovery-key-file": "String",
+      "protected-key-file": "String",
+      "protected-key-id": "String",
+      "reason": "String",
+      "timeout": "Duration",
+      "json": "Bool"
+    },
+    "mode": "continue",
+    "help": "Usage of backup verify:\n  -access-key string\n    \tS3 access key\n  -access-key-file string\n    \t0600 file containing the S3 access key\n  -bucket string\n    \tbackup bucket\n  -dsn string\n    \tdirect owner PostgreSQL DSN\n  -endpoint string\n    \tS3 endpoint\n  -json\n    \tJSON output\n  -pre-upgrade\n    \tcreate or verify a transactional-upgrade recovery set\n  -protected-key-file string\n    \t0600 file containing the protected-configuration recovery key\n  -protected-key-id string\n    \tnon-secret protected-key identifier (default \"db-encryption-key\")\n  -provider string\n    \tS3 provider\n  -reason string\n    \taudit reason (default \"create pre-upgrade application recovery point\")\n  -recovery-key-file string\n    \t0600 file containing the recovery-set HMAC key\n  -region string\n    \tS3 region\n  -secret-key string\n    \tS3 secret key\n  -secret-key-file string\n    \t0600 file containing the S3 secret key\n  -timeout duration\n    \tbackup completion timeout (default 10m0s)\n",
+    "override_error": null
+  }
+}

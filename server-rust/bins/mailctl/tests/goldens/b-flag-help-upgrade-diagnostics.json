@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of upgrade diagnostics:\n  -output string\n    \tnew local JSON evidence file\nError: --output is required\n",
+  "exit": 1
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --reason is required for identity upgrade rollback\n",
+  "exit": 1
+}

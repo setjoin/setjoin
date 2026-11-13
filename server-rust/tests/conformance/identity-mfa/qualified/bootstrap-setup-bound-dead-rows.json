@@ -1,0 +1,123 @@
+{
+  "case": "bootstrap-setup-bound-dead-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [
+          {
+            "bound_factor_generation": 2,
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "operation": "bootstrap.totp.enroll",
+            "proof_method": "password",
+            "proving_factor_id": null,
+            "refresh_family_id": null,
+            "session_jti": "idmfa1-actor",
+            "target_ref": "<enrollment>",
+            "token_hash": "<MFA token SHA256>",
+            "token_scope": "mfa_pending",
+            "user_id": "actor"
+          }
+        ],
+        "totp_pending_enrollments": [],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [
+          {
+            "bound_factor_generation": 2,
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "operation": "bootstrap.totp.enroll",
+            "proof_method": "password",
+            "proving_factor_id": null,
+            "refresh_family_id": null,
+            "session_jti": "idmfa1-actor",
+            "target_ref": "<enrollment>",
+            "token_hash": "<MFA token SHA256>",
+            "token_scope": "mfa_pending",
+            "user_id": "actor"
+          }
+        ],
+        "totp_pending_enrollments": [],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/enroll/setup"
+}

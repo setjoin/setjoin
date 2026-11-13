@@ -1,0 +1,74 @@
+-- pgTAP for compute_user_risk: velocity + country-pair impossible-travel sourced
+-- from auth_attempts.geo_country (NOT device_registry), and the high-spike notify.
+BEGIN;
+SELECT plan(6);
+
+-- auth_attempts is partitioned by occurred_at; baseline ships only 2026-05.
+-- Create the current-month partition inside the transaction so now()-relative
+-- inserts land somewhere. DDL is transactional in PG — ROLLBACK at end cleans it.
+DO $$
+DECLARE
+  v_start timestamptz := date_trunc('month', now());
+  v_end   timestamptz := v_start + interval '1 month';
+  v_name  text        := 'auth_attempts_' || to_char(v_start, 'YYYY_MM');
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = v_name) THEN
+    EXECUTE format(
+      'CREATE TABLE %I PARTITION OF public.auth_attempts FOR VALUES FROM (%L) TO (%L)',
+      v_name, v_start::date::text, v_end::date::text);
+  END IF;
+END $$;
+
+-- Seed: domain + user with a valid email (users.email regex requires TLD).
+INSERT INTO public.domains (id, name, is_local)
+  VALUES (97803, 'risk-test.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO public.users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (90100, 'risk_user', 97803, 'risk@risk-test.test', 'Risk User', 'x')
+  ON CONFLICT DO NOTHING;
+
+-- Unknown user -> BZ103.
+SELECT throws_ok(
+  $$ SELECT compute_user_risk(99999999) $$, 'BZ103', NULL,
+  'unknown user rejected with BZ103');
+
+-- Seed two SUCCESS sign-ins from CN then US 10 minutes apart -> impossible_travel.
+INSERT INTO public.auth_attempts (source_ip, target_username, protocol, outcome, geo_country, occurred_at)
+VALUES ('1.1.1.1', 'risk@risk-test.test', 'http', 'success', 'CN', now() - interval '20 minutes'),
+       ('2.2.2.2', 'risk@risk-test.test', 'http', 'success', 'US', now() - interval '10 minutes');
+
+SELECT lives_ok($$ SELECT compute_user_risk(90100) $$, 'compute runs for a seeded user');
+
+-- impossible_travel signal present (sourced from auth_attempts geo_country).
+SELECT ok(
+  (SELECT signals @> '["impossible_travel"]'::jsonb FROM public.user_risk WHERE user_id = 90100),
+  'impossible_travel signal set from auth_attempts country pair');
+
+-- level escalated past none.
+SELECT isnt(
+  (SELECT level FROM public.user_risk WHERE user_id = 90100), 'none',
+  'impossible travel escalates risk level');
+
+-- A high spike fires app_notify on the session_revoke channel.
+-- Force high: add 8 failures in the window (velocity >= 6) on top of impossible travel.
+-- Score = 50 (velocity) + 60 (travel) = 110, capped to 100 → level='high'.
+-- Previous level is 'medium' (travel-only run above), so this is a INTO-high transition.
+SET app.capture_notify = 'on';
+INSERT INTO public.auth_attempts (source_ip, target_username, protocol, outcome, geo_country, occurred_at)
+SELECT '3.3.3.3', 'risk@risk-test.test', 'http', 'failure', 'US', now() - (g || ' minutes')::interval
+FROM generate_series(1,8) g;
+SELECT compute_user_risk(90100);
+SELECT is(
+  (SELECT channel FROM _test_notify_log ORDER BY seq DESC LIMIT 1),
+  'session_revoke', 'high risk spike fires app_notify on session_revoke');
+SET app.capture_notify = 'off';
+
+-- R4 structural guard: auth_attempts must have RLS enabled AND forced (V044 fix).
+-- Tests run as mail (superuser → BYPASSRLS), so this assert checks metadata not
+-- visibility — it fails the moment V044 is missing or reverted.
+SELECT ok(
+  (SELECT relrowsecurity AND relforcerowsecurity
+     FROM pg_class WHERE relname = 'auth_attempts' AND relnamespace = 'public'::regnamespace),
+  'auth_attempts has RLS enabled+forced (R4 backstop, V044)');
+
+SELECT * FROM finish();
+ROLLBACK;

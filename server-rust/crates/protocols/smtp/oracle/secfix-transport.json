@@ -1,0 +1,714 @@
+[
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "3 1 1 d453126d4495d574d51fa587e97118efb2086fdb51dbb54c8954a4a9b7a5bc40"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "dane-ee-self-signed-skips-pkix",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1,
+   "cert": "self",
+   "roots": []
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "delivered",
+     "attempt_count": 1,
+     "last_error": null,
+     "delivered": true,
+     "backoff_minutes": null
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": 250,
+     "smtp_text": "250 queued",
+     "outcome": "accepted",
+     "tls": true
+    }
+   ],
+   "traces": [
+    {
+     "message_id": "<outbound@smtp3.test>",
+     "event": "delivered",
+     "from_addr": "sender@smtp3.test",
+     "rcpt_addr": "one@dest.test",
+     "remote_host": "localhost.",
+     "details": {
+      "total": 1,
+      "delivered": 1
+     }
+    }
+   ],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS",
+     "EHLO <hostname>",
+     "MAIL FROM:<sender@smtp3.test>",
+     "RCPT TO:<one@dest.test>",
+     "DATA"
+    ],
+    "data": [
+     "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+    ]
+   }
+  ]
+ },
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "2 0 1 d7c1265da9205a8e6d5a43efc49ed9ca452835134d2e5b71dbd590fbc6adb015"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "dane-ta-linked-chain-accepted",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1,
+   "cert": "ta-chain",
+   "roots": []
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "delivered",
+     "attempt_count": 1,
+     "last_error": null,
+     "delivered": true,
+     "backoff_minutes": null
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": 250,
+     "smtp_text": "250 queued",
+     "outcome": "accepted",
+     "tls": true
+    }
+   ],
+   "traces": [
+    {
+     "message_id": "<outbound@smtp3.test>",
+     "event": "delivered",
+     "from_addr": "sender@smtp3.test",
+     "rcpt_addr": "one@dest.test",
+     "remote_host": "localhost.",
+     "details": {
+      "total": 1,
+      "delivered": 1
+     }
+    }
+   ],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS",
+     "EHLO <hostname>",
+     "MAIL FROM:<sender@smtp3.test>",
+     "RCPT TO:<one@dest.test>",
+     "DATA"
+    ],
+    "data": [
+     "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+    ]
+   }
+  ]
+ },
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "2 0 1 d7c1265da9205a8e6d5a43efc49ed9ca452835134d2e5b71dbd590fbc6adb015"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "dane-ta-without-linkage-rejected",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1,
+   "cert": "rogue-with-ta-extra",
+   "roots": [
+    "rogue-ca.pem"
+   ]
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "deferred",
+     "attempt_count": 1,
+     "last_error": "all recipients failed: delivery to one@dest.test failed: DANE: certificate does not match the authenticated TLSA records for localhost. \u2014 delivery rejected per RFC 7672 \u00a72.2",
+     "delivered": false,
+     "backoff_minutes": 1
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": null,
+     "smtp_text": "DANE: certificate does not match the authenticated TLSA records for localhost. \u2014 delivery rejected per RFC 7672 \u00a72.2",
+     "outcome": "error",
+     "tls": false
+    }
+   ],
+   "traces": [],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS"
+    ],
+    "data": []
+   }
+  ]
+ },
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "0 0 1 d7c1265da9205a8e6d5a43efc49ed9ca452835134d2e5b71dbd590fbc6adb015"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "dane-pkix-ta-linked-chain-accepted",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1,
+   "cert": "ta-chain",
+   "roots": [
+    "ta-ca.pem"
+   ]
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "delivered",
+     "attempt_count": 1,
+     "last_error": null,
+     "delivered": true,
+     "backoff_minutes": null
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": 250,
+     "smtp_text": "250 queued",
+     "outcome": "accepted",
+     "tls": true
+    }
+   ],
+   "traces": [
+    {
+     "message_id": "<outbound@smtp3.test>",
+     "event": "delivered",
+     "from_addr": "sender@smtp3.test",
+     "rcpt_addr": "one@dest.test",
+     "remote_host": "localhost.",
+     "details": {
+      "total": 1,
+      "delivered": 1
+     }
+    }
+   ],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS",
+     "EHLO <hostname>",
+     "MAIL FROM:<sender@smtp3.test>",
+     "RCPT TO:<one@dest.test>",
+     "DATA"
+    ],
+    "data": [
+     "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+    ]
+   }
+  ]
+ },
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "0 0 1 f80877188f7f8fddcccb9df9bb59473e394e161e5222cd7e63b5639da69bbf74"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "dane-pkix-ta-leaf-hash-rejected",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1,
+   "cert": "ta-chain",
+   "roots": [
+    "ta-ca.pem"
+   ]
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "deferred",
+     "attempt_count": 1,
+     "last_error": "all recipients failed: delivery to one@dest.test failed: DANE: certificate does not match the authenticated TLSA records for localhost. \u2014 delivery rejected per RFC 7672 \u00a72.2",
+     "delivered": false,
+     "backoff_minutes": 1
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": null,
+     "smtp_text": "DANE: certificate does not match the authenticated TLSA records for localhost. \u2014 delivery rejected per RFC 7672 \u00a72.2",
+     "outcome": "error",
+     "tls": false
+    }
+   ],
+   "traces": [],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS"
+    ],
+    "data": []
+   }
+  ]
+ },
+ {
+  "blob_requests": null,
+  "case": {
+   "transport": {
+    "feature.dane": true,
+    "feature.dnssec": true,
+    "feature.mta_sts": false,
+    "feature.tls_rpt": false
+   },
+   "tlsa": [
+    {
+     "ad": false,
+     "rcode": 0,
+     "records": []
+    },
+    {
+     "ad": true,
+     "rcode": 0,
+     "records": [
+      "3 0 1 8810ad581e59f2bc3928b261707a71308f7e139eb04820366dc4d5c18d980225"
+     ]
+    }
+   ],
+   "blob_headers": null,
+   "teardown_sql": "",
+   "link_secret": "",
+   "link_previous": "",
+   "link_version": 0,
+   "blobs": null,
+   "timeout_ms": 0,
+   "data_timeout_ms": 0,
+   "hang_at": "",
+   "barrier": 0,
+   "tls": true,
+   "advertise_tls": true,
+   "starttls_reply": "",
+   "tls_final": false,
+   "name": "pool-session-without-a-matching-record-is-not-reused",
+   "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+   "mx": {
+    "dest.test": [
+     "localhost."
+    ]
+   },
+   "replies": null,
+   "greeting": "",
+   "data_reply": "",
+   "final_reply": "",
+   "ticks": 1
+  },
+  "effects": {
+   "queue": [
+    {
+     "id": 9350011,
+     "status": "delivered",
+     "attempt_count": 1,
+     "last_error": null,
+     "delivered": true,
+     "backoff_minutes": null
+    }
+   ],
+   "attempts": [
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "one@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": 250,
+     "smtp_text": "250 queued",
+     "outcome": "accepted",
+     "tls": true
+    },
+    {
+     "message_pk": 9350001,
+     "mailbox_id": 9348021,
+     "recipient_email": "two@dest.test",
+     "mx_host": "localhost.",
+     "attempt_number": 1,
+     "smtp_code": null,
+     "smtp_text": "DANE: certificate does not match the authenticated TLSA records for localhost. \u2014 delivery rejected per RFC 7672 \u00a72.2",
+     "outcome": "error",
+     "tls": false
+    }
+   ],
+   "traces": [
+    {
+     "message_id": "<outbound@smtp3.test>",
+     "event": "delivered",
+     "from_addr": "sender@smtp3.test",
+     "rcpt_addr": "one@dest.test",
+     "remote_host": "localhost.",
+     "details": {
+      "total": 2,
+      "delivered": 1
+     }
+    }
+   ],
+   "audit_count": 0,
+   "mailbox_states": [
+    [
+     9348021,
+     0,
+     0
+    ],
+    [
+     9348022,
+     0,
+     0
+    ],
+    [
+     9348023,
+     0,
+     0
+    ]
+   ]
+  },
+  "receipts": [
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS",
+     "EHLO <hostname>",
+     "MAIL FROM:<sender@smtp3.test>",
+     "RCPT TO:<one@dest.test>",
+     "DATA"
+    ],
+    "data": [
+     "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+    ]
+   },
+   {
+    "host": "localhost.",
+    "commands": [
+     "EHLO <hostname>",
+     "STARTTLS"
+    ],
+    "data": []
+   }
+  ]
+ }
+]

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -id: parse error\nUsage of role update:\n  -desc string\n    \tDescription\n  -domain-scope int\n    \tDomain scope ID (<=0 clears to global)\n  -id int\n    \tRole ID (required)\n  -name string\n    \tRole name\n  -permissions string\n    \tComma-separated permission keys\n  -reason string\n    \tAudit reason (required)\n  -sod-class string\n    \tSoD class (empty clears)\nError: invalid value \"not-an-integer\" for flag -id: parse error\n",
+  "exit": 1
+}

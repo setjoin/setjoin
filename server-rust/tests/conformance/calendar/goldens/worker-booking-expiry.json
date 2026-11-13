@@ -1,0 +1,27 @@
+{
+  "case": "booking-expiry",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "requests": [
+        "gofree-sweep-already-expired@sweep.test:expired",
+        "gofree-sweep-cancelled-past@sweep.test:cancelled",
+        "gofree-sweep-confirmed-past@sweep.test:confirmed",
+        "gofree-sweep-due-edge@sweep.test:expired",
+        "gofree-sweep-due@sweep.test:expired",
+        "gofree-sweep-open@sweep.test:pending"
+      ]
+    },
+    "before": {
+      "requests": [
+        "gofree-sweep-already-expired@sweep.test:expired",
+        "gofree-sweep-cancelled-past@sweep.test:cancelled",
+        "gofree-sweep-confirmed-past@sweep.test:confirmed",
+        "gofree-sweep-due-edge@sweep.test:pending",
+        "gofree-sweep-due@sweep.test:pending",
+        "gofree-sweep-open@sweep.test:pending"
+      ]
+    }
+  }
+}

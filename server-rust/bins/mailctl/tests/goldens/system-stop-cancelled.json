@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Stop system — are you sure? (type 'yes' to confirm): Error: cancelled\n",
+  "exit": 1
+}

@@ -1,0 +1,9 @@
+{
+  "stdout": "database schema version: current=275 expected=275\nup to date\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

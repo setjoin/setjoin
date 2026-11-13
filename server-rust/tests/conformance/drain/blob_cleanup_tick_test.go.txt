@@ -1,0 +1,44 @@
+// Recording-only overlay (#411): runs the body of frozen Go's real
+// blob.Handler.StartCleanup tick (the four steps, in the ticker's order) over
+// the assigned database with a MinIO client pointed at an owned fake S3. The
+// ticker itself waits 5 minutes, so the overlay calls the unexported steps
+// directly. Not a tracked Go change.
+package blob
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"strconv"
+	"testing"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeBlobCleanupTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	mc, err := minio.New(os.Getenv("GOFREE_DRAIN_S3"), &minio.Options{
+		Creds: credentials.NewStaticV4("test-access", "test-secret", ""), Secure: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(mc, pool, pgxutil.WorkerPool{Pool: pool}, "mailblobs", slog.Default())
+	ticks := 1
+	if n, err := strconv.Atoi(os.Getenv("GOFREE_BLOB_TICKS")); err == nil && n > 0 {
+		ticks = n
+	}
+	for i := 0; i < ticks; i++ {
+		h.processCleanupQueue(ctx)
+		h.processOrphanedBlobs(ctx)
+		h.retryFailedReaps(ctx)
+		h.retryFailedRetention(ctx)
+	}
+}

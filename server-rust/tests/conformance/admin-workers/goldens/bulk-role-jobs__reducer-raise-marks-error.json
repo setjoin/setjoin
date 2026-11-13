@@ -1,0 +1,29 @@
+{
+  "case": "reducer-raise-marks-error",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "assignments": [],
+        "jobs": [
+          "880001:error:0/2:bulk_role_job_apply: ERROR: insert or update on table \"admin_role_assignments\" violates foreign key constraint \"admin_role_assignments_user_id_fkey\" (SQLSTATE 23503):[]",
+          "880002:queued:0/1::[]"
+        ]
+      }
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "assignments": [],
+        "jobs": [
+          "880001:queued:0/2::[]",
+          "880002:queued:0/1::[]"
+        ]
+      }
+    },
+    "notifies": []
+  },
+  "worker": "bulk-role-jobs"
+}

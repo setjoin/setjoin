@@ -1,0 +1,132 @@
+{
+  "case": "start-stranger-row-effects",
+  "effects": [
+    {
+      "chat_audit_log": [],
+      "chat_channel_members": [
+        {
+          "can_post": null,
+          "channel_id": "<channel-owner-1>",
+          "history_floor_seq": null,
+          "joined_at": "<timestamp>",
+          "last_read_seq": 0,
+          "notif_level": "all",
+          "role": "owner",
+          "user_id": "<owner>"
+        }
+      ],
+      "chat_channels": [
+        {
+          "broadcast_permission": "admins",
+          "change_seq": 0,
+          "classification": "regular",
+          "created_at": "<timestamp>",
+          "created_by": "<owner>",
+          "federated_local_key": null,
+          "federated_peer_domain": null,
+          "federated_remote_id": null,
+          "federated_room_id": null,
+          "federated_room_removed_at": null,
+          "id": "<channel-owner-1>",
+          "is_archived": false,
+          "kind": "channel",
+          "last_purged_seq": 0,
+          "legal_hold": false,
+          "legal_hold_reason": null,
+          "member_key": null,
+          "name": "Meet3 seed owner",
+          "post_permission": "all",
+          "retention_days": null,
+          "topic": null,
+          "visibility": "private",
+          "worm_mode": null
+        }
+      ],
+      "guest_notification_intents": [],
+      "meeting_participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "created_at": "<timestamp>",
+          "guest_display_name": null,
+          "id": "<participant-<meeting-owner-1>-<owner>>",
+          "identity": "u:<owner>",
+          "joined_at": null,
+          "left_at": null,
+          "meeting_id": "<meeting-owner-1>",
+          "role": "host",
+          "user_id": "<owner>"
+        }
+      ],
+      "meeting_presentation_annotations": [],
+      "meeting_presentation_events": [
+        {
+          "actor_participant_id": "<participant-<meeting-owner-1>-<owner>>",
+          "actor_user_id": "<owner>",
+          "checkpoint_seq": 1,
+          "created_at": "<timestamp>",
+          "id": "<row-id>",
+          "kind": "ready",
+          "meeting_id": "<meeting-owner-1>",
+          "payload": {
+            "manifestDigest": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+          },
+          "presentation_id": "<presentation-1>",
+          "presenter_generation": 1
+        }
+      ],
+      "meeting_presentations": [
+        {
+          "annotation_snapshot_ref": null,
+          "checkpoint_seq": 1,
+          "created_at": "<timestamp>",
+          "drive_node_id": "<node-1>",
+          "drive_version_id": "<version-1>",
+          "ended_at": null,
+          "id": "<presentation-1>",
+          "initiated_by": "<owner>",
+          "last_actor_user_id": "<owner>",
+          "manifest_digest": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+          "manifest_generation": 1,
+          "meeting_id": "<meeting-owner-1>",
+          "page_index": 0,
+          "presenter_generation": 1,
+          "presenter_participant_id": "<participant-<meeting-owner-1>-<owner>>",
+          "recording_capture_mode": null,
+          "reducer_state_version": 1,
+          "source_sha256": "abababababababababababababababababababababababababababababababab",
+          "started_at": null,
+          "status": "READY",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "meeting_recordings": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_id": "<channel-owner-1>",
+          "chat_channel_provisioned": true,
+          "created_at": "<timestamp>",
+          "ended_at": null,
+          "id": "<meeting-owner-1>",
+          "locked": false,
+          "owner_user_id": "<owner>",
+          "room_name": "<room-owner-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {
+            "guestAllowed": false
+          },
+          "slug": "<slug-owner-1>",
+          "state": "live",
+          "title": "Meet3 seed owner"
+        }
+      ]
+    },
+    [],
+    []
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /meet/{id}/presentation/{pid}/start"
+}

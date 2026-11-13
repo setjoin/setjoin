@@ -1,0 +1,29 @@
+{
+  "case": "login-admission-fenced",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@<domain>\",\"password\":\"Password1!\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/conflict\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"Sign-in is temporarily fenced while identity transition security effects converge.\",\"instance\":\"/auth/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 409,
+      "tokens": []
+    }
+  },
+  "route": "POST /auth/login"
+}

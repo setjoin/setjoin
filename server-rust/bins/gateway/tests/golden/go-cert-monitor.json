@@ -1,0 +1,50 @@
+[
+  {
+    "case": "none",
+    "check_name": "tls_cert",
+    "status": "error",
+    "value": 0,
+    "threshold": 30,
+    "details": "no TLS certificates loaded"
+  },
+  {
+    "case": "expired",
+    "check_name": "tls_cert",
+    "status": "error",
+    "value": -1,
+    "threshold": 30,
+    "details": "TLS certificate for SUBJECT has EXPIRED (DATE). Mail delivery impaired."
+  },
+  {
+    "case": "seven",
+    "check_name": "tls_cert",
+    "status": "error",
+    "value": 7,
+    "threshold": 30,
+    "details": "TLS certificate for SUBJECT expires in 7 days (DATE). Immediate action required."
+  },
+  {
+    "case": "fourteen",
+    "check_name": "tls_cert",
+    "status": "warn",
+    "value": 14,
+    "threshold": 30,
+    "details": "TLS certificate for SUBJECT expires in 14 days (DATE). Prepare renewal."
+  },
+  {
+    "case": "thirty",
+    "check_name": "tls_cert",
+    "status": "warn",
+    "value": 30,
+    "threshold": 30,
+    "details": "TLS certificate for SUBJECT expires in 30 days (DATE)."
+  },
+  {
+    "case": "healthy",
+    "check_name": "tls_cert",
+    "status": "ok",
+    "value": 31,
+    "threshold": 30,
+    "details": "TLS certificate for SUBJECT valid until DATE (31 days)."
+  }
+]

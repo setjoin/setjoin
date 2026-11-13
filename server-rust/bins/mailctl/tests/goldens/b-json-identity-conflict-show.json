@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/conflicts/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000001\",\n  \"source\": {\n    \"sourceKey\": \"directory\",\n    \"displayName\": \"Directory\",\n    \"kind\": \"ldap\",\n    \"state\": \"active\",\n    \"generation\": \"3\"\n  },\n  \"subjectFingerprint\": \"aaaaaaaaaaaaaaaa\",\n  \"evidenceClass\": \"hard\",\n  \"evidenceDigest\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n  \"explanation\": \"Review candidate\",\n  \"state\": \"pending\",\n  \"generation\": \"1\",\n  \"createdAt\": \"2026-01-01T00:00:00Z\",\n  \"expiresAt\": \"2026-01-01T00:00:00Z\",\n  \"decidedAt\": null,\n  \"candidatePerson\": null,\n  \"allowedDecisions\": [\n    \"reject\",\n    \"defer\"\n  ],\n  \"decisionHistory\": []\n}\n",
+  "stderr": "",
+  "exit": 0
+}

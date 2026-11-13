@@ -1,0 +1,113 @@
+{
+  "funasr": {
+    "binary_frame_sizes": [
+      640
+    ],
+    "connections": 2,
+    "per_connection": [
+      {
+        "has_audio": true,
+        "text_frames": [
+          "{\"mode\":\"2pass\",\"chunk_size\":[5,10,5],\"chunk_interval\":10,\"wav_name\":\"TR_alice_mic\",\"wav_format\":\"pcm\",\"audio_fs\":16000,\"is_speaking\":true}"
+        ]
+      },
+      {
+        "has_audio": true,
+        "text_frames": [
+          "{\"mode\":\"2pass\",\"chunk_size\":[5,10,5],\"chunk_interval\":10,\"wav_name\":\"TR_alice_mic\",\"wav_format\":\"pcm\",\"audio_fs\":16000,\"is_speaking\":true}",
+          "{\"is_speaking\":false}"
+        ]
+      }
+    ],
+    "text_frames": [
+      "{\"mode\":\"2pass\",\"chunk_size\":[5,10,5],\"chunk_interval\":10,\"wav_name\":\"TR_alice_mic\",\"wav_format\":\"pcm\",\"audio_fs\":16000,\"is_speaking\":true}",
+      "{\"mode\":\"2pass\",\"chunk_size\":[5,10,5],\"chunk_interval\":10,\"wav_name\":\"TR_alice_mic\",\"wav_format\":\"pcm\",\"audio_fs\":16000,\"is_speaking\":true}",
+      "{\"is_speaking\":false}"
+    ],
+    "upgrades": [
+      {
+        "header_names": [
+          "accept-encoding",
+          "connection",
+          "host",
+          "sec-websocket-key",
+          "sec-websocket-version",
+          "upgrade",
+          "user-agent"
+        ],
+        "target": "/",
+        "user_agent": [
+          "Go-http-client/1.1"
+        ]
+      },
+      {
+        "header_names": [
+          "accept-encoding",
+          "connection",
+          "host",
+          "sec-websocket-key",
+          "sec-websocket-version",
+          "upgrade",
+          "user-agent"
+        ],
+        "target": "/",
+        "user_agent": [
+          "Go-http-client/1.1"
+        ]
+      }
+    ]
+  },
+  "livekit": {
+    "caption_frames": [
+      "{\"t\":\"cc\",\"sid\":\"TR_alice_mic\",\"p\":\"alice\",\"text\":\"ni hao\",\"final\":false}",
+      "{\"t\":\"cc\",\"sid\":\"TR_alice_mic\",\"p\":\"alice\",\"text\":\"ni hao\",\"final\":false}",
+      "{\"t\":\"cc\",\"sid\":\"TR_alice_mic\",\"p\":\"alice\",\"text\":\"ni hao.\",\"final\":true}"
+    ],
+    "data_channels": [
+      [
+        "_lossy",
+        false
+      ],
+      [
+        "_reliable",
+        true
+      ]
+    ],
+    "data_packet_shapes": [
+      {
+        "channel": "_lossy",
+        "destinations": 0,
+        "kind": 0,
+        "sequence": 0,
+        "topic": null
+      }
+    ],
+    "signals": [
+      "Answer(\"answer\")",
+      "Offer(\"offer\")",
+      "Leave { reason: 1, action: 0, can_reconnect: false }"
+    ],
+    "trickle_targets": [
+      0,
+      1
+    ],
+    "upgrade": {
+      "authorization": [
+        "Bearer room-token-for-the-oracle"
+      ],
+      "header_names": [
+        "authorization",
+        "connection",
+        "host",
+        "sec-websocket-key",
+        "sec-websocket-version",
+        "upgrade",
+        "user-agent"
+      ],
+      "path_and_query": "/rtc?version=2.18.1&protocol=17&&auto_subscribe=1&sdk=go&os=linux",
+      "user_agent": [
+        "Go-http-client/1.1"
+      ]
+    }
+  }
+}

@@ -1,0 +1,54 @@
+-- 120_login_events_signin.pg: V028 — login_events all-protocol shape + partition + RLS.
+-- Requires: login_events (partitioned), system_config.
+BEGIN;
+SELECT plan(12);
+
+-- 1-5: new columns exist.
+SELECT has_column('login_events', 'client',         'login_events.client added');
+SELECT has_column('login_events', 'protocol',       'login_events.protocol added');
+SELECT has_column('login_events', 'auth_method',    'login_events.auth_method added');
+SELECT has_column('login_events', 'session_id',     'login_events.session_id added');
+SELECT has_column('login_events', 'correlation_id', 'login_events.correlation_id added');
+
+-- 6: user_id is now nullable (failed/unknown sign-ins).
+SELECT col_is_null('login_events', 'user_id', 'login_events.user_id is nullable');
+
+-- 7: client CHECK rejects a bad enum value.
+SELECT throws_ok(
+  $$INSERT INTO login_events (user_id, success, client, occurred_at)
+    VALUES (NULL, false, 'bogus', now())$$,
+  '23514', NULL, 'client CHECK rejects bad enum');
+
+-- 8: auth_method CHECK rejects a bad enum value.
+SELECT throws_ok(
+  $$INSERT INTO login_events (user_id, success, auth_method, occurred_at)
+    VALUES (NULL, false, 'bogus', now())$$,
+  '23514', NULL, 'auth_method CHECK rejects bad enum');
+
+-- 9: a valid all-protocol row inserts (NULL user, imap, app_password).
+SELECT lives_ok(
+  $$INSERT INTO login_events (user_id, success, client, protocol, auth_method, source_ip, occurred_at)
+    VALUES (NULL, false, 'imap', 'imap', 'app_password', '203.0.113.7', now())$$,
+  'valid imap/app_password NULL-user row inserts');
+
+-- 10: login_events is a partitioned table.
+SELECT is(
+  (SELECT count(*)::int FROM pg_partitioned_table pt
+     JOIN pg_class c ON c.oid = pt.partrelid WHERE c.relname = 'login_events'),
+  1, 'login_events is RANGE-partitioned');
+
+-- 11: retention config seeded.
+SELECT is(
+  (SELECT value FROM system_config WHERE key = 'login_events_retain_days'),
+  '180', 'login_events_retain_days seeded to 180');
+
+-- 12: the partition rotator covers login_events (rotate_audit_partitions was
+-- superseded by the catalog-derived create_monthly_partitions).
+-- ponytail: asserts +2mo (the migration pre-creates now() + +1mo; only the rotator creates +2mo, so a silently-dropped table keeps this red).
+SELECT create_monthly_partitions(2);
+SELECT has_table(
+  ('login_events_' || to_char(date_trunc('month', now() + interval '2 months'), 'YYYY_MM'))::name,
+  'create_monthly_partitions creates the +2mo login_events partition');
+
+SELECT * FROM finish();
+ROLLBACK;

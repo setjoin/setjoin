@@ -1,0 +1,131 @@
+{
+  "case": "invalid-body",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "mailbox_states": [
+            {
+              "jmap_email_state": 0,
+              "mailbox_id": "<a>"
+            },
+            {
+              "jmap_email_state": 0,
+              "mailbox_id": "<b>"
+            }
+          ],
+          "messages": [
+            {
+              "from_addr": "sender@source.test",
+              "is_read": false,
+              "mailbox_id": "<a>",
+              "message_header_id": "<idlogin4-receipt-a@source.test>",
+              "message_id": "<message-a>",
+              "received_at": "2026-10-01T10:00:00+00:00",
+              "subject": "IDLOGIN4 receipt"
+            },
+            {
+              "from_addr": "sender@source.test",
+              "is_read": false,
+              "mailbox_id": "<b>",
+              "message_header_id": "<idlogin4-receipt-b@source.test>",
+              "message_id": "<message-b>",
+              "received_at": "2026-10-01T10:00:00+00:00",
+              "subject": "IDLOGIN4 receipt"
+            }
+          ],
+          "outbound_queue": [],
+          "read_receipts": [],
+          "receipt_policies": []
+        },
+        "before": {
+          "app_passwords": [],
+          "mailbox_states": [
+            {
+              "jmap_email_state": 0,
+              "mailbox_id": "<a>"
+            },
+            {
+              "jmap_email_state": 0,
+              "mailbox_id": "<b>"
+            }
+          ],
+          "messages": [
+            {
+              "from_addr": "sender@source.test",
+              "is_read": false,
+              "mailbox_id": "<a>",
+              "message_header_id": "<idlogin4-receipt-a@source.test>",
+              "message_id": "<message-a>",
+              "received_at": "2026-10-01T10:00:00+00:00",
+              "subject": "IDLOGIN4 receipt"
+            },
+            {
+              "from_addr": "sender@source.test",
+              "is_read": false,
+              "mailbox_id": "<b>",
+              "message_header_id": "<idlogin4-receipt-b@source.test>",
+              "message_id": "<message-b>",
+              "received_at": "2026-10-01T10:00:00+00:00",
+              "subject": "IDLOGIN4 receipt"
+            }
+          ],
+          "outbound_queue": [],
+          "read_receipts": [],
+          "receipt_policies": []
+        }
+      }
+    ],
+    "notify": {
+      "config_changed": [],
+      "critical_events": [],
+      "state_change": []
+    },
+    "request": {
+      "body": "{\"messageId\":12}",
+      "method": "POST",
+      "path": "/auth/me/read-receipt"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"invalid body\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "96"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /auth/me/read-receipt"
+}

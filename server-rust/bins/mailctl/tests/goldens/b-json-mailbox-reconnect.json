@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/mailboxes/7/lifecycle",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "$UUID",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"action\":\"reconnect\",\"evidenceKind\":\"identity_link\",\"expectedGeneration\":\"3\",\"idempotencyKey\":\"$UUID\",\"identityLinkId\":\"12\",\"linkGeneration\":\"2\",\"reason\":\"operator request\",\"sourceKeyDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"targetUserId\":\"9\"}"
+    }
+  ],
+  "stdout": "{\n  \"accepted\": true\n}\n",
+  "stderr": "",
+  "exit": 0
+}

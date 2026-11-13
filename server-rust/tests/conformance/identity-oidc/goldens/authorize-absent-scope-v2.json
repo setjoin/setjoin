@@ -1,0 +1,49 @@
+{
+  "case": "authorize-absent-scope",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "oidc_auth_requests"
+      },
+      {
+        "after": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "before": [],
+        "table": "auth_attempts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/authorize",
+      "query": "client_id=idfed1-client&redirect_uri=https%3A%2F%2Frp.idfed1.test%2Fcallback&response_type=code&state=state-339&nonce=nonce-339&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256",
+      "wire_method": "GET"
+    },
+    "response": {
+      "body": "<a href=\"https://rp.idfed1.test/callback?error=invalid_request&amp;error_description=The+scope+of+your+request+is+missing.+Please+ensure+some+scopes+are+requested.+If+you+have+any+questions%2C+you+may+contact+the+administrator+of+the+application.&amp;state=state-339\">Found</a>.\n\n",
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "location": "https://rp.idfed1.test/callback?error=invalid_request&error_description=The+scope+of+your+request+is+missing.+Please+ensure+some+scopes+are+requested.+If+you+have+any+questions%2C+you+may+contact+the+administrator+of+the+application.&state=state-339",
+        "vary": "Origin"
+      },
+      "status": 302
+    }
+  },
+  "route": "* /authorize"
+}

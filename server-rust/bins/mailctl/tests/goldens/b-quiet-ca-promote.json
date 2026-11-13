@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/policies/7/impact",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/policies/7/promote",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"confirm\":true}"
+    }
+  ],
+  "stdout": "{\n  \"state\": \"on\"\n}\nPolicy 7 promoted to enforced.\n",
+  "stderr": "",
+  "exit": 0
+}

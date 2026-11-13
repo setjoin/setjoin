@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "contractId": "connectivity-aware-sync-e7-useful-outcome-contract-v1",
+  "frozenAtUtc": "2026-09-18T00:00:00Z",
+  "authority": "docs/superpowers/plans/2026-08-11-connectivity-aware-sync-resource-qos.md",
+  "outcomeNameSource": "Metrics and initial success criteria",
+  "freezeSemantics": {
+    "statement": "Pilot results qualify only this exact frozen contract (contractId + frozenAtUtc + this document's digest bound in connectivity-aware-sync-cases.json), never every supported organization size or platform. Any change to an outcome name, capability scope, threshold rule, sample rule, missing-data rule, cohort, observation window, denominator, or comparator after results exist is prohibited; a changed comparison needs a new contractId and a new separately identified run, never cherry-picked reuse of results.",
+    "allOutcomeEvidencePlanned": true,
+    "postResultChangesProhibited": true
+  },
+  "capabilityScoping": {
+    "statement": "Every bound outcome names the E4-I/E5 capabilities it applies to; an outcome that is not capability-scoped cannot enter a pilot claim, and a capability that is not admitted to the pilot cannot inherit an outcome.",
+    "unscopedOutcomeProhibited": true,
+    "capabilities": [
+      {
+        "capability": "background-metadata-sync",
+        "owner": "E4-I",
+        "pilotAdmitted": true,
+        "rule": "Bounded background metadata work (delta/window sync) while the winning policy mode is execute; admission can only be narrowed by user preference or capability, never broadened."
+      },
+      {
+        "capability": "explicit-attachment-transfer",
+        "owner": "E4-I",
+        "pilotAdmitted": true,
+        "rule": "User-initiated attachment download and verified resume through the dedicated generation-bound transfer route."
+      },
+      {
+        "capability": "attachment-prefetch",
+        "owner": "E4-I",
+        "pilotAdmitted": false,
+        "rule": "Stays never for the pilot unless explicitly widened by a separate recorded decision; it is scoped only for efficiency observations, never for usefulness claims."
+      },
+      {
+        "capability": "foreground-reconnect-status",
+        "owner": "E5",
+        "pilotAdmitted": true,
+        "rule": "Foreground/reconnect mail-list and transfer status projection consumed by webmail; missing background proof never becomes a foreground prerequisite."
+      }
+    ]
+  },
+  "outcomeBindings": [
+    {
+      "name": "time to useful cached list and time to server-current state",
+      "role": "primary-usefulness",
+      "capabilities": ["background-metadata-sync", "foreground-reconnect-status"],
+      "threshold": {
+        "status": "pending-q0-baseline",
+        "note": "The numeric threshold is baseline-justified from the Q0 record and the E6 paired flag-OFF comparator before outcome collection; numerical defaults are not invented before Q0."
+      },
+      "sampleRule": "All pilot attempts are retained; no post-result workload, metric, seed, or stopping change; no improvement obtained by silently dropping work.",
+      "missingDataRule": "Missing or unmet usefulness evidence holds only the affected expansion or claim, never the OFF implementation, deterministic review, or already qualified foreground/reconnect support."
+    },
+    {
+      "name": "resumed bytes versus restarted bytes, resume success, and verified attachment completions/failures per attempt",
+      "role": "primary-usefulness",
+      "capabilities": ["explicit-attachment-transfer", "attachment-prefetch"],
+      "threshold": {
+        "status": "pending-q0-baseline",
+        "note": "The numeric threshold is baseline-justified from the Q0 record and the E6 paired flag-OFF comparator before outcome collection; numerical defaults are not invented before Q0."
+      },
+      "sampleRule": "Every completion, failure, timeout, cancel, and expiry is counted separately per attempt; attempts are never merged or dropped after results exist.",
+      "missingDataRule": "An attempt without verified completion proof is reported as failed or unavailable, never inferred as success; missing proof cannot be borrowed from another profile or run."
+    },
+    {
+      "name": "bytes transferred per useful opened item",
+      "role": "secondary",
+      "capabilities": ["explicit-attachment-transfer", "attachment-prefetch"],
+      "threshold": {
+        "status": "pending-q0-baseline",
+        "note": "The numeric threshold is baseline-justified from the Q0 record before outcome collection; numerical defaults are not invented before Q0."
+      },
+      "sampleRule": "All pilot attempts are retained and attributed to the capability that transferred the bytes; no post-result workload, metric, seed, or stopping change.",
+      "missingDataRule": "Unattributable or unavailable transfer accounting is omitted and counted, never estimated into a passing value."
+    },
+    {
+      "name": "work completion/age by class, including critical starvation count (target zero)",
+      "role": "secondary",
+      "capabilities": ["background-metadata-sync"],
+      "threshold": {
+        "status": "pending-q0-baseline",
+        "note": "The numeric completion/age thresholds are baseline-justified before outcome collection; critical starvation keeps its existing target zero and is never relaxed by this contract."
+      },
+      "sampleRule": "Queue completion and age are recorded per work class for every admitted job; class labels stay the finite work-contract enums.",
+      "missingDataRule": "A class with unavailable accounting is reported as unavailable, never as caught up; starvation above zero is a failure, not a caveat."
+    },
+    {
+      "name": "background grant/useful-progress/cancellation rates by platform",
+      "role": "secondary",
+      "capabilities": ["background-metadata-sync", "attachment-prefetch"],
+      "threshold": {
+        "status": "pending-q0-baseline",
+        "note": "The numeric rate thresholds are baseline-justified per platform before outcome collection; numerical defaults are not invented before Q0."
+      },
+      "sampleRule": "Grant, useful-progress, and cancellation outcomes are counted per platform for every background opportunity, including the cancellations.",
+      "missingDataRule": "A platform without runtime capability truth reports unavailable capability honestly instead of a foreground-only success; no fake background proof."
+    }
+  ],
+  "incompleteOutcomeRule": {
+    "statement": "No pilot may begin while any required outcome field is unspecified: a baseline-justified numeric threshold, sample rule, or missing-data rule for a bound outcome, or the cohort, observation window, denominator, or OFF comparator for the pilot scope. The fields are recorded in this contract before outcome collection, never after.",
+    "pilotMayNotBeginWithUnspecifiedFields": true,
+    "requiredOutcomeFields": ["threshold", "sampleRule", "missingDataRule", "cohort", "observationWindow", "denominator", "offComparator"]
+  },
+  "usefulnessNotSafetyOnly": {
+    "statement": "Usefulness outcomes measure whether the pilot delivered foreground/reconnect value; they never substitute for the E6 safety gates. E6 Critical-path regression ceilings, resource budgets, security and privacy gates remain nonwaivable, and metrics such as foreground latency/CPU contention under background work stay E6-owned rather than becoming pilot usefulness outcomes. Missing usefulness evidence holds only the affected expansion or claim; it never waives, replaces, or lowers an E6 gate.",
+    "usefulnessOutcomesSubstituteForSafetyGates": false,
+    "e6SafetyGatesRemainNonwaivable": true
+  },
+  "expansionRule": {
+    "statement": "The retained pilot decision precedes expansion: the dossier records approved expansion, remain-at-current-cohort, rollback, or insufficient evidence with an accountable owner and reason before any cohort, platform, or capability scope widens. This contract grants no pilot execution or production enablement authority; flags stay OFF pending the separate enable decision.",
+    "retainedPilotDecisionPrecedesExpansion": true,
+    "allowedDecisions": ["approved-expansion", "remain-at-current-cohort", "rollback", "insufficient-evidence"],
+    "accountableOwnerRequired": true
+  },
+  "pilotScope": {
+    "status": "planned",
+    "capabilityProfileBinding": {
+      "profileDocument": "docs/verification/connectivity-e6-profile.json",
+      "requiredProfileIds": ["e6-electron-macos-arm64-v1"],
+      "rule": "The pilot binds frozen selected profiles only; results qualify only their exact frozen profile, and an unselected platform does not block an independent gate."
+    },
+    "eligibleMailWorkflows": [
+      "Foreground cached-list catch-up and reconnect on the internal native cohort.",
+      "Background metadata sync (delta/window) while the winning policy mode is execute.",
+      "Explicit attachment download and verified resume."
+    ],
+    "excludedWorkflows": [
+      "Attachment prefetch stays never for the pilot unless explicitly widened.",
+      "No Drive/Chat/Meet offline/background execution and no production enablement without the separate cohort decision and evidence review."
+    ],
+    "cohort": {
+      "status": "specified",
+      "rule": "Internal native cohort: scoped policy mode execute, one platform unit at a time; policy scopes identify devices; no new telemetry identity or content is granted by this contract."
+    },
+    "observationWindow": {
+      "status": "planned-until-pilot-admission",
+      "rule": "Recorded in this contract before outcome collection; a pilot cannot begin while it remains unspecified, and it is never changed after results exist."
+    },
+    "denominator": {
+      "status": "planned-until-pilot-admission",
+      "rule": "Recorded in this contract before outcome collection as all pilot attempts with failures/timeouts/cancels/expiries retained separately; a pilot cannot begin while it remains unspecified."
+    },
+    "offComparator": {
+      "status": "planned-until-pilot-admission",
+      "rule": "Recorded in this contract before outcome collection as the corresponding flag-OFF comparator over the same frozen profile and workload; a pilot cannot begin while it remains unspecified."
+    }
+  }
+}

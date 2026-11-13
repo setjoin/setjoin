@@ -1,0 +1,46 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "artifact_identity": "<artifact-identity>",
+        "consented_at": "<timestamp>",
+        "created_at": "<timestamp>",
+        "declared_size": 1,
+        "device_id": "<device>",
+        "eligibility": "received",
+        "expires_at": "<timestamp>",
+        "id": "<session>",
+        "idempotency_key": "<idempotency>",
+        "incident_id": "<incident>",
+        "lineage_sha256": "<lineage>",
+        "mailbox_id": "<mailbox>",
+        "next_offset": 0,
+        "raw_mime_sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": "<verified-receipt>",
+        "status": "uploading",
+        "terminal_reason": null,
+        "total_declared_size": 1,
+        "updated_at": "<timestamp>",
+        "uploading_user_id": "<actor>"
+      },
+      "table": "mail_recovery_upload_sessions"
+    },
+    {
+      "after": {
+        "declared_size": 1,
+        "item_id": "raw",
+        "next_offset": 0,
+        "object_ref": null,
+        "role": "raw",
+        "session_id": "<session>",
+        "sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "uploading"
+      },
+      "table": "mail_recovery_upload_items"
+    }
+  ],
+  "format": 1,
+  "go_source": "8c44edc060426fed95e181c853d71583ff759f40",
+  "route": "POST /recovery/uploads"
+}

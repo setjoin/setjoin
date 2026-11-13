@@ -1,0 +1,36 @@
+-- pgTAP: offline_policy_delete.pg
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (id, name, is_local) VALUES (98702, 'del.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (2, 'del_actor', 98702, 'del@del.test', 'Deleter', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Create a deletable policy.
+CREATE TEMP TABLE _p AS
+  SELECT offline_policy_set(2, NULL, 'to-delete', 'user', 99, false, 7, false, 'never', 50) AS id;
+
+-- Delete it — should not raise.
+SELECT lives_ok(
+  $$ SELECT offline_policy_delete((SELECT id FROM _p), 2) $$,
+  'offline_policy_delete does not raise for existing policy');
+
+-- Row is gone.
+SELECT is(
+  (SELECT count(*)::INT FROM offline_policies WHERE id = (SELECT id FROM _p)),
+  0, 'row removed from offline_policies');
+
+-- Audit row written.
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_audit_log
+         WHERE action = 'offline_policy_delete' AND user_id = 2),
+  'audit row written');
+
+-- Deleting non-existent id → BZ099.
+SELECT throws_ok(
+  $$ SELECT offline_policy_delete(-999, 2) $$,
+  'BZ099', NULL, 'missing id raises BZ099');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,66 @@
+-- pgTAP: ca_policy_soft_delete.pg — CA-1 C3: soft-delete sets deleted_at,
+-- frees the priority slot for live policies, writes audit row, notifies.
+BEGIN;
+SELECT plan(8);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (96100, 'sd.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (83001, 'sd_actor', 96100, 'actor@sd.test', 'Actor', TRUE);
+
+-- Insert a live 'on' policy to soft-delete.
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+  VALUES (800101, 100, 'sd-victim', 'on', 'global',
+          '{}'::jsonb, '{"operator":"all","grants":[{"action":"allow"}]}'::jsonb);
+
+-- Verify it occupies the priority slot (partial-unique index only covers state='on' + deleted_at IS NULL).
+SELECT ok(
+  EXISTS (SELECT 1 FROM conditional_access_policies WHERE id = 800101 AND deleted_at IS NULL),
+  'policy is live before soft-delete');
+
+-- Soft-delete it.
+SELECT lives_ok(
+  $$ SELECT ca_policy_soft_delete(800101, 83001) $$,
+  'ca_policy_soft_delete succeeds');
+
+-- deleted_at is now set.
+SELECT ok(
+  (SELECT deleted_at IS NOT NULL FROM conditional_access_policies WHERE id = 800101),
+  'soft-delete sets deleted_at');
+
+-- Row still exists (not hard-deleted).
+SELECT ok(
+  EXISTS (SELECT 1 FROM conditional_access_policies WHERE id = 800101),
+  'row still exists after soft-delete');
+
+-- Priority slot is freed: another on policy can claim priority=100.
+SELECT lives_ok(
+  $$ INSERT INTO conditional_access_policies
+       (id, priority, name, state, scope_type, conditions, actions)
+     VALUES (800102, 100, 'sd-successor', 'on', 'global',
+             '{}'::jsonb, '{"operator":"all","grants":[{"action":"allow"}]}'::jsonb) $$,
+  'priority slot freed — another on policy can claim priority=100');
+
+-- Audit row written with action=ca_policy_soft_delete.
+SELECT is(
+  (SELECT action FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=800101
+   ORDER BY id DESC LIMIT 1),
+  'ca_policy_soft_delete',
+  'soft-delete writes ca_policy_soft_delete audit row');
+
+-- Audit before_state captured.
+SELECT ok(
+  (SELECT before_state IS NOT NULL FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=800101
+   ORDER BY id DESC LIMIT 1),
+  'soft-delete captures before_state in audit row');
+
+-- F2 notify fired.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'soft-delete fires ca_notify_policy_change → conditional_access channel');
+
+SELECT finish();
+ROLLBACK;

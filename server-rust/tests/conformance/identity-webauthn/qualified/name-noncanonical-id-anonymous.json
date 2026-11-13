@@ -1,0 +1,7 @@
+{
+  "audit": [],
+  "case": "name-noncanonical-id-anonymous-audit",
+  "format": 1,
+  "go_source": "6c1a7fee2c8d147965cc84ed94ea4663488a89c7",
+  "route": "PUT /auth/webauthn/credential/{id}/name"
+}

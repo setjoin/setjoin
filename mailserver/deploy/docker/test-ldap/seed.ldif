@@ -1,0 +1,31 @@
+dn: dc=my-domain,dc=com
+objectClass: dcObject
+objectClass: organization
+dc: my-domain
+o: Test Organization
+
+dn: ou=Engineering,dc=my-domain,dc=com
+objectClass: organizationalUnit
+ou: Engineering
+
+dn: ou=Sales,dc=my-domain,dc=com
+objectClass: organizationalUnit
+ou: Sales
+
+dn: cn=Alice,ou=Engineering,dc=my-domain,dc=com
+objectClass: inetOrgPerson
+cn: Alice
+sn: Test
+givenName: Alice
+mail: alice@test.local
+userPassword: testpass
+telephoneNumber: +1-555-0100
+
+dn: cn=Bob,ou=Sales,dc=my-domain,dc=com
+objectClass: inetOrgPerson
+cn: Bob
+sn: Test
+givenName: Bob
+mail: bob@test.local
+userPassword: testpass
+telephoneNumber: +1-555-0200

@@ -1,0 +1,124 @@
+-- chat_org_defaults.pg: org-default channels + creation restriction
+-- (Pillar A3 QoL Task 12 — an A1 deferral pull-in).
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_org_defaults.sql,
+-- provision_account.sql. Uses REAL `users` rows (via _fixtures.sql's
+-- mk_auth_user) where the reducer actually queries `users.is_local_admin`/
+-- `users.enabled` — unlike most chat*.pg fixtures, a bare bigint id will NOT
+-- satisfy an admin check or a backfill SELECT here.
+BEGIN;
+SELECT plan(22);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: an org admin, a pre-existing plain user (to prove mark backfills
+-- EXISTING users, not just future ones), and two channels the admin owns.
+SELECT mk_auth_user('org-admin@chat-defaults.test') AS admin_id \gset
+UPDATE users SET is_local_admin = TRUE WHERE id = :admin_id;
+SELECT mk_auth_user('existing@chat-defaults.test') AS existing_id \gset
+
+SELECT chat_channel_create(:admin_id, 'general-defaults') AS gen_ch \gset
+SELECT chat_channel_create(:admin_id, 'random-defaults') AS other_ch \gset
+
+-- ── BZ161: a non-admin cannot mark a channel org-default (ORG-admin gate,
+-- not channel-admin — a bare id with no `users` row is a clean non-admin) ──
+SELECT throws_ok(format($$ SELECT chat_org_default_set(88801, %s, true) $$, :gen_ch),
+  'BZ161', NULL, 'non-admin cannot mark a channel org-default (BZ161)');
+
+-- ── BZ170: marking a nonexistent channel org-default ─────────────────────
+SELECT throws_ok(format($$ SELECT chat_org_default_set(%s, 999999999, true) $$, :admin_id),
+  'BZ170', NULL, 'marking a nonexistent channel raises BZ170');
+
+-- ── admin marks #general org-default: backfills the PRE-EXISTING user ────
+SELECT chat_org_default_set(:admin_id, :gen_ch, true);
+SELECT is((SELECT count(*)::int FROM org_default_channels WHERE channel_id = :gen_ch), 1,
+  'org_default_channels row created on mark');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :existing_id), 1,
+  'mark backfills an EXISTING (pre-mark) enabled user');
+SELECT is(last_notify_event(format('chat:%s', :existing_id)), 'member_added',
+  'backfill fans out member_added to the backfilled user');
+
+-- ── idempotent re-mark: no duplicate catalog row, no duplicate membership ─
+SELECT lives_ok(format($$ SELECT chat_org_default_set(%s, %s, true) $$, :admin_id, :gen_ch),
+  're-marking an already-default channel is idempotent');
+SELECT is((SELECT count(*)::int FROM org_default_channels WHERE channel_id = :gen_ch), 1,
+  'still exactly one org_default_channels row after re-mark');
+
+-- ── new-user auto-join via provision_account, the REAL provisioning seam ─
+SELECT provision_account('newhire@chat-defaults.test', 'New Hire') AS prov \gset
+SELECT (:'prov'::jsonb ->> 'user_id')::bigint AS newhire_id \gset
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :newhire_id), 1,
+  'a freshly-provisioned user auto-joins the org-default channel');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :other_ch AND user_id = :newhire_id), 0,
+  'a channel that is NOT org-default is never auto-joined');
+
+-- ── idempotent re-provision (e.g. an AD/LDAP re-sync UPDATE) never
+-- duplicates the membership row ────────────────────────────────────────
+SELECT lives_ok($$ SELECT provision_account('newhire@chat-defaults.test', 'New Hire Updated') $$,
+  're-provisioning the same person is idempotent');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :newhire_id), 1,
+  'still exactly one membership row after re-provision');
+
+-- ── BZ163: self-leave on an org-default channel is REJECTED — membership
+-- there is system-maintained, not the member's to revoke ────────────────
+SELECT throws_ok(format($$ SELECT chat_member_remove(%s, %s, %s) $$, :newhire_id, :gen_ch, :newhire_id),
+  'BZ163', NULL, 'member cannot leave an org-default channel (BZ163)');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :newhire_id), 1,
+  'membership survives the rejected leave attempt');
+
+-- leaving an ORDINARY (non-default) channel still works normally.
+SELECT chat_member_add(:admin_id, :other_ch, :newhire_id);
+SELECT chat_member_remove(:newhire_id, :other_ch, :newhire_id);
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :other_ch AND user_id = :newhire_id), 0,
+  'leaving an ordinary (non-default) channel still works');
+
+-- ── unmark: catalog row goes away, existing memberships persist ──────────
+SELECT chat_org_default_set(:admin_id, :gen_ch, false);
+SELECT is((SELECT count(*)::int FROM org_default_channels WHERE channel_id = :gen_ch), 0,
+  'unmark removes the org_default_channels row');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :newhire_id), 1,
+  'unmark does NOT remove existing memberships');
+-- ...and now that the channel is ordinary again, leave works.
+SELECT chat_member_remove(:newhire_id, :gen_ch, :newhire_id);
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :gen_ch AND user_id = :newhire_id), 0,
+  'after unmark, leave works normally');
+
+-- ── chat.channel_creation OFF blocks a non-admin from creating a channel,
+-- an org admin is unaffected ─────────────────────────────────────────────
+UPDATE feature_toggles SET enabled = false WHERE key = 'chat.channel_creation';
+SELECT throws_ok($$ SELECT chat_channel_create(88802, 'blocked-channel') $$,
+  'BZ161', NULL, 'toggle OFF blocks a non-admin from creating a channel (BZ161)');
+SELECT lives_ok(format($$ SELECT chat_channel_create(%s, 'admin-channel') $$, :admin_id),
+  'toggle OFF still allows an org admin to create a channel');
+UPDATE feature_toggles SET enabled = true WHERE key = 'chat.channel_creation';
+
+-- ── audit-chain coverage (pipeline review fix): mark-backfill and
+-- auto-provision both write member.join acts when feature.chat_compliance
+-- is ON — the bulk INSERT..SELECT/FOR-loop membership grants previously
+-- bypassed the A4a chain entirely ────────────────────────────────────────
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT chat_channel_create(:admin_id, 'audit-defaults-ch') AS audit_ch \gset
+SELECT mk_auth_user('audit-existing@chat-defaults.test') AS audit_existing_id \gset
+SELECT chat_org_default_set(:admin_id, :audit_ch, true);
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_audit_log
+     WHERE channel_id = :audit_ch AND action = 'member.join' AND target_id = :audit_existing_id
+  ), 'marking a channel org-default writes one member.join act per backfilled member');
+SELECT provision_account('audit-newhire@chat-defaults.test', 'Audit New Hire') AS audit_prov \gset
+SELECT (:'audit_prov'::jsonb ->> 'user_id')::bigint AS audit_newhire_id \gset
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_audit_log
+     WHERE channel_id = :audit_ch AND action = 'member.join' AND target_id = :audit_newhire_id
+  ), 'chat_autojoin_defaults writes a member.join act for a freshly-provisioned user');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:audit_ch)),
+  'the chain stays valid after the mark-backfill + autojoin acts');
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_compliance';
+
+SELECT * FROM finish();
+ROLLBACK;

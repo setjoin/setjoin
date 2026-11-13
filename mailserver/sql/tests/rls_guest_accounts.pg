@@ -1,0 +1,51 @@
+-- rls_guest_accounts.pg — Guest G0 Task 1: guest_accounts FORCE-RLS denial
+-- proof. Two tenants' rows present; running as setjoin_app with tenant A's
+-- app.current_user_id, tenant B's satellite row is invisible and immutable.
+-- (The test connection role is a table owner/superuser and bypasses RLS even
+-- under FORCE — the SET LOCAL ROLE switch below is load-bearing.)
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (name, is_local) VALUES ('rlsguest-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'rlsg-a@x.example', d.id, 'rlsg-a@x.example', 'Guest A', TRUE FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'rlsg-b@x.example', d.id, 'rlsg-b@x.example', 'Guest B', TRUE FROM domains d WHERE d.name = 'guest.invalid';
+
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'inviter@rlsguest-host.example', h.id, 'active'
+  FROM users u, domains h
+ WHERE u.email IN ('rlsg-a@x.example', 'rlsg-b@x.example')
+   AND h.name = 'rlsguest-host.example';
+
+-- Capture ids into txn-local GUCs BEFORE the role switch (users may itself be
+-- RLS-scoped for setjoin_app — subqueries after SET ROLE could return NULL).
+DO $$
+BEGIN
+  PERFORM set_config('app.current_user_id',
+      (SELECT id::text FROM users WHERE email = 'rlsg-a@x.example'), true);
+  PERFORM set_config('guesttest.b_id',
+      (SELECT id::text FROM users WHERE email = 'rlsg-b@x.example'), true);
+END $$;
+SET LOCAL ROLE setjoin_app;
+
+SELECT is( (SELECT count(*) FROM guest_accounts)::int, 1,
+  'guest_accounts: self-read policy shows exactly the caller''s own row');
+SELECT is( (SELECT count(*) FROM guest_accounts
+             WHERE user_id = current_setting('guesttest.b_id')::bigint)::int, 0,
+  'guest_accounts: the OTHER guest''s satellite row is invisible (denial)');
+SELECT throws_ok(
+  $$ INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id)
+     VALUES (current_setting('app.current_user_id')::bigint, 'x@x', 'x', 1) $$,
+  '42501', NULL,
+  'guest_accounts: setjoin_app cannot INSERT (no mutation policy — reducer-only writes)');
+-- ponytail: a data-modifying CTE must be at the query's own top level (PG
+-- rejects one nested inside an is() argument, ERRCODE 0A000) — the brief's
+-- inline form doesn't parse; hoisting the WITH to the statement's top level
+-- is the minimal fix, same assertion.
+WITH upd AS (UPDATE guest_accounts SET status = 'disabled' RETURNING 1)
+SELECT is( (SELECT count(*) FROM upd)::int, 0,
+  'guest_accounts: setjoin_app UPDATE is a no-op even on the self row (no mutation policy)');
+
+SELECT * FROM finish();
+ROLLBACK;

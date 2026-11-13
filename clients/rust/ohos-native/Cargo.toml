@@ -1,0 +1,51 @@
+[package]
+name = "ohos-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+name = "ohos_native"
+# ponytail: this crate's #[napi] registration ctor needs real ArkTS/Node-API
+# host symbols to link a test executable; those only exist inside an actual
+# OHOS/ArkWeb process, not on the macOS build host (unlike `desktop-native`,
+# where the host itself IS the Node/Electron runtime the napi symbols resolve
+# against). `test = false` skips the host test-harness link; the binding-level
+# integration tests under `tests/` still run on the host, and the SHARED
+# implementation this crate include!s (../../native-shared/native_impl.rs) has
+# its boundary-contract unit tests EXECUTED on the host by the dedicated
+# `native-shared` test crate — `cargo test --offline -p native-shared`
+# (D-CLIENTS-RUST-OHOS-NATIVE-002). What stays device-gated here is executing
+# THIS crate's true `#[napi]` exports (same class of gap as the HAP itself,
+# see the plan's device-gated scope); this crate's sources still
+# compile-check on the OHOS target via
+# `cargo build --target aarch64-unknown-linux-ohos --tests -p ohos-native`
+# (verified).
+test = false
+
+[dependencies]
+# ponytail: napi4 mirrors desktop-native's N-API level choice (min level with
+# Result/error support — throw in JS). napi-ohos is the ohos-rs fork of napi-rs
+# targeting OpenHarmony's Node-API-compatible ArkTS runtime.
+napi-ohos        = { version = "1", default-features = false, features = ["napi4"] }
+napi-derive-ohos = "1"
+capability-session = { path = "../capability-session" }
+guard-core       = { path = "../guard-core" }
+offline-core     = { path = "../offline-core" }
+serde            = { version = "1", features = ["derive"] }
+serde_json       = "1"
+# ponytail: zeroize-on-drop for secret Strings crossing the ArkTS napi boundary
+# (SECRET-NO-ZEROIZE-FFI / NATIVE-SECRET-NOT-ZEROIZED) — same version the
+# crate family already uses (offline-core, guard-core).
+zeroize          = "1"
+
+[build-dependencies]
+napi-build-ohos = "1"
+
+# OHOS-003 (src/huks.rs): the HUKS SecureStore skeleton draws its AES-GCM
+# nonce on the device. Target-gated so host builds — and the desktop twin —
+# gain no new dependency; same major version the crate family pins
+# (guard-core/offline-core use rand 0.10).
+[target.'cfg(target_env = "ohos")'.dependencies]
+rand = "0.10"

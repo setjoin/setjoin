@@ -1,0 +1,16 @@
+-- #334 reducer seam: owned single-use removal and all-or-nothing audit.
+BEGIN;
+SELECT plan(5);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled,factor_generation)
+VALUES('idmfa1-pg-a','a@idmfa1-pgtap.test','a',:dom,'x',true,2) RETURNING id AS a \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled)
+VALUES('idmfa1-pg-b','b@idmfa1-pgtap.test','b',:dom,'x',true) RETURNING id AS b \gset
+INSERT INTO totp_removal_step_ups(token_hash,user_id,session_jti,expires_at) VALUES('test-hash',:a,'sid',now()+interval '5 minutes');
+SELECT is(rust_identity_totp_remove(:b,'sid','test-hash','127.0.0.1'),'invalid','foreign principal cannot consume removal');
+SELECT is(rust_identity_totp_remove(:a,'foreign','test-hash','127.0.0.1'),'invalid','foreign session cannot consume removal');
+SELECT is(rust_identity_totp_remove(:a,'sid','test-hash','127.0.0.1'),'removed','owner removes factor');
+SELECT ok((SELECT NOT totp_enabled AND factor_generation=3 AND totp_secret_enc IS NULL FROM users WHERE id=:a),'factor wiped and generation advances once');
+SELECT is(rust_identity_totp_remove(:a,'sid','test-hash','127.0.0.1'),'invalid','replay refused');
+SELECT * FROM finish();
+ROLLBACK;

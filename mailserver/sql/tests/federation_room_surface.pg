@@ -1,0 +1,165 @@
+-- federation_room_surface.pg — Pillar C2 Task 7: federation_room_roster
+-- (the reducer behind GET /chat/channels/{id}/federation) + the
+-- chat_conversation_list envelope additions (federatedRoomId/
+-- isFederatedRoomHub/federatedRoomRemoved). The route-layer 404/happy-path
+-- wiring is covered by federation_rooms_test.go (DB-gated); this file proves
+-- the reducer's own R1 proof, state derivation, and depthWarn formula.
+-- Requires: V140 (room binding, roster promotion), federation_room_create.sql
+-- (Task 2), chat_read.sql.
+BEGIN;
+SELECT plan(22);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 R1: non-member / not-room-bound refusals
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97001, 'surface-plain') AS ch_plain \gset
+
+SELECT throws_ok(
+  format($$ SELECT federation_room_roster(99999901, %s) $$, :ch_plain),
+  'BZ163', NULL, 'a non-member of the channel cannot read its federation roster (BZ163)');
+
+SELECT throws_ok(
+  format($$ SELECT federation_room_roster(97001, %s) $$, :ch_plain),
+  'BZ211', NULL, 'a channel with no federated_room_id refuses the roster read (BZ211)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 hub shape: freshly-bound room, empty roster
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97001, 'surface-hub') AS ch_hub \gset
+SELECT federation_room_create(97001, :ch_hub, 'hubsurface.test') AS room_hub \gset
+
+SELECT is((SELECT federation_room_roster(97001, :ch_hub) ->> 'roomId'), :'room_hub',
+  'roster envelope roomId matches the bound room');
+SELECT is((SELECT federation_room_roster(97001, :ch_hub) ->> 'hubDomain'), 'hubsurface.test',
+  'roster envelope hubDomain is the room''s hub_domain');
+SELECT is((SELECT federation_room_roster(97001, :ch_hub) -> 'isHub')::boolean, true,
+  'a hub channel reads isHub=true');
+SELECT is((SELECT federation_room_roster(97001, :ch_hub) ->> 'removedAt'), NULL,
+  'a live (non-kicked) room reads removedAt=null');
+SELECT is((SELECT federation_room_roster(97001, :ch_hub) -> 'members'), '[]'::jsonb,
+  'a freshly-bound room has an empty members array');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 member state derivation (Q9 split: active/parked/revoked/left)
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_room_members (room_id, member_domain) VALUES (:'room_hub', 'active.test');
+INSERT INTO federation_room_members (room_id, member_domain, parked_at, parked_reason)
+  VALUES (:'room_hub', 'parked.test', now(), 'backpressure');
+INSERT INTO federation_room_members (room_id, member_domain, left_at, left_reason)
+  VALUES (:'room_hub', 'revoked.test', now(), 'revoked');
+INSERT INTO federation_room_members (room_id, member_domain, left_at, left_reason)
+  VALUES (:'room_hub', 'removed.test', now(), 'removed');
+
+SELECT is(
+  (SELECT m ->> 'state' FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'active.test'),
+  'active', 'a non-left, non-parked member reads state=active');
+SELECT is(
+  (SELECT m ->> 'state' FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'parked.test'),
+  'parked', 'a parked (backpressure) member reads state=parked');
+SELECT is(
+  (SELECT m ->> 'state' FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'revoked.test'),
+  'revoked', 'a scope-revoked member (left_reason=revoked) reads state=revoked, NOT left');
+SELECT is(
+  (SELECT m ->> 'state' FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'removed.test'),
+  'left', 'a kicked member (left_reason=removed) reads state=left');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 depthWarn: hub-only, live-recomputed off federation_peers depth
+-- ══════════════════════════════════════════════════════════════════════
+-- default cap=10000, warn_pct=80 -> warn threshold = 8000 (federation_room_
+-- enqueue_member.sql's own COALESCE formula, re-read here).
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('active.test', 9000, 500);
+SELECT is(
+  (SELECT (m -> 'depthWarn')::boolean FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'active.test'),
+  true, 'a hub-side member whose unacked depth crosses the warn threshold reads depthWarn=true');
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('lowdepth.test', 100, 90);
+INSERT INTO federation_room_members (room_id, member_domain) VALUES (:'room_hub', 'lowdepth.test');
+SELECT is(
+  (SELECT (m -> 'depthWarn')::boolean FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'lowdepth.test'),
+  false, 'a hub-side member well under the warn threshold reads depthWarn=false');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 spoke shape: isHub=false, depthWarn always false regardless of depth
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97002, 'surface-spoke') AS ch_spoke \gset
+UPDATE chat_channels SET federated_room_id = 'spoke-room@somehub.test', federated_peer_domain = 'somehub.test'
+  WHERE id = :ch_spoke;
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id) VALUES ('spoke-room@somehub.test', 'somehub.test', :ch_spoke);
+INSERT INTO federation_room_members (room_id, member_domain) VALUES ('spoke-room@somehub.test', 'active.test');
+
+SELECT is((SELECT federation_room_roster(97002, :ch_spoke) -> 'isHub')::boolean, false,
+  'a spoke mirror channel reads isHub=false');
+SELECT is(
+  (SELECT (m -> 'depthWarn')::boolean FROM jsonb_array_elements(federation_room_roster(97002, :ch_spoke) -> 'members') m
+    WHERE m ->> 'domain' = 'active.test'),
+  false, 'depthWarn is always false on a spoke read, even for a domain with a high-depth federation_peers row elsewhere');
+
+-- kicked spoke mirror -> removedAt non-null.
+UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = :ch_spoke;
+SELECT isnt((SELECT federation_room_roster(97002, :ch_spoke) ->> 'removedAt'), NULL,
+  'a kicked/removed spoke mirror reads a non-null removedAt');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 chat_conversation_list envelope (Task 7's three new fields)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  (SELECT c ->> 'federatedRoomId' FROM jsonb_array_elements(chat_conversation_list(97001)) c
+    WHERE (c ->> 'channelId')::bigint = :ch_hub),
+  :'room_hub', 'chat_conversation_list projects federatedRoomId for a bound hub channel');
+SELECT is(
+  (SELECT (c -> 'isFederatedRoomHub')::boolean FROM jsonb_array_elements(chat_conversation_list(97001)) c
+    WHERE (c ->> 'channelId')::bigint = :ch_hub),
+  true, 'chat_conversation_list projects isFederatedRoomHub=true for the hub channel');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 review mutant-killers (Task 7 review): CASE-order, left-gates-
+-- depthWarn, exact-threshold >=, and the federatedRoomRemoved envelope wire.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) CASE-order pin: a member with BOTH parked_at and left_at set must
+-- report the left/revoked branch, never 'parked' — pins that the roster's
+-- CASE checks left_at BEFORE parked_at (a swapped-order mutant would report
+-- 'parked' here instead).
+INSERT INTO federation_room_members (room_id, member_domain, parked_at, parked_reason, left_at, left_reason)
+  VALUES (:'room_hub', 'parkedandleft.test', now(), 'backpressure', now(), 'removed');
+SELECT is(
+  (SELECT m ->> 'state' FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'parkedandleft.test'),
+  'left', 'a member with BOTH parked_at and left_at set reports the left branch, never parked (CASE-order pin)');
+
+-- (b) depthWarn is gated on frm.left_at IS NULL — a LEFT member with a
+-- high-depth federation_peers row must still read depthWarn=false (a mutant
+-- dropping the "AND frm.left_at IS NULL" guard would report true here).
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('removed.test', 9000, 100);
+SELECT is(
+  (SELECT (m -> 'depthWarn')::boolean FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'removed.test'),
+  false, 'a LEFT member with a high-depth federation_peers row still reads depthWarn=false (frm.left_at IS NULL pin)');
+
+-- (c) exact-threshold: depth == the warn threshold (cap=10000, warn_pct=80
+-- -> warn=8000) must read depthWarn=true — pins the ">=" comparison (a ">"
+-- mutant would report false at the exact threshold).
+INSERT INTO federation_room_members (room_id, member_domain) VALUES (:'room_hub', 'exactwarn.test');
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('exactwarn.test', 8000, 0);
+SELECT is(
+  (SELECT (m -> 'depthWarn')::boolean FROM jsonb_array_elements(federation_room_roster(97001, :ch_hub) -> 'members') m
+    WHERE m ->> 'domain' = 'exactwarn.test'),
+  true, 'a member whose unacked depth equals the warn threshold exactly reads depthWarn=true (>= pin)');
+
+-- (d) the federatedRoomRemoved envelope wire: chat_conversation_list must
+-- project TRUE once federated_room_removed_at is set (ch_spoke was kicked in
+-- §5 above) — kills a constant-false mutant on the envelope projection.
+SELECT is(
+  (SELECT (c -> 'federatedRoomRemoved')::boolean FROM jsonb_array_elements(chat_conversation_list(97002)) c
+    WHERE (c ->> 'channelId')::bigint = :ch_spoke),
+  true, 'chat_conversation_list projects federatedRoomRemoved=true after the mirror is kicked/removed (kills the constant-false mutant)');
+
+SELECT * FROM finish();
+ROLLBACK;

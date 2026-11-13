@@ -1,0 +1,41 @@
+{
+  "case": "alias-success",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "assertions": [],
+        "sessions": 0,
+        "tokens": 0,
+        "users": 0
+      },
+      "before": {
+        "assertions": [],
+        "sessions": 0,
+        "tokens": 0,
+        "users": 0
+      }
+    },
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/saml/{idp}/link",
+      "wire_method": "GET",
+      "wire_path": "/auth/saml/idfed3/link"
+    },
+    "response": {
+      "body": "Method Not Allowed\n",
+      "headers": {
+        "allow": "POST",
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 405
+    }
+  },
+  "route": "GET /auth/saml/{idp}/link"
+}

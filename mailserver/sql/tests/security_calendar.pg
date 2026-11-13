@@ -1,0 +1,62 @@
+-- pgTAP: security_calendar.pg — calendar_book_resource + calendar_check_conflict p_account_id auth.
+-- DIVERGENT IDS (regression guard): users.id != mailboxes.id and the org-shared room
+-- calendars sit on mailboxes with user_id IS NULL (the real production shape). A predicate
+-- that mistook p_account_id (a mailbox id) for a users.id would mis-resolve here.
+--
+-- Contract under the satellite-table role model: rooms are ORG-SHARED resources that any
+-- authenticated account may book (authorization is governed by booking_policy, not by
+-- per-calendar ownership). The auth check that remains is R1 auth-context: the caller must
+-- be a real mailbox; a non-existent account is rejected with BZ001.
+BEGIN;
+SELECT plan(3);
+
+-- Setup: domain
+INSERT INTO domains (name, is_local) VALUES ('sec-calendar.test', TRUE);
+
+-- Setup: users (alice = users.id 7201, bob = users.id 7202) — divergent from mailbox ids.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (7201, 'alice-sec-cal', (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'alice-sec-cal@sec-calendar.test', 'Alice Cal Sec'),
+       (7202, 'bob-sec-cal',   (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'bob-sec-cal@sec-calendar.test',   'Bob Cal Sec');
+
+-- Setup: alice/bob personal mailboxes (ids 9201/9202) + two org-shared room mailboxes
+-- (ids 9210/9220) with user_id IS NULL.
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary, resource_type)
+VALUES (9201, 7201, (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'alice-sec-cal@sec-calendar.test', 'personal', 'Alice Mailbox', TRUE,  NULL),
+       (9202, 7202, (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'bob-sec-cal@sec-calendar.test',   'personal', 'Bob Mailbox',   TRUE,  NULL),
+       (9210, NULL, (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'roomA@sec-calendar.test',        'personal', 'Room A Mbox',   FALSE, 'room'),
+       (9220, NULL, (SELECT id FROM domains WHERE name = 'sec-calendar.test'), 'roomB@sec-calendar.test',        'personal', 'Room B Mbox',   FALSE, 'room');
+
+-- Setup: room calendars (typed 'room' so they can be booked as resources).
+INSERT INTO calendars (id, mailbox_id, name, resource_type, booking_policy)
+VALUES (9210, 9210, 'room-a-cal', 'room', 'auto-accept'),
+       (9220, 9220, 'room-b-cal', 'room', 'auto-accept');
+
+-- Setup: alice's event (on her personal calendar) to attach the room booking to.
+INSERT INTO calendars (id, mailbox_id, name, resource_type)
+VALUES (9201, 9201, 'alice-personal-cal', 'personal');
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status)
+VALUES (9290, 9201, 'sec-test-uid-1', 'Alice Test Event',
+        '2026-06-01 10:00', '2026-06-01 11:00', 'confirmed');
+
+-- Test 1: a non-existent caller mailbox (R1 auth-context failure) is rejected with BZ001.
+-- Args: (p_account_id = caller MAILBOX id, p_resource_calendar_id, p_event_id, p_booked_by).
+SELECT throws_ok(
+    $$SELECT calendar_book_resource(999999, 9220, 9290, 7201)$$,
+    'BZ001', NULL, 'Rejects booking from a non-existent caller mailbox'
+);
+
+-- Test 2: Alice (mailbox 9201) can book an org-shared room she does not "own"
+-- (rooms are org-shared resources anyone may book; booking_policy governs).
+SELECT lives_ok(
+    $$SELECT calendar_book_resource(9201, 9220, 9290, 7201)$$,
+    'Allows booking an org-shared room (no per-calendar ownership coupling)'
+);
+
+-- Test 3: calendar_check_conflict raises BZ001 when the target calendar does not exist.
+SELECT throws_ok(
+    $$SELECT calendar_check_conflict(9201::bigint, 888888::bigint, now(), now() + '1 hour'::interval, NULL::bigint)$$,
+    'BZ001', NULL, 'check_conflict raises BZ001 when calendar not found'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

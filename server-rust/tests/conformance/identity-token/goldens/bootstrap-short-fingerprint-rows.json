@@ -1,0 +1,74 @@
+{
+  "case": "bootstrap-short-fingerprint-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "device_events"
+    },
+    {
+      "after": [
+        {
+          "app_version": "0.0.1",
+          "approved_at": null,
+          "approved_by": null,
+          "compliance_status": "unknown",
+          "created_at": "<timestamp>",
+          "credential_kind": "hmac",
+          "device_name": "Foreign device",
+          "device_public_key": null,
+          "enroll_state": "unenrolled",
+          "enrolled_by": null,
+          "fingerprint": "idlogin3-fingerprint-0123456789abcdef",
+          "hmac_secret": null,
+          "hmac_secret_enc": "<sealed-foreign-secret>",
+          "hmac_secret_key_id": "v1",
+          "id": "<device-b>",
+          "last_seen": "<timestamp>",
+          "os_version": "foreign-os",
+          "platform": "foreign",
+          "push_enabled": true,
+          "push_provider": null,
+          "push_token_enc": null,
+          "revoked_at": null,
+          "updated_at": "<timestamp>",
+          "user_id": "<foreign>",
+          "wipe_requested": false
+        }
+      ],
+      "before": [
+        {
+          "app_version": "0.0.1",
+          "approved_at": null,
+          "approved_by": null,
+          "compliance_status": "unknown",
+          "created_at": "<timestamp>",
+          "credential_kind": "hmac",
+          "device_name": "Foreign device",
+          "device_public_key": null,
+          "enroll_state": "unenrolled",
+          "enrolled_by": null,
+          "fingerprint": "idlogin3-fingerprint-0123456789abcdef",
+          "hmac_secret": null,
+          "hmac_secret_enc": "<sealed-foreign-secret>",
+          "hmac_secret_key_id": "v1",
+          "id": "<device-b>",
+          "last_seen": "<timestamp>",
+          "os_version": "foreign-os",
+          "platform": "foreign",
+          "push_enabled": true,
+          "push_provider": null,
+          "push_token_enc": null,
+          "revoked_at": null,
+          "updated_at": "<timestamp>",
+          "user_id": "<foreign>",
+          "wipe_requested": false
+        }
+      ],
+      "table": "devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /device/register"
+}

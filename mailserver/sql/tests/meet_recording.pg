@@ -1,0 +1,307 @@
+-- meet_recording.pg — Meet B2 Task 2: the recording state-machine reducers
+-- (start/bind/stop/event/ingested), both BZ199 arms on the shared meeting
+-- row lock, the meeting_end/room_finished two-branch flip (bound→stopping,
+-- unbound→failed, the wedge-4 assert), and the settings.recording retirement.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 2.
+BEGIN;
+SELECT plan(51);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('host@meet-recording.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-recording.test') AS member_id \gset
+SELECT mk_auth_user('other@meet-recording.test') AS other_id \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixture: m1 — live, host + member + an ADMITTED-but-unjoined guest
+-- (role='guest', left_at NULL, banned_at NULL, joined_at NULL — the arm-1
+-- admission fact, deliberately not attendance).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m1', :host_id, 'live')
+  RETURNING id AS m1_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1_id, :host_id, 'u:' || :host_id, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1_id, :member_id, 'u:' || :member_id, 'member', now());
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:m1_id, 'Gary Guest', 'admitted') RETURNING id AS m1_guest_req_id \gset
+INSERT INTO meeting_participants (meeting_id, guest_display_name, identity, role)
+  VALUES (:m1_id, 'Gary Guest', 'g:' || :m1_guest_req_id, 'guest');
+
+-- m3 — ended, host only.
+INSERT INTO meetings (title, owner_user_id, state, ended_at) VALUES ('m3', :host_id, 'ended', now())
+  RETURNING id AS m3_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m3_id, :host_id, 'u:' || :host_id, 'host', now());
+
+-- m_sched — scheduled (not live), host only.
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m_sched', :host_id, 'scheduled')
+  RETURNING id AS msched_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:msched_id, :host_id, 'u:' || :host_id, 'host', now());
+
+-- ── BZ186 / BZ190 / BZ200 (not-live) gates ───────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :member_id, :m1_id),
+  'BZ186', NULL, 'a plain member cannot start a recording'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :host_id, :m3_id),
+  'BZ190', NULL, 'start on an ended meeting → BZ190'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :host_id, :msched_id),
+  'BZ200', NULL, 'start on a scheduled (not-live) meeting → BZ200'
+);
+
+-- ── BZ199 arm 1 — the review-Critical case: the guest's joined_at is NULL,
+-- admission blocks regardless of attendance. ────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :host_id, :m1_id),
+  'BZ199', NULL, 'start blocked by an admitted-but-unjoined guest (arm 1, admission not attendance)'
+);
+
+-- guest leaves → start succeeds; a second start while requested → BZ200.
+UPDATE meeting_participants SET left_at = now()
+ WHERE meeting_id = :m1_id AND identity = 'g:' || :m1_guest_req_id;
+SELECT (meeting_recording_start(:host_id, :m1_id)) AS r1 \gset
+SELECT ok(:r1 IS NOT NULL, 'start succeeds once the guest has left');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r1), 'requested',
+  'the new recording starts in requested state (banner-before-frames)');
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_start(%s, %s) $$, :host_id, :m1_id),
+  'BZ200', NULL, 'a second start while one is requested → BZ200'
+);
+
+-- ── bind: ok → active + egress_id/staging_key; idempotent re-bind; wrong
+-- state → BZ200 ───────────────────────────────────────────────────────
+SELECT meeting_recording_bind_egress(:r1, 'EG_r1', 'meet/r1.mp4', true, NULL);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r1), 'active', 'bind ok flips requested→active');
+SELECT is((SELECT egress_id FROM meeting_recordings WHERE id = :r1), 'EG_r1', 'egress_id persisted at bind');
+SELECT is((SELECT staging_key FROM meeting_recordings WHERE id = :r1), 'meet/r1.mp4', 'staging_key persisted at bind (OURS, not egress-derived)');
+SELECT lives_ok(
+  format($$ SELECT meeting_recording_bind_egress(%s, 'EG_r1', 'meet/r1.mp4', true, NULL) $$, :r1),
+  'a re-bind of the SAME egress id to an already-active row is an idempotent no-op'
+);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r1), 'active', 'idempotent re-bind leaves state unchanged');
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_bind_egress(%s, 'EG_other', 'meet/other.mp4', true, NULL) $$, :r1),
+  'BZ200', NULL, 'binding a DIFFERENT egress id to an already-active row → BZ200'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- m2 — live, host only (no guests). meeting_recording_active envelope +
+-- BZ199 arm 2 (guest admission blocked while recording) + stop + the full
+-- event-rail happy path.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m2', :host_id, 'live')
+  RETURNING id AS m2_id, room_name AS m2_room \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m2_id, :host_id, 'u:' || :host_id, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m2_id, :member_id, 'u:' || :member_id, 'member', now());
+
+SELECT (meeting_recording_start(:host_id, :m2_id)) AS r2 \gset
+SELECT is(meeting_recording_active(:m2_id), true, 'meeting_recording_active(m2) is true from requested onward');
+
+-- BZ199 arm 2: a pending GUEST admission is blocked while recording is
+-- in flight (requested counts); a pending MEMBER-knock is unaffected.
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:m2_id, 'Gwen Guest', 'pending') RETURNING id AS m2_guest_req_id \gset
+INSERT INTO meeting_join_requests (meeting_id, display_name, user_id, state)
+  VALUES (:m2_id, 'Kim Knocker', :other_id, 'pending') RETURNING id AS m2_knock_req_id \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :m2_guest_req_id),
+  'BZ199', NULL, 'admitting a GUEST while recording is in flight → BZ199 (arm 2)'
+);
+SELECT lives_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :m2_knock_req_id),
+  'admitting a MEMBER-KNOCK while recording is in flight succeeds (arm 2 is guest-scoped)'
+);
+
+-- bind r2 → active, then stop.
+SELECT meeting_recording_bind_egress(:r2, 'EG_r2', 'meet/r2.mp4', true, NULL);
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_stop(%s, %s) $$, :member_id, :m2_id),
+  'BZ186', NULL, 'a plain member cannot stop the recording'
+);
+SELECT (meeting_recording_stop(:host_id, :m2_id)) AS stop_result \gset
+SELECT is((:'stop_result'::jsonb ->> 'recordingId')::bigint, :r2::bigint, 'stop returns the recording id');
+SELECT is((:'stop_result'::jsonb ->> 'egressId'), 'EG_r2', 'stop returns the egress id (Go needs it for StopEgress)');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r2), 'stopping', 'stop flips active→stopping');
+SELECT is(last_notify_event(format('meet:%s', :host_id)), 'recording_state',
+  'stop pushes recording_state (truthful "stopping", never "stopped")');
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_stop(%s, %s) $$, :host_id, :m2_id),
+  'BZ200', NULL, 'stopping again with nothing active → BZ200'
+);
+
+-- egress_ended (EGRESS_COMPLETE, protojson shape: ints-as-strings) →
+-- pending_ingest + size_bytes + duration_ms (ns→ms) + stopped_at.
+-- retro-review F4: the opening state SELECT now takes FOR UPDATE OF r, so a
+-- concurrent real webhook and a synthetic worker-reconcile event for the
+-- same egress_id serialize instead of the second clobbering the first's
+-- write — a single-session pgTAP run can't exercise the concurrency itself,
+-- but every existing replay/out-of-order/unknown-pair assertion below still
+-- passing under the added row lock is the regression proof.
+SELECT meeting_recording_event(:'m2_room'::uuid, 'EG_r2', 'egress_ended',
+  '{"status":"EGRESS_COMPLETE","fileResults":[{"size":"123456","duration":"5000000000"}]}'::jsonb);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r2), 'pending_ingest', 'egress_ended(COMPLETE) → pending_ingest');
+SELECT is((SELECT size_bytes FROM meeting_recordings WHERE id = :r2), 123456::bigint, 'size_bytes parsed from the string payload');
+SELECT is((SELECT duration_ms FROM meeting_recordings WHERE id = :r2), 5000::bigint, 'duration_ms is ns→ms (5000000000ns = 5000ms)');
+SELECT ok((SELECT stopped_at FROM meeting_recordings WHERE id = :r2) IS NOT NULL, 'stopped_at stamped');
+
+-- replayed egress_ended → no state change; out-of-order egress_started → no-op.
+SELECT meeting_recording_event(:'m2_room'::uuid, 'EG_r2', 'egress_ended',
+  '{"status":"EGRESS_COMPLETE","fileResults":[{"size":"999","duration":"1"}]}'::jsonb);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r2), 'pending_ingest', 'a REPLAYED egress_ended is a no-op (settled state)');
+SELECT is((SELECT size_bytes FROM meeting_recordings WHERE id = :r2), 123456::bigint, 'the replay does not clobber the already-recorded size_bytes');
+SELECT lives_ok(
+  format($$ SELECT meeting_recording_event(%L::uuid, 'EG_r2', 'egress_started') $$, :'m2_room'),
+  'an out-of-order egress_started after egress_ended never raises'
+);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r2), 'pending_ingest', 'out-of-order egress_started changes nothing');
+
+-- unknown room/egress id → silent no-op, never raises.
+SELECT lives_ok(
+  $$ SELECT meeting_recording_event(gen_random_uuid(), 'EG_nonexistent', 'egress_ended', '{"status":"EGRESS_COMPLETE"}'::jsonb) $$,
+  'an unknown room/egress pair is a silent no-op'
+);
+
+-- now that r2 has settled out of requested|active|stopping, the guest
+-- admission arm re-opens.
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:m2_id, 'Gina Guest', 'pending') RETURNING id AS m2_guest2_req_id \gset
+SELECT lives_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :m2_guest2_req_id),
+  'once the recording has settled (pending_ingest), guest admission is unblocked again'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- m4 — bind not-ok → failed + error recorded.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m4', :host_id, 'live')
+  RETURNING id AS m4_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m4_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m4_id)) AS r4 \gset
+SELECT meeting_recording_bind_egress(:r4, NULL, NULL, false, 'egress_busy');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r4), 'failed', 'bind not-ok flips requested→failed');
+SELECT is((SELECT error FROM meeting_recordings WHERE id = :r4), 'egress_busy', 'the bind failure reason is recorded (egress-busy reads distinguishably)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- m5 — egress_ended(EGRESS_FAILED) → failed + error.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m5', :host_id, 'live')
+  RETURNING id AS m5_id, room_name AS m5_room \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m5_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m5_id)) AS r5 \gset
+SELECT meeting_recording_bind_egress(:r5, 'EG_r5', 'meet/r5.mp4', true, NULL);
+SELECT meeting_recording_event(:'m5_room'::uuid, 'EG_r5', 'egress_ended',
+  '{"status":"EGRESS_FAILED","error":"disk full on egress host"}'::jsonb);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r5), 'failed', 'egress_ended(EGRESS_FAILED) → failed');
+SELECT is((SELECT error FROM meeting_recordings WHERE id = :r5), 'disk full on egress host', 'the egress-reported error is recorded');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- m6 — egress_ended(EGRESS_LIMIT_REACHED) → pending_ingest (the file is
+-- still valid); reused below for the meeting_recording_ingested tests.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m6', :host_id, 'live')
+  RETURNING id AS m6_id, room_name AS m6_room \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m6_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m6_id)) AS r6 \gset
+SELECT meeting_recording_bind_egress(:r6, 'EG_r6', 'meet/r6.mp4', true, NULL);
+SELECT meeting_recording_event(:'m6_room'::uuid, 'EG_r6', 'egress_ended',
+  '{"status":"EGRESS_LIMIT_REACHED","fileResults":[{"size":"42","duration":"9000000000"}]}'::jsonb);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r6), 'pending_ingest', 'egress_ended(EGRESS_LIMIT_REACHED) → pending_ingest, not failed');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- meeting_end two-branch flip: m7 (bound → stopping) / m8 (unbound
+-- requested → failed, the wedge-4 assert: never 'stopping' without an
+-- egress binding — every convergence leg keys on egress_id).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m7', :host_id, 'live')
+  RETURNING id AS m7_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m7_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m7_id)) AS r7 \gset
+SELECT meeting_recording_bind_egress(:r7, 'EG_r7', 'meet/r7.mp4', true, NULL);
+SELECT meeting_end(:host_id, :m7_id);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r7), 'stopping',
+  'meeting_end flips a BOUND active recording to stopping (the end route then StopEgress→DeleteRoom)');
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m8', :host_id, 'live')
+  RETURNING id AS m8_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m8_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m8_id)) AS r8 \gset
+SELECT meeting_end(:host_id, :m8_id);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r8), 'failed',
+  'meeting_end flips an UNBOUND requested recording (egress_id NULL) straight to failed — the wedge-4 fix');
+SELECT isnt((SELECT state FROM meeting_recordings WHERE id = :r8), 'stopping',
+  'wedge-4 assert: an unbound requested row NEVER lands in stopping (every convergence leg keys on egress_id)');
+SELECT ok((SELECT egress_id FROM meeting_recordings WHERE id = :r8) IS NULL,
+  'the failed row stays unbound (egress_id NULL — Go never called StartRoomComposite for it)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- room_finished mirrors the identical two-branch flip: m9 (bound → stopping,
+-- + a replay after 'ended' is a no-op) / m10 (unbound requested → failed).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m9', :host_id, 'live')
+  RETURNING id AS m9_id, room_name AS m9_room \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m9_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m9_id)) AS r9 \gset
+SELECT meeting_recording_bind_egress(:r9, 'EG_r9', 'meet/r9.mp4', true, NULL);
+SELECT meeting_participant_event(:'m9_room'::uuid, 'room_finished');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r9), 'stopping',
+  'room_finished mirrors meeting_end''s bound-active branch → stopping');
+SELECT meeting_participant_event(:'m9_room'::uuid, 'room_finished');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r9), 'stopping',
+  'a REPLAYED room_finished after the meeting is already ended is a no-op (state unchanged)');
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m10', :host_id, 'live')
+  RETURNING id AS m10_id, room_name AS m10_room \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m10_id, :host_id, 'u:' || :host_id, 'host', now());
+SELECT (meeting_recording_start(:host_id, :m10_id)) AS r10 \gset
+SELECT meeting_participant_event(:'m10_room'::uuid, 'room_finished');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r10), 'failed',
+  'room_finished mirrors meeting_end''s unbound-requested branch → failed (wedge-4, never stopping)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- meeting_recording_ingested: pending_ingest → ready + node/version ids
+-- (r6, still pending_ingest from the EGRESS_LIMIT_REACHED case above);
+-- wrong state → BZ200 (r7, terminal 'stopping'); replay idempotent.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT drive_space_create(:host_id, 'ingest test space', 'regular') AS space_id \gset
+SELECT drive_node_create(:host_id, :space_id, NULL, 'file', 'r6.mp4') AS node_id \gset
+SELECT drive_chunk_register(:host_id, :space_id, repeat('a', 64), 42);
+SELECT (drive_file_put_version(:host_id, :node_id, repeat('a', 64), 42, 'video/mp4', NULL,
+  format('[{"sha256":"%s","size":42}]', repeat('a', 64))::jsonb, 'ingest', 'meet-worker')
+  ->> 'versionId')::bigint AS version_id \gset
+
+SELECT throws_ok(
+  format($$ SELECT meeting_recording_ingested(%s, %s, %s) $$, :r7, :node_id, :version_id),
+  'BZ200', NULL, 'ingested against a non-pending_ingest recording (r7 is stopping) → BZ200'
+);
+SELECT meeting_recording_ingested(:r6, :node_id, :version_id);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r6), 'ready', 'ingested flips pending_ingest→ready');
+SELECT is((SELECT file_node_id FROM meeting_recordings WHERE id = :r6), :node_id::bigint, 'file_node_id recorded');
+SELECT is((SELECT version_id FROM meeting_recordings WHERE id = :r6), :version_id::bigint, 'version_id recorded');
+SELECT lives_ok(
+  format($$ SELECT meeting_recording_ingested(%s, %s, %s) $$, :r6, :node_id, :version_id),
+  'a replayed ingested call with the SAME node id is an idempotent no-op'
+);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :r6), 'ready', 'replayed ingested leaves state unchanged (still ready)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §E: meeting_create no longer writes a 'recording' key into settings.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_create(:host_id, 'settings retirement check')) AS mc \gset
+SELECT is((SELECT settings ? 'recording' FROM meetings WHERE id = (:'mc'::jsonb ->> 'meetingId')::bigint), false,
+  'meeting_create no longer writes settings.recording (the dead B1 stub is retired)');
+
+SELECT * FROM finish();
+ROLLBACK;

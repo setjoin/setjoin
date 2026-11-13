@@ -1,0 +1,111 @@
+-- chat_search.pg: CJK-capable full-text search (Pillar A3 QoL Task 10).
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql,
+-- chat_search.sql. chat_channel_members has no FK to users (V119) so bare
+-- bigint ids suffice except where the attachment fixture needs a real
+-- users(id) (mk_account, same posture as chat_message.pg's att_chan block).
+BEGIN;
+SELECT plan(15);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: 801 is a member of BOTH channel-a and channel-b; 802 is a member
+-- of channel-a only (never joins channel-b) — the my-channels-only proof.
+SELECT chat_channel_create(801, 'search-a') AS chan_a \gset
+SELECT chat_channel_create(801, 'search-b') AS chan_b \gset
+SELECT chat_member_add(801, :chan_a, 802);
+
+SELECT chat_message_send(801, :chan_a, 'meeting notes for Friday') AS m_meeting \gset
+SELECT chat_message_send(802, :chan_a, '会议记录已经发送') AS m_zh \gset
+SELECT chat_message_send(801, :chan_b, 'meeting notes for Friday in channel b') AS m_meeting_b \gset
+SELECT (:'m_meeting'::jsonb ->> 'messageId')::bigint AS meeting_id \gset
+SELECT (:'m_zh'::jsonb ->> 'messageId')::bigint AS zh_id \gset
+SELECT (:'m_meeting_b'::jsonb ->> 'messageId')::bigint AS meeting_b_id \gset
+
+-- ── CJK substring leg (p_use_trgm=true): a Chinese query finds the zh message ──
+SELECT ok((SELECT jsonb_path_exists(chat_search(802, '会议', NULL, NULL, NULL, NULL, true, 50),
+             format('$[*] ? (@.messageId == %s)', :zh_id)::jsonpath)),
+  'a Chinese substring query (trgm leg) finds the zh message');
+
+-- ── the SAME Chinese query via the tsquery leg (p_use_trgm=false) finds
+-- NOTHING — 'simple' tsquery cannot tokenize a Han run; this is exactly why
+-- the Go caller must route on HasHanRune, not leave it to a single leg ────
+SELECT is(jsonb_array_length(chat_search(802, '会议', NULL, NULL, NULL, NULL, false, 50)), 0,
+  'the same Chinese query via the tsquery leg (p_use_trgm=false) returns nothing');
+
+-- ── latin term via tsquery (p_use_trgm=false, the default routing) ───────
+SELECT ok((SELECT jsonb_path_exists(chat_search(801, 'meeting', NULL, NULL, NULL, NULL, false, 50),
+             format('$[*] ? (@.messageId == %s)', :meeting_id)::jsonpath)),
+  'a latin term finds the meeting message via plainto_tsquery');
+
+-- ── my-channels-only: 802 (member of channel-a only) never sees channel-b's
+-- hit, even though the body text matches ────────────────────────────────
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_search(802, 'meeting', NULL, NULL, NULL, NULL, false, 50),
+             format('$[*] ? (@.messageId == %s)', :meeting_b_id)::jsonpath)),
+  'a non-member of channel-b never sees its hit (my-channels-only, R1 in-SQL scope)');
+SELECT ok((SELECT jsonb_path_exists(chat_search(801, 'meeting', NULL, NULL, NULL, NULL, false, 50),
+             format('$[*] ? (@.messageId == %s)', :meeting_b_id)::jsonpath)),
+  '801 (a member of BOTH channels) sees the channel-b hit too');
+
+-- ── in: filter (p_channel_id) scopes to one channel ───────────────────────
+SELECT is(jsonb_array_length(chat_search(801, 'meeting', :chan_a, NULL, NULL, NULL, false, 50)), 1,
+  'in:channel-a filter returns only the channel-a hit');
+SELECT ok((SELECT jsonb_path_exists(chat_search(801, 'meeting', :chan_a, NULL, NULL, NULL, false, 50),
+             format('$[*] ? (@.messageId == %s)', :meeting_id)::jsonpath)),
+  'in: filter carries the right message');
+
+-- ── from: filter (p_from_user) scopes to one author ───────────────────────
+SELECT ok((SELECT jsonb_path_exists(chat_search(801, '记录', NULL, 802, NULL, NULL, true, 50),
+             format('$[*] ? (@.messageId == %s)', :zh_id)::jsonpath)),
+  'from:802 filter finds 802''s zh message');
+SELECT is(jsonb_array_length(chat_search(801, '记录', NULL, 801, NULL, NULL, true, 50)), 0,
+  'from:801 filter excludes 802''s zh message (wrong author)');
+
+-- ── pagination stable across channels: seed a run of matching messages
+-- spread over both channels 801 belongs to, page with p_before_id, confirm
+-- no overlap and no gaps. before_id keys off the GLOBAL chat_messages.id
+-- (seq is per-channel and cannot keyset across channels). ─────────────────
+SELECT chat_message_send(801, :chan_a, 'paging term one') AS p1 \gset
+SELECT chat_message_send(801, :chan_b, 'paging term two') AS p2 \gset
+SELECT chat_message_send(801, :chan_a, 'paging term three') AS p3 \gset
+SELECT chat_search(801, 'paging', NULL, NULL, NULL, NULL, false, 2) AS page1 \gset
+SELECT is(jsonb_array_length(:'page1'::jsonb), 2, 'page1 respects limit=2');
+SELECT (:'page1'::jsonb -> 1 ->> 'messageId')::bigint AS page1_floor_id \gset
+SELECT chat_search(801, 'paging', NULL, NULL, :page1_floor_id, NULL, false, 50) AS page2 \gset
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(:'page1'::jsonb) a
+    JOIN jsonb_array_elements(:'page2'::jsonb) b
+      ON (a->>'messageId')::bigint = (b->>'messageId')::bigint
+  ), 'before_id keyset pagination never overlaps across channels');
+SELECT is((SELECT sum(c)::int FROM (
+             SELECT count(*)::int c FROM jsonb_array_elements(:'page1'::jsonb)
+             UNION ALL
+             SELECT count(*)::int FROM jsonb_array_elements(:'page2'::jsonb)
+           ) s), 3,
+  'page1 + page2 account for exactly the 3 paging-term messages (no gap)');
+
+-- ── has:attachment filter — same fixture shape as chat_message.pg's
+-- attachment-only-send block (chat_space_ensure + drive_chunk_register need
+-- a real users(id), not the bare bigint fixtures above) ───────────────────
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+SELECT mk_account('searchatt') AS satt_mb \gset
+SELECT user_id AS satt_uid FROM mailboxes WHERE id = :satt_mb \gset
+SELECT chat_channel_create(:satt_uid, 'search-attach') AS satt_chan \gset
+SELECT chat_space_ensure(:satt_uid, :satt_chan) AS satt_space \gset
+SELECT drive_chunk_register(:satt_uid, :satt_space, repeat('8', 64), 4);
+-- both messages share the search term "note" so the text match alone can't
+-- tell them apart — only the has:attachment filter narrows to satt_with.
+SELECT chat_message_send(:satt_uid, :satt_chan, 'a plain note without any file') AS satt_plain \gset
+SELECT chat_message_send(:satt_uid, :satt_chan, 'sharing a note with the attachment',
+    NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('8', 64) || '","size":4,"name":"note.txt",'
+     || '"manifest":[{"sha256":"' || repeat('8', 64) || '","size":4}]}]')::jsonb) AS satt_with \gset
+SELECT (:'satt_with'::jsonb ->> 'messageId')::bigint AS satt_with_id \gset
+SELECT is(jsonb_array_length(chat_search(:satt_uid, 'note', NULL, NULL, NULL, NULL, false, 50)), 2,
+  'without has:, both note messages match the text search');
+SELECT is(jsonb_array_length(chat_search(:satt_uid, 'note', NULL, NULL, NULL, 'attachment', false, 50)), 1,
+  'has:attachment narrows the SAME text search to only the message carrying an attachment');
+SELECT ok((SELECT jsonb_path_exists(chat_search(:satt_uid, 'note', NULL, NULL, NULL, 'attachment', false, 50),
+             format('$[*] ? (@.messageId == %s)', :satt_with_id)::jsonpath)),
+  'has:attachment filter carries the right message');
+
+SELECT * FROM finish();
+ROLLBACK;

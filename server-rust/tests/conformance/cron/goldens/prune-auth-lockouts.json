@@ -1,0 +1,39 @@
+{
+  "case": "prune-auth-lockouts",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "lockouts": [
+              "gofree-cron-lock-1expired-threshold:5:false",
+              "gofree-cron-lock-2expired-fresh-counter:2:false",
+              "gofree-cron-lock-3expired-stale-counter:2:false",
+              "gofree-cron-lock-4active:5:false",
+              "gofree-cron-lock-5toolong:5:true"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "lockouts": [
+              "gofree-cron-lock-2expired-fresh-counter:2:false",
+              "gofree-cron-lock-4active:5:false",
+              "gofree-cron-lock-5toolong:5:false"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

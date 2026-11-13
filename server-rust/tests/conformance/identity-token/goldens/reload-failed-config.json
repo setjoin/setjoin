@@ -1,0 +1,132 @@
+{
+  "case": "reload-failed-config",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [
+        {
+          "client": "idlogin3-client-a",
+          "hash": "59f009f73636306c5c791ed1c06dba9c8e06c8841a1a429b734dbc96d672891b",
+          "owner": "actor",
+          "revoked": false
+        },
+        {
+          "client": "idlogin3-client-b",
+          "hash": "e3737412dde79fc881a3a543db2472bab5eb45436ab2b139bbc06fff0e7a8b1e",
+          "owner": "foreign",
+          "revoked": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "POST",
+      "path": "/admin/reload"
+    },
+    "response": {
+      "body": "{\"error\":\"config reload failed: JWT_EXPIRY must be greater than zero and no more than 720h\"}",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 500
+    },
+    "rotation_probes": [
+      {
+        "key": "old",
+        "path": "/auth/introspect",
+        "response": {
+          "body": "{\"active\":true,\"scope\":\"mail.read profile\",\"client_id\":\"idlogin3-client-a\",\"username\":\"actor@idlogin3.test\",\"token_type\":\"Bearer\",\"exp\":2082855845,\"iat\":1767323045,\"nbf\":1767323045,\"sub\":\"<actor>\",\"aud\":\"mailserver-gateway\",\"iss\":\"mailserver\",\"email\":\"actor@idlogin3.test\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/json"
+          },
+          "status": 200
+        }
+      },
+      {
+        "key": "new",
+        "path": "/auth/introspect",
+        "response": {
+          "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"unauthorized\",\"instance\":\"/auth/introspect\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/problem+json"
+          },
+          "status": 401
+        }
+      },
+      {
+        "key": "old",
+        "path": "/auth/revoke",
+        "response": {
+          "body": "",
+          "headers": {},
+          "status": 200
+        }
+      },
+      {
+        "key": "new",
+        "path": "/auth/revoke",
+        "response": {
+          "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"unauthorized\",\"instance\":\"/auth/revoke\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/problem+json"
+          },
+          "status": 401
+        }
+      },
+      {
+        "key": "old",
+        "path": "/auth/scim/disable",
+        "response": {
+          "body": "{\"reason\":\"user not found\",\"revoked\":false}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/json"
+          },
+          "status": 200
+        }
+      },
+      {
+        "key": "new",
+        "path": "/auth/scim/disable",
+        "response": {
+          "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"unauthorized\",\"instance\":\"\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/problem+json"
+          },
+          "status": 401
+        }
+      },
+      {
+        "key": "old",
+        "path": "/admin/reload",
+        "response": {
+          "body": "{\"error\":\"config reload failed: JWT_EXPIRY must be greater than zero and no more than 720h\"}",
+          "headers": {
+            "content-type": "application/json"
+          },
+          "status": 500
+        }
+      },
+      {
+        "key": "new",
+        "path": "/admin/reload",
+        "response": {
+          "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"unauthorized\",\"instance\":\"\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/problem+json"
+          },
+          "status": 401
+        }
+      }
+    ]
+  },
+  "route": "POST /admin/reload"
+}

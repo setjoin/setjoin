@@ -1,0 +1,162 @@
+{
+  "case": "date-space",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "before": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "table": "trace"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/trace",
+      "method": "GET",
+      "path": "/admin/trace",
+      "query": "?dateFrom=2026-10-01%2010:00:05Z"
+    },
+    "response": {
+      "body": "{\"records\":[{\"id\":\"<t14>\",\"messageId\":\"\\u003cout1@trace.test\\u003e\",\"event\":\"delivered\",\"fromAddr\":\"zed@x.test\",\"rcptAddr\":\"yan@y.test\",\"details\":{\"status\":\"delivered\",\"subject\":\"ZZZ\"},\"occurredAt\":\"2026-10-04T10:00:00Z\"},{\"id\":\"<t13>\",\"messageId\":\"\\u003cout1@trace.test\\u003e\",\"event\":\"received\",\"fromAddr\":\"zed@x.test\",\"rcptAddr\":\"yan@y.test\",\"remoteHost\":\"mx1.x.test\",\"details\":{\"subject\":\"ZZZ\"},\"occurredAt\":\"2026-10-03T10:00:00Z\"},{\"id\":\"<t12>\",\"messageId\":\"\\u003cout5@trace.test\\u003e\",\"event\":\"deferred\",\"fromAddr\":\"alice@x.test\",\"rcptAddr\":\"d1@ext.test\",\"remoteHost\":\"mx9.ext.test\",\"details\":{\"code\":451,\"text\":\"later\",\"status\":\"deferred\"},\"occurredAt\":\"2026-10-02T10:05:00.123456Z\"},{\"id\":\"<t11>\",\"messageId\":\"\\u003cout5@trace.test\\u003e\",\"event\":\"received\",\"fromAddr\":\"alice@x.test\",\"rcptAddr\":\"d1@ext.test\",\"remoteHost\":\"mx1.x.test\",\"details\":{\"status\":\"ok\"},\"occurredAt\":\"2026-10-02T10:00:00Z\"},{\"id\":\"<t1>\",\"messageId\":\"\\u003cout1@trace.test\\u003e\",\"event\":\"received\",\"fromAddr\":\"alice@x.test\",\"rcptAddr\":\"bob@y.test\",\"remoteHost\":\"mx1.x.test\",\"details\":{\"size\":120,\"status\":\"ok\",\"subject\":\"Hello World\"},\"occurredAt\":\"2026-10-01T10:00:09Z\"},{\"id\":\"<t2>\",\"messageId\":\"\\u003cout1@trace.test\\u003e\",\"event\":\"delivered\",\"fromAddr\":\"alice@x.test\",\"rcptAddr\":\"bob@y.test\",\"details\":{\"status\":\"delivered\",\"subject\":\"Hello World\"},\"occurredAt\":\"2026-10-01T10:00:08Z\"},{\"id\":\"<t3>\",\"messageId\":\"\\u003ctl2@trace.test\\u003e\",\"event\":\"deferred\",\"fromAddr\":\"carol@x.test\",\"rcptAddr\":\"dave@z.test\",\"remoteHost\":\"mx2.z.test\",\"details\":{\"code\":451,\"status\":\"deferred\",\"subject\":\"hôtel \\u003cb\\u003e\\u0026\\u003c/b\\u003e\"},\"occurredAt\":\"2026-10-01T10:00:07Z\"},{\"id\":\"<t4>\",\"messageId\":\"\\u003ctl2@trace.test\\u003e\",\"event\":\"bounced\",\"fromAddr\":\"carol@x.test\",\"rcptAddr\":\"dave@z.test\",\"remoteHost\":\"\",\"details\":{\"status\":\"bounced\",\"subject\":\"Re: 100%_sure\"},\"occurredAt\":\"2026-10-01T10:00:06Z\"},{\"id\":\"<t5>\",\"messageId\":\"\\u003ca%b_c@trace.test\\u003e\",\"event\":\"spam_filtered\",\"fromAddr\":\"=HYPERLINK(\\\"x\\\")\",\"rcptAddr\":\"+1555@y.test\",\"remoteHost\":\"mx3.x.test\",\"occurredAt\":\"2026-10-01T10:00:05Z\"},{\"id\":\"<t6>\",\"messageId\":\"\\u003ct,6@trace.test\\u003e\",\"event\":\"rule_applied\",\"fromAddr\":\"\\\"quoted\\\"@x.test\",\"rcptAddr\":\"@at@y.test\",\"remoteHost\":\" lead\\nnl\",\"details\":null,\"occurredAt\":\"2026-10-01T10:00:04Z\"},{\"id\":\"<t7>\",\"messageId\":\"\\u003ct7@trace.test\\u003e\",\"event\":\"quarantined\",\"fromAddr\":\"-dash@x.test\",\"rcptAddr\":\"\\tTab@y.test\",\"remoteHost\":\"mx4.x.test\",\"details\":[\"arr\",1,{\"k\":\"v\"}],\"occurredAt\":\"2026-10-01T10:00:03Z\"},{\"id\":\"<t8>\",\"messageId\":\"\\u003ct8@trace.test\\u003e\",\"event\":\"held\",\"fromAddr\":\"ALICE@X.TEST\",\"rcptAddr\":\"bob2@y.test\",\"remoteHost\":\"mx5.x.test\",\"details\":{\"status\":\"ok\",\"subject\":\"hello world\"},\"occurredAt\":\"2026-10-01T10:00:02Z\"},{\"id\":\"<t9>\",\"messageId\":\"\\u003ct9@trace.test\\u003e\",\"event\":\"archived\",\"fromAddr\":\"erin@x.test\",\"rcptAddr\":\"frank@y.test\",\"remoteHost\":\"mx6.x.test\",\"details\":{\"u\":\"é\\u2028\",\"nested\":{\"a\":[1,2,{\"b\":null}]}},\"occurredAt\":\"2026-10-01T10:00:01Z\"},{\"id\":\"<t10>\",\"messageId\":\"\\u003ct10@trace.test\\u003e\",\"event\":\"expired\",\"fromAddr\":\"erin@x.test\",\"rcptAddr\":\"gina@y.test\",\"details\":{},\"occurredAt\":\"2026-10-01T10:00:00.5Z\"}],\"total\":14,\"limit\":50,\"offset\":0}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/trace"
+}

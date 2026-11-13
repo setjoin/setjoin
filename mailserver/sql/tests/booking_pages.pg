@@ -1,0 +1,158 @@
+-- pgTAP: booking_pages.sql — owner CRUD (R1-R3), public slot computation
+-- (no-leak), and the booking state machine (double-booking, verification,
+-- confirm/cancel/expire). See retired-docs:superpowers/plans/archive/2026-07-08-self-service-booking-pages.md.
+BEGIN;
+SELECT plan(20);
+
+-- Two owners, divergent user/mailbox ids (ADR-003 discipline).
+SELECT mk_account('bkowner-a') AS mbox_a \gset
+SELECT mk_account('bkowner-b') AS mbox_b \gset
+
+INSERT INTO calendars (mailbox_id, name, is_default) VALUES (:mbox_a, 'A Calendar', TRUE) RETURNING id AS cal_a \gset
+INSERT INTO calendars (mailbox_id, name, is_default) VALUES (:mbox_b, 'B Calendar', TRUE) RETURNING id AS cal_b \gset
+
+-- ============================================================
+-- Task 2: owner CRUD (R1-R3)
+-- ============================================================
+
+SELECT (booking_page_upsert(:mbox_a, jsonb_build_object('slug', 'jane-30', 'title', 'Chat with Jane')))->>'id' AS page_a_id \gset
+
+-- R3: owner B cannot delete owner A's page.
+SELECT throws_ok(
+  format($q$ SELECT booking_page_delete(%s, %s) $q$, :mbox_b, :page_a_id),
+  'BZ134', NULL, 'delete of another owner''s page raises BZ134');
+
+-- R1: list is scoped to the caller's mailbox.
+SELECT is(
+  (SELECT jsonb_array_length(booking_page_list(:mbox_b))), 0,
+  'list is scoped to the caller''s mailbox');
+
+-- R2: mailbox_id comes from the auth arg, never from the client payload.
+SELECT is(
+  (SELECT bp.mailbox_id FROM booking_pages bp WHERE bp.id = :page_a_id::BIGINT),
+  :mbox_a::BIGINT,
+  'upsert stamps mailbox_id from p_mailbox_id, never a client field');
+
+SELECT throws_ok(
+  format($q$ SELECT booking_page_upsert(%s, '{"slug":"UPPER CASE","title":"x"}'::jsonb) $q$, :mbox_a),
+  '23514', NULL, 'slug CHECK rejects invalid slugs');
+
+-- ============================================================
+-- Task 3: public read — page meta + slots (no-leak)
+-- ============================================================
+
+-- A busy event on owner A's calendar tomorrow 10:00-11:00.
+INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
+VALUES (:cal_a, 'bk-busy-1', 'Secret meeting', (current_date + 1) + time '10:00', (current_date + 1) + time '11:00');
+
+-- No-leak: slots payload contains ONLY start/end keys.
+SELECT ok(
+  (SELECT bool_and(s.v ?& ARRAY['start','end'] AND NOT (s.v ?| ARRAY['title','summary','status','email','attendees']))
+     FROM jsonb_array_elements(booking_slots('jane-30', current_date + 1, current_date + 7)) AS s(v)),
+  'slots expose only start/end');
+
+-- The busy event removes exactly its overlapping slot(s).
+SELECT ok(NOT EXISTS (
+  SELECT 1 FROM jsonb_array_elements(booking_slots('jane-30', current_date + 1, current_date + 1)) s(v)
+  WHERE tstzrange((s.v->>'start')::timestamptz, (s.v->>'end')::timestamptz)
+        && tstzrange((current_date+1) + time '10:00', (current_date+1) + time '11:00')
+), 'busy interval removes overlapping slots');
+
+SELECT throws_ok($$ SELECT booking_slots('no-such-page', current_date, current_date + 7) $$,
+  'BZ134', NULL, 'unknown slug raises BZ134');
+SELECT throws_ok($$ SELECT booking_slots('jane-30', current_date, current_date + 90) $$,
+  'BZ135', NULL, 'range wider than 31 days rejected');
+
+-- ============================================================
+-- Task 4: booking state machine (double-booking, verify, confirm/cancel/expire)
+-- ============================================================
+
+-- The next open slot, starting two days out (well past min-notice / busy
+-- event above). Default availability is Mon-Fri only (see booking_pages.sql
+-- upsert default) — a single fixed day can land on a weekend depending on
+-- when the suite runs, so span a full week to always catch a weekday.
+SELECT (s.v->>'start')::timestamptz AS slot1
+  FROM jsonb_array_elements(booking_slots('jane-30', current_date + 2, current_date + 8)) s(v)
+ ORDER BY s.v->>'start' LIMIT 1 \gset
+
+SELECT lives_ok(format($q$
+  SELECT booking_create('jane-30', %L, 'ext1@example.org', 'Ext One', '{}'::jsonb,
+                        encode(sha256('tok1'::bytea), 'hex'), '203.0.113.7'::inet) $q$, :'slot1'),
+  'first booking of a slot succeeds');
+
+SELECT throws_ok(format($q$
+  SELECT booking_create('jane-30', %L, 'ext2@example.org', 'Ext Two', '{}'::jsonb,
+                        encode(sha256('tok2'::bytea), 'hex'), '203.0.113.8'::inet) $q$, :'slot1'),
+  'BZ136', NULL, 'same slot twice raises BZ136');
+
+-- Confirm: creates a real calendar event with the booker as attendee on the
+-- owner's default calendar, returns an invite payload, single-use token.
+SELECT lives_ok($$ SELECT booking_confirm(encode(sha256('tok1'::bytea),'hex'),
+                                          encode(sha256('cxl1'::bytea),'hex')) $$,
+  'confirm succeeds');
+
+SELECT is((SELECT COUNT(*)::INT FROM calendar_events ce
+            JOIN calendars c ON c.id = ce.calendar_id
+           WHERE c.mailbox_id = :mbox_a AND ce.title LIKE '%Ext One%'), 1,
+  'confirm created exactly one event');
+
+SELECT is((SELECT ea.status FROM event_attendees ea
+            JOIN booking_requests br ON br.event_id = ea.event_id
+           WHERE ea.email = 'ext1@example.org'), 'accepted',
+  'booker attendee recorded as accepted');
+
+SELECT throws_ok($$ SELECT booking_confirm(encode(sha256('tok1'::bytea),'hex'),
+                                           encode(sha256('cxl9'::bytea),'hex')) $$,
+  'BZ137', NULL, 'verify token is single-use');
+
+-- Confirm re-checks REAL free/busy: seed a conflicting owner event on a second
+-- pending request's slot between create and confirm; confirm must raise BZ136.
+-- current_date + 3/4 may land on a weekend (availability is Mon-Fri only);
+-- widen the window so the assertion isn't day-of-week-dependent.
+SELECT (s.v->>'start')::timestamptz AS slot2
+  FROM jsonb_array_elements(booking_slots('jane-30', current_date + 3, current_date + 9)) s(v)
+ ORDER BY s.v->>'start' LIMIT 1 \gset
+
+SELECT booking_create('jane-30', :'slot2', 'ext3@example.org', 'Ext Three', '{}'::jsonb,
+                      encode(sha256('tok3'::bytea), 'hex'), '203.0.113.9'::inet);
+
+INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at)
+VALUES (:cal_a, 'bk-busy-2', 'Owner double-booked themselves', :'slot2'::timestamptz,
+        (:'slot2'::timestamptz) + interval '30 minutes');
+
+SELECT throws_ok($$ SELECT booking_confirm(encode(sha256('tok3'::bytea),'hex'),
+                                           encode(sha256('cxl3'::bytea),'hex')) $$,
+  'BZ136', NULL, 'confirm re-checks real free/busy and rejects a newly-conflicting slot');
+
+-- Cancel by token cancels the event linkage.
+SELECT booking_cancel(encode(sha256('cxl1'::bytea),'hex'));
+SELECT is((SELECT ce.status FROM calendar_events ce
+            JOIN booking_requests br ON br.event_id = ce.id
+           WHERE br.cancel_token_hash LIKE 'used:%'), 'cancelled',
+  'cancel flips the linked calendar event to cancelled');
+
+SELECT throws_ok($$ SELECT booking_cancel(encode(sha256('cxl1'::bytea),'hex')) $$,
+  'BZ137', NULL, 'cancel token is single-use');
+
+-- Expire sweeps stale pendings: a page with a request whose verify window has
+-- already passed.
+INSERT INTO booking_requests (page_id, mailbox_id, booker_email, slot_start, slot_end,
+                              status, verify_token_hash, verify_expires_at)
+VALUES (:page_a_id, :mbox_a, 'stale@example.org', now() + interval '10 days',
+        now() + interval '10 days 30 minutes', 'pending',
+        encode(sha256('stale-tok'::bytea),'hex'), now() - interval '1 minute');
+
+SELECT is(booking_expire_due(), 1, 'expired pending swept');
+
+-- Security posture: tokens are stored hashed, never raw, incl. the used: prefix.
+SELECT ok(
+  (SELECT bool_and(verify_token_hash ~ '^(used:)?[0-9a-f]{64}$') FROM booking_requests),
+  'verify_token_hash column never holds a raw (non-hex) token');
+
+-- booking_page_public_get leaks no email/mailbox id.
+SELECT ok(
+  NOT (booking_page_public_get('jane-30') ?| ARRAY['email','mailboxId','mailbox_id']),
+  'public page metadata has no email or mailbox id');
+
+SELECT * FROM finish();
+ROLLBACK;

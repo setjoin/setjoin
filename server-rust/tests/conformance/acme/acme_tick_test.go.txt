@@ -1,0 +1,92 @@
+// Recording-only overlay (#305): runs frozen Go's real LegoManager.renewIfNeeded (the body of one
+// 12-hour tick of the acme-renewal worker) against a pebble ACME server over HTTP-01, using the
+// unexported managed-loop path exactly as mailserverd does. Never a tracked Go change.
+package acme
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type goFreeAcmeCase struct {
+	Domains  []string `json:"domains"`
+	Email    string   `json:"email"`
+	CacheDir string   `json:"cache_dir"`
+	Directory string  `json:"directory"`
+	CA       string   `json:"ca"`
+	Challenge string `json:"challenge"`
+	Out      string   `json:"out"`
+}
+
+func TestGoFreeAcmeTick(t *testing.T) {
+	var c goFreeAcmeCase
+	if err := json.Unmarshal([]byte(os.Getenv("GOFREE_ACME_CASE")), &c); err != nil {
+		t.Fatal(err)
+	}
+	pem, err := os.ReadFile(c.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(pem)
+	m, err := NewLegoManager(LegoConfig{
+		Domains:   c.Domains,
+		Email:     c.Email,
+		CacheDir:  c.CacheDir,
+		Challenge: func() string {if c.Challenge != "" {return c.Challenge}; return ChallengeHTTP01}(),
+		CADirURL:  c.Directory,
+		HTTPClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.backoffFn = func(int) time.Duration { return 50 * time.Millisecond }
+
+	// The validation endpoint pebble calls (the managed loop's token store behind Go's own
+	// HTTP01Handler); unknown tokens fall through to a counting 404.
+	var challengeHits atomic.Int64
+	serve := os.Getenv("GOFREE_ACME_SERVE") != "0"
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, http01PathPrefix) {
+			challengeHits.Add(1)
+		}
+		http.NotFound(w, r)
+	})
+	var handler http.Handler = next
+	if serve {
+		handler = m.HTTP01Handler(next)
+	}
+	var srv *http.Server
+    if c.Challenge == ChallengeTLSALPN01 {
+        ln, err := net.Listen("tcp", "[::]:5071"); if err != nil {t.Fatal(err)}
+        srv = &http.Server{TLSConfig: &tls.Config{MinVersion:tls.VersionTLS12, GetConfigForClient:func(hello *tls.ClientHelloInfo)(*tls.Config,error){
+            if serve {if cfg:=m.TLSALPNConfigFor(hello); cfg!=nil {return cfg,nil}}
+            return nil,nil
+        }}}
+        go func(){_ = srv.Serve(tls.NewListener(ln,srv.TLSConfig))}()
+    } else {
+        ln, err := net.Listen("tcp", "[::]:5072"); if err != nil {t.Fatal(err)}
+        srv = &http.Server{Handler:handler}
+        go func(){_ = srv.Serve(ln)}()
+    }
+    defer srv.Close()
+
+	m.renewIfNeeded(context.Background())
+
+	out, _ := json.Marshal(map[string]any{"challenge_misses": challengeHits.Load()})
+	if err := os.WriteFile(c.Out, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -1,0 +1,93 @@
+-- pgTAP: check_app_entitlement reducer test (B8.4)
+-- Asserts single-app effective access query.
+-- ADR-003: check_app_entitlement(p_mailbox_id, app) takes a MAILBOX id and
+-- resolves the owning user via account_scope() before reading user_app_entitlements
+-- (keyed by users.id). mk_account() gives DIVERGENT ids (was coincident 7610/7610),
+-- so the entitlement row must be seeded against the real owning user_id — a stray
+-- user_id = p_mailbox_id confusion would read the wrong row and fail.
+BEGIN;
+SELECT plan(8);
+
+-- Two accounts; divergent user/mailbox ids by construction.
+CREATE TEMP TABLE _a AS
+  SELECT mk_account('b84chk') AS mb, mk_account('b84chk2') AS mb_other;
+CREATE TEMP TABLE _u AS
+  SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _a))       AS uid,
+         (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_other FROM _a)) AS uid_other;
+
+-- 1. Calendar allowed by default (no entitlement row, toggle on)
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'calendar'),
+  TRUE,
+  'calendar allowed by default (no row, toggle on)'
+);
+
+-- 2. Insert a blocked row (keyed by the OWNING user id); calendar now false
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+VALUES ((SELECT uid FROM _u), 'calendar', FALSE);
+
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'calendar'),
+  FALSE,
+  'calendar blocked by per-user entitlement row'
+);
+
+-- 3. Function is account-scoped: the other user blocked for contacts must not
+--    affect this account.
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+VALUES ((SELECT uid_other FROM _u), 'contacts', FALSE);
+
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'contacts'),
+  TRUE,
+  'other user block does not affect this account'
+);
+
+-- 4. Re-enable calendar and verify it returns true
+UPDATE user_app_entitlements
+SET enabled = TRUE
+WHERE user_id = (SELECT uid FROM _u) AND app = 'calendar';
+
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'calendar'),
+  TRUE,
+  'calendar re-enabled after update returns true'
+);
+
+-- 5/6. chat mirrors feature.chat (V119 seeds it OFF, same posture as drive;
+-- Task 9 apps.chat capability).
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'chat'),
+  FALSE,
+  'chat is false while feature.chat is seeded OFF'
+);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat';
+
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'chat'),
+  TRUE,
+  'chat flips true when feature.chat is enabled'
+);
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat';
+
+-- 7/8. meet mirrors feature.meet (V125 seeds it OFF, same posture as drive/chat).
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'meet'),
+  FALSE,
+  'meet is false while feature.meet is seeded OFF'
+);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.meet';
+
+SELECT is(
+  check_app_entitlement((SELECT mb FROM _a), 'meet'),
+  TRUE,
+  'meet flips true when feature.meet is enabled'
+);
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.meet';
+
+SELECT * FROM finish();
+ROLLBACK;

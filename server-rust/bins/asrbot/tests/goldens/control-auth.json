@@ -1,0 +1,361 @@
+{
+  "max_meetings": "2",
+  "scenario": "auth",
+  "steps": [
+    {
+      "name": "healthz-no-auth",
+      "request": {
+        "body_len": 0,
+        "headers": [],
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "0"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-no-auth",
+      "request": {
+        "body_len": 0,
+        "headers": [],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "start-no-auth",
+      "request": {
+        "body_len": 24,
+        "headers": [],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "stop-no-auth",
+      "request": {
+        "body_len": 12,
+        "headers": [],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-wrong-token",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer wrong"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-raw-token-no-prefix",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-two-spaces",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer  oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-lowercase-scheme",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-bearer-only",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer "
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-token-prefix-of-real",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "status-ok",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "unauthorized-before-body",
+      "request": {
+        "body_len": 8,
+        "headers": [],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"unauthorized\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    }
+  ]
+}

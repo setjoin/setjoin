@@ -1,0 +1,23 @@
+-- pgTAP: offline_schema.pg — V039/V040 offline governance structures exist
+BEGIN;
+SELECT plan(8);
+SELECT has_table('offline_policies', 'offline_policies table exists');
+SELECT has_column('user_devices', 'offline_approval', 'user_devices.offline_approval exists');
+SELECT has_column('user_devices', 'device_id', 'user_devices.device_id exists');
+SELECT col_has_check('offline_policies', 'scope_type', 'scope_type CHECK present');
+-- R4: user_devices must have RLS enabled + forced (V039 closes pre-existing gap)
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.user_devices'::regclass),
+  TRUE, 'user_devices has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.user_devices'::regclass),
+  TRUE, 'user_devices has RLS forced');
+-- R4: devices must have RLS enabled + forced (V040 closes pre-existing gap)
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.devices'::regclass),
+  TRUE, 'devices has RLS enabled (V040)');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.devices'::regclass),
+  TRUE, 'devices has RLS forced (V040)');
+SELECT * FROM finish();
+ROLLBACK;

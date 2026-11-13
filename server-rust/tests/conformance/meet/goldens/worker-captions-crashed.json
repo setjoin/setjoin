@@ -1,0 +1,80 @@
+{
+  "case": "worker-captions-crashed",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": null,
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {
+            "captionsOn": false,
+            "captionsSince": "<timestamp>"
+          },
+          "state": "live",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "guest_display_name": null,
+          "identity": "u:<owner>",
+          "joined_at": "<timestamp>",
+          "left_at": null,
+          "role": "host"
+        }
+      ],
+      "recordings": [],
+      "requests": [],
+      "semantic": []
+    },
+    "notify": [
+      {
+        "channel": "meet:<owner>",
+        "payload": {
+          "event": "captions_state",
+          "meetingId": "<meeting-1>",
+          "payload": {
+            "botIdentity": "cc:<meeting-1>",
+            "on": false
+          }
+        }
+      }
+    ],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        }
+      ],
+      "objects": [],
+      "stored": []
+    }
+  },
+  "worker": "meet-reconcile"
+}

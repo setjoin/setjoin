@@ -1,0 +1,26 @@
+[
+  {
+    "baseline": "goldens/telemetry-proof-legacy-valid.json",
+    "sha256": "3186cb4f4e0cb647f654823ec29a64720be490aee763d9e2d7550d88a6f9d23b",
+    "expectation": "security/telemetry-proof-legacy-valid.json",
+    "reason": "owner-approved security fix 2026-11-05 (#513 item 1: a successful legacy telemetry proof re-seals the device HMAC secret under app RLS; no plaintext credential is left in devices.hmac_secret)",
+    "issue": "#513",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "crates/authz/tests/device_credential.rs::legacy_plaintext_secret_is_resealed_under_app_rls",
+    "mutant": "device-reseal-under-rls"
+  },
+  {
+    "baseline": "goldens/telemetry-proof-legacy-valid-row-effects.json",
+    "sha256": "e1627c5e0f69ccec7316c3eef7a45d54e1bcc52b9ba4286cd1af540e9ac29156",
+    "expectation": "security/telemetry-proof-legacy-valid-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#513 item 1: a successful legacy telemetry proof re-seals the device HMAC secret under app RLS; no plaintext credential is left in devices.hmac_secret)",
+    "issue": "#513",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "crates/authz/tests/device_credential.rs::legacy_plaintext_secret_is_resealed_under_app_rls",
+    "mutant": "device-reseal-under-rls"
+  }
+]

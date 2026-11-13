@@ -1,0 +1,46 @@
+-- pgTAP: newsletter_list_id.pg
+-- B5.1 — messages.list_id column, normalize_list_id() function, partial index.
+-- 4 assertions:
+--   1. has_column: messages.list_id exists
+--   2. normalize_list_id('<...>' form) returns bare domain token
+--   3. normalize_list_id('Label <...>' form) strips label, returns bare domain token
+--   4. has_index: messages_mailbox_list_idx exists on (mailbox_id, list_id)
+BEGIN;
+SELECT plan(5);
+
+-- Test 1: column exists
+SELECT has_column(
+  'messages', 'list_id',
+  'messages table has list_id column'
+);
+
+-- Test 2: normalize_list_id strips angle-brackets form
+SELECT is(
+  normalize_list_id('<list.acme.io>'),
+  'list.acme.io',
+  'normalize_list_id strips angle-brackets and lowercases'
+);
+
+-- Test 3: normalize_list_id strips label + angle-brackets form (RFC 2919)
+SELECT is(
+  normalize_list_id('Foo Newsletter <news.example.com>'),
+  'news.example.com',
+  'normalize_list_id extracts <...> token and lowercases'
+);
+
+-- Test 3b: normalize_list_id(NULL) returns NULL
+SELECT is(
+  normalize_list_id(NULL),
+  NULL,
+  'normalize_list_id(NULL) returns NULL'
+);
+
+-- Test 4: partial index exists
+SELECT has_index(
+  'messages',
+  'messages_mailbox_list_idx',
+  'partial index messages_mailbox_list_idx exists'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

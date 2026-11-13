@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/backup/list",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"id\": 7,\n    \"status\": \"completed\"\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

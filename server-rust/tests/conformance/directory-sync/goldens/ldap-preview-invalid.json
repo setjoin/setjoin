@@ -1,0 +1,214 @@
+{
+  "case": "invalid",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ldap_sync_auto_create_depts",
+              "value": "\"false\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_base_dn",
+              "value": "\"dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_bind_dn",
+              "value": "\"cn=svc,dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_enabled",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ldap_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_port",
+              "value": "\"<port>\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_tls",
+              "value": "\"true\""
+            }
+          ],
+          "conflicts": [],
+          "departments": [],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [],
+          "users": [
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ldap5-admin",
+              "email": "ldap5-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ldap5-admin@host-a.test"
+            }
+          ]
+        },
+        "before": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ldap_sync_auto_create_depts",
+              "value": "\"false\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_base_dn",
+              "value": "\"dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_bind_dn",
+              "value": "\"cn=svc,dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_enabled",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ldap_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_port",
+              "value": "\"<port>\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_tls",
+              "value": "\"true\""
+            }
+          ],
+          "conflicts": [],
+          "departments": [],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [],
+          "users": [
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ldap5-admin",
+              "email": "ldap5-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ldap5-admin@host-a.test"
+            }
+          ]
+        },
+        "directory": [
+          "bind dn=cn=svc,dc=example,dc=test password=ok",
+          "search base=dc=example,dc=test scope=2 sizeLimit=0 filter=(objectClass=person) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl page=500"
+        ],
+        "table": "ldap"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/ldap/preview",
+      "method": "GET",
+      "path": "/admin/ldap/preview",
+      "query": "limit=abc"
+    },
+    "response": {
+      "body": "{\"rows\":[{\"action\":\"create\",\"displayName\":\"Alice A\",\"email\":\"Alice@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Bob Renamed\",\"email\":\"bob@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Carol Directory\",\"email\":\"carol@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Dave\",\"email\":\"dave@host-a.test\"},{\"action\":\"skip\",\"displayName\":\"Erin NoMail\",\"email\":\"\",\"reason\":\"no email attribute\"},{\"action\":\"create\",\"displayName\":\"Frank Control\",\"email\":\"fra\\u0001nk@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Gina Reserved\",\"email\":\"postmaster@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Hank Locked\",\"email\":\"hank@host-a.test\"},{\"action\":\"create\",\"displayName\":\"Ivan UAC\",\"email\":\"ivan@host-a.test\"}],\"total\":9}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "715"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/ldap/preview"
+}

@@ -1,0 +1,44 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "content_type": "text/plain",
+        "created_at": "<timestamp>",
+        "minio_ref": "mailblobs/<hash>",
+        "ref_count": 0,
+        "sha256": "<hash>",
+        "size_bytes": 24
+      },
+      "table": "blobs"
+    },
+    {
+      "after": {
+        "blob_sha256": "<hash>",
+        "charged_at": "<timestamp>",
+        "size_bytes": 24,
+        "user_id": "<actor>"
+      },
+      "table": "blob_user_charges"
+    },
+    {
+      "after": {
+        "charged_bytes": 24,
+        "updated_at": "<timestamp>",
+        "user_id": "<actor>"
+      },
+      "table": "blob_user_usage"
+    },
+    {
+      "after": {
+        "blob_sha256": "<hash>",
+        "delay_minutes": 1440,
+        "scheduled_at": "<timestamp>"
+      },
+      "table": "blob_cleanup_queue"
+    }
+  ],
+  "format": 1,
+  "go_source": "e144c714a9a94d73a8032e2467181e927efbbc72",
+  "route": "PUT /blobs/{sha256}"
+}

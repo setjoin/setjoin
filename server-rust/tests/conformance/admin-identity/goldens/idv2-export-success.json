@@ -1,0 +1,64 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/v2/inventory/export",
+      "method": "GET",
+      "path": "/admin/identity/v2/inventory/export"
+    },
+    "response": {
+      "body": "{\"people\": [{\"userId\": \"<admin>\", \"enabled\": true, \"activeLinks\": 0, \"accountClass\": \"member\", \"detachedLinks\": 1, \"lifecycleAuthority\": \"local\"}, {\"userId\": \"<other>\", \"enabled\": true, \"activeLinks\": 1, \"accountClass\": \"member\", \"detachedLinks\": 0, \"lifecycleAuthority\": \"source\"}, {\"userId\": \"<third>\", \"enabled\": true, \"activeLinks\": 1, \"accountClass\": \"member\", \"detachedLinks\": 0, \"lifecycleAuthority\": \"local\"}], \"sha256\": \"<sha256>\", \"sources\": [{\"kind\": \"local\", \"state\": \"active\", \"readMode\": \"shadow\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"3\", \"activeLinks\": 2, \"openConflicts\": 2}, {\"kind\": \"ldap\", \"state\": \"paused\", \"readMode\": \"shadow\", \"sourceKey\": \"admin7-beta\", \"generation\": \"5\", \"activeLinks\": 0, \"openConflicts\": 1}, {\"kind\": \"scim\", \"state\": \"draft\", \"readMode\": \"shadow\", \"sourceKey\": \"admin7-gamma\", \"generation\": \"1\", \"activeLinks\": 0, \"openConflicts\": 0}, {\"kind\": \"ad\", \"state\": \"active\", \"readMode\": \"shadow\", \"sourceKey\": \"legacy:ad\", \"generation\": \"1\", \"activeLinks\": 0, \"openConflicts\": 0}, {\"kind\": \"ldap\", \"state\": \"paused\", \"readMode\": \"shadow\", \"sourceKey\": \"legacy:ldap\", \"generation\": \"1\", \"activeLinks\": 0, \"openConflicts\": 0}, {\"kind\": \"scim\", \"state\": \"active\", \"readMode\": \"shadow\", \"sourceKey\": \"legacy:scim\", \"generation\": \"1\", \"activeLinks\": 0, \"openConflicts\": 0}, {\"kind\": \"local\", \"state\": \"active\", \"readMode\": \"shadow\", \"sourceKey\": \"local:default\", \"generation\": \"1\", \"activeLinks\": 0, \"openConflicts\": 0}], \"conflicts\": [{\"id\": \"95000000-0000-4000-8000-000000000001\", \"state\": \"pending\", \"createdAt\": \"2026-10-04T08:00:00.5+00:00\", \"expiresAt\": \"2031-01-01T00:00:00+00:00\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"3\", \"evidenceClass\": \"hard\"}, {\"id\": \"95000000-0000-4000-8000-000000000002\", \"state\": \"deferred\", \"createdAt\": \"2026-10-04T09:00:00+00:00\", \"expiresAt\": \"2031-01-01T00:00:00+00:00\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"3\", \"evidenceClass\": \"soft\"}, {\"id\": \"95000000-0000-4000-8000-000000000003\", \"state\": \"pending\", \"createdAt\": \"2026-10-04T09:00:00+00:00\", \"expiresAt\": \"2031-01-01T00:00:00+00:00\", \"sourceKey\": \"admin7-beta\", \"generation\": \"5\", \"evidenceClass\": \"composite\"}, {\"id\": \"95000000-0000-4000-8000-000000000004\", \"state\": \"rejected\", \"createdAt\": \"2026-10-04T10:00:00+00:00\", \"expiresAt\": \"2031-01-01T00:00:00+00:00\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"3\", \"evidenceClass\": \"hard\"}], \"generatedAt\": \"<timestamp>\", \"schemaVersion\": 276, \"manifestVersion\": \"1\", \"redactionCounts\": {\"emailsOmitted\": 3, \"secretsOmitted\": 0, \"externalSubjectsOmitted\": 3, \"candidateSubjectsOmitted\": 4}, \"redactionPolicy\": \"identity-inventory-v1\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"setjoin-identity-inventory.json\""
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "digest": [
+          "<digest>"
+        ],
+        "etag": [
+          "<etag>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/identity/v2/inventory/export"
+}

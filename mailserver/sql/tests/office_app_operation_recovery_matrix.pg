@@ -1,0 +1,266 @@
+-- Managed-CODE operation state/recovery acceptance matrix.
+-- (a) a crashed rolling_back window is reclaimable and completes rolled_back,
+--     releasing the one-active install fence;
+-- (c) failed_terminal and rolled_back are never re-claimed by claim_next;
+-- (b) ROLLBACK_FAILED terminal rows recover through the admin-gated, generation-
+--     fenced office_app_operation_recover_request cleanup-retry arm (re-armed as
+--     reclaimable rolling_back; repeated failure stays failed_terminal and stays
+--     admin-recoverable — the ownership fence is never silently cleared);
+-- (d) lease loss routes through the reclaim arm without clearing recorded
+--     failures or fences;
+-- (e) lease discipline is state-specific: a slowed pull may advance into the
+--     nonterminal paused_recoverable arm and recover bounded through preflight,
+--     while qualifying can never pause and follows only the bounded
+--     rolling_back -> rolled_back / failed_terminal / connected_inactive
+--     outcomes, with the 300s step-aware heartbeat ceiling covering the
+--     worst-case pull/health windows.
+BEGIN;
+SELECT plan(30);
+
+SELECT mk_account('app-recovery-admin') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id=:mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(:u,1,:u);
+SELECT mk_account('app-recovery-outsider') AS omb \gset
+SELECT user_id AS outsider FROM mailboxes WHERE id=:omb \gset
+UPDATE feature_toggles SET enabled=true WHERE key='feature.office_managed_delivery';
+
+-- (a) crash-in-rollback-window reclaim and completion.
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,error,
+  last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','rolling_back',6,:u,'crash window',gen_random_uuid(),
+  repeat('a',64),'{"providerId":"collabora-managed"}','crashed-runner',gen_random_uuid(),
+  'rollback_runtime','{"code":"RUNTIME_STEP_FAILED","detail":"start failed"}',
+  statement_timestamp()-interval '60 seconds',statement_timestamp()-interval '30 seconds')
+RETURNING id AS rb_id \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('recovery-runner',gen_random_uuid()) AS rb_claim \gset
+RESET ROLE;
+SELECT is((:'rb_claim'::jsonb->>'state'),'rolling_back',
+  'matrix a: a crashed rollback window is reclaimable');
+SELECT is((:'rb_claim'::jsonb->>'reclaimed')::boolean,true,
+  'matrix a: reclaim is flagged to the executor');
+SELECT is((:'rb_claim'::jsonb->>'executorId'),'recovery-runner',
+  'matrix a: the reclaim arm swaps the executor');
+SELECT is((SELECT error->>'code' FROM office_app_operations
+            WHERE id=(:'rb_claim'::jsonb->>'operationId')::uuid),'RUNTIME_STEP_FAILED',
+  'matrix d: lease loss never clears the recorded failure');
+SELECT is((SELECT state_generation FROM office_app_operations
+            WHERE id=(:'rb_claim'::jsonb->>'operationId')::uuid),
+  (:'rb_claim'::jsonb->>'stateGeneration')::bigint,
+  'matrix d: the reclaim arm bumps the generation under CAS');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'rb_claim'::jsonb->>'operationId')::uuid,(:'rb_claim'::jsonb->>'stateGeneration')::bigint,
+  'recovery-runner',(:'rb_claim'::jsonb->>'leaseId')::uuid,'rolled_back','rollback_complete',
+  '{"providerRoutingChanged":false}',NULL) AS rb_done \gset
+RESET ROLE;
+SELECT is((:'rb_done'::jsonb->>'state'),'rolled_back',
+  'matrix a: the reclaimed rollback completes to rolled_back');
+SELECT ok((SELECT state='rolled_back' AND completed_at IS NOT NULL
+           FROM office_app_operations WHERE id=(:'rb_claim'::jsonb->>'operationId')::uuid),
+  'matrix a: rolled_back is terminal with completed_at set');
+SELECT lives_ok(format($sql$INSERT INTO office_app_operations(
+  app_id,kind,state,requested_by,reason,idempotency_key,request_digest,request)
+  VALUES('collabora-code','install','requested',%s,'next install',gen_random_uuid(),
+  repeat('b',64),'{"providerId":"collabora-managed"}')$sql$,:u),
+  'matrix a: rolled_back releases the one-active install fence');
+DELETE FROM office_app_operations;
+
+-- (c) terminal rows are never re-claimed.
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,error,
+  last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','failed_terminal',9,:u,'persistent cleanup failure',
+  gen_random_uuid(),repeat('c',64),'{"providerId":"collabora-managed"}','failed-runner',
+  gen_random_uuid(),'failed','{"code":"ROLLBACK_FAILED","detail":"cleanup refused"}',
+  statement_timestamp()-interval '60 seconds',statement_timestamp()-interval '30 seconds')
+RETURNING id AS ft_id, state_generation AS ft_gen \gset
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,progress,
+  last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','rolled_back',4,:u,'completed rollback',
+  gen_random_uuid(),repeat('d',64),'{"providerId":"collabora-managed"}','old-runner',
+  gen_random_uuid(),'rollback_complete','{}',
+  statement_timestamp()-interval '90 seconds',statement_timestamp()-interval '60 seconds')
+RETURNING id AS rbk_id \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT is(office_app_operation_claim_next('sweeper',gen_random_uuid())::text,'{}',
+  'matrix c: failed_terminal and rolled_back are never re-claimed');
+RESET ROLE;
+
+-- (b) the admin-authorized ROLLBACK_FAILED cleanup retry.
+SELECT office_app_operation_recover_request(:u,:'ft_id'::uuid,:ft_gen,
+  'retry the fence-checked cleanup') AS ft_rec \gset
+SELECT is((:'ft_rec'::jsonb->>'state'),'rolling_back',
+  'matrix b: recovery re-arms the ROLLBACK_FAILED cleanup window');
+SELECT is((:'ft_rec'::jsonb->>'phase'),'recovery_requested',
+  'matrix b: the recovery request is recorded');
+SELECT ok((SELECT state='rolling_back' AND completed_at IS NULL
+           AND lease_expires_at<statement_timestamp()
+           FROM office_app_operations WHERE id=:'ft_id'::uuid),
+  'matrix b: the retry window is nonterminal, uncompleted, and reclaim-due');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('cleanup-runner',gen_random_uuid()) AS ft_claim \gset
+RESET ROLE;
+SELECT is((:'ft_claim'::jsonb->>'reclaimed')::boolean,true,
+  'matrix b: the recovered cleanup window is reclaimable');
+SELECT is((:'ft_claim'::jsonb->>'operationId'),:'ft_id',
+  'matrix b: the reclaim targets the recovered operation');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'ft_claim'::jsonb->>'operationId')::uuid,(:'ft_claim'::jsonb->>'stateGeneration')::bigint,
+  'cleanup-runner',(:'ft_claim'::jsonb->>'leaseId')::uuid,'rolled_back','rollback_complete',
+  '{"providerRoutingChanged":false}',NULL) AS ft_done \gset
+RESET ROLE;
+SELECT is((:'ft_done'::jsonb->>'state'),'rolled_back',
+  'matrix b: the cleanup retry completes rolled_back');
+
+-- (b) a repeated cleanup failure stays failed_terminal and stays recoverable:
+-- idempotent across updater restarts, fence never silently cleared.
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,error,
+  last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','failed_terminal',9,:u,'cleanup failure again',
+  gen_random_uuid(),repeat('c',64),'{"providerId":"collabora-managed"}','failed-runner',
+  gen_random_uuid(),'failed','{"code":"ROLLBACK_FAILED","detail":"cleanup refused"}',
+  statement_timestamp()-interval '60 seconds',statement_timestamp()-interval '30 seconds')
+RETURNING id AS ft2_id, state_generation AS ft2_gen \gset
+SELECT office_app_operation_recover_request(:u,:'ft2_id'::uuid,:ft2_gen,
+  'retry again after restart') AS ft2_rec1 \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('cleanup-runner',gen_random_uuid()) AS ft2_claim \gset
+SELECT office_app_operation_advance(
+  (:'ft2_claim'::jsonb->>'operationId')::uuid,(:'ft2_claim'::jsonb->>'stateGeneration')::bigint,
+  'cleanup-runner',(:'ft2_claim'::jsonb->>'leaseId')::uuid,'failed_terminal',
+  'rollback_complete','{}',
+  '{"code":"ROLLBACK_FAILED","detail":"cleanup failed again"}') AS ft2_fail \gset
+RESET ROLE;
+SELECT is((:'ft2_fail'::jsonb->>'state'),'failed_terminal',
+  'matrix b: a repeated cleanup failure lands failed_terminal again');
+SELECT office_app_operation_recover_request(:u,:'ft2_id'::uuid,
+  (:'ft2_fail'::jsonb->>'stateGeneration')::bigint,
+  'still alerting, still recoverable') AS ft2_rec2 \gset
+SELECT is((:'ft2_rec2'::jsonb->>'state'),'rolling_back',
+  'matrix b: persistent failure stays admin-recoverable, fence never silently cleared');
+SELECT throws_ok(format($sql$SELECT office_app_operation_recover_request(%s,%L::uuid,%s,
+  'stale generation')$sql$,:u,:'ft2_id',999999),'BZ324',NULL,
+  'matrix b: stale generations are refused');
+SELECT throws_ok(format($sql$SELECT office_app_operation_recover_request(%s,%L::uuid,%s,
+  'not an admin')$sql$,:outsider,:'ft2_id',
+  (:'ft2_rec2'::jsonb->>'stateGeneration')::bigint),'BZ323',NULL,
+  'matrix b: recovery is admin-gated through apps.manage');
+INSERT INTO office_app_operations(
+  app_id,kind,state,state_generation,requested_by,reason,idempotency_key,
+  request_digest,request,executor_id,lease_id,phase,error,
+  last_heartbeat_at,lease_expires_at
+) VALUES('collabora-code','install','failed_terminal',9,:u,'non-cleanup failure',
+  gen_random_uuid(),repeat('c',64),'{"providerId":"collabora-managed"}','failed-runner',
+  gen_random_uuid(),'failed','{"code":"RUNTIME_STEP_FAILED","detail":"pre-staging"}',
+  statement_timestamp()-interval '60 seconds',statement_timestamp()-interval '30 seconds')
+RETURNING id AS ft3_id, state_generation AS ft3_gen \gset
+SELECT throws_ok(format($sql$SELECT office_app_operation_recover_request(%s,%L::uuid,%s,
+  'not a cleanup failure')$sql$,:u,:'ft3_id',:'ft3_gen'),'BZ324',NULL,
+  'matrix b: non-cleanup terminal failures are not cleanup-recoverable');
+DELETE FROM office_app_operations;
+
+-- (e) the pulling pause arm and its bounded recovery.
+INSERT INTO office_app_operations(
+  app_id,kind,state,requested_by,reason,idempotency_key,request_digest,request
+) VALUES('collabora-code','install','requested',:u,'slow pull',gen_random_uuid(),
+  repeat('e',64),'{"providerId":"collabora-managed"}')
+RETURNING id AS p_id \gset
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('pull-runner',gen_random_uuid()) AS p_claim \gset
+SELECT office_app_operation_advance(
+  (:'p_claim'::jsonb->>'operationId')::uuid,(:'p_claim'::jsonb->>'stateGeneration')::bigint,
+  'pull-runner',(:'p_claim'::jsonb->>'leaseId')::uuid,'preflight','runtime_preflight',
+  '{}',NULL) AS p_pre \gset
+SELECT office_app_operation_advance(
+  (:'p_claim'::jsonb->>'operationId')::uuid,(:'p_pre'::jsonb->>'stateGeneration')::bigint,
+  'pull-runner',(:'p_claim'::jsonb->>'leaseId')::uuid,'pulling','artifact_pull',
+  '{}',NULL) AS p_pull \gset
+SELECT office_app_operation_heartbeat(
+  (:'p_claim'::jsonb->>'operationId')::uuid,(:'p_pull'::jsonb->>'stateGeneration')::bigint,
+  'pull-runner',(:'p_claim'::jsonb->>'leaseId')::uuid,300) AS p_hb \gset
+RESET ROLE;
+SELECT is((:'p_hb'::jsonb->>'stateGeneration')::bigint,
+  (:'p_pull'::jsonb->>'stateGeneration')::bigint,
+  'matrix e: the 300s step-aware ceiling covers the worst-case pull window');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'p_claim'::jsonb->>'operationId')::uuid,(:'p_hb'::jsonb->>'stateGeneration')::bigint,
+  'pull-runner',(:'p_claim'::jsonb->>'leaseId')::uuid,'paused_recoverable',
+  'lease_budget_paused','{"pausedDuring":"artifact_pull"}',
+  '{"code":"LEASE_BUDGET_EXHAUSTED","detail":"pull exceeded its lease budget"}') AS p_paused \gset
+RESET ROLE;
+SELECT is((:'p_paused'::jsonb->>'state'),'paused_recoverable',
+  'matrix e: a slowed pull may pause instead of BZ324-killing the updater');
+SELECT ok((SELECT completed_at IS NULL FROM office_app_operations WHERE id=:'p_id'::uuid),
+  'matrix e: paused_recoverable is nonterminal (no completed_at)');
+SELECT office_app_operation_recover_request(:u,:'p_id'::uuid,
+  (:'p_paused'::jsonb->>'stateGeneration')::bigint,'resume the paused pull') AS p_rec \gset
+SELECT is((:'p_rec'::jsonb->>'phase'),'recovery_requested',
+  'matrix e: the recovery request expires the paused lease');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_claim_next('resume-runner',gen_random_uuid()) AS p_resume \gset
+RESET ROLE;
+SELECT is((:'p_resume'::jsonb->>'reclaimed')::boolean,true,
+  'matrix e: the paused row is reclaimable after recovery');
+SET LOCAL ROLE setjoin_worker;
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_resume'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'preflight','runtime_preflight',
+  '{}',NULL) AS p_back \gset
+SELECT is((:'p_back'::jsonb->>'state'),'preflight',
+  'matrix e: the resumed run advances paused_recoverable -> preflight');
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_back'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'pulling','artifact_pull',
+  '{}',NULL) AS p_pull2 \gset
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_pull2'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'verifying','artifact_digest',
+  '{}',NULL) AS p_ver \gset
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_ver'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'staging','runtime_staging',
+  '{}',NULL) AS p_stg \gset
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_stg'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'starting','runtime_start',
+  '{}',NULL) AS p_start \gset
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'p_start'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'qualifying','discovery_health',
+  '{}',NULL) AS q_ready \gset
+SELECT throws_ok(format($sql$SELECT office_app_operation_advance(%L::uuid,%s,'resume-runner',
+  %L::uuid,'paused_recoverable','lease_budget_paused','{}',NULL)$sql$,
+  :'p_resume'::jsonb->>'operationId',:'q_ready'::jsonb->>'stateGeneration',
+  :'p_resume'::jsonb->>'leaseId'),'BZ324',NULL,
+  'matrix e: qualifying can never pause — no health-to-pause transition exists');
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'q_ready'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'rolling_back','rollback_runtime',
+  '{}','{"code":"RUNTIME_STEP_FAILED","detail":"health never became positive"}') AS q_rb \gset
+SELECT office_app_operation_advance(
+  (:'p_resume'::jsonb->>'operationId')::uuid,(:'q_rb'::jsonb->>'stateGeneration')::bigint,
+  'resume-runner',(:'p_resume'::jsonb->>'leaseId')::uuid,'rolled_back','rollback_complete',
+  '{"providerRoutingChanged":false}',NULL) AS q_end \gset
+RESET ROLE;
+SELECT is((:'q_end'::jsonb->>'state'),'rolled_back',
+  'matrix e: qualifying failure follows the bounded rollback outcome');
+SELECT throws_ok(format($sql$SELECT office_app_operation_heartbeat(%L::uuid,1,'x',%L::uuid,301)$sql$,
+  gen_random_uuid()::text,gen_random_uuid()::text),'BZ322',NULL,
+  'matrix e: heartbeat leases are bounded at the 300s reducer ceiling');
+
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log
+  WHERE action='office.app.operation.recovery_requested'),
+  'matrix b: recovery requests are audited');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,9 @@
+{
+ "messages": "SELECT m.mailbox_id, m.message_id, m.subject, m.from_addr, m.to_addrs, m.size_bytes, m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, m.imap_uid, m.body_text, m.raw_ref, (SELECT t.name FROM tags t WHERE t.id = m.folder_id) AS folder FROM messages m WHERE m.mailbox_id BETWEEN 9345021 AND 9345029 ORDER BY m.mailbox_id, m.message_id, folder",
+ "memberships": "SELECT m.message_id, t.name AS tag, mt.is_primary, mt.imap_uid, mt.added_by FROM message_tags mt JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at JOIN tags t ON t.id = mt.tag_id WHERE m.mailbox_id BETWEEN 9345021 AND 9345029 ORDER BY m.message_id, t.name",
+ "tags": "SELECT t.mailbox_id, t.name, t.tag_type, t.sort_order, t.imap_expose, t.imap_name, (SELECT p.name FROM tags p WHERE p.id = t.parent_id) AS parent, t.total_count, t.unread_count, t.imap_uid_next, t.jmap_state FROM tags t WHERE t.mailbox_id BETWEEN 9345021 AND 9345029 ORDER BY t.mailbox_id, t.name",
+ "mailboxes": "SELECT id, used_bytes, jmap_email_state, jmap_tag_state FROM mailboxes WHERE id BETWEEN 9345021 AND 9345029 ORDER BY id",
+ "journal": "SELECT j.mailbox_id, j.state_seq, j.op, j.datatype, CASE WHEN j.entity_id BETWEEN 9345100 AND 9345199 THEN j.entity_id ELSE -1 END AS entity FROM jmap_changes_journal j WHERE j.mailbox_id BETWEEN 9345021 AND 9345029 ORDER BY j.mailbox_id, j.state_seq, entity",
+ "orphans": "SELECT raw_ref FROM orphaned_message_blobs WHERE raw_ref LIKE 'imap3/%' ORDER BY raw_ref",
+ "audit": "SELECT mailbox_id, actor_user_id, action, message_id FROM mailbox_audit_log WHERE mailbox_id BETWEEN 9345021 AND 9345029 ORDER BY id"
+}

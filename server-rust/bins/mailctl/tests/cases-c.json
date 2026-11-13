@@ -1,0 +1,517 @@
+[
+  {
+    "name": "c-dane-missing-cert",
+    "args": [
+      "dane",
+      "generate"
+    ]
+  },
+  {
+    "name": "c-dane-spki",
+    "args": [
+      "dane",
+      "generate",
+      "--cert",
+      "$HOME/cert.pem",
+      "--hostname",
+      "mail.example.test."
+    ],
+    "files": {
+      "cert.pem": "-----BEGIN CERTIFICATE-----\nMIIDSTCCAjGgAwIBAgIUcECuGYHds/MVTHcEv4qxYMsfzbcwDQYJKoZIhvcNAQEL\nBQAwIjEgMB4GA1UEAwwXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwHhcNMjYxMDMx\nMTAxMDEyWhcNMzYxMDI4MTAxMDEyWjAiMSAwHgYDVQQDDBdhbGljZUBnb2ZyZWUt\nbWN0bDMudGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANt04jfp\n7MVEAkebP5J8q3I2C/qV5UIh0nevc/ERma1IUo7gQZgye3GiM4xDJtyLsK5MFkDX\nhRnR2aQ30W+3xhZ7UtjCO3fWYEk0hzw2L7ShwTAOdnIrCYQTcLpfYf628f5Zx7ry\nkDMKm0tNIbgvLG2aGnEY7QDoAci5XnVX0zwML13VrMhnkwch5wAOmiCbrh5OsE9q\ngeUhJQV+YicpUiljVGQFLpeSmibxiZm1C6P1NTnlF8vgXvPik1QpnrgrAQrg31z1\n9X40DHLTMvKgCc4Mi1hcYrWcJse3RYHExf1bXRTCHs7ygns7kSCgbDiDD1hM/ufJ\nEsfhysyYJNDoMu8CAwEAAaN3MHUwHQYDVR0OBBYEFEQBqbtVVwd74/cV4BkNw3WM\nFw/HMB8GA1UdIwQYMBaAFEQBqbtVVwd74/cV4BkNw3WMFw/HMA8GA1UdEwEB/wQF\nMAMBAf8wIgYDVR0RBBswGYEXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwDQYJKoZI\nhvcNAQELBQADggEBAKSiFBFSCPwnR2bJCNZ1ZQ/5ZUN6q/VDp4FqMeUqmRhZ6yTr\n49rvQzMCAB1lewW5Sfyi/hZxAiMVMZF93VU5it3aDdK2ORSQXFO2VvyoKnorBeI7\nsekNKDsbKFdg3+VIejcpqghppMQU4PnORn4oMegpe2mjvt5M2bZ8u9UgenvDUJZE\nuo4NZv5kFiYYmJ4nAqdsqFX0XAwZESjoBQhWsSOU/rXMKA37lvcDucdfSDi/n/y/\nZzsFyva9SHxKTVeiaxpHrTi4EqygEid6Y9FdSPhC1jUr2y9y7bJx8U+KElQMkBUB\nzUzdfzUsI1NxvZakmsgXI3qD4bSShQpmvToa+X0=\n-----END CERTIFICATE-----\n"
+    }
+  },
+  {
+    "name": "c-dane-sha512-full",
+    "args": [
+      "dane",
+      "generate",
+      "--cert",
+      "$HOME/cert.pem",
+      "--hostname",
+      "mail.example.test.",
+      "--usage",
+      "2",
+      "--selector",
+      "0",
+      "--matching",
+      "2"
+    ],
+    "files": {
+      "cert.pem": "-----BEGIN CERTIFICATE-----\nMIIDSTCCAjGgAwIBAgIUcECuGYHds/MVTHcEv4qxYMsfzbcwDQYJKoZIhvcNAQEL\nBQAwIjEgMB4GA1UEAwwXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwHhcNMjYxMDMx\nMTAxMDEyWhcNMzYxMDI4MTAxMDEyWjAiMSAwHgYDVQQDDBdhbGljZUBnb2ZyZWUt\nbWN0bDMudGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANt04jfp\n7MVEAkebP5J8q3I2C/qV5UIh0nevc/ERma1IUo7gQZgye3GiM4xDJtyLsK5MFkDX\nhRnR2aQ30W+3xhZ7UtjCO3fWYEk0hzw2L7ShwTAOdnIrCYQTcLpfYf628f5Zx7ry\nkDMKm0tNIbgvLG2aGnEY7QDoAci5XnVX0zwML13VrMhnkwch5wAOmiCbrh5OsE9q\ngeUhJQV+YicpUiljVGQFLpeSmibxiZm1C6P1NTnlF8vgXvPik1QpnrgrAQrg31z1\n9X40DHLTMvKgCc4Mi1hcYrWcJse3RYHExf1bXRTCHs7ygns7kSCgbDiDD1hM/ufJ\nEsfhysyYJNDoMu8CAwEAAaN3MHUwHQYDVR0OBBYEFEQBqbtVVwd74/cV4BkNw3WM\nFw/HMB8GA1UdIwQYMBaAFEQBqbtVVwd74/cV4BkNw3WMFw/HMA8GA1UdEwEB/wQF\nMAMBAf8wIgYDVR0RBBswGYEXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwDQYJKoZI\nhvcNAQELBQADggEBAKSiFBFSCPwnR2bJCNZ1ZQ/5ZUN6q/VDp4FqMeUqmRhZ6yTr\n49rvQzMCAB1lewW5Sfyi/hZxAiMVMZF93VU5it3aDdK2ORSQXFO2VvyoKnorBeI7\nsekNKDsbKFdg3+VIejcpqghppMQU4PnORn4oMegpe2mjvt5M2bZ8u9UgenvDUJZE\nuo4NZv5kFiYYmJ4nAqdsqFX0XAwZESjoBQhWsSOU/rXMKA37lvcDucdfSDi/n/y/\nZzsFyva9SHxKTVeiaxpHrTi4EqygEid6Y9FdSPhC1jUr2y9y7bJx8U+KElQMkBUB\nzUzdfzUsI1NxvZakmsgXI3qD4bSShQpmvToa+X0=\n-----END CERTIFICATE-----\n"
+    }
+  },
+  {
+    "name": "c-dane-zone-injection",
+    "args": [
+      "dane",
+      "generate",
+      "--cert",
+      "$HOME/cert.pem",
+      "--hostname",
+      "mail.example.test. IN TXT x"
+    ],
+    "files": {}
+  },
+  {
+    "name": "c-dane-hostname-grammar",
+    "args": [
+      "dane",
+      "generate",
+      "--cert",
+      "$HOME/cert.pem",
+      "--hostname",
+      "mail.example.test. IN TXT x"
+    ],
+    "files": {
+      "cert.pem": "-----BEGIN CERTIFICATE-----\nMIIDSTCCAjGgAwIBAgIUcECuGYHds/MVTHcEv4qxYMsfzbcwDQYJKoZIhvcNAQEL\nBQAwIjEgMB4GA1UEAwwXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwHhcNMjYxMDMx\nMTAxMDEyWhcNMzYxMDI4MTAxMDEyWjAiMSAwHgYDVQQDDBdhbGljZUBnb2ZyZWUt\nbWN0bDMudGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANt04jfp\n7MVEAkebP5J8q3I2C/qV5UIh0nevc/ERma1IUo7gQZgye3GiM4xDJtyLsK5MFkDX\nhRnR2aQ30W+3xhZ7UtjCO3fWYEk0hzw2L7ShwTAOdnIrCYQTcLpfYf628f5Zx7ry\nkDMKm0tNIbgvLG2aGnEY7QDoAci5XnVX0zwML13VrMhnkwch5wAOmiCbrh5OsE9q\ngeUhJQV+YicpUiljVGQFLpeSmibxiZm1C6P1NTnlF8vgXvPik1QpnrgrAQrg31z1\n9X40DHLTMvKgCc4Mi1hcYrWcJse3RYHExf1bXRTCHs7ygns7kSCgbDiDD1hM/ufJ\nEsfhysyYJNDoMu8CAwEAAaN3MHUwHQYDVR0OBBYEFEQBqbtVVwd74/cV4BkNw3WM\nFw/HMB8GA1UdIwQYMBaAFEQBqbtVVwd74/cV4BkNw3WMFw/HMA8GA1UdEwEB/wQF\nMAMBAf8wIgYDVR0RBBswGYEXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwDQYJKoZI\nhvcNAQELBQADggEBAKSiFBFSCPwnR2bJCNZ1ZQ/5ZUN6q/VDp4FqMeUqmRhZ6yTr\n49rvQzMCAB1lewW5Sfyi/hZxAiMVMZF93VU5it3aDdK2ORSQXFO2VvyoKnorBeI7\nsekNKDsbKFdg3+VIejcpqghppMQU4PnORn4oMegpe2mjvt5M2bZ8u9UgenvDUJZE\nuo4NZv5kFiYYmJ4nAqdsqFX0XAwZESjoBQhWsSOU/rXMKA37lvcDucdfSDi/n/y/\nZzsFyva9SHxKTVeiaxpHrTi4EqygEid6Y9FdSPhC1jUr2y9y7bJx8U+KElQMkBUB\nzUzdfzUsI1NxvZakmsgXI3qD4bSShQpmvToa+X0=\n-----END CERTIFICATE-----\n"
+    }
+  },
+  {
+    "name": "c-exchange-preflight",
+    "args": [
+      "exchange",
+      "assess",
+      "preflight",
+      "--offline",
+      "--doctor",
+      "--json",
+      "--write-config",
+      "$HOME/config.yaml"
+    ],
+    "capture_files": [
+      "config.yaml"
+    ]
+  },
+  {
+    "name": "c-exchange-sample",
+    "args": [
+      "exchange",
+      "assess",
+      "sample",
+      "--output",
+      "$HOME/sample",
+      "--json"
+    ],
+    "capture_files": [
+      "sample/bundle.sja",
+      "sample/report.json",
+      "sample/report.html",
+      "sample/manifest.json",
+      "sample/receipt.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-exchange-inspect",
+    "args": [
+      "exchange",
+      "assess",
+      "inspect",
+      "$HOME/bundle.sja",
+      "--json"
+    ],
+    "files": {
+      "bundle.sja": "{\n  \"schemaVersion\": \"setjoin.exchange.bundle/v1\",\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"importable\": false,\n  \"registryVersion\": 1,\n  \"registryDigest\": \"cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\n  \"catalogVersion\": 1,\n  \"supportCellId\": \"EX2019-ONPREM-INITIAL\",\n  \"supportCellDigest\": \"26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963\",\n  \"collectorVersion\": \"1\",\n  \"collectedAt\": \"2026-08-23T00:00:00Z\",\n  \"originDigest\": \"8c2a3f6795c2402adc34362b5bc9a830609a29e1a2b84a95bf668ffd5aa257c1\",\n  \"probes\": [\n    {\n      \"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ADDRESS-LISTS-OAB\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ANTISPAM-MALWARE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ARCHIVE-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTO-REPLIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CALENDAR-VISIBILITY\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CERTIFICATES-TLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DATABASE-HA\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DISTRIBUTION-GROUPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DLP\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EDISCOVERY-SEARCH\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-HYBRID-COEXISTENCE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-INBOX-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-JOURNALING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAIL-FLOW-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-AUDIT\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-DELEGATION\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MIGRATION-SIZING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MOBILE-ACTIVESYNC\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MONITORING-OPERATIONS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-PUBLIC-FOLDERS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-QUOTAS-LIMITS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RESOURCE-BOOKING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RETENTION-HOLD\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ROOM-LISTS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SHARED-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    }\n  ]\n}\n"
+    }
+  },
+  {
+    "name": "c-exchange-report",
+    "args": [
+      "exchange",
+      "assess",
+      "report",
+      "$HOME/bundle.sja",
+      "--output",
+      "$HOME/report"
+    ],
+    "files": {
+      "bundle.sja": "{\n  \"schemaVersion\": \"setjoin.exchange.bundle/v1\",\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"importable\": false,\n  \"registryVersion\": 1,\n  \"registryDigest\": \"cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\n  \"catalogVersion\": 1,\n  \"supportCellId\": \"EX2019-ONPREM-INITIAL\",\n  \"supportCellDigest\": \"26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963\",\n  \"collectorVersion\": \"1\",\n  \"collectedAt\": \"2026-08-23T00:00:00Z\",\n  \"originDigest\": \"8c2a3f6795c2402adc34362b5bc9a830609a29e1a2b84a95bf668ffd5aa257c1\",\n  \"probes\": [\n    {\n      \"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ADDRESS-LISTS-OAB\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ANTISPAM-MALWARE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ARCHIVE-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTO-REPLIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CALENDAR-VISIBILITY\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CERTIFICATES-TLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DATABASE-HA\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DISTRIBUTION-GROUPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DLP\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EDISCOVERY-SEARCH\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-HYBRID-COEXISTENCE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-INBOX-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-JOURNALING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAIL-FLOW-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-AUDIT\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-DELEGATION\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MIGRATION-SIZING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MOBILE-ACTIVESYNC\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MONITORING-OPERATIONS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-PUBLIC-FOLDERS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-QUOTAS-LIMITS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RESOURCE-BOOKING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RETENTION-HOLD\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ROOM-LISTS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SHARED-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    }\n  ]\n}\n"
+    },
+    "capture_files": [
+      "report/report.json",
+      "report/report.html",
+      "report/manifest.json",
+      "report/receipt.json"
+    ]
+  },
+  {
+    "name": "c-exchange-diagnose",
+    "args": [
+      "exchange",
+      "assess",
+      "diagnose",
+      "$HOME/bundle.sja",
+      "--output",
+      "$HOME/support.json"
+    ],
+    "files": {
+      "bundle.sja": "{\n  \"schemaVersion\": \"setjoin.exchange.bundle/v1\",\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"importable\": false,\n  \"registryVersion\": 1,\n  \"registryDigest\": \"cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\n  \"catalogVersion\": 1,\n  \"supportCellId\": \"EX2019-ONPREM-INITIAL\",\n  \"supportCellDigest\": \"26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963\",\n  \"collectorVersion\": \"1\",\n  \"collectedAt\": \"2026-08-23T00:00:00Z\",\n  \"originDigest\": \"8c2a3f6795c2402adc34362b5bc9a830609a29e1a2b84a95bf668ffd5aa257c1\",\n  \"probes\": [\n    {\n      \"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ADDRESS-LISTS-OAB\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ANTISPAM-MALWARE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ARCHIVE-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTO-REPLIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CALENDAR-VISIBILITY\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CERTIFICATES-TLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DATABASE-HA\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DISTRIBUTION-GROUPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DLP\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EDISCOVERY-SEARCH\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-HYBRID-COEXISTENCE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-INBOX-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-JOURNALING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAIL-FLOW-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-AUDIT\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-DELEGATION\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MIGRATION-SIZING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MOBILE-ACTIVESYNC\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MONITORING-OPERATIONS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-PUBLIC-FOLDERS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-QUOTAS-LIMITS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RESOURCE-BOOKING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RETENTION-HOLD\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ROOM-LISTS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SHARED-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    }\n  ]\n}\n"
+    },
+    "capture_files": [
+      "support.json"
+    ]
+  },
+  {
+    "name": "c-exchange-collect",
+    "args": [
+      "exchange",
+      "assess",
+      "collect",
+      "--input",
+      "$HOME/collector.json",
+      "--output",
+      "$HOME/collection"
+    ],
+    "files": {
+      "collector.json": "{\"schemaVersion\": \"setjoin.exchange.collector-output/v1\", \"supportCellId\": \"EX2019-ONPREM-INITIAL\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"probes\": [{\"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ADDRESS-LISTS-OAB\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ANTISPAM-MALWARE\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ARCHIVE-MAILBOX\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-AUTO-REPLIES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-CALENDAR-VISIBILITY\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-CERTIFICATES-TLS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DATABASE-HA\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DISTRIBUTION-GROUPS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DLP\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-EDISCOVERY-SEARCH\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-HYBRID-COEXISTENCE\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-INBOX-RULES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-JOURNALING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAIL-FLOW-RULES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAILBOX-AUDIT\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAILBOX-DELEGATION\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MIGRATION-SIZING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MOBILE-ACTIVESYNC\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MONITORING-OPERATIONS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-PUBLIC-FOLDERS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-QUOTAS-LIMITS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RESOURCE-BOOKING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RETENTION-HOLD\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ROOM-LISTS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-SHARED-MAILBOX\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}]}"
+    },
+    "capture_files": [
+      "collection/bundle.sja",
+      "collection/report.json",
+      "collection/manifest.json",
+      "collection/receipt.json",
+      "collection/report.html"
+    ]
+  },
+  {
+    "name": "c-exchange-import",
+    "args": [
+      "exchange",
+      "assess",
+      "import",
+      "$HOME/bundle.sja",
+      "--project-id",
+      "17",
+      "--json"
+    ],
+    "files": {
+      "bundle.sja": "{\n  \"schemaVersion\": \"setjoin.exchange.bundle/v1\",\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"importable\": true,\n  \"registryVersion\": 1,\n  \"registryDigest\": \"cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\n  \"catalogVersion\": 1,\n  \"supportCellId\": \"EX2019-ONPREM-INITIAL\",\n  \"supportCellDigest\": \"26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963\",\n  \"collectorVersion\": \"1\",\n  \"collectedAt\": \"2026-08-23T00:00:00Z\",\n  \"originDigest\": \"b5c024a89b3c4a00af7438c4c417c19e63be5b4ad43f1f2550797053dffaa0db\",\n  \"probes\": [\n    {\n      \"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ADDRESS-LISTS-OAB\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ANTISPAM-MALWARE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ARCHIVE-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-AUTO-REPLIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CALENDAR-VISIBILITY\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-CERTIFICATES-TLS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DATABASE-HA\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DISTRIBUTION-GROUPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-DLP\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EDISCOVERY-SEARCH\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-HYBRID-COEXISTENCE\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-INBOX-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-JOURNALING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAIL-FLOW-RULES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-AUDIT\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MAILBOX-DELEGATION\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MIGRATION-SIZING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MOBILE-ACTIVESYNC\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-MONITORING-OPERATIONS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-PUBLIC-FOLDERS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-QUOTAS-LIMITS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RESOURCE-BOOKING\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-RETENTION-HOLD\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-ROOM-LISTS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    },\n    {\n      \"capabilityId\": \"EX-SHARED-MAILBOX\",\n      \"state\": \"unassessed\",\n      \"diagnosticId\": \"SAMPLE-001\",\n      \"safeFacts\": {\n        \"fixture\": true\n      }\n    }\n  ]\n}\n"
+    },
+    "generated_key": true,
+    "header_only_key": true,
+    "responses": [
+      {
+        "body": "{\"id\":4,\"generation\":2}"
+      },
+      {
+        "body": "{\"stored\":true}"
+      }
+    ]
+  },
+  {
+    "name": "c-exchange-sample-flags",
+    "args": [
+      "exchange",
+      "assess",
+      "sample",
+      "--help"
+    ]
+  },
+  {
+    "name": "c-exchange-duplicate-json",
+    "args": [
+      "exchange",
+      "assess",
+      "inspect",
+      "$HOME/bundle.sja",
+      "--json"
+    ],
+    "files": {
+      "bundle.sja": "{\"schemaVersion\":\"x\",\"probes\":[{\"safeFacts\":{\"nested\":{\"x\":1,\"x\":2}}}]}"
+    }
+  },
+  {
+    "name": "c-exchange-a0-registry",
+    "args": [
+      "exchange-a0",
+      "registry",
+      "--output",
+      "$HOME/registry.json"
+    ],
+    "capture_files": [
+      "registry.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-exchange-a0-validate",
+    "args": [
+      "exchange-a0",
+      "validate",
+      "--input",
+      "$HOME/input.json"
+    ],
+    "files": {
+      "input.json": "{\"schemaVersion\": \"setjoin.exchange.a0.input/v0\", \"artifactKind\": \"assessment-input\", \"collectorVersion\": \"a0-v0\", \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"source\": {\"organization\": \"Example <Org>\", \"topology\": \"on-prem\", \"builds\": [\"15.2.1\"]}, \"probes\": [{\"capabilityId\": \"EX-A0-TOPOLOGY\", \"status\": \"observed\", \"facts\": {\"servers\": 2}}]}"
+    }
+  },
+  {
+    "name": "c-exchange-a0-report",
+    "args": [
+      "exchange-a0",
+      "report",
+      "--input",
+      "$HOME/input.json",
+      "--output",
+      "$HOME/report",
+      "--locale",
+      "en-US",
+      "--generated-at",
+      "2026-08-23T01:00:00Z"
+    ],
+    "files": {
+      "input.json": "{\"schemaVersion\": \"setjoin.exchange.a0.input/v0\", \"artifactKind\": \"assessment-input\", \"collectorVersion\": \"a0-v0\", \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"source\": {\"organization\": \"Example <Org>\", \"topology\": \"on-prem\", \"builds\": [\"15.2.1\"]}, \"probes\": [{\"capabilityId\": \"EX-A0-TOPOLOGY\", \"status\": \"observed\", \"facts\": {\"servers\": 2}}]}"
+    },
+    "capture_files": [
+      "report/report.json",
+      "report/report.html",
+      "report/manifest.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-exchange-a0-attest",
+    "args": [
+      "exchange-a0",
+      "attest",
+      "--kind",
+      "handling",
+      "--report",
+      "$HOME/report.json",
+      "--organization",
+      "Example Org",
+      "--actor",
+      "Operator",
+      "--decision",
+      "accepted",
+      "--purpose",
+      "Migration review",
+      "--retention-days",
+      "30",
+      "--issued-at",
+      "2026-08-24T00:00:00Z",
+      "--output",
+      "$HOME/receipt.json"
+    ],
+    "files": {
+      "report.json": "{\n  \"schemaVersion\": \"setjoin.exchange.a0.report/v0\",\n  \"phase\": \"A0 concierge discovery only — replacement readiness not established\",\n  \"importable\": false,\n  \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\",\n  \"inputDigest\": \"22e319ed0c60ea4e6a2c50b9568eb79a31f5c676154de2b094d37add97c09b4c\",\n  \"rowSetDigest\": \"2ff45dcfa1dd8988f943a46216119803649457d3cb31075cb4d8f49d4bcd20ed\",\n  \"generatedAt\": \"2026-08-23T01:00:00Z\",\n  \"source\": {\n    \"organization\": \"Example \\u003cOrg\\u003e\",\n    \"topology\": \"on-prem\",\n    \"builds\": [\n      \"15.2.1\"\n    ]\n  },\n  \"complete\": 1,\n  \"expected\": 4,\n  \"rows\": [\n    {\n      \"capabilityId\": \"EX-A0-TOPOLOGY\",\n      \"title\": \"Exchange topology and build inventory\",\n      \"outcome\": \"Identify the exact Exchange build and topology support cell.\",\n      \"status\": \"observed\",\n      \"facts\": {\n        \"servers\": 2\n      }\n    },\n    {\n      \"capabilityId\": \"EX-A0-MAILBOX-DELEGATION\",\n      \"title\": \"Mailbox delegation\",\n      \"outcome\": \"Inventory explicit mailbox access and send delegation for migration planning.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    },\n    {\n      \"capabilityId\": \"EX-A0-CALENDAR-VISIBILITY\",\n      \"title\": \"Calendar visibility and delegation\",\n      \"outcome\": \"Assess default and explicit calendar-folder visibility without changing permissions.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    },\n    {\n      \"capabilityId\": \"EX-A0-RESOURCE-BOOKING\",\n      \"title\": \"Room and equipment booking policy\",\n      \"outcome\": \"Inventory resource booking, approval and conflict policy.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    }\n  ]\n}\n"
+    },
+    "capture_files": [
+      "receipt.json"
+    ]
+  },
+  {
+    "name": "c-exchange-a0-verify-receipt",
+    "args": [
+      "exchange-a0",
+      "verify-receipt",
+      "--report",
+      "$HOME/report.json",
+      "--receipt",
+      "$HOME/receipt.json"
+    ],
+    "files": {
+      "report.json": "{\n  \"schemaVersion\": \"setjoin.exchange.a0.report/v0\",\n  \"phase\": \"A0 concierge discovery only — replacement readiness not established\",\n  \"importable\": false,\n  \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\",\n  \"inputDigest\": \"22e319ed0c60ea4e6a2c50b9568eb79a31f5c676154de2b094d37add97c09b4c\",\n  \"rowSetDigest\": \"2ff45dcfa1dd8988f943a46216119803649457d3cb31075cb4d8f49d4bcd20ed\",\n  \"generatedAt\": \"2026-08-23T01:00:00Z\",\n  \"source\": {\n    \"organization\": \"Example \\u003cOrg\\u003e\",\n    \"topology\": \"on-prem\",\n    \"builds\": [\n      \"15.2.1\"\n    ]\n  },\n  \"complete\": 1,\n  \"expected\": 4,\n  \"rows\": [\n    {\n      \"capabilityId\": \"EX-A0-TOPOLOGY\",\n      \"title\": \"Exchange topology and build inventory\",\n      \"outcome\": \"Identify the exact Exchange build and topology support cell.\",\n      \"status\": \"observed\",\n      \"facts\": {\n        \"servers\": 2\n      }\n    },\n    {\n      \"capabilityId\": \"EX-A0-MAILBOX-DELEGATION\",\n      \"title\": \"Mailbox delegation\",\n      \"outcome\": \"Inventory explicit mailbox access and send delegation for migration planning.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    },\n    {\n      \"capabilityId\": \"EX-A0-CALENDAR-VISIBILITY\",\n      \"title\": \"Calendar visibility and delegation\",\n      \"outcome\": \"Assess default and explicit calendar-folder visibility without changing permissions.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    },\n    {\n      \"capabilityId\": \"EX-A0-RESOURCE-BOOKING\",\n      \"title\": \"Room and equipment booking policy\",\n      \"outcome\": \"Inventory resource booking, approval and conflict policy.\",\n      \"status\": \"unassessed\",\n      \"diagnosticId\": \"A0-MISSING\",\n      \"detail\": \"Collector emitted no result for this capability.\",\n      \"facts\": {}\n    }\n  ]\n}\n",
+      "receipt.json": "{\n  \"schemaVersion\": \"setjoin.exchange.a0.receipt/v0\",\n  \"receiptKind\": \"handling\",\n  \"receiptId\": \"7073f5d0535c5a386fa0f12ba05160e7413c7808bc450e6aa100abbe6be93d33\",\n  \"reportDigest\": \"6e89ea0dc69cc806cc2f7233e8faca6622d430515fc7a353928afb7acfe033c0\",\n  \"organization\": \"Example Org\",\n  \"actor\": \"Operator\",\n  \"decision\": \"accepted\",\n  \"purpose\": \"Migration review\",\n  \"retentionDays\": 30,\n  \"issuedAt\": \"2026-08-24T00:00:00Z\",\n  \"signatureStatus\": \"unsigned_customer_attestation\",\n  \"importable\": false\n}\n"
+    }
+  },
+  {
+    "name": "c-entitlement-show",
+    "args": [
+      "entitlement",
+      "show",
+      "--json"
+    ],
+    "env": {
+      "SETJOIN_ENTITLEMENT_PATH": "$HOME/entitlement.json",
+      "SETJOIN_ENTITLEMENT_TRUST_ROOTS": "$HOME/trust.json",
+      "SETJOIN_INSTALLATION_ID_FILE": "$HOME/installation-id",
+      "SETJOIN_UPDATE_CHANNEL_FILE": "$HOME/channel"
+    },
+    "files": {
+      "entitlement.json": "{\"schema_version\": 1, \"entitlement_id\": \"ent-1\", \"installation_id\": \"install-1\", \"customer_id\": \"customer-1\", \"channels\": [\"enterprise\"], \"version_ranges\": [\">=2.0.0 <3.0.0\"], \"issued_at\": \"2026-01-01T00:00:00Z\", \"valid_from\": \"2026-01-01T00:00:00Z\", \"valid_until\": \"2099-01-01T00:00:00Z\", \"grace_until\": \"2099-02-01T00:00:00Z\", \"non_production_rights\": [\"dr\"], \"key_id\": \"fixture-production\", \"signatures\": [{\"key_id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"value\": \"yfJYSZuh3FjKYxgMtQOl25NGMx4Zxnc+rwBtNKwEhbpHD9QRLlHwye2jPAMusAOvhH+l8U2RXEaW2y7AGOnCCg\"}]}",
+      "trust.json": "{\"schema_version\": 1, \"purpose\": \"entitlement\", \"keys\": [{\"id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"public_key\": \"A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"}]}",
+      "installation-id": "install-1\n",
+      "channel": "enterprise\n"
+    }
+  },
+  {
+    "name": "c-entitlement-signed-show",
+    "args": [
+      "entitlement",
+      "show",
+      "--json"
+    ],
+    "env": {
+      "SETJOIN_ENTITLEMENT_PATH": "$HOME/entitlement.json",
+      "SETJOIN_ENTITLEMENT_TRUST_ROOTS": "$HOME/trust.json",
+      "SETJOIN_INSTALLATION_ID_FILE": "$HOME/installation-id",
+      "SETJOIN_UPDATE_CHANNEL_FILE": "$HOME/channel"
+    },
+    "files": {
+      "entitlement.json": "{\"schema_version\": 1, \"entitlement_id\": \"ent-1\", \"installation_id\": \"install-1\", \"customer_id\": \"customer-1\", \"channels\": [\"enterprise\"], \"version_ranges\": [\">=2.0.0 <3.0.0\"], \"issued_at\": \"2026-01-01T00:00:00Z\", \"valid_from\": \"2026-01-01T00:00:00Z\", \"valid_until\": \"2099-01-01T00:00:00Z\", \"grace_until\": \"2099-02-01T00:00:00Z\", \"non_production_rights\": [\"dr\"], \"key_id\": \"fixture-production\", \"signatures\": [{\"key_id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"value\": \"ZfTbadZBZLyaCOpgiZwPVFm5XE7tlLwKsdHDnZlZJ8cPqaliDYhj9KhY8LEJDxf4jekvWvlUvtHiQn3yh2T7DA\"}]}",
+      "trust.json": "{\"schema_version\": 1, \"purpose\": \"entitlement\", \"keys\": [{\"id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"public_key\": \"A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"}]}",
+      "installation-id": "install-1\n",
+      "channel": "enterprise\n"
+    }
+  },
+  {
+    "name": "c-entitlement-import",
+    "args": [
+      "entitlement",
+      "import",
+      "$HOME/source.json",
+      "--json"
+    ],
+    "env": {
+      "SETJOIN_ENTITLEMENT_PATH": "$HOME/entitlement.json",
+      "SETJOIN_ENTITLEMENT_TRUST_ROOTS": "$HOME/trust.json",
+      "SETJOIN_INSTALLATION_ID_FILE": "$HOME/installation-id",
+      "SETJOIN_UPDATE_CHANNEL_FILE": "$HOME/channel"
+    },
+    "files": {
+      "trust.json": "{\"schema_version\": 1, \"purpose\": \"entitlement\", \"keys\": [{\"id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"public_key\": \"A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"}]}",
+      "installation-id": "install-1\n",
+      "channel": "enterprise\n",
+      "source.json": "{\"schema_version\": 1, \"entitlement_id\": \"ent-1\", \"installation_id\": \"install-1\", \"customer_id\": \"customer-1\", \"channels\": [\"enterprise\"], \"version_ranges\": [\">=2.0.0 <3.0.0\"], \"issued_at\": \"2026-01-01T00:00:00Z\", \"valid_from\": \"2026-01-01T00:00:00Z\", \"valid_until\": \"2099-01-01T00:00:00Z\", \"grace_until\": \"2099-02-01T00:00:00Z\", \"non_production_rights\": [\"dr\"], \"key_id\": \"fixture-production\", \"signatures\": [{\"key_id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"value\": \"ZfTbadZBZLyaCOpgiZwPVFm5XE7tlLwKsdHDnZlZJ8cPqaliDYhj9KhY8LEJDxf4jekvWvlUvtHiQn3yh2T7DA\"}]}",
+      "entitlement.json": "old entitlement"
+    },
+    "capture_files": [
+      "entitlement.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-backup-run",
+    "args": [
+      "backup",
+      "run"
+    ],
+    "responses": [
+      {
+        "body": "{\"run_id\":7}"
+      }
+    ]
+  },
+  {
+    "name": "c-backup-list",
+    "args": [
+      "backup",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":7,\"status\":\"completed\"}]"
+      }
+    ]
+  },
+  {
+    "name": "c-backup-create-pre-upgrade-required",
+    "args": [
+      "backup",
+      "create"
+    ]
+  },
+  {
+    "name": "c-a0-raw-facts-order",
+    "args": [
+      "exchange-a0",
+      "report",
+      "--input",
+      "$HOME/input.json",
+      "--output",
+      "$HOME/report",
+      "--locale",
+      "en-US",
+      "--generated-at",
+      "2026-08-23T01:00:00Z"
+    ],
+    "files": {
+      "input.json": "{\"schemaVersion\": \"setjoin.exchange.a0.input/v0\", \"artifactKind\": \"assessment-input\", \"collectorVersion\": \"a0-v0\", \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"source\": {\"organization\": \"Example <Org>\", \"topology\": \"on-prem\", \"builds\": [\"15.2.1\"]}, \"probes\": [{\"capabilityId\": \"EX-A0-TOPOLOGY\", \"status\": \"observed\", \"facts\": {\"z\": 1, \"a\": 2}}]}"
+    },
+    "capture_files": [
+      "report/report.json",
+      "report/report.html",
+      "report/manifest.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-a0-null-facts",
+    "args": [
+      "exchange-a0",
+      "report",
+      "--input",
+      "$HOME/input.json",
+      "--output",
+      "$HOME/report",
+      "--locale",
+      "en-US",
+      "--generated-at",
+      "2026-08-23T01:00:00Z"
+    ],
+    "files": {
+      "input.json": "{\"schemaVersion\": \"setjoin.exchange.a0.input/v0\", \"artifactKind\": \"assessment-input\", \"collectorVersion\": \"a0-v0\", \"registryDigest\": \"6e1584b90bcb22c7359867392f0c1b852d10f2c608cd3ce0f99184863d3dcfe1\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"source\": {\"organization\": \"Example <Org>\", \"topology\": \"on-prem\", \"builds\": [\"15.2.1\"]}, \"probes\": [{\"capabilityId\": \"EX-A0-TOPOLOGY\", \"status\": \"observed\", \"facts\": null}]}"
+    },
+    "capture_files": [
+      "report/report.json",
+      "report/report.html",
+      "report/manifest.json"
+    ],
+    "no_artifact_temps": true
+  },
+  {
+    "name": "c-a0-registry-existing",
+    "args": [
+      "exchange-a0",
+      "registry",
+      "--output",
+      "$HOME/registry.json"
+    ],
+    "files": {
+      "registry.json": "unchanged"
+    },
+    "capture_files": [
+      "registry.json"
+    ],
+    "no_artifact_temps": true,
+    "artifact_temp_errors": true
+  },
+  {
+    "name": "c-backup-db-unknown-flag",
+    "args": [
+      "backup-db",
+      "--oracle-unknown"
+    ]
+  },
+  {
+    "name": "c-restore-unknown-flag",
+    "args": [
+      "restore",
+      "--oracle-unknown"
+    ]
+  },
+  {
+    "name": "c-exchange-generic-numbers",
+    "args": [
+      "exchange",
+      "assess",
+      "collect",
+      "--input",
+      "$HOME/collector.json",
+      "--output",
+      "$HOME/collection"
+    ],
+    "files": {
+      "collector.json": "{\"schemaVersion\": \"setjoin.exchange.collector-output/v1\", \"supportCellId\": \"EX2019-ONPREM-INITIAL\", \"collectedAt\": \"2026-08-23T00:00:00Z\", \"probes\": [{\"capabilityId\": \"EX-ACCEPTED-REMOTE-DOMAINS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"count\": 9007199254740993, \"large\": 1e+30, \"tiny\": 1e-09}}, {\"capabilityId\": \"EX-ADDRESS-LISTS-OAB\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ANTISPAM-MALWARE\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ARCHIVE-MAILBOX\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-AUTH-CLIENT-PROTOCOLS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-AUTO-REPLIES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-CALENDAR-VISIBILITY\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-CERTIFICATES-TLS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DATABASE-HA\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DISTRIBUTION-GROUPS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-DLP\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-EDISCOVERY-SEARCH\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-EMAIL-ADDRESS-POLICIES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-FEDERATION-ORG-RELATIONSHIPS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-HYBRID-COEXISTENCE\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-INBOX-RULES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-JOURNALING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAIL-FLOW-RULES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAILBOX-AUDIT\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MAILBOX-DELEGATION\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MIGRATION-SIZING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MOBILE-ACTIVESYNC\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-MONITORING-OPERATIONS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-PUBLIC-FOLDERS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-QUOTAS-LIMITS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RBAC-MANAGEMENT-SCOPES\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RESOURCE-BOOKING\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-RETENTION-HOLD\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-ROOM-LISTS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-SEND-RECEIVE-CONNECTORS\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}, {\"capabilityId\": \"EX-SHARED-MAILBOX\", \"state\": \"unassessed\", \"diagnosticId\": \"SAMPLE-001\", \"safeFacts\": {\"fixture\": true}}]}"
+    },
+    "capture_files": [
+      "collection/bundle.sja",
+      "collection/report.json",
+      "collection/manifest.json",
+      "collection/receipt.json",
+      "collection/report.html"
+    ]
+  }
+]

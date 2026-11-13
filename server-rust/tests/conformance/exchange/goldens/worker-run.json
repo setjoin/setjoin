@@ -1,0 +1,362 @@
+{
+  "case": "run",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "artifacts": [
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "id": "<artifacts-0>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-a>/<run-a>/0",
+          "retention_until": null,
+          "run_id": "<run-a>",
+          "sha256": "00aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "id": "<artifacts-1>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-a>/<run-a>/1",
+          "retention_until": null,
+          "run_id": "<run-a>",
+          "sha256": "01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "id": "<artifacts-2>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-b>/<run-b>/0",
+          "retention_until": null,
+          "run_id": "<run-b>",
+          "sha256": "10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "id": "<artifacts-3>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-b>/<run-b>/1",
+          "retention_until": null,
+          "run_id": "<run-b>",
+          "sha256": "11aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        }
+      ],
+      "audit": [
+        {
+          "action": "exchange.assessment.delete.active_store",
+          "after_state": {
+            "disposition": "backup_expiry_pending",
+            "receiptId": "<receipts-0>",
+            "requestId": "<deletions-0>"
+          },
+          "before_state": null,
+          "checksum": "<checksum>",
+          "id": "<audit>",
+          "ip": null,
+          "notes": "retention expired",
+          "occurred_at": "<timestamp>",
+          "target_id": "<project-a>",
+          "target_type": "exchange_assessment_project",
+          "user_id": "<admin>"
+        },
+        {
+          "action": "exchange.assessment.delete.active_store",
+          "after_state": {
+            "disposition": "backup_expiry_pending",
+            "receiptId": "<receipts-1>",
+            "requestId": "<deletions-1>"
+          },
+          "before_state": null,
+          "checksum": "<checksum>",
+          "id": "<audit>",
+          "ip": null,
+          "notes": "retention expired",
+          "occurred_at": "<timestamp>",
+          "target_id": "<project-b>",
+          "target_type": "exchange_assessment_project",
+          "user_id": "<other>"
+        }
+      ],
+      "deletions": [
+        {
+          "artifact_id": null,
+          "id": "<deletions-0>",
+          "project_id": "<project-a>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<admin>",
+          "run_id": "<run-a>",
+          "scope": "run",
+          "state": "backup_pending",
+          "updated_at": "<timestamp>"
+        },
+        {
+          "artifact_id": null,
+          "id": "<deletions-1>",
+          "project_id": "<project-b>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<other>",
+          "run_id": "<run-b>",
+          "scope": "run",
+          "state": "backup_pending",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "receipts": [
+        {
+          "created_at": "<timestamp>",
+          "created_by": "<admin>",
+          "id": "<receipts-0>",
+          "kind": "deletion",
+          "receipt": {
+            "algorithm": "ed25519",
+            "claims": {
+              "disposition": "backup_expiry_pending",
+              "installationId": "<installation>",
+              "issuedAt": "<timestamp>",
+              "keyId": "blobs1-test-continuity",
+              "kind": "deletion",
+              "projectId": "<project-a>",
+              "receiptId": "<receipt-id>",
+              "schemaVersion": "setjoin.exchange.receipt/v1",
+              "subjectSha256": "<deletion-subject-0>",
+              "tenantId": "<domain-a>"
+            },
+            "signature": "<Ed25519 signature>"
+          },
+          "run_id": "<run-a>",
+          "signature": "<64-byte Ed25519 signature>",
+          "signature_algorithm": "ed25519",
+          "signing_key_id": "blobs1-test-continuity",
+          "subject_digest": "<deletion-subject-0>"
+        },
+        {
+          "created_at": "<timestamp>",
+          "created_by": "<other>",
+          "id": "<receipts-1>",
+          "kind": "deletion",
+          "receipt": {
+            "algorithm": "ed25519",
+            "claims": {
+              "disposition": "backup_expiry_pending",
+              "installationId": "<installation>",
+              "issuedAt": "<timestamp>",
+              "keyId": "blobs1-test-continuity",
+              "kind": "deletion",
+              "projectId": "<project-b>",
+              "receiptId": "<receipt-id>",
+              "schemaVersion": "setjoin.exchange.receipt/v1",
+              "subjectSha256": "<deletion-subject-1>",
+              "tenantId": "<domain-b>"
+            },
+            "signature": "<Ed25519 signature>"
+          },
+          "run_id": "<run-b>",
+          "signature": "<64-byte Ed25519 signature>",
+          "signature_algorithm": "ed25519",
+          "signing_key_id": "blobs1-test-continuity",
+          "subject_digest": "<deletion-subject-1>"
+        }
+      ],
+      "tombstones": [
+        {
+          "artifact_digest": "00aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "created_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "receipt_id": "<receipt-id>-<artifacts-0>",
+          "requested_by": "<admin>",
+          "run_id": "<run-a>"
+        },
+        {
+          "artifact_digest": "01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "created_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "receipt_id": "<receipt-id>-<artifacts-1>",
+          "requested_by": "<admin>",
+          "run_id": "<run-a>"
+        },
+        {
+          "artifact_digest": "10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "created_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "receipt_id": "<receipt-id>-<artifacts-2>",
+          "requested_by": "<other>",
+          "run_id": "<run-b>"
+        },
+        {
+          "artifact_digest": "11aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "created_at": "<timestamp>",
+          "disposition": "backup_expiry_pending",
+          "receipt_id": "<receipt-id>-<artifacts-3>",
+          "requested_by": "<other>",
+          "run_id": "<run-b>"
+        }
+      ]
+    },
+    "before": {
+      "artifacts": [
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": null,
+          "disposition": "active",
+          "id": "<artifacts-0>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-a>/<run-a>/0",
+          "retention_until": null,
+          "run_id": "<run-a>",
+          "sha256": "00aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": null,
+          "disposition": "active",
+          "id": "<artifacts-1>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-a>/<run-a>/1",
+          "retention_until": null,
+          "run_id": "<run-a>",
+          "sha256": "01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": null,
+          "disposition": "active",
+          "id": "<artifacts-2>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-b>/<run-b>/0",
+          "retention_until": null,
+          "run_id": "<run-b>",
+          "sha256": "10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        },
+        {
+          "aad_sha256": null,
+          "ciphertext_size": null,
+          "created_at": "<timestamp>",
+          "crypto_profile": "standard",
+          "deleted_at": null,
+          "disposition": "active",
+          "id": "<artifacts-3>",
+          "key_id": "db-encryption-key:v1",
+          "kind": "bundle",
+          "nonce": null,
+          "object_key": "gofree-mbox3-exchange/<project-b>/<run-b>/1",
+          "retention_until": null,
+          "run_id": "<run-b>",
+          "sha256": "11aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wrapped_dek": null
+        }
+      ],
+      "audit": [],
+      "deletions": [
+        {
+          "artifact_id": null,
+          "id": "<deletions-0>",
+          "project_id": "<project-a>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<admin>",
+          "run_id": "<run-a>",
+          "scope": "run",
+          "state": "requested",
+          "updated_at": "<timestamp>"
+        },
+        {
+          "artifact_id": null,
+          "id": "<deletions-1>",
+          "project_id": "<project-b>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<other>",
+          "run_id": "<run-b>",
+          "scope": "run",
+          "state": "requested",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "receipts": [],
+      "tombstones": []
+    },
+    "io": [
+      {
+        "method": "DELETE",
+        "path": "/mailblobs/gofree-mbox3-exchange/<project-a>/<run-a>/0"
+      },
+      {
+        "method": "DELETE",
+        "path": "/mailblobs/gofree-mbox3-exchange/<project-a>/<run-a>/1"
+      },
+      {
+        "method": "DELETE",
+        "path": "/mailblobs/gofree-mbox3-exchange/<project-b>/<run-b>/0"
+      },
+      {
+        "method": "DELETE",
+        "path": "/mailblobs/gofree-mbox3-exchange/<project-b>/<run-b>/1"
+      }
+    ],
+    "notify": [
+      {
+        "event": "deletion.backup_pending",
+        "projectId": "<project-a>",
+        "requestId": "<deletions-0>"
+      },
+      {
+        "event": "deletion.backup_pending",
+        "projectId": "<project-b>",
+        "requestId": "<deletions-1>"
+      }
+    ]
+  }
+}

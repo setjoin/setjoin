@@ -1,0 +1,91 @@
+-- chat_retention.pg — Chat A4a Task 4: retention resolution (effective
+-- ceiling) + per-channel override + the 7-day org-policy grace.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 4.
+BEGIN;
+SELECT plan(21);
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES
+  ('channel', 'ret-c1', 93001),
+  ('dm', NULL, 93001);
+SELECT id AS c1 FROM chat_channels WHERE name = 'ret-c1' \gset
+SELECT id AS dm1 FROM chat_channels WHERE kind = 'dm' AND created_by = 93001 \gset
+
+-- ── no policy, no override → NULL (never purge) ──────────────────────────
+SELECT is(chat_effective_retention(:c1), NULL, 'no policy + no override -> NULL');
+
+-- ── an enabled 'all' policy still in its 7-day grace does not apply yet ──
+INSERT INTO chat_retention_policies (name, applies_to, duration_days)
+  VALUES ('org-all', 'all', 90);
+SELECT is(chat_effective_retention(:c1), NULL,
+  'enabled all-policy with effective_at in the future -> still NULL (7-day grace)');
+
+-- ── same policy, grace elapsed -> applies ────────────────────────────────
+UPDATE chat_retention_policies SET effective_at = now() - interval '1 minute' WHERE name = 'org-all';
+SELECT is(chat_effective_retention(:c1), 90, 'grace elapsed -> the all-policy applies');
+
+-- ── kind-specific policy beats 'all' for matching channels ───────────────
+INSERT INTO chat_retention_policies (name, applies_to, duration_days, effective_at)
+  VALUES ('org-dm', 'dm', 30, now() - interval '1 minute');
+SELECT is(chat_effective_retention(:dm1), 30, 'a dm-specific policy beats the all-policy for a dm channel');
+SELECT is(chat_effective_retention(:c1), 90, 'the dm-specific policy does not affect a plain channel');
+
+-- ── two same-specificity policies: shortest duration wins ────────────────
+INSERT INTO chat_retention_policies (name, applies_to, duration_days, effective_at)
+  VALUES ('org-dm-2', 'dm', 10, now() - interval '1 minute');
+SELECT is(chat_effective_retention(:dm1), 10, 'shortest duration wins among same-specificity policies');
+
+-- ── disabled policies are ignored ─────────────────────────────────────────
+UPDATE chat_retention_policies SET enabled = false WHERE name = 'org-dm-2';
+SELECT is(chat_effective_retention(:dm1), 30, 'a disabled policy is ignored, falling back to the next shortest');
+
+-- ── per-channel override beats every org policy ──────────────────────────
+UPDATE chat_channels SET retention_days = 999 WHERE id = :c1;
+SELECT is(chat_effective_retention(:c1), 999, 'a per-channel override beats org policy entirely');
+
+-- ── chat_channel_set_retention: toggle belt ──────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT chat_channel_set_retention(93001, %s, 60) $$, :c1),
+  'BZ195', NULL, 'feature.chat_compliance OFF -> BZ195 (compliance disabled)');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+-- ── writes the override + a retention.change act ─────────────────────────
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :c1 AND action = 'retention.change')::int,
+  0, 'no retention.change act yet');
+SELECT lives_ok(format($$ SELECT chat_channel_set_retention(93001, %s, 45) $$, :c1),
+  'chat_channel_set_retention succeeds once compliance is ON');
+SELECT is((SELECT retention_days FROM chat_channels WHERE id = :c1), 45,
+  'the override column is updated');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :c1 AND action = 'retention.change')::int,
+  1, 'exactly one retention.change act was written');
+SELECT is((SELECT after_state - '_checksum' FROM chat_audit_log
+            WHERE channel_id = :c1 AND action = 'retention.change'),
+  '{"retentionDays": 45}'::jsonb, 'act after_state carries the new retentionDays');
+SELECT is((SELECT before_state FROM chat_audit_log
+            WHERE channel_id = :c1 AND action = 'retention.change'),
+  '{"retentionDays": 999}'::jsonb, 'act before_state carries the prior retentionDays');
+
+-- clearing the override (NULL) is a valid p_days
+SELECT lives_ok(format($$ SELECT chat_channel_set_retention(93001, %s, NULL) $$, :c1),
+  'p_days NULL clears the override');
+SELECT is((SELECT retention_days FROM chat_channels WHERE id = :c1), NULL,
+  'retention_days is NULL after clearing');
+
+-- ── BZ195 on invalid p_days ───────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_channel_set_retention(93001, %s, 0) $$, :c1),
+  'BZ195', NULL, 'p_days = 0 rejected (BZ195)');
+SELECT throws_ok(format($$ SELECT chat_channel_set_retention(93001, %s, -5) $$, :c1),
+  'BZ195', NULL, 'p_days negative rejected (BZ195)');
+
+-- ── BZ195 on a nonexistent channel ────────────────────────────────────────
+SELECT throws_ok($$ SELECT chat_channel_set_retention(93001, 999999999, 30) $$,
+  'BZ195', NULL, 'nonexistent channel -> BZ195');
+
+-- ── BZ192 trigger backstops gxp: lowering retention on a gxp channel fails ─
+INSERT INTO chat_channels (kind, name, created_by, classification, retention_days, worm_mode)
+  VALUES ('channel', 'ret-gxp', 93001, 'gxp', 200, 'governance');
+SELECT id AS gxp1 FROM chat_channels WHERE name = 'ret-gxp' \gset
+SELECT throws_ok(format($$ SELECT chat_channel_set_retention(93001, %s, 100) $$, :gxp1),
+  'BZ192', NULL, 'lowering a gxp channel''s retention is rejected by the no-downgrade trigger');
+
+SELECT * FROM finish(); ROLLBACK;

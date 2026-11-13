@@ -1,0 +1,157 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "initial": {
+      "current": "old",
+      "previous": "<release>",
+      "intent_id": "<intent>",
+      "intent_state": "recovery_required",
+      "recovery_required": true,
+      "database_reconciliation_required": false,
+      "journal_hash": "<journal-hash>"
+    },
+    "final": {
+      "current": "old",
+      "previous": "<release>",
+      "intent_id": "<intent>",
+      "intent_state": "rolled_back",
+      "recovery_required": false,
+      "database_reconciliation_required": false,
+      "journal_hash": "<journal-hash>"
+    },
+    "result": {
+      "reason": "operator verified rollback",
+      "rollback": "verified",
+      "evidence_file": "<evidence-file>",
+      "previous_release": "old"
+    },
+    "states": [
+      "claimed",
+      "preflight",
+      "recovery_point",
+      "staged",
+      "maintenance",
+      "migrations",
+      "switched",
+      "rolling_back",
+      "recovery_required",
+      "rolled_back"
+    ],
+    "host": [
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "stop setjoin-updater",
+      "stop setjoin-gateway setjoin setjoin-auth",
+      "start setjoin-auth setjoin setjoin-gateway",
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "start setjoin-updater",
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "stop setjoin-updater",
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "start setjoin-updater"
+    ],
+    "evidence": [
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "before",
+        "reason": "operator verified rollback",
+        "forced": false,
+        "status": {
+          "current": "old",
+          "previous": "<release>",
+          "intent_id": "<intent>",
+          "intent_state": "recovery_required",
+          "recovery_required": true,
+          "database_reconciliation_required": false,
+          "journal_hash": "<journal-hash>"
+        },
+        "units": {
+          "setjoin": "unknown",
+          "setjoin-auth": "unknown",
+          "setjoin-updater": "unknown"
+        }
+      },
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "before",
+        "reason": "operator verified rollback",
+        "forced": false,
+        "status": {
+          "current": "old",
+          "previous": "<release>",
+          "intent_id": "<intent>",
+          "intent_state": "rolled_back",
+          "recovery_required": false,
+          "database_reconciliation_required": true,
+          "journal_hash": "<journal-hash>"
+        },
+        "units": {
+          "setjoin": "unknown",
+          "setjoin-auth": "unknown",
+          "setjoin-updater": "unknown"
+        }
+      },
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "database_reconciled",
+        "reason": "operator verified rollback",
+        "forced": false,
+        "status": {
+          "current": "old",
+          "previous": "<release>",
+          "intent_id": "<intent>",
+          "intent_state": "rolled_back",
+          "recovery_required": false,
+          "database_reconciliation_required": false,
+          "journal_hash": "<journal-hash>"
+        },
+        "units": {
+          "setjoin": "unknown",
+          "setjoin-auth": "unknown",
+          "setjoin-updater": "unknown"
+        }
+      },
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "verified_previous",
+        "reason": "operator verified rollback",
+        "forced": false,
+        "status": {
+          "current": "old",
+          "previous": "<release>",
+          "intent_id": "<intent>",
+          "intent_state": "recovery_required",
+          "recovery_required": true,
+          "database_reconciliation_required": false,
+          "journal_hash": "<journal-hash>"
+        },
+        "units": {
+          "setjoin": "unknown",
+          "setjoin-auth": "unknown",
+          "setjoin-updater": "unknown"
+        }
+      }
+    ],
+    "recovery_audits": 1,
+    "pending": {
+      "current": "old",
+      "previous": "<release>",
+      "intent_id": "<intent>",
+      "intent_state": "rolled_back",
+      "recovery_required": false,
+      "database_reconciliation_required": true,
+      "journal_hash": "<journal-hash>"
+    }
+  }
+}

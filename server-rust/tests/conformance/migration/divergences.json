@@ -1,0 +1,49 @@
+[
+  {
+    "baseline": "goldens/m365-connect-escape-client-id.json",
+    "sha256": "42f2425a24cf30ce8465ba84b666093ef9dada754d58806dec894eaa5a66c50f",
+    "expectation": "security/m365-connect-escape-client-id.json",
+    "reason": "owner-approved security fix 2026-11-05 (#430: the M365 consent URL query-escapes the stored client id)",
+    "issue": "#430",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix6.rs::m365_consent_url_is_built_from_trusted_inputs",
+    "mutant": "m365-consent-untrusted"
+  },
+  {
+    "baseline": "goldens/start-ews-legacy.json",
+    "sha256": "2fd595557dcff7b7ed397e325ae671a2ca1ec7ad837c88dacb2706fdf6825b11",
+    "expectation": "security/start-ews-legacy.json",
+    "reason": "owner-approved security fix 2026-11-07 (#536: the legacy (identity OFF) calendar projection writes into the target mailbox's own default calendar and fails closed without one; frozen Go passed the mailbox id as the calendar id, so this event failed on calendar_events_calendar_id_fkey and, when another tenant's calendar carried that id, was probed and written there)",
+    "issue": "#536",
+    "reviewer": "owner 2026-11-07",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-07",
+    "secure_test": "bins/gateway/tests/secfix9.rs::legacy_calendar_projection_writes_only_the_target_mailboxs_own_calendar",
+    "mutant": "m365-aux-mailbox-as-calendar"
+  },
+  {
+    "baseline": "goldens/start-ews-legacy-row-effects.json",
+    "sha256": "ac243f834c068ed29fb0996673250ccfd99b7bc647d3c546f4fe91bdebcca140",
+    "expectation": "security/start-ews-legacy-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-07 (#536: the legacy (identity OFF) calendar projection writes into the target mailbox's own default calendar and fails closed without one; frozen Go passed the mailbox id as the calendar id, so this event failed on calendar_events_calendar_id_fkey and, when another tenant's calendar carried that id, was probed and written there)",
+    "issue": "#536",
+    "reviewer": "owner 2026-11-07",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-07",
+    "secure_test": "bins/gateway/tests/secfix9.rs::legacy_calendar_projection_writes_only_the_target_mailboxs_own_calendar",
+    "mutant": "m365-aux-mailbox-as-calendar"
+  },
+  {
+    "baseline": null,
+    "kind": "failure-only",
+    "reason": "owner-approved functional divergence 2026-11-12 (#472): a legacy calendar/contact import whose conflict probe query fails fails that row (nothing is inserted); frozen Go reads the probe error as 'no conflict' and goes on to insert (bool-only exists(): mailserver/internal/migration/vcf_import.go:171-181, ics_import.go:~166-176). Only reachable when the database errors; no recorded case exercises it.",
+    "issue": "#472",
+    "reviewer": "owner 2026-11-12",
+    "reviewed": true,
+    "review": "owner-approved 2026-11-12",
+    "secure_test": "bins/gateway/tests/secfix9.rs::a_failed_conflict_probe_fails_the_row_and_inserts_nothing",
+    "mutant": "m365-probe-error-ignored"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity upgrade canary:\n  -enabled\n    \tserve normalized reads for this source\n  -expected-generation string\n    \texact source generation\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -source string\n    \tnormalized source key\n  -users string\n    \tcomma-separated linked user IDs (required when enabled)\nError: flag: help requested\n",
+  "exit": 1
+}

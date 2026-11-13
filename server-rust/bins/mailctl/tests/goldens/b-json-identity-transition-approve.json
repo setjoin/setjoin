@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/approve",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"approvalRequestId\":\"9\",\"elevationId\":\"00000000-0000-4000-8000-000000000002\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"previewDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "{\n  \"transitionId\": \"00000000-0000-4000-8000-000000000001\",\n  \"correlationId\": \"00000000-0000-4000-8000-000000000002\",\n  \"personId\": \"7\",\n  \"type\": \"directory_to_local\",\n  \"state\": \"completed\",\n  \"transitionGeneration\": \"2\",\n  \"previewVersion\": \"1\",\n  \"previewDigest\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n  \"previewExpiresAt\": \"2026-01-01T00:00:00Z\",\n  \"protected\": false,\n  \"approvalRequestId\": null,\n  \"failureCode\": null,\n  \"rollback\": {\n    \"boundary\": \"reversible\",\n    \"previewDigest\": null,\n    \"previewExpiresAt\": null,\n    \"approvalRequestId\": null\n  },\n  \"steps\": [],\n  \"effects\": []\n}\n",
+  "stderr": "",
+  "exit": 0
+}

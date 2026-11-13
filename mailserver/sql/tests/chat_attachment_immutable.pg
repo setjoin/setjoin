@@ -1,0 +1,70 @@
+-- mailserver/sql/tests/chat_attachment_immutable.pg
+-- Chat A2 Task 5b (DES-009 D4): a node referenced by chat_message_attachments
+-- is an immutable point-in-time chat record. A derived editor (member B, who
+-- never uploaded A's file and holds no drive_space_members row -- access is
+-- purely channel-derived) must not be able to trash / rename / move / put a
+-- new version on it through the Drive app. The canonical effective-access
+-- module removes those exact capabilities first, so each raises the uniform
+-- visible-but-forbidden BZ140 and the chat record remains intact. A
+-- non-attached file in the SAME space is unaffected (regression
+-- pin -- the guard must not touch ordinary Drive behavior).
+BEGIN;
+SELECT plan(10);
+SELECT mk_account('immA') AS mba \gset
+SELECT mk_account('immB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+SELECT chat_channel_create(:ua, 'a2-immutable-chan') AS chan \gset
+SELECT chat_channel_join(:ub, :chan);
+SELECT chat_space_ensure(:ua, :chan) AS space \gset
+
+-- A uploads+claims a chunk and lands a version under the chat-bound space.
+SELECT drive_node_create(:ua, :space, NULL, 'file', 'report.pdf') AS node \gset
+SELECT drive_chunk_register(:ua, :space, repeat('a', 64), 10);
+SELECT (drive_file_put_version(:ua, :node, repeat('a', 64), 10, NULL, NULL,
+    ('[{"sha256":"' || repeat('a', 64) || '","size":10}]')::jsonb, NULL, 'chat')
+    ->>'versionId')::bigint AS ver \gset
+
+-- A sends the chat message and links the node/version as its attachment
+-- (Task 3, the reducer that lands this atomically, is not yet built --
+-- this pins the invariant directly on the link table Task 1 already ships).
+SELECT (chat_message_send(:ua, :chan, 'see attached')->>'messageId')::bigint AS msg \gset
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes)
+  VALUES (:chan, :msg, :node, :ver, 'report.pdf', 10);
+
+-- B is a plain channel member -> derived 'editor' on the space, with ZERO
+-- drive_space_members rows (DES-009 D2) -- ordinarily sufficient to
+-- trash/rename/move/version any editable node.
+SELECT is(drive_member_role(:space, :ub), 'editor', 'B derives editor on the chat-bound space');
+
+SELECT throws_ok(format($$ SELECT drive_node_trash(%s, %s) $$, :ub, :node),
+  'BZ140', NULL, 'B cannot trash A''s chat attachment (immutable capability cap)');
+SELECT throws_ok(format($$ SELECT drive_node_rename(%s, %s, 'renamed.pdf') $$, :ub, :node),
+  'BZ140', NULL, 'B cannot rename A''s chat attachment (immutable capability cap)');
+
+SELECT drive_node_create(:ua, :space, NULL, 'folder', 'dest') AS dest \gset
+SELECT throws_ok(format($$ SELECT drive_node_move(%s, %s, %s) $$, :ub, :node, :dest),
+  'BZ140', NULL, 'B cannot move A''s chat attachment (immutable capability cap)');
+
+SELECT drive_chunk_register(:ub, :space, repeat('b', 64), 10);
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+    '[{"sha256":"%s","size":10}]', NULL, 'chat') $$, :ub, :node, repeat('f', 64), repeat('b', 64)),
+  'BZ140', NULL, 'B cannot version A''s chat attachment (immutable capability cap)');
+
+-- chat record intact: node still live, still parented at root, original
+-- name unchanged, and the attachment link row untouched.
+SELECT is((SELECT deleted_at FROM drive_nodes WHERE id = :node), NULL, 'node still live (trash rejected)');
+SELECT is((SELECT name FROM drive_nodes WHERE id = :node), 'report.pdf', 'node name unchanged (rename rejected)');
+SELECT is((SELECT parent_id FROM drive_nodes WHERE id = :node), NULL, 'node parent unchanged (move rejected)');
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE file_node_id = :node)::int, 1,
+  'chat_message_attachments link row untouched');
+
+-- Regression pin (Failure Modes Registry #9): a non-attached file in the
+-- SAME chat-bound space is unaffected by the guard -- B can still trash it.
+SELECT drive_node_create(:ua, :space, NULL, 'file', 'scratch.txt') AS scratch \gset
+SELECT lives_ok(format($$ SELECT drive_node_trash(%s, %s) $$, :ub, :scratch),
+  'B can still trash a non-attached file in the same space (guard is scoped to the attachment)');
+
+SELECT finish();
+ROLLBACK;

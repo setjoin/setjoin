@@ -1,0 +1,116 @@
+-- mailserver/sql/tests/rls_drive.pg — I-1 space RLS (full, Task 2).
+-- Spec: 2026-07-09-drive-v1-spec.md §2.1.2, §10 I-1. Genre: rls_mailbox_delegates.pg.
+BEGIN;
+SELECT plan(49);
+
+SELECT has_table('public'::name, t, 'V114 table exists: ' || t)
+FROM unnest(ARRAY['drive_spaces','drive_space_members','drive_nodes','drive_files',
+  'drive_file_versions','drive_chunks','drive_version_chunks','drive_upload_claims',
+  'drive_changes','drive_watches','drive_chunk_gc_queue','drive_audit_log']) AS t;
+
+SELECT is((SELECT relrowsecurity FROM pg_class WHERE oid = ('public.'||t)::regclass), TRUE, 'RLS ENABLED: '||t)
+FROM unnest(ARRAY['drive_spaces','drive_space_members','drive_nodes','drive_files',
+  'drive_file_versions','drive_chunks','drive_version_chunks','drive_upload_claims',
+  'drive_changes','drive_watches','drive_chunk_gc_queue','drive_audit_log']) AS t;
+-- FORCE on every drive table (I-1 clause) — collapsed into one assert:
+SELECT is(
+  (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname='public' AND c.relname LIKE 'drive\_%' AND c.relkind='r'
+      AND NOT c.relforcerowsecurity)::int,
+  0, 'every drive_* table has FORCE ROW LEVEL SECURITY');
+
+-- Seeds
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.drive'), TRUE, 'feature.drive admitted ON by V227');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.drive_compliance'), FALSE, 'feature.drive_compliance seeded OFF');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='drive.space_creation'), TRUE, 'drive.space_creation seeded ON (G6)');
+SELECT is((SELECT count(*) FROM admin_permissions WHERE permission_key IN ('drive.view','drive.manage'))::int, 2, 'drive perms seeded');
+SELECT ok((SELECT 'drive.manage' = ANY(permissions) AND 'drive.view' = ANY(permissions)
+           FROM admin_role_groups WHERE id = 1), 'Super Admin holds both drive perms');
+
+-- Scope helpers exist and are SECURITY DEFINER (Locked resolution R1/R2)
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='drive_member_role'), TRUE, 'drive_member_role is SECURITY DEFINER');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='drive_space_quota_charge'), TRUE, 'drive_space_quota_charge is SECURITY DEFINER');
+
+-- ── I-1 fixtures: A owns space S with member E(editor), V(viewer); T outsider ─
+SELECT mk_account('drA') AS mba \gset
+SELECT mk_account('drE') AS mbe \gset
+SELECT mk_account('drV') AS mbv \gset
+SELECT mk_account('drT') AS mbt \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ue FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS uv FROM mailboxes WHERE id = :mbv \gset
+SELECT user_id AS ut FROM mailboxes WHERE id = :mbt \gset
+
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('S', :ua);
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES
+  (:sid, :ua, 'manager', :ua), (:sid, :ue, 'editor', :ua), (:sid, :uv, 'viewer', :ua);
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:sid, 'folder', 'docs', :ua);
+SELECT currval(pg_get_serial_sequence('drive_nodes','id')) AS nid \gset
+
+-- Defensive grants (BYPASSRLS bypasses policies, not GRANTs — rls_mailbox_delegates.pg genre)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- non-member: zero rows everywhere, writes rejected (fail-closed incl. no-GUC)
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*) FROM drive_spaces)::int, 0, 'no GUC → zero spaces (fail-closed)');
+SELECT set_config('app.current_user_id', :ut::text, true);
+SELECT is((SELECT count(*) FROM drive_spaces WHERE id=:sid)::int, 0, 'outsider: space invisible');
+SELECT is((SELECT count(*) FROM drive_space_members WHERE space_id=:sid)::int, 0, 'outsider: roster invisible');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE space_id=:sid)::int, 0, 'outsider: nodes invisible');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:sid)::int, 0, 'outsider: audit invisible');
+SELECT throws_like(
+  format($$ INSERT INTO drive_nodes (space_id, kind, name, created_by)
+            VALUES (%s, 'folder', 'evil', %s) $$, :sid, :ut),
+  '%row-level security%', 'outsider INSERT into drive_nodes → 42501');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue)::int, 0, 'gc queue: zero policies = invisible even to members');
+
+-- viewer: sees, cannot write
+SELECT set_config('app.current_user_id', :uv::text, true);
+SELECT is((SELECT count(*) FROM drive_spaces WHERE id=:sid)::int, 1, 'viewer: space visible');
+SELECT is((SELECT count(*) FROM drive_space_members WHERE space_id=:sid)::int, 3, 'viewer: full roster visible (member read)');
+SELECT throws_like(
+  format($$ INSERT INTO drive_nodes (space_id, kind, name, created_by)
+            VALUES (%s, 'folder', 'nope', %s) $$, :sid, :uv),
+  '%row-level security%', 'viewer INSERT into drive_nodes → 42501 (editor+ write)');
+
+-- editor: sees + writes nodes, cannot touch the roster
+SELECT set_config('app.current_user_id', :ue::text, true);
+SELECT lives_ok(
+  format($$ INSERT INTO drive_nodes (space_id, parent_id, kind, name, created_by)
+            VALUES (%s, %s, 'folder', 'sub', %s) $$, :sid, :nid, :ue),
+  'editor INSERT into drive_nodes succeeds');
+SELECT throws_like(
+  format($$ INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+            VALUES (%s, %s, 'viewer', %s) $$, :sid, :ut, :ue),
+  '%row-level security%', 'editor cannot grant membership (manager-only write)');
+
+-- owner self-seed window: a brand-new space's owner can insert their own manager row
+SELECT set_config('app.current_user_id', :ut::text, true);
+SELECT lives_ok(
+  format($$ INSERT INTO drive_spaces (name, owner_user_id) VALUES ('T-own', %s) $$, :ut),
+  'any authenticated user may INSERT a space they own (WITH CHECK owner=GUC)');
+SELECT lives_ok(
+  format($$ INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+            SELECT id, %s, 'manager', %s FROM drive_spaces WHERE owner_user_id = %s $$, :ut, :ut, :ut),
+  'owner self-seed manager row passes the self-seed arm');
+
+-- chunks anti-oracle SELECT arm (I-4's RLS half; reducer half in Task 12):
+RESET ROLE;
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, ref_count, storage_ref)
+  VALUES ('g', repeat('a',64), 10, 0, 'drive/g/' || repeat('a',64));
+INSERT INTO drive_upload_claims (scope_key, sha256, user_id) VALUES ('g', repeat('a',64), :ua);
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is((SELECT count(*) FROM drive_chunks WHERE sha256=repeat('a',64))::int, 1, 'claimant sees their claimed chunk');
+SELECT set_config('app.current_user_id', :ut::text, true);
+SELECT is((SELECT count(*) FROM drive_chunks WHERE sha256=repeat('a',64))::int, 0, 'no claim + no readable version ⇒ chunk row INVISIBLE (I-4)');
+
+RESET ROLE;
+-- non-vacuity control
+SELECT ok((SELECT count(*) FROM drive_spaces) >= 2, 'non-vacuity: superuser sees everything');
+
+SELECT * FROM finish();
+ROLLBACK;

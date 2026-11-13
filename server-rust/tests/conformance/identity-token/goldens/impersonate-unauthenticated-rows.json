@@ -1,0 +1,13 @@
+{
+  "case": "impersonate-unauthenticated-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "audit_log"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /auth/admin/users/{id}/impersonate"
+}

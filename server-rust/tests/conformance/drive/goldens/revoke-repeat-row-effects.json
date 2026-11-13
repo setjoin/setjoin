@@ -1,0 +1,43 @@
+{
+  "case": "revoke-repeat-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 0
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [],
+      "delegates": []
+    },
+    [
+      {
+        "action": "mailbox_delegate_revoked",
+        "after_state": null,
+        "before_state": {
+          "grantee_user_id": "<foreign-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permissions": [
+            "read"
+          ]
+        },
+        "ip": null,
+        "notes": null,
+        "target_id": "<owner-mailbox>",
+        "target_type": "mailbox_delegate",
+        "user_id": "<owner-user>"
+      }
+    ],
+    []
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "DELETE /me/sharing/delegates/{userId}"
+}

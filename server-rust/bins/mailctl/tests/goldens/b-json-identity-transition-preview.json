@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/preview",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\",\"userId\":\"7\"}"
+    }
+  ],
+  "stdout": "{\n  \"transitionId\": \"00000000-0000-4000-8000-000000000001\",\n  \"state\": \"previewed\",\n  \"transitionGeneration\": \"1\",\n  \"previewVersion\": \"1\",\n  \"previewDigest\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\n  \"previewExpiresAt\": \"2026-01-01T00:00:00Z\",\n  \"protected\": false,\n  \"recoveryReady\": true,\n  \"sourceGeneration\": \"3\",\n  \"linkGeneration\": \"1\",\n  \"lifecycleGeneration\": \"1\"\n}\n",
+  "stderr": "Error: transition preview contains executable changes\n",
+  "exit": 2
+}

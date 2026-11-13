@@ -1,0 +1,96 @@
+-- pgTAP: recall_integration.sql — end-to-end recall flow, focused on the
+-- caller-safe return contract (oracle closed) AND the internal audit row (truth
+-- recorded). The message_recalls table ships in the baseline, so this no longer
+-- skips. Uses divergent user_id != mailbox_id ids (ADR-003).
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (name, is_local) VALUES ('recallint.test', TRUE);
+
+-- Sender user 108001 / mailbox 8001; two recipients 108002/8002 (unread) and
+-- 108003/8003 (already-read) — so the recall has both a recallable and a
+-- non-recallable copy, exercising both audit counters.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108001, 'intsender', (SELECT id FROM domains WHERE name = 'recallint.test'), 'intsender@recallint.test', 'Int Sender');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8001, 108001, (SELECT id FROM domains WHERE name = 'recallint.test'), 'intsender@recallint.test', 'Int Sender', 'personal', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108002, 'intr1', (SELECT id FROM domains WHERE name = 'recallint.test'), 'intr1@recallint.test', 'Int R1');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8002, 108002, (SELECT id FROM domains WHERE name = 'recallint.test'), 'intr1@recallint.test', 'Int R1', 'personal', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108003, 'intr2', (SELECT id FROM domains WHERE name = 'recallint.test'), 'intr2@recallint.test', 'Int R2');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8003, 108003, (SELECT id FROM domains WHERE name = 'recallint.test'), 'intr2@recallint.test', 'Int R2', 'personal', TRUE);
+
+INSERT INTO feature_toggles (key, enabled, description) VALUES
+  ('feature.recall', TRUE, 'Internal message recall')
+ON CONFLICT (key) DO UPDATE SET enabled = TRUE;
+
+-- Sender's Sent copy (the structural gate).
+INSERT INTO messages (id, mailbox_id, message_id, from_addr, to_addrs, subject,
+  body_text, size_bytes, sent_at, received_at, is_read, raw_ref, thread_id,
+  has_attachments, folder_id)
+VALUES (8101, 8001, '<int-1@recallint.test>', 'intsender@recallint.test',
+  '[{"email":"intr1@recallint.test"}]'::JSONB, 'Subject', 'Body', 0,
+  now(), now(), TRUE, 'raw-8101', '<int-1@recallint.test>', FALSE,
+  (SELECT id FROM tags WHERE name = 'Sent' AND mailbox_id = 8001));
+
+-- Recipient 1: unread (recallable).
+INSERT INTO messages (id, mailbox_id, message_id, from_addr, to_addrs, subject,
+  body_text, size_bytes, sent_at, received_at, is_read, raw_ref, thread_id,
+  has_attachments, folder_id)
+VALUES (8102, 8002, '<int-1@recallint.test>', 'intsender@recallint.test',
+  '[{"email":"intr1@recallint.test"}]'::JSONB, 'Subject', 'Body', 0,
+  now(), now(), FALSE, 'raw-8102', '<int-1@recallint.test>', FALSE,
+  (SELECT id FROM tags WHERE name = 'Inbox' AND mailbox_id = 8002));
+
+-- Recipient 2: already read (NOT recallable — counts toward cannot_count).
+INSERT INTO messages (id, mailbox_id, message_id, from_addr, to_addrs, subject,
+  body_text, size_bytes, sent_at, received_at, is_read, raw_ref, thread_id,
+  has_attachments, folder_id)
+VALUES (8103, 8003, '<int-1@recallint.test>', 'intsender@recallint.test',
+  '[{"email":"intr1@recallint.test"}]'::JSONB, 'Subject', 'Body', 0,
+  now(), now(), TRUE, 'raw-8103', '<int-1@recallint.test>', FALSE,
+  (SELECT id FROM tags WHERE name = 'Inbox' AND mailbox_id = 8003));
+
+CREATE TEMP TABLE _int_verdict AS
+SELECT recall_message('<int-1@recallint.test>', 108001, 8001, 'user') AS v;
+
+-- Caller-safe return: {type:'success', recalled:true}, oracle fields absent.
+SELECT is(
+  (SELECT v->>'type' FROM _int_verdict),
+  'success',
+  'integration: success verdict type=success');
+SELECT is(
+  (SELECT (v->>'recalled')::BOOL FROM _int_verdict),
+  TRUE,
+  'integration: success verdict exposes recalled=true');
+SELECT ok(
+  (SELECT NOT (v ? 'copyCount') AND NOT (v ? 'cannotCount') AND NOT (v ? 'recipients')
+     FROM _int_verdict),
+  'integration: return leaks NO copyCount/cannotCount/recipients (oracle closed)');
+
+-- The TRUE counts are recorded in the internal audit row: 1 recalled (unread r1),
+-- 1 cannot (already-read r2).
+SELECT is(
+  (SELECT copy_count FROM message_recalls WHERE message_id = '<int-1@recallint.test>'),
+  1,
+  'integration: audit copy_count records the true recalled count');
+SELECT is(
+  (SELECT cannot_count FROM message_recalls WHERE message_id = '<int-1@recallint.test>'),
+  1,
+  'integration: audit cannot_count records the true already-read count');
+
+-- Behavior frozen: the unread local copy is SOFT-moved to Trash (recoverable),
+-- not hard-deleted.
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8102 AND t.exclusive_group = 'location'),
+  'Trash',
+  'integration: recalled unread copy soft-moved to Trash (not hard-deleted)');
+
+SELECT * FROM finish();
+ROLLBACK;

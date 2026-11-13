@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: database has no baseline (schema version 0) \u2014 load it first:\n  prod: deploy/scripts/install.sh\n  dev:  bash scripts/load-test-schema.sh\nthen re-run 'mailctl schema apply' for the forward migrations\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

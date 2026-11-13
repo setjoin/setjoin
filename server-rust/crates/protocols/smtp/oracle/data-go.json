@@ -1,0 +1,229 @@
+[
+  {
+    "name": "data-with-no-accepted-recipient",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: ignored\r\n\r\n..body\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-long-line",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 Line too long: line 1 exceeds 998 characters (999)\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "503 Send EHLO/HELO first\r\n"
+      },
+      {
+        "send": "RSET\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "bare-lf-terminator",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: smuggle\r\n\r\nbody\n.\nQUIT\r\n",
+        "lines": 1,
+        "reply": "500 5.5.2 Bare LF not allowed\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-half-close",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: truncated\r\n\r\nbody",
+        "lines": 1,
+        "reply": "250 OK\r\n",
+        "half_close": true
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "bare-lf-empty-body-is-not-a-terminator",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: odd\n\n.\nQUIT\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n",
+        "half_close": true
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

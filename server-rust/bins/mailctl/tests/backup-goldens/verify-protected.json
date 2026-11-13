@@ -1,0 +1,66 @@
+{
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Error: protected configuration key does not match recovery-set evidence\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/recovery-context",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    }
+  ],
+  "operations": [
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/manifest.json"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "HEAD",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ]
+  ]
+}

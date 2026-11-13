@@ -1,0 +1,219 @@
+-- chat_ediscovery_search.pg — Chat A4b Task 3: chat_ediscovery_search.
+-- Spec: retired-docs:superpowers/specs/2026-07-15-chat-A4b-oversight-design.md §6.1 row 3,
+-- L6/L7, contract #7, §2.6, §14 "Reader (pgTAP)".
+-- Genre: chat_search.pg (tsquery/trgm CASE routing), chat_case_holds.pg (case/user
+-- fixture shape), chat_message.pg's att_chan block (attachment fixture).
+BEGIN;
+SELECT plan(34);
+
+-- ── fixture: toggle ON, two cases (one open, one closed), an actor who is
+-- NOT a member of any fixture channel (the DES-008 unscoped-authority proof),
+-- two authors, two channels ─────────────────────────────────────────────────
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.drive';
+
+INSERT INTO domains (name, is_local) VALUES ('a4b-search.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 94000, 'a4b-search-admin', id, 'a4b-search-admin@a4b-search.test', 'a4b search admin', 'x'
+    FROM domains WHERE name = 'a4b-search.test';
+-- 94001 needs a real users(id) row: it creates ch1, and chat_space_ensure
+-- (the attachment-leg fixture below) sets drive_spaces.owner_user_id from
+-- the channel's created_by, a real FK (chat_message.pg att_chan genre).
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 94001, 'a4b-search-author1', id, 'a4b-search-author1@a4b-search.test', 'author1', 'x'
+    FROM domains WHERE name = 'a4b-search.test';
+
+INSERT INTO ediscovery_cases (id, name, status, created_by) VALUES
+  (94100, 'search-case-open', 'active', 94000),
+  (94101, 'search-case-closed', 'closed', 94000);
+
+-- actor 94003 is the eDiscovery officer — deliberately never joins ch1/ch2.
+SELECT chat_channel_create(94001, 'ediscovery-ch1') AS ch1 \gset
+SELECT chat_channel_create(94001, 'ediscovery-ch2') AS ch2 \gset
+SELECT chat_member_add(94001, :ch1, 94002);
+SELECT chat_member_add(94001, :ch2, 94002);
+
+-- (a) live body leg.
+SELECT chat_message_send(94001, :ch1, 'the quarterly forecast update is ready') AS m_forecast \gset
+SELECT (:'m_forecast'::jsonb ->> 'messageId')::bigint AS forecast_id \gset
+
+-- (b) revision leg: sent with "insider" wording, edited away — the parent
+-- message id (not the revision row's own id) is what the reducer must hit.
+SELECT chat_message_send(94002, :ch1, 'insider price target guidance leaked') AS m_insider \gset
+SELECT (:'m_insider'::jsonb ->> 'messageId')::bigint AS insider_id \gset
+SELECT chat_message_edit(94002, :insider_id, 'no comment on that');
+
+-- (c) soft-deleted leg: retained body, deleted_at set, no deleted_at filter
+-- anywhere in the reducer.
+SELECT chat_message_send(94001, :ch1, 'shred the memo before the audit') AS m_shred \gset
+SELECT (:'m_shred'::jsonb ->> 'messageId')::bigint AS shred_id \gset
+SELECT chat_message_delete(94001, :shred_id);
+
+-- (d) scheduled chat_send leg: enqueue then flip to failed (contract #7 —
+-- pending AND failed are both in scope; this fixture proves failed).
+SELECT chat_schedule_message(94001, :ch1, 'the delayed bombshell announcement is queued',
+    NULL, '{}'::bigint[], NULL, now() + interval '1 hour') AS sched_id \gset
+UPDATE scheduled_actions SET status = 'failed' WHERE id = :'sched_id'::uuid;
+
+-- (e) attachment filename leg — the chat_message.pg att_chan fixture shape.
+SELECT chat_space_ensure(94001, :ch1) AS att_space \gset
+SELECT drive_chunk_register(94001, :att_space, repeat('9', 64), 4);
+SELECT chat_message_send(94001, :ch1, '', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('9', 64) || '","size":4,"name":"Q3-restatement-draft.xlsx",'
+     || '"manifest":[{"sha256":"' || repeat('9', 64) || '","size":4}]}]')::jsonb) AS m_attach \gset
+SELECT (:'m_attach'::jsonb ->> 'messageId')::bigint AS attach_id \gset
+
+-- (f) Han-substring fixture (the trgm-vs-tsquery leg, chat_search.pg genre):
+-- 'simple' tsquery cannot tokenize a Han run.
+SELECT chat_message_send(94002, :ch1, '会议记录已经发送') AS m_zh \gset
+
+-- (g) review F6 fixture: ONE message matched on BOTH the body leg AND the
+-- filename leg (same sha, reused chunk) — the excerpt must deterministically
+-- pick the 'body' leg's text ('body' < 'filename' alphabetically), never
+-- whichever leg the planner happened to visit first.
+SELECT chat_message_send(94001, :ch1, 'race-determinism-term body', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('9', 64) || '","size":4,"name":"race-determinism-term.pdf",'
+     || '"manifest":[{"sha256":"' || repeat('9', 64) || '","size":4}]}]')::jsonb) AS m_multi \gset
+SELECT (:'m_multi'::jsonb ->> 'messageId')::bigint AS multi_id \gset
+
+-- (h) review F9 fixture: two scheduled (failed) chat_send rows sharing one
+-- term, for the v_lim clamp assertion below.
+SELECT chat_schedule_message(94001, :ch1, 'clamp-term scheduled row one',
+    NULL, '{}'::bigint[], NULL, now() + interval '1 hour') AS sched_clamp1 \gset
+SELECT chat_schedule_message(94001, :ch1, 'clamp-term scheduled row two',
+    NULL, '{}'::bigint[], NULL, now() + interval '2 hours') AS sched_clamp2 \gset
+UPDATE scheduled_actions SET status = 'failed'
+ WHERE id IN (:'sched_clamp1'::uuid, :'sched_clamp2'::uuid);
+
+-- ch2: a second "forecast" hit authored by 94002, for the channelIds/authorId
+-- filter tests below.
+SELECT chat_message_send(94002, :ch2, 'ch2 forecast note') AS m_forecast2 \gset
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── the four content legs ─────────────────────────────────────────────────
+SELECT chat_ediscovery_search(94003, 94100, ('{"terms":"forecast","channelIds":[' || :ch1 || ']}')::jsonb)
+  AS r_forecast \gset
+SELECT is(jsonb_array_length(:'r_forecast'::jsonb -> 'hits'), 1,
+  '"forecast" (live body leg, scoped to ch1) returns exactly 1 hit — and the actor is NOT a member of ch1 (DES-008 unscoped authority)');
+SELECT ok((SELECT jsonb_path_exists(:'r_forecast'::jsonb -> 'hits',
+             format('$[*] ? (@.messageId == %s && @.deleted == false)', :forecast_id)::jsonpath)),
+  'the forecast hit is the live message, not deleted');
+SELECT ok((SELECT jsonb_path_exists(:'r_forecast'::jsonb -> 'hits',
+             format('$[*] ? (@.messageId == %s)', :forecast_id)::jsonpath
+             )) AND (SELECT (:'r_forecast'::jsonb -> 'hits' -> 0 -> 'matchedIn') ? 'body'),
+  'the forecast hit''s matchedIn includes "body"');
+
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"insider"}'::jsonb) AS r_insider \gset
+SELECT is(jsonb_array_length(:'r_insider'::jsonb -> 'hits'), 1,
+  '"insider" (revision leg) returns exactly 1 hit');
+SELECT ok((SELECT jsonb_path_exists(:'r_insider'::jsonb -> 'hits',
+             format('$[*] ? (@.messageId == %s)', :insider_id)::jsonpath)),
+  'the insider hit lands on the PARENT message id, not a revision-row id');
+SELECT ok((SELECT (:'r_insider'::jsonb -> 'hits' -> 0 -> 'matchedIn') ? 'revision'),
+  'the insider hit''s matchedIn includes "revision"');
+
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"shred"}'::jsonb) AS r_shred \gset
+SELECT is(jsonb_array_length(:'r_shred'::jsonb -> 'hits'), 1,
+  '"shred" (soft-deleted body) is still found — no deleted_at filter');
+SELECT ok((SELECT jsonb_path_exists(:'r_shred'::jsonb -> 'hits',
+             format('$[*] ? (@.messageId == %s && @.deleted == true)', :shred_id)::jsonpath)),
+  'the shred hit is flagged deleted:true');
+
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"bombshell"}'::jsonb) AS r_bombshell \gset
+SELECT is(jsonb_array_length(:'r_bombshell'::jsonb -> 'hits'), 0,
+  '"bombshell" matches no live/revision/filename body — zero message hits');
+SELECT is(jsonb_array_length(:'r_bombshell'::jsonb -> 'scheduledHits'), 1,
+  '"bombshell" surfaces exactly one scheduledHits element (the failed chat_send row)');
+SELECT is((:'r_bombshell'::jsonb -> 'scheduledHits' -> 0 ->> 'status'), 'failed',
+  'the scheduled hit carries status=failed (contract #7)');
+SELECT is((:'r_bombshell'::jsonb -> 'scheduledHits' -> 0 ->> 'channelId')::bigint, :ch1::bigint,
+  'the scheduled hit carries the right channel provenance');
+SELECT is((:'r_bombshell'::jsonb -> 'scheduledHits' -> 0 ->> 'authorId')::bigint, 94001::bigint,
+  'the scheduled hit carries the right author provenance');
+
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"restatement"}'::jsonb) AS r_att \gset
+SELECT is(jsonb_array_length(:'r_att'::jsonb -> 'hits'), 1,
+  '"restatement" (attachment filename leg) returns exactly 1 hit');
+SELECT ok((SELECT (:'r_att'::jsonb -> 'hits' -> 0 -> 'matchedIn') ? 'filename'),
+  'the attachment hit''s matchedIn includes "filename"');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── review F6: deterministic excerpt when a message matches multiple legs ──
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"race-determinism-term"}'::jsonb) AS r_multi \gset
+SELECT is(jsonb_array_length(:'r_multi'::jsonb -> 'hits'), 1,
+  '"race-determinism-term" (matches both body and filename on the SAME message) returns exactly 1 hit');
+SELECT is((:'r_multi'::jsonb -> 'hits' -> 0 ->> 'excerpt'), 'race-determinism-term body',
+  'the excerpt deterministically picks the "body" leg''s text (ORDER BY matched_in: body < filename)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── review F9: scheduledHits clamped to v_lim, same cap as message hits ──
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"clamp-term"}'::jsonb, NULL, FALSE, 1) AS r_clamp \gset
+SELECT is(jsonb_array_length(:'r_clamp'::jsonb -> 'scheduledHits'), 1,
+  'scheduledHits is clamped to p_limit=1 even though 2 scheduled rows match "clamp-term"');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── search-row persistence + the search.run chained act ──────────────────
+SELECT (:'r_forecast'::jsonb ->> 'searchId')::bigint AS forecast_search_id \gset
+SELECT is((SELECT kind FROM chat_ediscovery_searches WHERE id = :forecast_search_id), 'search',
+  'the search persists a chat_ediscovery_searches row with kind=search');
+SELECT is((SELECT result_count FROM chat_ediscovery_searches WHERE id = :forecast_search_id), 1,
+  'the persisted row''s result_count matches the returned resultCount');
+SELECT is((SELECT executed_by FROM chat_ediscovery_searches WHERE id = :forecast_search_id), 94003::bigint,
+  'the persisted row''s executed_by is the searching actor, not a channel member');
+SELECT ok((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'search.run'
+              AND after_state->'query'->>'terms' = 'forecast') = 1,
+  'exactly one search.run act lands on the hit channel''s chain');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:ch1)),
+  'the chain stays fully valid after the search.run act');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── keyset: p_before_id excludes the prior hit; scheduledHits is first-page
+-- only ───────────────────────────────────────────────────────────────────
+SELECT chat_ediscovery_search(94003, 94100, ('{"terms":"forecast","channelIds":[' || :ch1 || ']}')::jsonb,
+    :forecast_id) AS r_forecast_page2 \gset
+SELECT is(jsonb_array_length(:'r_forecast_page2'::jsonb -> 'hits'), 0,
+  'p_before_id = the first hit''s id excludes that hit from the next page');
+SELECT chat_ediscovery_search(94003, 94100, '{"terms":"bombshell"}'::jsonb, :forecast_id)
+  AS r_bombshell_page2 \gset
+SELECT is(jsonb_array_length(:'r_bombshell_page2'::jsonb -> 'scheduledHits'), 0,
+  'scheduledHits is empty once p_before_id is non-NULL (first-page-only, plan delta 3)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── p_use_trgm routing: a Han-substring term is found via trgm, missed via
+-- tsquery (chat_search.pg's own leg proof, replayed here) ────────────────
+SELECT ok((SELECT jsonb_path_exists(
+    chat_ediscovery_search(94003, 94100, '{"terms":"记录"}'::jsonb, NULL, TRUE) -> 'hits',
+    '$[*] ? (@.matchedIn[*] == "body")'::jsonpath)),
+  'a Han substring term is found via the trgm leg (p_use_trgm=true)');
+SELECT is(jsonb_array_length(
+    chat_ediscovery_search(94003, 94100, '{"terms":"记录"}'::jsonb, NULL, FALSE) -> 'hits'), 0,
+  'the same Han term via the tsquery leg (p_use_trgm=false) finds nothing');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── channelIds / authorId / date filters narrow correctly ────────────────
+SELECT is(jsonb_array_length(
+    chat_ediscovery_search(94003, 94100, '{"terms":"forecast"}'::jsonb) -> 'hits'), 2,
+  'unscoped "forecast" finds both ch1''s and ch2''s hit');
+SELECT is(jsonb_array_length(
+    chat_ediscovery_search(94003, 94100, ('{"terms":"forecast","channelIds":[' || :ch2 || ']}')::jsonb)
+      -> 'hits'), 1,
+  'channelIds filter narrows to ch2''s hit only');
+SELECT is(jsonb_array_length(
+    chat_ediscovery_search(94003, 94100, '{"terms":"forecast","authorId":94001}'::jsonb) -> 'hits'), 1,
+  'authorId filter narrows to the 94001-authored hit only');
+SELECT is(jsonb_array_length(
+    chat_ediscovery_search(94003, 94100,
+      ('{"terms":"forecast","dateFrom":"' || (now() + interval '1 day')::text || '"}')::jsonb) -> 'hits'), 0,
+  'a dateFrom in the future excludes every hit');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── errors ─────────────────────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_ediscovery_search(94003, 94100, '{"terms":""}'::jsonb) $$),
+  'BZ197', NULL, 'empty terms raises BZ197');
+SELECT throws_ok(format($$ SELECT chat_ediscovery_search(94003, 94100, '{}'::jsonb) $$),
+  'BZ197', NULL, 'missing terms raises BZ197');
+SELECT throws_ok(format($$ SELECT chat_ediscovery_search(94003, 94101, '{"terms":"forecast"}'::jsonb) $$),
+  'BZ198', NULL, 'a closed case raises BZ198');
+
+SELECT * FROM finish(); ROLLBACK;

@@ -1,0 +1,116 @@
+-- V187/A3 shadow comparison, evidence, cutover, and rollback proof.
+BEGIN;
+SELECT plan(28);
+
+SELECT has_table('public',t,'Drive ACL shadow table exists: '||t)
+FROM unnest(ARRAY[
+  'drive_acl_shadow_state','drive_acl_shadow_mismatches','drive_acl_cutover_evidence'
+]) t;
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'drive_acl_shadow_state'::regclass,'drive_acl_shadow_mismatches'::regclass,
+  'drive_acl_cutover_evidence'::regclass) AND relrowsecurity AND relforcerowsecurity),
+  3,'all shadow/cutover evidence tables FORCE RLS');
+
+SELECT mk_account('acl3-admin') AS mba \gset
+SELECT mk_account('acl3-viewer') AS mbv \gset
+SELECT mk_account('acl3-out') AS mbo \gset
+SELECT user_id AS ua FROM mailboxes WHERE id=:mba \gset
+SELECT user_id AS uv FROM mailboxes WHERE id=:mbv \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:ua,1,:ua);
+SELECT drive_space_create(:ua,'ACL Shadow','regular') AS sid \gset
+SELECT drive_member_grant(:ua,:sid,:uv,'viewer');
+SELECT drive_node_create(:ua,:sid,NULL,'folder','Root') AS root \gset
+SELECT drive_node_create(:ua,:sid,:root,'file','Report') AS file \gset
+
+SELECT throws_ok(format('SELECT drive_acl_shadow_start(%s,%s)',:uo,:sid),
+  'BZ253',NULL,'non-admin cannot start shadow mode');
+SELECT is(drive_acl_shadow_start(:ua,:sid)->>'mode','shadow',
+  'authorized operator starts bounded shadow mode');
+SELECT ok((SELECT expires_at-started_at<=interval '28 days'
+            FROM drive_acl_shadow_state WHERE space_id=:sid),
+  'shadow observation window is capped at four weeks');
+SELECT is(drive_acl_shadow_compare(:uv,:file),'match',
+  'viewer legacy and canonical facts match without ACL inputs');
+SELECT is(drive_acl_shadow_compare(:ua,:file),'match',
+  'manager legacy and canonical facts match without ACL inputs');
+SELECT is((SELECT matches FROM drive_acl_shadow_state WHERE space_id=:sid),2::bigint,
+  'metadata-only shadow counters record exact matches');
+
+INSERT INTO drive_folder_admins(node_id,space_id,user_id,granted_by)
+VALUES(:root,:sid,:uv,:ua);
+SELECT is(drive_acl_shadow_compare(:uv,:file),'match',
+  'legacy and canonical evaluators both retain scoped folder-admin authority');
+INSERT INTO drive_acl_shadow_mismatches(
+  space_id,user_id,node_id,mismatch_kind,legacy_digest,canonical_digest
+) VALUES(:sid,:uv,:file,'widening',repeat('a',64),repeat('b',64));
+SELECT ok((SELECT legacy_digest~'^[0-9a-f]{64}$'
+                  AND canonical_digest~'^[0-9a-f]{64}$'
+             FROM drive_acl_shadow_mismatches
+            WHERE space_id=:sid AND user_id=:uv AND node_id=:file),
+  'mismatch persists only numeric ids and capability digests');
+SELECT drive_acl_shadow_classify(
+  :ua,:sid,:uv,:file,'reviewed_semantic_change','Folder Admin migration is intentionally additive');
+SELECT is((SELECT classification FROM drive_acl_shadow_mismatches
+            WHERE space_id=:sid AND user_id=:uv AND node_id=:file),
+          'reviewed_semantic_change','operator classification is durable');
+DELETE FROM drive_folder_admins WHERE node_id=:root AND user_id=:uv;
+SELECT is(drive_acl_shadow_compare(:uv,:file),'match',
+  'matching re-observation resolves the prior mismatch');
+SELECT ok((SELECT resolved_at IS NOT NULL FROM drive_acl_shadow_mismatches
+            WHERE space_id=:sid AND user_id=:uv AND node_id=:file),
+  'resolved mismatch is retained as bounded evidence');
+
+SELECT drive_acl_cutover_evidence_record(:ua,:sid,true,false,repeat('a',64));
+SELECT is((SELECT zero_open_mismatches FROM drive_acl_cutover_evidence
+            WHERE space_id=:sid),true,
+  'evidence computes zero-open-mismatch fact server-side');
+SELECT throws_ok(format('SELECT drive_acl_cutover(%s,%s,0)',:ua,:sid),
+  'BZ254',NULL,'DEFAULT-OFF read gate blocks cutover');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.drive_node_acl_reads';
+SELECT throws_ok(format('SELECT drive_acl_cutover(%s,%s,0)',:ua,:sid),
+  'BZ254',NULL,'missing Ubuntu evidence blocks cutover');
+SELECT drive_acl_cutover_evidence_record(:ua,:sid,true,true,repeat('b',64));
+SELECT is(drive_acl_cutover(:ua,:sid,0),0::bigint,
+  'fresh deterministic plus Ubuntu evidence permits cutover');
+SELECT is((SELECT acl_mode FROM drive_spaces WHERE id=:sid),'acl',
+  'cutover changes only the selected space mode');
+SELECT drive_acl_rollback(:ua,:sid);
+SELECT is((SELECT acl_mode FROM drive_spaces WHERE id=:sid),'shadow',
+  'compatibility-only ACL mode safely rolls back to shadow');
+
+-- Re-cutover, then create a narrowing break: rollback must refuse widening.
+SELECT drive_acl_shadow_compare(:uv,:file);
+SELECT drive_acl_cutover_evidence_record(:ua,:sid,true,true,repeat('c',64));
+SELECT drive_acl_cutover(:ua,:sid,0);
+INSERT INTO drive_acl_breaks(space_id,node_id,created_by,expected_epoch)
+VALUES(:sid,:root,:ua,0);
+SELECT throws_ok(format('SELECT drive_acl_rollback(%s,%s)',:ua,:sid),
+  'BZ254',NULL,'rollback refuses once a narrowing ACL input exists');
+
+SELECT chat_channel_create(:ua,'acl-shadow-bound') AS chan \gset
+SELECT chat_space_ensure(:ua,:chan) AS bound_space \gset
+SELECT throws_ok(format('SELECT drive_acl_shadow_start(%s,%s)',:ua,:bound_space),
+  'BZ256',NULL,'Chat-bound space cannot enter ad-hoc ACL shadow');
+
+UPDATE drive_acl_shadow_state SET expires_at=clock_timestamp()-interval '1 second',
+  started_at=clock_timestamp()-interval '2 days' WHERE space_id=:sid;
+SELECT is(drive_acl_shadow_compare(:uv,:file),'not_shadow',
+  'cutover space does not continue shadow observation');
+SELECT ok((drive_acl_shadow_readiness(:ua,:sid)->>'comparisons') IS NOT NULL,
+  'readiness returns bounded decimal-string counters');
+
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:uo::text,true);
+SELECT is((SELECT count(*)::int FROM drive_acl_shadow_state),0,
+  'non-admin cannot read Drive ACL shadow state under FORCE RLS');
+SELECT is((SELECT count(*)::int FROM drive_acl_shadow_mismatches),0,
+  'non-admin cannot read Drive ACL mismatch evidence under FORCE RLS');
+SELECT is((SELECT count(*)::int FROM drive_acl_cutover_evidence),0,
+  'non-admin cannot read Drive ACL cutover evidence under FORCE RLS');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,83 @@
+-- A8 public ACL read projections, privacy-safe quick views, and impact preview.
+BEGIN;
+SELECT plan(26);
+
+SELECT has_function('public','drive_acl_node_detail',ARRAY['bigint','bigint'],
+  'typed node access projection exists');
+SELECT has_function('public','drive_acl_inheritance_preview',ARRAY['bigint','bigint','boolean'],
+  'bounded inheritance impact preview exists');
+SELECT has_function('public','drive_acl_quick_view',ARRAY['bigint','text','integer'],
+  'privacy-safe Drive quick-view projection exists');
+
+SELECT mk_account('acl8-owner') AS mbo \gset
+SELECT mk_account('acl8-reader') AS mbr \gset
+SELECT mk_account('acl8-outsider') AS mbx \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+SELECT user_id AS ur FROM mailboxes WHERE id=:mbr \gset
+SELECT user_id AS ux FROM mailboxes WHERE id=:mbx \gset
+SELECT drive_space_create(:uo,'ACL A8','regular') AS sid \gset
+SELECT drive_node_create(:uo,:sid,NULL,'folder','Root') AS root \gset
+SELECT drive_node_create(:uo,:sid,:root,'folder','Shared anchor') AS anchor \gset
+SELECT drive_node_create(:uo,:sid,:anchor,'file','Visible report') AS file \gset
+UPDATE drive_spaces SET acl_mode='acl' WHERE id=:sid;
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.drive_node_acl_reads','feature.drive_node_acl_writes');
+SELECT (drive_acl_grant(:uo,:anchor,'user',:ur,'viewer',NULL,'subtree',
+  NULL,NULL,NULL,'A8 shared folder',0,'acl8-grant-0001')->>'grantId')::bigint AS grant_id \gset
+
+SELECT is(drive_acl_node_detail(:ur,:file)->>'nodeName','Visible report',
+  'metadata-visible recipient can inspect the selected node');
+SELECT is((drive_acl_node_detail(:ur,:file)->>'canManage')::boolean,false,
+  'ordinary recipient cannot manage ACLs');
+SELECT is(jsonb_array_length(drive_acl_node_detail(:ur,:file)->'grants'),0,
+  'ordinary recipient does not receive configured-principal disclosure');
+SELECT ok(jsonb_array_length(drive_acl_node_detail(:ur,:file)->'sources')>0,
+  'recipient receives their own effective source explanation');
+SELECT is((drive_acl_node_detail(:uo,:file)->>'canManage')::boolean,true,
+  'space manager receives ACL management authority');
+SELECT is(drive_acl_node_detail(:uo,:file)#>>'{grants,0,relation}','inherited',
+  'manager projection labels an ancestor grant inherited');
+SELECT is(drive_acl_node_detail(:uo,:file)#>>'{grants,0,subjectLabel}',
+  (SELECT display_name FROM users WHERE id=:ur),
+  'configured grant carries a stable authenticated subject label');
+SELECT is(jsonb_array_length(drive_acl_node_detail(:uo,:file)->'presets'),4,
+  'public R1 projection exposes exactly four presets');
+SELECT throws_ok(format('SELECT drive_acl_node_detail(%s,%s)',:ux,:file),
+  'BZ253',NULL,'remembered hidden node cannot be used as an explanation oracle');
+
+SELECT is(jsonb_array_length(drive_acl_quick_view(:ur,'shared',100)),1,
+  'Shared with me contains the top-level grant anchor only');
+SELECT is(drive_acl_quick_view(:ur,'shared',100)#>>'{0,name}','Shared anchor',
+  'Shared with me names the visible anchor, not hidden ancestors');
+SELECT is(drive_acl_quick_view(:ur,'shared',100)#>>'{0,nodeId}',:anchor::text,
+  'Shared with me routes through a virtual anchor id');
+SELECT is(jsonb_array_length(drive_acl_quick_view(:uo,'shares',100)),1,
+  'My shares deduplicates active grants by anchor');
+SELECT is((drive_acl_quick_view(:uo,'shares',100)#>>'{0,activeGrantCount}')::int,1,
+  'My shares reports the exact active configured grant count');
+
+SELECT drive_acl_grant(:uo,:file,'user',:ux,'custom',ARRAY['traverse'],'self',
+  NULL,NULL,NULL,'A8 request-only traversal',drive_acl_epoch(:sid),'acl8-traverse-0001');
+SELECT is((drive_acl_node_detail(:ux,:file)->>'traverseOnly')::boolean,true,
+  'a traverse-only principal can open the bounded request-access projection');
+SELECT is(drive_acl_node_detail(:ux,:file)->>'nodeName','Visible report',
+  'request-access projection reveals only the already traversable node name');
+
+SELECT is((drive_acl_inheritance_preview(:uo,:file,true)->>'affectedNodeCount')::int,1,
+  'inheritance preview counts the bounded subtree');
+SELECT is((drive_acl_inheritance_preview(:uo,:file,true)->>'affectedPrincipalCount')::int,1,
+  'inheritance preview counts inherited principals');
+SELECT is((drive_acl_inheritance_preview(:uo,:file,true)->>'mayRemoveOfflineContent')::boolean,true,
+  'narrowing preview warns that managed offline content may be removed');
+SELECT is((drive_acl_inheritance_preview(:uo,:file,false)->>'changed')::boolean,false,
+  'resume preview reports no-op when inheritance is already active');
+SELECT throws_ok(format('SELECT drive_acl_inheritance_preview(%s,%s,true)',:ur,:file),
+  'BZ253',NULL,'non-manager cannot obtain an inheritance impact oracle');
+
+SELECT is(jsonb_array_length(drive_acl_quick_view(:ur,'requests',100)),0,
+  'My requests is empty while access governance remains OFF');
+SELECT throws_ok(format($q$SELECT drive_acl_quick_view(%s,'unknown',100)$q$,:uo),
+  'BZ252',NULL,'unknown quick-view names fail closed');
+
+SELECT * FROM finish();
+ROLLBACK;

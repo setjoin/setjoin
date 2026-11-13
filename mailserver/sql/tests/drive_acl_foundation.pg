@@ -1,0 +1,170 @@
+-- V184/A1 Drive node ACL expand-only foundation: schema, closure, epoch,
+-- invalidation, capability registry, and FORCE-RLS posture.
+BEGIN;
+SELECT plan(52);
+
+SELECT has_table('public'::name, t, 'V184 table exists: ' || t)
+FROM unnest(ARRAY[
+  'drive_acl_grants','drive_acl_breaks','drive_node_closure',
+  'drive_acl_generations','drive_access_invalidations'
+]) AS t;
+
+SELECT is((SELECT relrowsecurity FROM pg_class WHERE oid = ('public.'||t)::regclass),
+          TRUE, 'RLS enabled: ' || t)
+FROM unnest(ARRAY[
+  'drive_acl_grants','drive_acl_breaks','drive_node_closure',
+  'drive_acl_generations','drive_access_invalidations'
+]) AS t;
+SELECT is((
+  SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='public'
+     AND c.relname IN ('drive_acl_grants','drive_acl_breaks','drive_node_closure',
+                       'drive_acl_generations','drive_access_invalidations')
+     AND c.relforcerowsecurity
+), 5, 'all five V184 tables FORCE RLS');
+
+SELECT has_column('public', 'drive_spaces', c, 'Drive space ACL column exists: ' || c)
+FROM unnest(ARRAY['acl_mode','acl_protocol_version','acl_irreversible_at']) AS c;
+
+SELECT is(drive_acl_capability_catalog(), ARRAY[
+  'traverse','list_children','read_metadata','preview','download',
+  'create_child','modify_content','rename','move','delete','manage_acl','view_audit'
+]::text[], 'capability catalog is exact and ordered');
+
+SELECT is(drive_acl_preset_capabilities(preset), expected,
+          'preset maps exactly: ' || preset)
+FROM (VALUES
+  ('viewer', ARRAY['traverse','list_children','read_metadata','preview','download']::text[]),
+  ('contributor', ARRAY['traverse','list_children','read_metadata','preview','download',
+                        'create_child','modify_content']::text[]),
+  ('editor', ARRAY['traverse','list_children','read_metadata','preview','download',
+                   'create_child','modify_content','rename','move','delete']::text[]),
+  ('folder_manager', ARRAY['traverse','list_children','read_metadata','preview','download',
+                           'create_child','modify_content','rename','move','delete',
+                           'manage_acl','view_audit']::text[])
+) AS p(preset, expected);
+
+SELECT ok(drive_acl_capabilities_valid(ARRAY['traverse']), 'one known capability is valid');
+SELECT is(drive_acl_capabilities_valid(ARRAY['unknown']), false, 'unknown capability fails closed');
+SELECT is(drive_acl_capabilities_valid(ARRAY['traverse','traverse']), false, 'duplicate capability rejected');
+
+SELECT is(r.rolname, 'setjoin_worker', p.proname || ' is worker-owned')
+FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+WHERE p.oid IN (
+  'drive_acl_epoch(bigint)'::regprocedure,
+  'drive_closure_subtree(bigint,bigint)'::regprocedure,
+  'drive_acl_bump(bigint,text,bigint,bigint,text)'::regprocedure
+)
+ORDER BY p.proname;
+SELECT is((SELECT proconfig[1] FROM pg_proc
+            WHERE oid='drive_closure_subtree(bigint,bigint)'::regprocedure),
+          'search_path=pg_catalog, public', 'closure helper pins safe search_path');
+
+SELECT mk_account('aclmgr') AS mbm \gset
+SELECT mk_account('acldirect') AS mbd \gset
+SELECT mk_account('aclmember') AS mbv \gset
+SELECT mk_account('aclout') AS mbo \gset
+SELECT user_id AS um FROM mailboxes WHERE id=:mbm \gset
+SELECT user_id AS ud FROM mailboxes WHERE id=:mbd \gset
+SELECT user_id AS uv FROM mailboxes WHERE id=:mbv \gset
+SELECT user_id AS uo FROM mailboxes WHERE id=:mbo \gset
+
+SELECT drive_space_create(:um, 'ACL Foundation', 'regular') AS sid \gset
+SELECT is((SELECT epoch FROM drive_acl_generations WHERE space_id=:sid), 0::bigint,
+          'space creation initializes epoch zero');
+SELECT drive_member_grant(:um, :sid, :uv, 'viewer');
+SELECT drive_node_create(:um, :sid, NULL, 'folder', 'A') AS a \gset
+SELECT drive_node_create(:um, :sid, :a, 'folder', 'B') AS b \gset
+SELECT drive_node_create(:um, :sid, :b, 'folder', 'C') AS c \gset
+SELECT drive_node_create(:um, :sid, :c, 'file', 'report.xlsx') AS f \gset
+
+SELECT is((SELECT count(*) FROM drive_node_closure
+            WHERE space_id=:sid AND descendant_id=:f)::int, 4,
+          'deep file has self plus three ancestors');
+SELECT is((SELECT depth FROM drive_node_closure
+            WHERE space_id=:sid AND ancestor_id=:a AND descendant_id=:f), 3,
+          'closure depth is exact');
+SELECT is((SELECT depth FROM drive_node_closure
+            WHERE space_id=:sid AND ancestor_id=:f AND descendant_id=:f), 0,
+          'self row has depth zero');
+SELECT is((SELECT count(*) FROM drive_closure_subtree(:sid, :a))::int, 4,
+          'closure-backed subtree includes anchor and descendants');
+SELECT is((SELECT count(*) FROM drive_closure_ancestors(:sid, :f))::int, 4,
+          'closure-backed ancestor helper includes self through root');
+
+SELECT change_seq AS before_seq FROM drive_spaces WHERE id=:sid \gset
+SELECT drive_node_move(:um, :b, NULL);
+SELECT is((SELECT parent_id FROM drive_nodes WHERE id=:b), NULL::bigint,
+          'move supports reparenting to space root');
+SELECT is((SELECT count(*) FROM drive_node_closure
+            WHERE space_id=:sid AND ancestor_id=:a AND descendant_id=:f)::int, 0,
+          'old external ancestor edge removed');
+SELECT is((SELECT count(*) FROM drive_node_closure
+            WHERE space_id=:sid AND descendant_id=:f)::int, 3,
+          'internal subtree closure survives move');
+SELECT is((SELECT epoch FROM drive_acl_generations WHERE space_id=:sid), 1::bigint,
+          'move bumps ACL epoch exactly once');
+SELECT is((SELECT reason FROM drive_access_invalidations
+            WHERE space_id=:sid ORDER BY cursor DESC LIMIT 1), 'tree_move',
+          'move appends a typed invalidation');
+SELECT is((SELECT change_seq FROM drive_spaces WHERE id=:sid), :before_seq::bigint + 1,
+          'content sequence remains a separate currency and also advances');
+
+SELECT throws_ok(format('SELECT drive_node_move(%s,%s,%s)', :um, :b, :c),
+                 'BZ141', NULL, 'closure cycle is rejected');
+SELECT drive_space_create(:um, 'Other ACL Space', 'regular') AS sid2 \gset
+SELECT drive_node_create(:um, :sid2, NULL, 'folder', 'D') AS d \gset
+SELECT throws_ok(format('SELECT drive_node_move(%s,%s,%s)', :um, :b, :d),
+                 'BZ143', NULL, 'cross-space move remains rejected');
+
+SELECT throws_ok(format($sql$
+  INSERT INTO drive_acl_grants
+    (space_id,node_id,subject_user_id,preset,capabilities,propagation,created_by)
+  VALUES (%s,%s,%s,'viewer',ARRAY['unknown'],'subtree',%s)
+$sql$, :sid, :c, :ud, :um), '23514', NULL, 'unknown capability cannot be stored');
+SELECT throws_ok(format($sql$
+  INSERT INTO drive_acl_grants
+    (space_id,node_id,subject_user_id,preset,capabilities,propagation,created_by)
+  VALUES (%s,%s,%s,'viewer',ARRAY['traverse','traverse'],'subtree',%s)
+$sql$, :sid, :c, :ud, :um), '23514', NULL, 'duplicate/mismatched preset capability cannot be stored');
+
+INSERT INTO drive_acl_grants
+  (space_id,node_id,subject_user_id,preset,capabilities,propagation,created_by,
+   idempotency_key,request_digest)
+VALUES (:sid,:c,:ud,'viewer',drive_acl_preset_capabilities('viewer'),'subtree',:um,
+        'acl-foundation-idempotency',repeat('a',64));
+SELECT epoch AS target_epoch, invalidation_cursor AS target_cursor
+  FROM drive_acl_bump(:sid, 'user', :ud, :c, 'grant') \gset
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :ud::text, true);
+SELECT is((SELECT count(*) FROM drive_acl_grants WHERE space_id=:sid)::int, 1,
+          'direct subject sees own grant under FORCE RLS');
+SELECT is((SELECT count(*) FROM drive_node_closure WHERE space_id=:sid)::int, 0,
+          'expand phase does not expose closure to a non-member direct grantee');
+SELECT is((SELECT count(*) FROM drive_access_invalidations
+            WHERE cursor=:target_cursor)::int, 1,
+          'target principal sees its invalidation');
+
+SELECT set_config('app.current_user_id', :uo::text, true);
+SELECT is((SELECT count(*) FROM drive_acl_grants WHERE space_id=:sid)::int, 0,
+          'outsider cannot enumerate grants');
+SELECT is((SELECT count(*) FROM drive_access_invalidations WHERE space_id=:sid)::int, 0,
+          'outsider cannot enumerate invalidations');
+SELECT is((SELECT count(*) FROM drive_acl_breaks WHERE space_id=:sid)::int, 0,
+          'outsider cannot enumerate inheritance breaks');
+SELECT is((SELECT count(*) FROM drive_acl_generations WHERE space_id=:sid)::int, 0,
+          'outsider cannot enumerate ACL generations');
+SELECT is((SELECT count(*) FROM drive_node_closure WHERE space_id=:sid)::int, 0,
+          'outsider cannot enumerate closure facts');
+
+SELECT set_config('app.current_user_id', :um::text, true);
+SELECT is((SELECT count(*) FROM drive_acl_grants WHERE space_id=:sid)::int, 1,
+          'space manager can inspect the direct grant');
+SELECT set_config('app.current_user_id', :uv::text, true);
+SELECT ok((SELECT count(*) FROM drive_node_closure WHERE space_id=:sid) > 0,
+          'legacy member may read closure during expand phase');
+
+SELECT * FROM finish();
+ROLLBACK;

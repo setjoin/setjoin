@@ -1,0 +1,13 @@
+{
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "row": {
+      "bytes": 25165840,
+      "disabled": false,
+      "sample_count": 7,
+      "sha256": "ae5f8f10e76fb491c9b234d80383f33c34e46c86a44d674977eea42b53a39ef3",
+      "trained": false
+    },
+    "s3": []
+  }
+}

@@ -1,0 +1,42 @@
+-- directory_hidden_from_gal.pg — the directory_visible_users seam (ADR-004 §4)
+-- must honor mailboxes.hidden_from_gal on the primary mailbox: the column has
+-- existed since V001 but the seam never checked it (dead flag). Bug-fix test,
+-- lands in its own commit ahead of the GAL CardDAV feature.
+--
+-- DIVERGENT IDS (ADR-003): user ids (781x) != mailbox ids (981x) by
+-- construction. Direct INSERTs (not mk_account) so email/username are exact —
+-- mk_account suffixes its label with a generated id, which the plan's
+-- literal `WHERE username = 'galvis_caller'` / `email LIKE 'galvis_caller@%'`
+-- assertions do not account for.
+BEGIN;
+SELECT plan(3);
+
+INSERT INTO domains (name, is_local) VALUES ('galvis.test', TRUE);
+
+-- caller
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7811, 'galvis_caller', (SELECT id FROM domains WHERE name='galvis.test'), 'galvis_caller@galvis.test', 'Caller');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (9811, 7811, (SELECT id FROM domains WHERE name='galvis.test'), 'galvis_caller@galvis.test', 'personal', TRUE, 'Caller');
+
+-- the person to hide/unhide
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7812, 'galvis_hidden', (SELECT id FROM domains WHERE name='galvis.test'), 'galvis_hidden@galvis.test', 'Hidden');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name, hidden_from_gal)
+  VALUES (9812, 7812, (SELECT id FROM domains WHERE name='galvis.test'), 'galvis_hidden@galvis.test', 'personal', TRUE, 'Hidden', TRUE);
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM directory_visible_users(9811) WHERE email = 'galvis_caller@galvis.test'),
+  'visible user appears in the seam');
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM directory_visible_users(9811) WHERE email = 'galvis_hidden@galvis.test'),
+  'hidden_from_gal primary mailbox excludes the user from the seam');
+
+UPDATE mailboxes SET hidden_from_gal = FALSE WHERE id = 9812;
+SELECT ok(
+  EXISTS (SELECT 1 FROM directory_visible_users(9811) WHERE email = 'galvis_hidden@galvis.test'),
+  'unhiding restores visibility');
+
+SELECT * FROM finish();
+ROLLBACK;

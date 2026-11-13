@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/apps/collabora-code/operations",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"expectedProviderGeneration\":1,\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"kind\":\"install\",\"providerId\":\"collabora\",\"request\":{\"catalogRevision\":1,\"ingress\":{\"hostname\":\"office.example.test\"},\"profile\":\"managed-customer-proxy\"}}"
+    }
+  ],
+  "stdout": "{\n  \"accepted\": true\n}\n",
+  "stderr": "",
+  "exit": 0
+}

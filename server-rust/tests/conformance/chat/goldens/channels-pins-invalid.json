@@ -1,0 +1,131 @@
+{
+  "case": "pins-invalid",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [],
+        "chat_polls": [],
+        "chat_push_intents": [],
+        "chat_send_counters": []
+      },
+      "before": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [],
+        "chat_polls": [],
+        "chat_push_intents": [],
+        "chat_send_counters": []
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/chat/channels/{id}/pins"
+    },
+    "response": {
+      "body": {
+        "detail": "invalid channel id",
+        "instance": "/chat/channels/bad/pins",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat2-oracle"
+      },
+      "status": 400
+    }
+  },
+  "route": "GET /chat/channels/{id}/pins"
+}

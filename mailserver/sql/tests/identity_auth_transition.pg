@@ -1,0 +1,598 @@
+-- pgTAP: I3 normalized auth links, I4 field authority, I5 directory-to-local.
+BEGIN;
+SELECT plan(65);
+
+SELECT has_function(
+  'public','identity_auth_local_mint_fence',ARRAY['bigint'],
+  'generic authentication has a transaction-held identity mint fence'
+);
+
+INSERT INTO domains(name,is_local) VALUES('mk.test',true)
+ON CONFLICT(name) DO UPDATE SET is_local=true;
+UPDATE feature_toggles SET enabled=true WHERE key='feature.identity_model_v2';
+UPDATE feature_toggles SET enabled=true WHERE key='feature.identity_transitions';
+
+CREATE TEMP TABLE it_fixture(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE FUNCTION pg_temp.identity_transition_test_elevation(
+  p_actor BIGINT,p_transition UUID,p_digest TEXT,
+  p_session_digest BYTEA,p_factor_digest BYTEA,
+  p_amr TEXT[],p_acr TEXT,p_key UUID
+) RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE v_challenge JSONB;
+BEGIN
+  v_challenge := identity_transition_challenge_issue(
+    p_actor,p_transition,p_digest,gen_random_uuid()
+  );
+  RETURN identity_transition_challenge_complete(
+    p_actor,p_transition,(v_challenge->>'challengeId')::uuid,p_digest,
+    p_session_digest,p_factor_digest,
+    ARRAY['pwd','otp','mfa']::text[],'aal2',p_key
+  );
+END;
+$$;
+INSERT INTO it_fixture VALUES
+ ('provider','https://issuer.identity.test'),
+ ('subject','immutable-subject-1');
+
+SELECT is(
+ identity_auth_resolve('oidc',
+   (SELECT value FROM it_fixture WHERE key='provider'),
+   (SELECT value FROM it_fixture WHERE key='subject'))->>'found',
+ 'false','unknown exact issuer-subject pair does not resolve'
+);
+SELECT lives_ok($$
+  INSERT INTO it_fixture
+  SELECT 'jit',identity_auth_jit(
+    'oidc',
+    (SELECT value FROM it_fixture WHERE key='provider'),
+    (SELECT value FROM it_fixture WHERE key='subject'),
+    'i3-jit@mk.test','I3 JIT'
+  )::text
+$$,'normalized JIT commits atomically');
+INSERT INTO it_fixture
+SELECT 'jit_user',(value::jsonb->>'userId')
+FROM it_fixture WHERE key='jit';
+INSERT INTO it_fixture
+SELECT 'jit_link',(value::jsonb->>'linkId')
+FROM it_fixture WHERE key='jit';
+SELECT is((SELECT value::jsonb->>'created' FROM it_fixture WHERE key='jit'),
+          'true','JIT reports a newly-created identity');
+SELECT ok((
+  SELECT value::jsonb->>'sourceGeneration' ~ '^[1-9][0-9]*$'
+     AND value::jsonb->>'linkGeneration' ~ '^[1-9][0-9]*$'
+    FROM it_fixture WHERE key='jit'
+), 'JIT returns the exact source and link generations required by the mint fence');
+SELECT is(identity_auth_resolve('oidc',
+  (SELECT value FROM it_fixture WHERE key='provider'),
+  (SELECT value FROM it_fixture WHERE key='subject'))->>'userId',
+  (SELECT value FROM it_fixture WHERE key='jit_user'),
+  'exact normalized link resolves the stable person');
+SELECT ok((
+  SELECT r->>'sourceId'=j->>'sourceId'
+     AND r->>'sourceGeneration'=j->>'sourceGeneration'
+     AND r->>'linkId'=j->>'linkId'
+     AND r->>'linkGeneration'=j->>'linkGeneration'
+    FROM (
+      SELECT identity_auth_resolve(
+        'oidc',
+        (SELECT value FROM it_fixture WHERE key='provider'),
+        (SELECT value FROM it_fixture WHERE key='subject')
+      ) r,
+      (SELECT value::jsonb FROM it_fixture WHERE key='jit') j
+    ) q
+), 'normalized resolve returns the exact source and link generation fence');
+SELECT lives_ok($$
+  SELECT identity_auth_mint_fence(
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+    (SELECT (value::jsonb->>'sourceId')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT (value::jsonb->>'sourceGeneration')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_link'),
+    (SELECT (value::jsonb->>'linkGeneration')::bigint FROM it_fixture WHERE key='jit')
+  )
+$$, 'exact active source and link generations authorize token persistence');
+UPDATE users SET enabled=false
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='jit_user');
+SELECT throws_ok($$
+  SELECT identity_auth_mint_fence(
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+    (SELECT (value::jsonb->>'sourceId')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT (value::jsonb->>'sourceGeneration')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_link'),
+    (SELECT (value::jsonb->>'linkGeneration')::bigint FROM it_fixture WHERE key='jit')
+  )
+$$, 'BZ235', 'identity mint principal is unavailable',
+  'a concurrently disabled normalized principal cannot mint a token');
+UPDATE users SET enabled=true
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='jit_user');
+SELECT lives_ok($$
+  SELECT identity_auth_local_mint_fence(
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_user')
+  )
+$$, 'local session mint fence admits a stable person without an active transition');
+SELECT throws_ok($$
+  SELECT identity_auth_mint_fence(
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+    (SELECT (value::jsonb->>'sourceId')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT (value::jsonb->>'sourceGeneration')::bigint FROM it_fixture WHERE key='jit'),
+    (SELECT value::bigint FROM it_fixture WHERE key='jit_link'),
+    (SELECT (value::jsonb->>'linkGeneration')::bigint+1 FROM it_fixture WHERE key='jit')
+  )
+$$, 'BZ235', 'identity link changed before token mint',
+  'stale link generation cannot authorize a token mint');
+UPDATE identity_sources SET read_mode='canary'
+ WHERE id=(SELECT (value::jsonb->>'sourceId')::bigint
+             FROM it_fixture WHERE key='jit');
+SELECT is(
+  identity_auth_resolve(
+    'oidc',
+    (SELECT value FROM it_fixture WHERE key='provider'),
+    'unknown-canary-subject'
+  )->>'serveNormalized',
+  'true',
+  'unknown canary subject fails closed as a normalized miss instead of address fallback'
+);
+SELECT is(identity_auth_resolve('oidc','https://other.identity.test',
+  (SELECT value FROM it_fixture WHERE key='subject'))->>'found',
+  'false','same subject at another issuer cannot collide');
+SELECT is(identity_auth_jit('oidc',
+  (SELECT value FROM it_fixture WHERE key='provider'),
+  (SELECT value FROM it_fixture WHERE key='subject'),
+  'i3-jit@mk.test','I3 JIT')->>'created',
+  'false','JIT replay is idempotent by source and subject');
+SELECT is((SELECT count(*)::integer FROM mailboxes
+  WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='jit_user')
+    AND is_primary),1,'JIT creates exactly one primary mailbox');
+SELECT is((SELECT authority_kind FROM user_lifecycle_authorities
+  WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='jit_user')),
+  'local','authentication-only JIT leaves lifecycle local');
+SELECT is((SELECT purposes::text FROM user_identity_links
+  WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='jit_link')),
+  '{authenticate}','JIT link is authentication-only');
+SELECT is((SELECT action FROM identity_link_events
+  WHERE link_id=(SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+  ORDER BY id DESC LIMIT 1),'auth_jit_created','JIT emits durable audit evidence');
+SELECT throws_ok($$
+ SELECT identity_auth_link(
+  NULL,
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  'oidc',
+  (SELECT value FROM it_fixture WHERE key='provider'),
+  'invalid-actor-subject',
+  'oidc:invalid-actor',
+  'missing authenticated actor'
+ )
+$$,'BZ234','invalid authenticated identity link',
+ 'identity link rejects a missing authenticated actor');
+SELECT throws_ok($$
+ SELECT identity_auth_link(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  'oidc',
+  (SELECT value FROM it_fixture WHERE key='provider'),
+  'invalid-reason-subject',
+  'oidc:invalid-reason',
+  ''
+ )
+$$,'BZ241','invalid authenticated identity link',
+ 'identity link projects malformed request arguments separately from state conflicts');
+SELECT throws_ok($$
+ SELECT identity_auth_unlink(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link'),
+  'attempt to remove the final recovery path'
+ )
+$$,'BZ237','alternate authentication and recovery are required',
+ 'unlink refuses to remove the final authentication and recovery path');
+SELECT is(
+ identity_recovery_available(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+ ),
+ false,
+ 'excluded primary link leaves no alternate recovery path'
+);
+INSERT INTO passkey_credentials(
+ id,user_id,public_key,attestation_type,sign_count,revoked_at
+) VALUES(
+ digest('i3-revoked-passkey','sha256'),
+ (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+ digest('i3-revoked-passkey-public','sha256'),
+ 'none',0,statement_timestamp()
+);
+SELECT is(
+ identity_recovery_available(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+ ),
+ false,
+ 'revoked passkey is not counted as recovery'
+);
+UPDATE passkey_credentials SET revoked_at=NULL
+ WHERE id=digest('i3-revoked-passkey','sha256');
+SELECT is(
+ identity_recovery_available(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+ ),
+ true,
+ 'unrevoked passkey is an alternate recovery path'
+);
+UPDATE passkey_credentials SET revoked_at=statement_timestamp()
+ WHERE id=digest('i3-revoked-passkey','sha256');
+INSERT INTO identity_sources(
+ source_key,display_name,kind,capabilities,state
+) VALUES(
+ 'oidc:i3-recovery-alt','I3 recovery alternate','oidc',
+ '{"authenticate":true,"stable_immutable_subject":true}'::jsonb,'active'
+);
+INSERT INTO user_identity_links(
+ user_id,source_id,external_subject,purposes,state,link_method
+) VALUES(
+ (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+ (SELECT id FROM identity_sources WHERE source_key='oidc:i3-recovery-alt'),
+ 'alternate-recovery-subject',ARRAY['authenticate'],'active','operator'
+);
+SELECT is(
+ identity_recovery_available(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+ ),
+ true,
+ 'active alternate authentication link on an active source is recovery'
+);
+UPDATE identity_sources SET state='paused'
+ WHERE source_key='oidc:i3-recovery-alt';
+SELECT is(
+ identity_recovery_available(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link')
+ ),
+ false,
+ 'paused source invalidates its otherwise-active authentication link'
+);
+SELECT throws_ok($$
+ SELECT identity_auth_unlink(
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_user'),
+  (SELECT value::bigint FROM it_fixture WHERE key='jit_link'),
+  'paused alternate source is not recovery'
+ )
+$$,'BZ237','alternate authentication and recovery are required',
+ 'unlink reuses the strict recovery predicate at execution time');
+
+SELECT mk_account('i3-collision');
+SELECT is(identity_auth_jit(
+  'saml','https://saml.identity.test','nameid-collision',
+  (SELECT email FROM users ORDER BY id DESC LIMIT 1),'Collision'
+)->>'code','BZ231','email collision is blocked as soft evidence');
+SELECT is((SELECT count(*)::integer FROM identity_match_candidates
+  WHERE external_subject='nameid-collision' AND status='pending'),1,
+  'blocked collision retains one review candidate');
+INSERT INTO it_fixture
+SELECT 'alias_mailbox',mk_account('i3-alias-owner')::text;
+INSERT INTO aliases(mailbox_id,email,domain_id)
+VALUES(
+ (SELECT value::bigint FROM it_fixture WHERE key='alias_mailbox'),
+ 'federated-alias@mk.test',
+ (SELECT id FROM domains WHERE name='mk.test')
+);
+SELECT is(identity_auth_jit(
+  'oidc','https://alias-collision.identity.test','alias-collision-subject',
+  'federated-alias@mk.test','Alias collision'
+)->>'code','BZ231',
+ 'JIT treats an existing mailbox alias as soft collision evidence');
+INSERT INTO it_fixture
+SELECT 'upn_mailbox',mk_account('i3-upn-owner')::text;
+UPDATE users SET ad_upn='federated-upn@mk.test'
+ WHERE id=(
+   SELECT user_id FROM mailboxes
+    WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='upn_mailbox')
+ );
+SELECT is(identity_auth_jit(
+  'saml','https://upn-collision.identity.test','upn-collision-subject',
+  'federated-upn@mk.test','UPN collision'
+)->>'code','BZ231',
+ 'JIT treats an existing AD UPN as soft collision evidence');
+
+-- Create a lifecycle-owned SCIM person through the I2 fenced path.
+INSERT INTO it_fixture
+SELECT 'scim_source',id::text FROM identity_sources WHERE source_key='legacy:scim';
+INSERT INTO it_fixture
+SELECT 'scim_generation',generation::text FROM identity_sources
+ WHERE source_key='legacy:scim';
+INSERT INTO it_fixture VALUES('scim_subject','scim-transition-subject');
+INSERT INTO it_fixture
+SELECT 'scim_result',identity_source_scim_apply(
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_source'),
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_generation'),
+  gen_random_uuid(),
+  (SELECT value FROM it_fixture WHERE key='scim_subject'),
+  '{"operation":"upsert","email":"i5-transition@mk.test","displayName":"Before","firstName":"Before","enabled":true}'::jsonb
+)::text;
+INSERT INTO it_fixture
+SELECT 'scim_user',value::jsonb->>'userId' FROM it_fixture WHERE key='scim_result';
+INSERT INTO it_fixture
+SELECT 'scim_link',value::jsonb->>'linkId' FROM it_fixture WHERE key='scim_result';
+SELECT is((SELECT display_name FROM users
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 'Before','source profile applies to a new person');
+SELECT is((SELECT count(*)::integer FROM identity_attribute_authority
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')
+   AND source_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_source')),
+ 4,'present source fields receive exact authority rows');
+
+UPDATE identity_attribute_authority SET local_override_state='active'
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')
+   AND field='display_name';
+SELECT lives_ok($$
+ SELECT identity_source_scim_apply(
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_source'),
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_generation'),
+  gen_random_uuid(),
+  (SELECT value FROM it_fixture WHERE key='scim_subject'),
+  '{"operation":"upsert","email":"i5-transition@mk.test","displayName":"Remote Override","enabled":true}'::jsonb
+ )
+$$,'source reapply completes with a local override');
+SELECT is((SELECT display_name FROM users
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 'Before','active local override prevents source overwrite');
+
+UPDATE users SET password_hash='local-recovery-proof'
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user');
+INSERT INTO oauth_tokens(
+  user_id,token_hash,expires_at,family_id,token_type
+) VALUES(
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_user'),
+  digest('identity-transition-refresh-family','sha256'),
+  statement_timestamp()+interval '1 hour',
+  gen_random_uuid(),
+  'refresh'
+);
+INSERT INTO it_fixture VALUES('actor',
+ (SELECT value FROM it_fixture WHERE key='jit_user'));
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ 1,
+ (SELECT value::bigint FROM it_fixture WHERE key='actor')
+);
+UPDATE feature_toggles SET enabled=false WHERE key='feature.cae_runtime';
+SELECT throws_ok($$
+ SELECT identity_transition_preview(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT value::bigint FROM it_fixture WHERE key='scim_user'),
+  'transition before live revocation enforcement',
+  gen_random_uuid()
+ )
+$$,'BZ234','identity transition admission prerequisites are disabled',
+ 'transition admission fails closed while CAE denylist enforcement is off');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.cae_runtime';
+INSERT INTO it_fixture
+SELECT 'preview',identity_transition_preview(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ (SELECT value::bigint FROM it_fixture WHERE key='scim_user'),
+ 'operator approved directory-to-local continuity',
+ gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM it_fixture WHERE key='preview'),
+ 'previewed','directory-to-local produces a durable preview');
+SELECT is((SELECT value::jsonb->>'recoveryReady' FROM it_fixture WHERE key='preview'),
+ 'true','preview proves alternate local recovery');
+SELECT is(identity_transition_preview(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ (SELECT value::bigint FROM it_fixture WHERE key='scim_user'),
+ 'operator approved directory-to-local continuity',
+ (SELECT idempotency_key FROM identity_transitions
+   WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+             FROM it_fixture WHERE key='preview'))
+)->>'replayed','true',
+ 'same preview request replays the original transition');
+SELECT throws_ok(format(
+ $$SELECT identity_transition_preview(%s,%s,%L,%L::uuid)$$,
+ (SELECT value FROM it_fixture WHERE key='actor'),
+ (SELECT value FROM it_fixture WHERE key='scim_user'),
+ 'different reason under a reused key',
+ (SELECT idempotency_key::text FROM identity_transitions
+   WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+             FROM it_fixture WHERE key='preview'))),
+ 'BZ240','identity transition idempotency key was reused with different input',
+ 'preview idempotency key cannot be reused for different input');
+INSERT INTO it_fixture
+SELECT 'request_elevation',pg_temp.identity_transition_test_elevation(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+ (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+ digest('transition-request-session','sha256'),
+ digest('transition-request-factor','sha256'),
+ ARRAY['pwd','totp']::text[],'urn:setjoin:acr:mfa',gen_random_uuid()
+)::text;
+SELECT ok((
+ SELECT expires_at>statement_timestamp()
+    AND expires_at<=issued_at+interval '5 minutes'
+   FROM identity_transition_elevations
+  WHERE id=(SELECT (value::jsonb->>'elevationId')::uuid
+              FROM it_fixture WHERE key='request_elevation')
+),'transition elevation is scoped to a five-minute database-time window');
+INSERT INTO it_fixture
+SELECT 'request',identity_transition_request(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+ (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+ (SELECT (value::jsonb->>'elevationId')::uuid
+    FROM it_fixture WHERE key='request_elevation'),
+ 'operator approved directory-to-local continuity',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM it_fixture WHERE key='request'),
+ 'authorized','unprotected request consumes elevation and authorizes execution');
+SELECT ok((
+ SELECT consumed_at IS NOT NULL
+   FROM identity_transition_elevations
+  WHERE id=(SELECT (value::jsonb->>'elevationId')::uuid
+              FROM it_fixture WHERE key='request_elevation')
+),'request elevation is consumed exactly once');
+INSERT INTO it_fixture
+SELECT 'execute_elevation',pg_temp.identity_transition_test_elevation(
+ (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+ (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+ (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+ digest('transition-execute-session','sha256'),
+ digest('transition-execute-factor','sha256'),
+ ARRAY['pwd','totp']::text[],'urn:setjoin:acr:mfa',gen_random_uuid()
+)::text;
+INSERT INTO it_fixture VALUES('execute_idempotency',gen_random_uuid()::text);
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='request_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  gen_random_uuid())
+$$,'BZ236','identity transition elevation is missing, expired, stale, disabled, or already consumed',
+ 'consumed request elevation cannot authorize execution in a later generation');
+UPDATE feature_toggles SET enabled=false WHERE key='feature.identity_transitions';
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  gen_random_uuid())
+$$,'BZ234','identity transition admission prerequisites are disabled',
+ 'rollback or toggle-off invalidates an uncommitted preview');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.identity_transitions';
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  repeat('0',64),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  gen_random_uuid())
+$$,'BZ235','identity transition preview is stale',
+ 'wrong digest cannot execute');
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  gen_random_uuid(),NULL::bigint,
+  'operator approved directory-to-local continuity',gen_random_uuid())
+$$,'BZ236','identity transition elevation is missing, expired, stale, disabled, or already consumed',
+ 'missing step-up cannot execute');
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'different execution reason',gen_random_uuid())
+$$,'BZ240','identity transition reason differs from the preview',
+ 'execute cannot substitute a different audited reason');
+UPDATE users SET password_hash=NULL
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user');
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  gen_random_uuid())
+$$,'BZ237','alternate authentication and recovery are required',
+ 'execute rechecks recovery instead of trusting the preview snapshot');
+UPDATE users SET password_hash='local-recovery-proof'
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user');
+UPDATE user_identity_links SET generation=generation+1
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_link');
+SELECT throws_ok($$
+ SELECT identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  gen_random_uuid())
+$$,'BZ235','identity transition state changed after preview',
+ 'execute rejects a changed link generation');
+UPDATE user_identity_links SET generation=generation-1
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_link');
+SELECT lives_ok($$
+ INSERT INTO it_fixture
+ SELECT 'execute',identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  (SELECT value::uuid FROM it_fixture WHERE key='execute_idempotency'))::text
+$$,'unprotected transition commits after exact preview and step-up');
+SELECT is((SELECT authority_kind FROM user_lifecycle_authorities
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 'local','transition changes lifecycle authority to local');
+SELECT is((SELECT state FROM user_identity_links
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_link')),
+ 'detached','old source subject becomes a retained tombstone');
+SELECT is((SELECT sync_source FROM users
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 'local','legacy projection dual-writes local lifecycle');
+SELECT is((SELECT count(*)::integer FROM oauth_tokens
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')
+   AND revoked_at IS NULL),0,
+ 'transition revokes every live OAuth refresh family in-transaction');
+SELECT is((SELECT count(*)::integer FROM session_revocations
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')
+   AND scope='all' AND reason='identity_directory_to_local'),1,
+ 'transition writes one durable all-session JWT denylist fence');
+SELECT is((SELECT count(*)::integer FROM admin_audit_log
+ WHERE action='revoke_user_sessions'
+   AND target_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),1,
+ 'transition session revocation is audited in the same transaction');
+SELECT is((SELECT count(*)::integer FROM users
+ WHERE id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 1,'person ID survives transition');
+SELECT is((SELECT count(*)::integer FROM mailboxes
+ WHERE user_id=(SELECT value::bigint FROM it_fixture WHERE key='scim_user')),
+ 1,'mailbox and content owner survive transition');
+SELECT is((SELECT count(*)::integer FROM identity_transition_effects
+ WHERE transition_id=(
+  SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'
+ )),3,'transition creates all exact external effects');
+SELECT is((SELECT state FROM identity_transition_effects
+ WHERE transition_id=(
+  SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'
+ ) AND effect_kind='auth_sessions'),'completed',
+ 'database session revocation completes in-transaction');
+SELECT is((SELECT count(*)::integer FROM identity_transition_effects
+ WHERE transition_id=(
+  SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'
+ ) AND state='pending'),2,'media eviction and notice remain durably pending');
+SELECT throws_ok($$
+  SELECT identity_auth_local_mint_fence(
+    (SELECT value::bigint FROM it_fixture WHERE key='scim_user')
+  )
+$$,'BZ235','identity transition security effects are unfinished',
+ 'local session mint fence rechecks admission after transition commit');
+SELECT is(identity_transition_execute(
+  (SELECT value::bigint FROM it_fixture WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM it_fixture WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM it_fixture WHERE key='execute_elevation'),
+  NULL::bigint,'operator approved directory-to-local continuity',
+  (SELECT value::uuid FROM it_fixture WHERE key='execute_idempotency')
+ )->>'replayed','true','execute replay is idempotent');
+SELECT is((SELECT count(*)::integer FROM identity_link_events
+ WHERE transition_id=(
+  SELECT (value::jsonb->>'transitionId')::uuid FROM it_fixture WHERE key='preview'
+ ) AND action='transition_committed'),1,'commit emits one transition event');
+
+SELECT * FROM finish();
+ROLLBACK;

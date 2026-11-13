@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of role delete:\n  -reason string\n    \tAudit reason (required)\nError: flag: help requested\n",
+  "exit": 1
+}

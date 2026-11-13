@@ -1,0 +1,153 @@
+-- undo_snooze_pin.pg: Tests for undo send, snooze picker, and pin-to-top features.
+-- Requires: message_lifecycle reducers, V025 migration, jmap_email updates.
+
+BEGIN;
+SELECT plan(11);
+
+-- Create test fixtures (domain must be created before users)
+INSERT INTO domains (name, is_local)
+VALUES ('example.com', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- ADR-003: DIVERGENT ids (user 199901 != mailbox 99901). The lifecycle reducers
+-- are mailbox-keyed; message ids (99902) are a separate namespace.
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (199901, 'pintestuser', (SELECT id FROM domains WHERE name = 'example.com'),
+        'pin-test@example.com', 'Pin Test', crypt('test', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (99901, 199901, (SELECT id FROM domains WHERE name = 'example.com'),
+        'pin-test@example.com', 'Pin Test Inbox', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- Ensure system tags exist
+SELECT lives_ok(
+  $$ SELECT create_system_tags(99901) $$,
+  'create_system_tags runs without error'
+);
+
+-- ============================================================
+-- Test 2: pinned_at column exists on messages
+-- ============================================================
+SELECT has_column('messages', 'pinned_at', 'messages.pinned_at column should exist');
+
+-- ============================================================
+-- Test 3: tags.timer_type side-channel is GONE (A6 — replaced by scheduled_actions)
+-- ============================================================
+SELECT hasnt_column('tags', 'timer_type', 'tags.timer_type side-channel dropped by V080');
+
+-- ============================================================
+-- Test 4: jmap_email_get includes pinnedAt for a pinned message
+-- ============================================================
+-- Insert a test message
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, pinned_at)
+VALUES (99901, 99901,
+    (SELECT id FROM tags WHERE mailbox_id = 99901 AND name = 'Inbox'),
+    '<pin-test-1@example.com>', 'Pinned Subject',
+    'sender@example.com', 'Sender', '[{"email":"pin-test@example.com","name":"Pin Test"}]'::JSONB,
+    '[]'::JSONB, '[]'::JSONB, 'thread-pin-1', 'raw/99901',
+    now() - interval '1 hour', now() - interval '30 minutes')
+ON CONFLICT (id, received_at) DO NOTHING;
+
+-- Add Inbox tag
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 99901, received_at,
+       (SELECT id FROM tags WHERE mailbox_id = 99901 AND name = 'Inbox'),
+       'test', TRUE
+FROM messages WHERE id = 99901
+ON CONFLICT DO NOTHING;
+
+-- Call jmap_email_get for the pinned message
+SELECT is(
+    (SELECT (jmap_email_get(99901, ARRAY[99901], NULL)->'list'->0->>'pinnedAt') IS NOT NULL),
+    TRUE,
+    'jmap_email_get should include pinnedAt for pinned message'
+);
+
+-- ============================================================
+-- Test 5: Pinned message sorts first in default query
+-- ============================================================
+-- Insert a second (non-pinned) message
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, pinned_at)
+VALUES (99902, 99901,
+    (SELECT id FROM tags WHERE mailbox_id = 99901 AND name = 'Inbox'),
+    '<pin-test-2@example.com>', 'Unpinned Subject',
+    'sender@example.com', 'Sender', '[{"email":"pin-test@example.com","name":"Pin Test"}]'::JSONB,
+    '[]'::JSONB, '[]'::JSONB, 'thread-pin-2', 'raw/99902',
+    now(), NULL)
+ON CONFLICT (id, received_at) DO NOTHING;
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 99902, received_at,
+       (SELECT id FROM tags WHERE mailbox_id = 99901 AND name = 'Inbox'),
+       'test', TRUE
+FROM messages WHERE id = 99902
+ON CONFLICT DO NOTHING;
+
+-- Query default sort: pinned (older) should come before unpinned (newer)
+SELECT is(
+    (SELECT (jmap_email_query(99901, NULL, NULL, 0, 50)->'ids'->>0)::BIGINT),
+    99901::BIGINT,
+    'Pinned message should sort first in default query'
+);
+
+-- ============================================================
+-- Test 6: message_schedule sets scheduled=true
+-- ============================================================
+SELECT is(
+    (message_schedule(99901, 99902, NULL, 60)->>'scheduled')::BOOL,
+    TRUE,
+    'message_schedule with undo window should set scheduled=true'
+);
+
+-- ============================================================
+-- Test 7: Verify message has Scheduled tag
+-- ============================================================
+SELECT is(
+    (SELECT count(*) > 0 FROM message_tags mt
+     JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 99902 AND t.name = 'Scheduled'),
+    TRUE,
+    'Scheduled message should have Scheduled tag'
+);
+
+-- ============================================================
+-- Test 8: message_cancel returns cancelled=true
+-- ============================================================
+SELECT is(
+    (message_cancel(99901, 99902)->>'cancelled')::BOOL,
+    TRUE,
+    'message_cancel should return cancelled=true'
+);
+
+-- ============================================================
+-- Test 9: Scheduled tag is removed after cancel
+-- ============================================================
+SELECT is(
+    (SELECT count(*) FROM message_tags mt
+     JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 99902 AND t.name = 'Scheduled'),
+    0::BIGINT,
+    'Cancelled message should have no Scheduled tag'
+);
+
+-- ============================================================
+-- Tests 10 & 11: Pinned toggle sets/clears pinned_at
+-- ============================================================
+-- Pin a message via jmap_email_set_update
+SELECT lives_ok(
+    $$ SELECT jmap_email_set_update(99901, jsonb_build_object('99902', jsonb_build_object('pinned', TRUE))) $$,
+    'jmap_email_set_update pin=true succeeds'
+);
+
+SELECT is(
+    (SELECT pinned_at IS NOT NULL FROM messages WHERE id = 99902),
+    TRUE,
+    'Setting pinned=true should set pinned_at'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

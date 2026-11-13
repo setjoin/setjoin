@@ -1,0 +1,88 @@
+-- mailserver/sql/tests/drive_share_approval.pg — drive.share consumer: the
+-- decide wrapper + drive_member_grant's approval branch going live (P5 Task
+-- 5), including the AUTOPLAN batch-2 #1 SET LOCAL ROLE setjoin_app leg
+-- (a non-member approver deciding must land under REAL RLS).
+BEGIN;
+SELECT plan(17);
+
+UPDATE feature_toggles SET enabled = true WHERE key IN ('feature.drive','feature.drive_compliance');
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (94200, 'dsa.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, manager_id) OVERRIDING SYSTEM VALUE VALUES
+  (94201, 'dsa_owner', 94200, 'own@dsa.test', 'Owner',   TRUE, 94202),
+  (94202, 'dsa_mgr',   94200, 'mgr@dsa.test', 'Manager', TRUE, NULL),
+  (94203, 'dsa_g1',    94200, 'g1@dsa.test',  'Grantee1',TRUE, NULL),
+  (94205, 'dsa_g2',    94200, 'g2@dsa.test',  'Grantee2',TRUE, NULL),
+  (94206, 'dsa_g3',    94200, 'g3@dsa.test',  'Grantee3',TRUE, NULL),
+  (94207, 'dsa_g4',    94200, 'g4@dsa.test',  'Grantee4',TRUE, NULL),
+  (94208, 'dsa_g5',    94200, 'g5@dsa.test',  'Grantee5',TRUE, NULL);
+
+SELECT drive_space_create(94201, 'GxpShare5', 'gxp', false, 30, 'compliance') AS id \gset gxp_
+SELECT drive_space_create(94201, 'SecShare5', 'secure') AS id \gset sec_
+
+SELECT set_config('app.current_user_id', '94201', false);
+
+-- ── 1: gxp direct grant always routes through drive.share (§9.2 hard floor,
+-- no policy configured -> fail-closed manager resolution -> pending) ────────
+SELECT is(drive_member_grant(94201, :gxp_id, 94203, 'editor')->>'status', 'pending',
+          'gxp share -> pending (no direct grant on gxp)');
+SELECT id AS reqid FROM approval_requests WHERE consumer_type = 'drive.share'
+   AND payload->>'grantee' = '94203' \gset
+SELECT is((SELECT role FROM drive_space_members WHERE space_id = :gxp_id AND user_id = 94203), NULL,
+          'no member row inserted while pending');
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE space_id = :gxp_id AND action = 'share.requested') >= 1,
+          'share.requested audited');
+SELECT is((SELECT consumer_type FROM approval_requests WHERE id = :reqid), 'drive.share',
+          'approval request created under the drive.share consumer');
+SELECT is((SELECT approver_ref FROM approval_requests WHERE id = :reqid), 94202::bigint,
+          'fail-closed approver = requester manager');
+
+-- ── 2: approve -> member row appears, share.approved audited, journaled ────
+SELECT is(drive_share_approval_decide(:reqid, 94202, 'approve', 'e-sig ok'), 'applied', 'approve -> applied');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id = :gxp_id AND user_id = 94203), 'editor',
+          'member row upserted with the payload role');
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE space_id = :gxp_id AND action = 'share.approved') >= 1,
+          'share.approved audited');
+SELECT ok((SELECT count(*) FROM drive_changes WHERE space_id = :gxp_id AND op = 'member') >= 1,
+          'member grant journaled (op=member)');
+
+-- ── 3: deny -> no member row, share.denied audited ──────────────────────────
+SELECT drive_member_grant(94201, :gxp_id, 94205, 'viewer');
+SELECT id AS reqid2 FROM approval_requests WHERE consumer_type = 'drive.share'
+   AND payload->>'grantee' = '94205' \gset
+SELECT is(drive_share_approval_decide(:reqid2, 94202, 'deny', 'no'), 'denied', 'deny -> denied');
+SELECT is((SELECT role FROM drive_space_members WHERE space_id = :gxp_id AND user_id = 94205), NULL,
+          'no member row on deny');
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE space_id = :gxp_id AND action = 'share.denied') >= 1,
+          'share.denied audited');
+
+-- ── 4/5: secure space -- default direct still grants; export_policy.share=
+-- 'approval' now routes live (the P1 CHECK constraint lacked 'drive.share'
+-- before V116; this proves the branch is actually reachable) ───────────────
+SELECT is(drive_member_grant(94201, :sec_id, 94206, 'viewer')->>'status', 'granted',
+          'secure default (share:direct) still grants immediately');
+UPDATE drive_spaces SET export_policy = '{"share":"approval"}' WHERE id = :sec_id;
+SELECT is(drive_member_grant(94201, :sec_id, 94207, 'viewer')->>'status', 'pending',
+          'secure space with export_policy.share=approval routes to pending');
+
+-- ── 6: SoD -- requester cannot decide their own request (shared engine) ────
+SELECT drive_member_grant(94201, :gxp_id, 94208, 'viewer');
+SELECT id AS reqid4 FROM approval_requests WHERE consumer_type = 'drive.share'
+   AND payload->>'grantee' = '94208' \gset
+SELECT throws_ok(format($$ SELECT drive_share_approval_decide(%s, 94201, 'approve', 'x') $$, :reqid4),
+                 'BZ106', NULL, 'requester deciding own request -> BZ106');
+
+-- ── AUTOPLAN batch-2 #1: non-member approver decides under REAL RLS
+-- (setjoin_app), not superuser. 94202 holds no drive_space_members row in
+-- the gxp space -- without the DEFINER/setjoin_worker footer, the member
+-- INSERT would fail drive_space_members_write's manager-of-THIS-space check.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '94202', true);
+SELECT is(drive_share_approval_decide(:reqid4, 94202, 'approve', 'sig'), 'applied',
+          'non-member approver decides under setjoin_app (real RLS) -- DEFINER footer proof');
+RESET ROLE;
+SELECT is((SELECT role FROM drive_space_members WHERE space_id = :gxp_id AND user_id = 94208), 'viewer',
+          'member row landed while called as setjoin_app');
+
+SELECT * FROM finish();
+ROLLBACK;

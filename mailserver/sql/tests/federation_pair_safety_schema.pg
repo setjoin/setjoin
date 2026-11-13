@@ -1,0 +1,128 @@
+-- pgTAP: V155 federation identity pair completeness and legacy inventory.
+
+BEGIN;
+SELECT plan(13);
+
+SELECT has_table(
+    'public',
+    'identity_legacy_federation_pair_inventory',
+    'legacy federation-pair inventory exists'
+);
+SELECT col_is_pk(
+    'public',
+    'identity_legacy_federation_pair_inventory',
+    'user_id',
+    'legacy federation-pair inventory is one row per user'
+);
+SELECT has_trigger(
+    'public',
+    'users',
+    'trg_users_federation_identity_pair_completeness',
+    'users has a federation-pair completeness trigger'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM public.schema_migrations WHERE version = 155),
+    1,
+    'V155 is recorded exactly once'
+);
+
+CREATE TEMP TABLE pair_fixture AS
+SELECT public.mk_account('federation-pair') AS mailbox_id;
+ALTER TABLE pair_fixture ADD COLUMN user_id BIGINT;
+UPDATE pair_fixture fixture
+SET user_id = mb.user_id
+FROM public.mailboxes mb
+WHERE mb.id = fixture.mailbox_id;
+
+SELECT throws_ok(
+    format(
+        'UPDATE public.users SET oidc_subject = %L, oidc_issuer = NULL WHERE id = %s',
+        'oidc-subject',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'BZ227',
+    NULL,
+    'OIDC subject without issuer is rejected'
+);
+SELECT throws_ok(
+    format(
+        'UPDATE public.users SET oidc_subject = NULL, oidc_issuer = %L WHERE id = %s',
+        'https://issuer.example',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'BZ227',
+    NULL,
+    'OIDC issuer without subject is rejected'
+);
+SELECT lives_ok(
+    format(
+        'UPDATE public.users SET oidc_subject = %L, oidc_issuer = %L WHERE id = %s',
+        'oidc-subject',
+        'https://issuer.example',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'complete OIDC pair is accepted'
+);
+SELECT lives_ok(
+    format(
+        'UPDATE public.users SET oidc_subject = NULL, oidc_issuer = NULL WHERE id = %s',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'OIDC pair can be cleared together'
+);
+
+SELECT throws_ok(
+    format(
+        'UPDATE public.users SET saml_name_id = %L, saml_idp_entity_id = NULL WHERE id = %s',
+        'saml-subject',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'BZ227',
+    NULL,
+    'SAML NameID without IdP entity is rejected'
+);
+SELECT throws_ok(
+    format(
+        'UPDATE public.users SET saml_name_id = NULL, saml_idp_entity_id = %L WHERE id = %s',
+        'https://idp.example',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'BZ227',
+    NULL,
+    'SAML IdP entity without NameID is rejected'
+);
+SELECT lives_ok(
+    format(
+        'UPDATE public.users SET saml_name_id = %L, saml_idp_entity_id = %L WHERE id = %s',
+        'saml-subject',
+        'https://idp.example',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'complete SAML pair is accepted'
+);
+SELECT lives_ok(
+    format(
+        'UPDATE public.users SET saml_name_id = NULL, saml_idp_entity_id = NULL WHERE id = %s',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'SAML pair can be cleared together'
+);
+
+ALTER TABLE public.users DISABLE TRIGGER trg_users_federation_identity_pair_completeness;
+UPDATE public.users
+SET oidc_subject = 'legacy-subject',
+    oidc_issuer = NULL
+WHERE id = (SELECT user_id FROM pair_fixture);
+ALTER TABLE public.users ENABLE TRIGGER trg_users_federation_identity_pair_completeness;
+
+SELECT lives_ok(
+    format(
+        'UPDATE public.users SET display_name = %L WHERE id = %s',
+        'Legacy Pair Unrelated Update',
+        (SELECT user_id FROM pair_fixture)
+    ),
+    'unrelated updates remain possible on a legacy partial row'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

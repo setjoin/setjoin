@@ -1,0 +1,158 @@
+{
+  "case": "private-policy-row-effects",
+  "effects": [
+    {
+      "after": {
+        "app_passwords": [],
+        "migration_jobs": [
+          {
+            "completed_at": "2026-10-01T10:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-a>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T10:00:00+00:00",
+            "status": "failed",
+            "target_mailbox_id": "<a>",
+            "user_id": "<a>"
+          },
+          {
+            "completed_at": "2026-10-01T11:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T11:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-b>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T11:00:00+00:00",
+            "status": "cancelled",
+            "target_mailbox_id": "<b>",
+            "user_id": "<b>"
+          },
+          {
+            "completed_at": "2026-10-01T12:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-completed>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T12:00:00+00:00",
+            "status": "completed",
+            "target_mailbox_id": "<a>",
+            "user_id": "<a>"
+          }
+        ]
+      },
+      "before": {
+        "app_passwords": [],
+        "migration_jobs": [
+          {
+            "completed_at": "2026-10-01T10:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-a>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T10:00:00+00:00",
+            "status": "failed",
+            "target_mailbox_id": "<a>",
+            "user_id": "<a>"
+          },
+          {
+            "completed_at": "2026-10-01T11:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T11:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-b>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T11:00:00+00:00",
+            "status": "cancelled",
+            "target_mailbox_id": "<b>",
+            "user_id": "<b>"
+          },
+          {
+            "completed_at": "2026-10-01T12:00:00+00:00",
+            "conflict_strategy": "skip",
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "error_log": [
+              {
+                "code": 7,
+                "message": "finished <&>"
+              }
+            ],
+            "id": "<migration-completed>",
+            "progress": {
+              "a_long": 1,
+              "z": 2
+            },
+            "resume_cursor": null,
+            "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+            "source_type": "imap",
+            "started_at": "2026-10-01T12:00:00+00:00",
+            "status": "completed",
+            "target_mailbox_id": "<a>",
+            "user_id": "<a>"
+          }
+        ]
+      }
+    }
+  ],
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "route": "POST /auth/me/migration"
+}

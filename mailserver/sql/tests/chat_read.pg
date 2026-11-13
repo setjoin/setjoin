@@ -1,0 +1,212 @@
+-- chat_read.pg: clamped read watermark + conversation list (Pillar A1 Task 6).
+-- chat_channel_members has no FK to users (V119) so bare bigint ids suffice
+-- for the read/mark-read assertions below — EXCEPT chat_space_ensure (Chat
+-- A2 Task 5's spaceId assertions), whose drive_spaces INSERT has a real
+-- owner_user_id FK to users, so 1001 needs one real row.
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql,
+-- chat_read.sql, chat_space_ensure.sql.
+BEGIN;
+SELECT plan(35);
+SELECT set_config('app.capture_notify', 'on', true);
+
+INSERT INTO domains (id, name, created_at) VALUES (9901, 'chat-read.example', now())
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (1001, 'chatread1', 9901, 'chatread1@chat-read.example', 'Chat Read One')
+  ON CONFLICT DO NOTHING;
+
+-- Fixture: 1001 = owner, 1002 = member, 1003 = never joined (non-member).
+SELECT chat_channel_create(1001, 'read-general') AS ch_id \gset
+SELECT chat_member_add(1001, :ch_id, 1002);
+SELECT chat_message_send(1001, :ch_id, 'first message') AS m1_json \gset
+SELECT (:'m1_json'::jsonb ->> 'seq')::bigint AS m1_seq \gset
+
+-- ── chat_mark_read: membership guard (BZ163) ──────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_mark_read(1003, %s, 0) $$, :ch_id),
+  'BZ163', NULL, 'a non-member cannot mark_read (BZ163)');
+
+-- ── clamp to change_seq: a client sending a wildly-ahead seq (Long.MAX) is
+-- clamped, not allowed to overshoot into "no unread ever again" territory ──
+SELECT chat_mark_read(1002, :ch_id, 9223372036854775807);
+SELECT is((SELECT last_read_seq FROM chat_channel_members
+            WHERE channel_id = :ch_id AND user_id = 1002), :m1_seq::bigint,
+  'mark_read clamps an over-large seq down to the channel''s current change_seq');
+SELECT is((SELECT (elem->>'unreadCount')::int FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 0,
+  'unreadCount is 0 immediately after clamped mark_read');
+SELECT chat_message_send(1001, :ch_id, 'second message, after the clamp') AS m2_json \gset
+SELECT is((SELECT (elem->>'unreadCount')::int FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 1,
+  'a subsequent send makes unreadCount 1, NOT underflowed by the earlier over-large clamp');
+
+-- ── monotonic: an older/lower seq never rewinds the watermark ────────────
+SELECT last_read_seq FROM chat_channel_members WHERE channel_id = :ch_id AND user_id = 1002 \gset
+SELECT chat_mark_read(1002, :ch_id, 0);
+SELECT is((SELECT last_read_seq FROM chat_channel_members
+            WHERE channel_id = :ch_id AND user_id = 1002), :last_read_seq::bigint,
+  'mark_read with an OLDER seq never rewinds last_read_seq (monotonic)');
+
+-- ── self-notify for cross-device sync: ONLY the acting user's own channel,
+-- never the other members' (unattributable event / O(members) amplification
+-- on the highest-frequency chat event) ────────────────────────────────────
+SELECT chat_mark_read(1002, :ch_id, :m1_seq);
+SELECT is(last_notify_event('chat:1002'), 'read', 'mark_read self-notifies ''read'' on the acting user''s own channel');
+SELECT is(last_notify_event('chat:1001'), 'message_created', 'mark_read never fans out to OTHER channel members (chat:1001''s last event is still the prior send, not a read event)');
+
+-- ── chat_conversation_list: membership scoping, shape, ordering ──────────
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_conversation_list(1003),
+             format('$[*] ? (@.channelId == %s)', :ch_id)::jsonpath)),
+  'a non-member''s conversation list never includes a channel they are not in');
+SELECT is((SELECT (elem->>'kind') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'channel',
+  'conversation_list surfaces the channel kind');
+SELECT is((SELECT jsonb_array_length(elem->'memberIds') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 2,
+  'memberIds carries both channel members (for DM title resolution)');
+SELECT is((SELECT (elem->>'hasExternalMembers')::boolean
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), false,
+  'hasExternalMembers is false before an active guest joins');
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+SELECT 1004, 'chatread-guest', d.id, 'chatread-guest@external.example', 'Chat Read Guest', TRUE
+  FROM domains d WHERE d.name='guest.invalid'
+ON CONFLICT DO NOTHING;
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status, expires_at)
+VALUES (1004, 'chatread-guest@external.example', 'chatread1@chat-read.example',
+        9901, 'active', now()+interval '1 day')
+ON CONFLICT (user_id) DO UPDATE SET status='active', expires_at=now()+interval '1 day';
+SELECT chat_member_add(1001, :ch_id, 1004);
+SELECT is((SELECT (elem->>'hasExternalMembers')::boolean
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), true,
+  'hasExternalMembers is true with an active, unexpired guest member');
+
+-- ── lastMessagePreview: author/snippet/createdAt of the last non-deleted msg ──
+SELECT is((SELECT (elem->'lastMessagePreview'->>'authorId')::bigint
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 1001::bigint,
+  'lastMessagePreview.authorId is the most recent sender');
+SELECT is((SELECT (elem->'lastMessagePreview'->>'snippet')
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'second message, after the clamp',
+  'lastMessagePreview.snippet reflects the most recent message body');
+-- whole-pipeline review UX #16: msgType was missing from the projection,
+-- so a voice message (empty body) rendered a blank preview client-side.
+SELECT is((SELECT (elem->'lastMessagePreview'->>'msgType')
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'text',
+  'lastMessagePreview.msgType is ''text'' for an ordinary message');
+SELECT chat_message_send(1001, :ch_id, repeat('x', 200)) AS m3_json \gset
+SELECT is((SELECT length(elem->'lastMessagePreview'->>'snippet')
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 120,
+  'lastMessagePreview.snippet is capped at 120 chars');
+SELECT (:'m3_json'::jsonb ->> 'messageId')::bigint AS m3_id \gset
+SELECT chat_message_delete(1001, :m3_id);
+SELECT is((SELECT (elem->'lastMessagePreview'->>'snippet')
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'second message, after the clamp',
+  'a deleted last message falls back to the last NON-deleted one for the preview');
+-- A real voice message ships with an audio attachment (chat_message_send
+-- rejects an empty body with zero attachments, BZ168) — the attachment/
+-- BZ178 duration-cap machinery is already covered elsewhere (attachments
+-- integration tests); this assertion is purely about msgType surviving the
+-- lastMessagePreview projection, so a placeholder body is fine here.
+SELECT chat_message_send(1001, :ch_id, '(voice)', NULL, '{}', NULL, '[]', 'voice', '{"durationMs":5000}') AS voice_json \gset
+SELECT is((SELECT (elem->'lastMessagePreview'->>'msgType')
+             FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'voice',
+  'lastMessagePreview.msgType is ''voice'' after a voice message, letting the client label the blank snippet');
+
+-- ── hasMention: true only for a mention ABOVE the watermark ──────────────
+SELECT chat_mark_read(1002, :ch_id, (SELECT change_seq FROM chat_channels WHERE id = :ch_id));
+SELECT is((SELECT (elem->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), false,
+  'hasMention is false with no unseen mention');
+SELECT chat_message_send(1001, :ch_id, 'hey @1002', NULL, ARRAY[1002]::bigint[]) AS mention_json \gset
+SELECT is((SELECT (elem->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), true,
+  'hasMention is true once a mention lands above the watermark');
+SELECT chat_mark_read(1002, :ch_id, (SELECT change_seq FROM chat_channels WHERE id = :ch_id));
+SELECT is((SELECT (elem->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), false,
+  'hasMention returns to false once the mention is marked read');
+
+-- ── top-level-only unread: a thread reply never bumps channel unreadCount ──
+SELECT chat_mark_read(1002, :ch_id, (SELECT change_seq FROM chat_channels WHERE id = :ch_id));
+SELECT chat_message_send(1001, :ch_id, 'a fresh top-level post') AS top_json \gset
+SELECT (:'top_json'::jsonb ->> 'messageId')::bigint AS top_id \gset
+SELECT is((SELECT (elem->>'unreadCount')::int FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 1,
+  'a top-level message bumps unreadCount by 1');
+SELECT chat_message_send(1001, :ch_id, 'a reply in the thread', :top_id);
+SELECT is((SELECT (elem->>'unreadCount')::int FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 1,
+  'a THREAD REPLY does NOT bump unreadCount (top-level only)');
+
+-- ── a deleted message's mention never resurrects a phantom badge ─────────
+-- Repro of the reviewer's live finding: mention B → B marks fully read →
+-- author DELETES the mentioning message. The delete re-stamps the message's
+-- seq ABOVE B's watermark while the chat_mentions row persists — without the
+-- deleted_at filter, hasMention flips back to true on a message that no
+-- longer renders (unreadCount stays 0: phantom badge).
+SELECT chat_message_send(1001, :ch_id, 'hey @1002 look', NULL, ARRAY[1002]::bigint[]) AS pm_json \gset
+SELECT (:'pm_json'::jsonb ->> 'messageId')::bigint AS pm_id \gset
+SELECT chat_mark_read(1002, :ch_id, (SELECT change_seq FROM chat_channels WHERE id = :ch_id));
+SELECT is((SELECT (elem->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), false,
+  'mention read: hasMention false before the delete');
+SELECT chat_message_delete(1001, :pm_id);
+SELECT is((SELECT (elem->>'hasMention')::boolean FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), false,
+  'deleting the mentioning message does NOT resurrect hasMention (no phantom badge)');
+
+-- ── archived channels are hidden from the conversation list ──────────────
+SELECT chat_mark_read(1002, :ch_id, (SELECT change_seq FROM chat_channels WHERE id = :ch_id));
+SELECT chat_channel_update(1001, :ch_id, NULL, NULL, true);
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_conversation_list(1001),
+             format('$[*] ? (@.channelId == %s)', :ch_id)::jsonpath)),
+  'an archived channel is hidden from the conversation list');
+SELECT chat_channel_update(1001, :ch_id, NULL, NULL, false);
+
+-- ── spaceId: NULL until a space is ever provisioned, then sticky ─────────
+SELECT is((SELECT (elem->>'spaceId') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), NULL,
+  'spaceId is NULL before any Drive space has been provisioned for the channel');
+SELECT chat_space_ensure(1001, :ch_id) AS space_id \gset
+SELECT is((SELECT (elem->>'spaceId')::bigint FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), :space_id::bigint,
+  'spaceId reflects the provisioned Drive space once one exists');
+
+-- ── notifLevel/postPermission/broadcastPermission (A3 QoL Task 7) ────────
+SELECT is((SELECT (elem->>'notifLevel') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'all',
+  'notifLevel defaults to all in the conversation list');
+SELECT is((SELECT (elem->>'postPermission') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'all',
+  'postPermission is surfaced (channel default all)');
+SELECT is((SELECT (elem->>'broadcastPermission') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'admins',
+  'broadcastPermission is surfaced (channel default admins)');
+SELECT chat_member_set_notif(1001, :ch_id, 'mentions');
+SELECT is((SELECT (elem->>'notifLevel') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'mentions',
+  'notifLevel reflects the caller''s OWN per-channel setting after chat_member_set_notif');
+SELECT is((SELECT (elem->>'notifLevel') FROM jsonb_array_elements(chat_conversation_list(1002)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), 'all',
+  'a different member''s notifLevel is unaffected by 1001''s change (per-member, not per-channel-global)');
+
+-- ── meetingId (pipeline review fix, webmail-adjacent projection): NULL for
+-- an ordinary channel, set for a meeting-bridged one ────────────────────
+SELECT is((SELECT (elem->>'meetingId') FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), NULL,
+  'meetingId is NULL for an ordinary (non-meeting-bridged) channel');
+SELECT (meeting_create(1001, 'chat-read meetingId test', NULL, NULL, :ch_id)) AS meeting_bridge \gset
+SELECT (:'meeting_bridge'::jsonb ->> 'meetingId')::bigint AS bridge_meeting_id \gset
+SELECT is((SELECT (elem->>'meetingId')::bigint FROM jsonb_array_elements(chat_conversation_list(1001)) elem
+            WHERE (elem->>'channelId')::bigint = :ch_id), :bridge_meeting_id::bigint,
+  'meetingId reflects the huddle bound to this channel');
+
+SELECT * FROM finish();
+ROLLBACK;

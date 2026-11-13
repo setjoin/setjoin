@@ -1,0 +1,80 @@
+-- reminders_get.pg: reminders_get (reminders_get.sql) — the Reminder/get read path.
+-- ACTIVE := fired_at IS NOT NULL AND dismissed_at IS NULL
+--           AND (snoozed_until IS NULL OR snoozed_until <= now()).
+-- This pins each clause of that filter independently + the R1 mailbox scope + the
+-- state token in the envelope.
+--
+-- ADR-003: the account comes from mk_account(), so user_id != mailbox_id. The
+-- read is scoped by r.mailbox_id = p_mailbox_id (the mailbox id). The foreign-row
+-- test proves another mailbox's reminders never leak.
+BEGIN;
+SELECT plan(9);
+
+CREATE TEMP TABLE _rg AS
+  SELECT mk_account('rgA') AS mbA, mk_account('rgB') AS mbB;
+
+-- A spread of reminders covering every branch of the active filter:
+--  r1 ACTIVE        : fired, not dismissed, not snoozed
+--  r2 NOT-FIRED     : fired_at NULL (still pending the fire) → excluded
+--  r3 DISMISSED     : fired but dismissed_at set → excluded
+--  r4 SNOOZED-FUTURE: fired but snoozed into the future → excluded
+--  r5 SNOOZE-ELAPSED: fired, snoozed_until already in the past → ACTIVE again
+--  r6 FOREIGN       : an ACTIVE reminder in mailbox B → must not appear for A
+INSERT INTO reminders (id, mailbox_id, source_type, source_id, fire_at, fired_at, dismissed_at, snoozed_until, title) VALUES
+  (8701, (SELECT mbA FROM _rg), 'task',  1, now() - interval '5 min', now() - interval '5 min', NULL,                     NULL,                     'r1 active'),
+  (8702, (SELECT mbA FROM _rg), 'task',  2, now() + interval '5 min', NULL,                     NULL,                     NULL,                     'r2 not fired'),
+  (8703, (SELECT mbA FROM _rg), 'task',  3, now() - interval '5 min', now() - interval '5 min', now() - interval '1 min', NULL,                     'r3 dismissed'),
+  (8704, (SELECT mbA FROM _rg), 'event', 4, now() - interval '5 min', now() - interval '5 min', NULL,                     now() + interval '1 hour','r4 snoozed future'),
+  (8705, (SELECT mbA FROM _rg), 'event', 5, now() - interval '9 min', now() - interval '9 min', NULL,                     now() - interval '1 min', 'r5 snooze elapsed'),
+  (8706, (SELECT mbB FROM _rg), 'task',  6, now() - interval '5 min', now() - interval '5 min', NULL,                     NULL,                     'r6 foreign active');
+
+-- ── Test 1: exactly the two ACTIVE reminders for A (r1 + r5) are returned ──
+SELECT is(
+  jsonb_array_length(reminders_get((SELECT mbA FROM _rg))->'list'),
+  2,
+  'reminders_get returns exactly the active reminders (fired, not dismissed, not snoozed)');
+
+-- Test 2: r1 (plain active) is present.
+SELECT ok(
+  (SELECT bool_or((e->>'id') = '8701') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'the plainly-active reminder r1 is included');
+
+-- Test 3: r5 (snooze elapsed → active again) is present.
+SELECT ok(
+  (SELECT bool_or((e->>'id') = '8705') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'a reminder whose snooze has ELAPSED is active again');
+
+-- Test 4: r2 (not yet fired) is excluded.
+SELECT ok(
+  NOT (SELECT bool_or((e->>'id') = '8702') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'a not-yet-fired reminder is excluded');
+
+-- Test 5: r3 (dismissed) is excluded.
+SELECT ok(
+  NOT (SELECT bool_or((e->>'id') = '8703') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'a dismissed reminder is excluded');
+
+-- Test 6: r4 (snoozed into the future) is excluded.
+SELECT ok(
+  NOT (SELECT bool_or((e->>'id') = '8704') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'a future-snoozed reminder is excluded');
+
+-- Test 7: R1 scope — mailbox B's active reminder never appears for A.
+SELECT ok(
+  NOT (SELECT bool_or((e->>'id') = '8706') FROM jsonb_array_elements(reminders_get((SELECT mbA FROM _rg))->'list') e),
+  'another mailbox active reminder does not leak (R1 mailbox scope)');
+
+-- Test 8: the envelope carries the accountId (the mailbox id as text).
+SELECT is(
+  reminders_get((SELECT mbA FROM _rg))->>'accountId',
+  (SELECT mbA::TEXT FROM _rg),
+  'the envelope accountId is the mailbox id');
+
+-- Test 9: the envelope carries the jmap_reminder_state token as text.
+SELECT is(
+  reminders_get((SELECT mbA FROM _rg))->>'state',
+  (SELECT jmap_reminder_state::TEXT FROM mailboxes WHERE id = (SELECT mbA FROM _rg)),
+  'the envelope state mirrors mailboxes.jmap_reminder_state');
+
+SELECT * FROM finish();
+ROLLBACK;

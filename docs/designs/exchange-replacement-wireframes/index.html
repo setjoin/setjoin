@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en-US" data-locale="en-US" data-state="partial">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Setjoin Exchange Replacement Contract D0 static bilingual wireframe">
+    <title>Exchange replacement · Setjoin admin wireframe</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">
+      <span data-en="Skip to main content" data-zh="跳转到主要内容">Skip to main content</span>
+    </a>
+
+    <div class="app-shell">
+      <div class="mobile-scrim" id="mobile-scrim" hidden></div>
+
+      <aside class="sidebar" id="sidebar" aria-label="Primary navigation" data-aria-en="Primary navigation" data-aria-zh="主导航">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span class="brand-name">SETJOIN</span>
+          <span class="brand-context">ADMIN</span>
+        </div>
+        <div class="console-context">
+          <span class="console-dot" aria-hidden="true"></span>
+          <span data-en="Mail console" data-zh="邮件控制台">Mail console</span>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Exchange replacement views" data-aria-en="Exchange replacement views" data-aria-zh="Exchange 替换视图">
+          <p class="nav-eyebrow" data-en="Exchange replacement" data-zh="Exchange 替换">Exchange replacement</p>
+          <button class="nav-item is-active" type="button" data-view-target="overview" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">◈</span>
+            <span data-en="Overview" data-zh="概览">Overview</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="assessments">
+            <span class="nav-icon" aria-hidden="true">◫</span>
+            <span data-en="Assessments" data-zh="评估">Assessments</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="outcomes">
+            <span class="nav-icon" aria-hidden="true">≋</span>
+            <span data-en="Outcomes" data-zh="结果与能力">Outcomes</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="mappings">
+            <span class="nav-icon" aria-hidden="true">⇄</span>
+            <span data-en="Mappings" data-zh="映射">Mappings</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="documents">
+            <span class="nav-icon" aria-hidden="true">▤</span>
+            <span data-en="Documents" data-zh="文档">Documents</span>
+          </button>
+          <button class="nav-item" type="button" data-view-target="settings">
+            <span class="nav-icon" aria-hidden="true">⚙</span>
+            <span data-en="Settings" data-zh="设置">Settings</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div>
+            <span class="eyebrow" data-en="Signed in as" data-zh="当前用户">Signed in as</span>
+            <strong>migration.lead</strong>
+          </div>
+          <span class="presence-dot" aria-label="Online" data-aria-en="Online" data-aria-zh="在线"></span>
+        </div>
+      </aside>
+
+      <main class="main-column" id="main-content" tabindex="-1">
+        <header class="topbar">
+          <div class="topbar-leading">
+            <button class="icon-button mobile-menu" id="mobile-menu" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation" data-aria-en="Open navigation" data-aria-zh="打开导航">
+              <span aria-hidden="true">☰</span>
+            </button>
+            <div class="breadcrumbs" aria-label="Breadcrumb" data-aria-en="Breadcrumb" data-aria-zh="面包屑导航">
+              <span data-en="Mail console" data-zh="邮件控制台">Mail console</span>
+              <span aria-hidden="true">/</span>
+              <strong data-en="Exchange replacement" data-zh="Exchange 替换">Exchange replacement</strong>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <span class="prototype-label" data-en="D0 static wireframe" data-zh="D0 静态线框">D0 static wireframe</span>
+            <div class="locale-switcher" role="group" aria-label="Language" data-aria-en="Language" data-aria-zh="语言">
+              <button class="locale-button is-active" type="button" data-locale-choice="en-US" aria-pressed="true">EN</button>
+              <button class="locale-button" type="button" data-locale-choice="zh-CN" aria-pressed="false">中文</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="page-shell">
+          <section class="project-bar" aria-labelledby="project-context-heading">
+            <div class="project-context">
+              <p class="eyebrow" id="project-context-heading" data-en="Project context" data-zh="项目上下文">Project context</p>
+              <div class="project-fields">
+                <label class="field">
+                  <span data-en="Project" data-zh="项目">Project</span>
+                  <select id="project-select" aria-label="Project" data-aria-en="Project" data-aria-zh="项目">
+                    <option data-en="Northwind · CN-2026-01" data-zh="Northwind · CN-2026-01">Northwind · CN-2026-01</option>
+                    <option data-en="Contoso · CN-2026-02" data-zh="Contoso · CN-2026-02">Contoso · CN-2026-02</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span data-en="Selected run" data-zh="当前运行">Selected run</span>
+                  <select id="run-select" aria-label="Selected assessment run" data-aria-en="Selected assessment run" data-aria-zh="当前评估运行">
+                    <option data-en="RUN-2026-08-21 · partial" data-zh="RUN-2026-08-21 · 部分完成">RUN-2026-08-21 · partial</option>
+                    <option data-en="RUN-2026-08-12 · complete" data-zh="RUN-2026-08-12 · 完成">RUN-2026-08-12 · complete</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="support-cell">
+              <span class="eyebrow" data-en="Support cell" data-zh="支持单元">Support cell</span>
+              <strong>EX2019 · CU14 · on-prem</strong>
+              <span class="meta-line"><span class="status-mark status-mark--ready" aria-hidden="true">✓</span> <span data-en="Cell admitted to T0 only" data-zh="该单元仅纳入 T0">Cell admitted to T0 only</span></span>
+            </div>
+          </section>
+
+          <section class="decision-strip" aria-labelledby="decision-strip-heading">
+            <div class="decision-intro">
+              <p class="eyebrow" id="decision-strip-heading" data-en="Lifecycle phase" data-zh="生命周期阶段">Lifecycle phase</p>
+              <div class="phase-line">
+                <span class="phase-badge">V1A</span>
+                <strong data-en="Assessment only — replacement readiness not established" data-zh="仅评估——尚未建立替换就绪结论">Assessment only — replacement readiness not established</strong>
+              </div>
+              <p class="decision-note" data-en="A0 receipts can be referenced manually, but they are never importable as product runs. A fresh canonical V1A assessment is required." data-zh="A0 收据只能手动引用，永远不能作为产品运行导入。V1A 必须重新执行规范评估。">A0 receipts can be referenced manually, but they are never importable as product runs. A fresh canonical V1A assessment is required.</p>
+            </div>
+
+            <div class="axis-grid" aria-label="Independent decision axes" data-aria-en="Independent decision axes" data-aria-zh="独立决策轴">
+              <div class="axis-card">
+                <span class="eyebrow" data-en="Assessment status" data-zh="评估状态">Assessment status</span>
+                <strong><span class="status-mark status-mark--partial" aria-hidden="true">!</span> <span data-en="Partial" data-zh="部分完成">Partial</span></strong>
+                <span class="meta-line" data-en="421 of 438 terminal probes" data-zh="438 个探针中 421 个已终止">421 of 438 terminal probes</span>
+              </div>
+              <div class="axis-card">
+                <span class="eyebrow" data-en="Mapping coverage" data-zh="映射覆盖">Mapping coverage</span>
+                <strong><span class="status-mark status-mark--blocked" aria-hidden="true">!</span> <span data-en="12 need review" data-zh="12 项待审核">12 need review</span></strong>
+                <span class="meta-line" data-en="7 unresolved principals" data-zh="7 个未解析主体">7 unresolved principals</span>
+              </div>
+              <div class="axis-card">
+                <span class="eyebrow" data-en="Claim state" data-zh="声明状态">Claim state</span>
+                <strong><span class="status-mark status-mark--unknown" aria-hidden="true">?</span> <span data-en="Unassessed" data-zh="未评估">Unassessed</span></strong>
+                <span class="meta-line" data-en="T0 experimental evidence" data-zh="T0 实验性证据">T0 experimental evidence</span>
+              </div>
+            </div>
+
+            <div class="decision-metrics">
+              <div>
+                <span class="eyebrow" data-en="Blockers" data-zh="阻塞项">Blockers</span>
+                <strong class="metric-value">4</strong>
+              </div>
+              <div>
+                <span class="eyebrow" data-en="Freshness" data-zh="新鲜度">Freshness</span>
+                <strong class="metric-value metric-value--warning">stale</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="state-toolbar" aria-labelledby="state-toolbar-heading">
+            <div>
+              <p class="eyebrow" id="state-toolbar-heading" data-en="Wireframe state examples" data-zh="线框状态示例">Wireframe state examples</p>
+              <p class="state-toolbar-note" data-en="Use these controls to inspect the shared recovery pattern. They are static examples, not live product state." data-zh="使用这些控件查看统一恢复模式。这些是静态示例，不是实时产品状态。">Use these controls to inspect the shared recovery pattern. They are static examples, not live product state.</p>
+            </div>
+            <div class="state-buttons" role="group" aria-label="State examples" data-aria-en="State examples" data-aria-zh="状态示例">
+              <button type="button" class="state-button" data-state-choice="loading"><span data-en="Loading" data-zh="加载中">Loading</span></button>
+              <button type="button" class="state-button" data-state-choice="empty"><span data-en="Empty" data-zh="空状态">Empty</span></button>
+              <button type="button" class="state-button" data-state-choice="error"><span data-en="Error" data-zh="错误">Error</span></button>
+              <button type="button" class="state-button" data-state-choice="ready"><span data-en="Ready" data-zh="就绪">Ready</span></button>
+              <button type="button" class="state-button is-active" data-state-choice="partial"><span data-en="Partial" data-zh="部分完成">Partial</span></button>
+              <button type="button" class="state-button" data-state-choice="stale"><span data-en="Stale" data-zh="过期">Stale</span></button>
+              <button type="button" class="state-button" data-state-choice="permission"><span data-en="Permission" data-zh="无权限">Permission</span></button>
+            </div>
+          </section>
+
+          <section class="state-sample" id="state-sample" aria-live="polite" aria-atomic="true" data-state="partial">
+            <span class="state-sample-icon" id="state-sample-icon" aria-hidden="true">!</span>
+            <div class="state-sample-copy">
+              <p class="eyebrow" data-en="Current static state" data-zh="当前静态状态">Current static state</p>
+              <h2 id="state-sample-title">Partial</h2>
+              <p id="state-sample-copy">421 of 438 expected probe results are terminal; blocker claims stay closed.</p>
+            </div>
+            <button class="button button-secondary" id="state-sample-action" type="button" data-go-view="assessments">Open recovery steps</button>
+          </section>
+
+          <div class="mobile-view-picker">
+            <label class="field">
+              <span data-en="Current view" data-zh="当前视图">Current view</span>
+              <select id="mobile-view-select" aria-label="Current view" data-aria-en="Current view" data-aria-zh="当前视图">
+                <option value="overview" data-en="Overview" data-zh="概览">Overview</option>
+                <option value="assessments" data-en="Assessments" data-zh="评估">Assessments</option>
+                <option value="outcomes" data-en="Outcomes" data-zh="结果与能力">Outcomes</option>
+                <option value="mappings" data-en="Mappings" data-zh="映射">Mappings</option>
+                <option value="documents" data-en="Documents" data-zh="文档">Documents</option>
+                <option value="settings" data-en="Settings" data-zh="设置">Settings</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="workspace-grid">
+            <div class="view-stack">
+              <section class="view is-visible" id="view-overview" data-view="overview" aria-labelledby="overview-heading">
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Overview / decision brief" data-zh="概览 / 决策简报">Overview / decision brief</p>
+                    <h1 id="overview-heading" data-en="Can this estate move, and what blocks it?" data-zh="这个环境能否迁移？什么阻塞了它？">Can this estate move, and what blocks it?</h1>
+                    <p class="view-lede" data-en="Outcome-first readiness for the selected immutable run. Assessment, mapping, and claim axes stay separate so unknowns remain visible." data-zh="针对当前不可变运行的结果优先就绪视图。评估、映射和声明轴彼此独立，让未知项保持可见。">Outcome-first readiness for the selected immutable run. Assessment, mapping, and claim axes stay separate so unknowns remain visible.</p>
+                  </div>
+                  <div class="action-cluster">
+                    <button class="button button-primary" type="button" data-go-view="assessments"><span aria-hidden="true">＋</span> <span data-en="Assess Exchange" data-zh="评估 Exchange">Assess Exchange</span></button>
+                    <button class="button button-secondary" type="button" data-go-view="assessments"><span data-en="Compare runs" data-zh="比较运行">Compare runs</span></button>
+                  </div>
+                </div>
+
+                <div class="overview-grid">
+                  <section class="panel decision-brief" aria-labelledby="brief-heading">
+                    <div class="panel-header">
+                      <div>
+                        <p class="eyebrow" data-en="First-screen priority" data-zh="首屏优先级">First-screen priority</p>
+                        <h2 id="brief-heading" data-en="The next safe action is not cutover" data-zh="下一步安全动作不是切换">The next safe action is not cutover</h2>
+                      </div>
+                      <span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="4 blockers" data-zh="4 个阻塞项">4 blockers</span></span>
+                    </div>
+                    <div class="callout callout-warning">
+                      <span class="callout-mark" aria-hidden="true">!</span>
+                      <div>
+                        <strong data-en="V1A remains assessment-only" data-zh="V1A 仍仅用于评估">V1A remains assessment-only</strong>
+                        <p data-en="No replacement-ready claim can be published from this run. Unknown, permission-denied, and incomplete probes fail the affected phase closed." data-zh="本次运行不能发布替换就绪声明。未知、无权限和不完整探针会让受影响阶段保持关闭。">No replacement-ready claim can be published from this run. Unknown, permission-denied, and incomplete probes fail the affected phase closed.</p>
+                      </div>
+                    </div>
+                    <dl class="brief-list">
+                      <div>
+                        <dt data-en="Selected run" data-zh="当前运行">Selected run</dt>
+                        <dd><code>RUN-2026-08-21</code> <span class="meta-line" data-en="captured 2 days ago" data-zh="2 天前采集">captured 2 days ago</span></dd>
+                      </div>
+                      <div>
+                        <dt data-en="Completeness denominator" data-zh="完整性分母">Completeness denominator</dt>
+                        <dd><strong>421 / 438</strong> <span class="meta-line" data-en="terminal expected probe results" data-zh="已终止的预期探针结果">terminal expected probe results</span></dd>
+                      </div>
+                      <div>
+                        <dt data-en="Support-cell digest" data-zh="支持单元摘要">Support-cell digest</dt>
+                        <dd><code>sha256: 9d4a…e71c</code> <span class="meta-line" data-en="registry changed after capture" data-zh="采集后注册表已变化">registry changed after capture</span></dd>
+                      </div>
+                    </dl>
+                    <div class="brief-action">
+                      <div>
+                        <span class="eyebrow" data-en="Next safe action" data-zh="下一步安全动作">Next safe action</span>
+                        <strong data-en="Resolve the calendar-policy probe permission" data-zh="解决日历策略探针权限">Resolve the calendar-policy probe permission</strong>
+                        <span class="meta-line" data-en="Owner: Exchange assessment operator · ERX-204" data-zh="负责人：Exchange 评估操作员 · ERX-204">Owner: Exchange assessment operator · ERX-204</span>
+                      </div>
+                      <button class="button button-secondary" type="button" data-go-view="assessments"><span data-en="Open preflight" data-zh="打开预检">Open preflight</span> <span aria-hidden="true">→</span></button>
+                    </div>
+                  </section>
+
+                  <section class="panel blockers-panel" aria-labelledby="blockers-heading">
+                    <div class="panel-header">
+                      <div>
+                        <p class="eyebrow" data-en="Impact-ranked" data-zh="按影响排序">Impact-ranked</p>
+                        <h2 id="blockers-heading" data-en="Top blockers" data-zh="主要阻塞项">Top blockers</h2>
+                      </div>
+                      <button class="text-button" type="button" data-go-view="outcomes"><span data-en="View all" data-zh="查看全部">View all</span> <span aria-hidden="true">↗</span></button>
+                    </div>
+                    <ol class="blocker-list">
+                      <li>
+                        <span class="blocker-index">01</span>
+                        <div>
+                          <strong data-en="Calendar-processing policy is permission-denied" data-zh="日历处理策略无权限">Calendar-processing policy is permission-denied</strong>
+                          <span class="meta-line"><code>probe.room-policy.014</code> · <span data-en="cutover impact" data-zh="影响切换">cutover impact</span></span>
+                        </div>
+                        <span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Blocker" data-zh="阻塞">Blocker</span></span>
+                      </li>
+                      <li>
+                        <span class="blocker-index">02</span>
+                        <div>
+                          <strong data-en="7 principals cannot be resolved without an authority anchor" data-zh="7 个主体缺少权威锚点，无法解析">7 principals cannot be resolved without an authority anchor</strong>
+                          <span class="meta-line"><code>MAP-IDENT-07</code> · <span data-en="mapping impact" data-zh="影响映射">mapping impact</span></span>
+                        </div>
+                        <span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Blocker" data-zh="阻塞">Blocker</span></span>
+                      </li>
+                      <li>
+                        <span class="blocker-index">03</span>
+                        <div>
+                          <strong data-en="Hybrid cloud-side scope was not collected" data-zh="未采集混合环境云端范围">Hybrid cloud-side scope was not collected</strong>
+                          <span class="meta-line"><code>topology.hybrid.002</code> · <span data-en="assessment impact" data-zh="影响评估">assessment impact</span></span>
+                        </div>
+                        <span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unknown" data-zh="未知">Unknown</span></span>
+                      </li>
+                      <li>
+                        <span class="blocker-index">04</span>
+                        <div>
+                          <strong data-en="Registry digest changed after the last evidence capture" data-zh="上次证据采集后注册表摘要发生变化">Registry digest changed after the last evidence capture</strong>
+                          <span class="meta-line"><code>evidence.invalidated</code> · <span data-en="claim impact" data-zh="影响声明">claim impact</span></span>
+                        </div>
+                        <span class="status-badge status--stale"><span aria-hidden="true">↻</span> <span data-en="Stale" data-zh="过期">Stale</span></span>
+                      </li>
+                    </ol>
+                  </section>
+                </div>
+
+                <section class="panel run-compare" aria-labelledby="run-compare-heading">
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow" data-en="Immutable history" data-zh="不可变历史">Immutable history</p>
+                      <h2 id="run-compare-heading" data-en="A newer incomplete run sits beside the latest complete run" data-zh="较新的不完整运行与最新完整运行并列显示">A newer incomplete run sits beside the latest complete run</h2>
+                    </div>
+                    <span class="status-badge status--partial"><span aria-hidden="true">!</span> <span data-en="Comparison names both run IDs" data-zh="比较显示两个运行 ID">Comparison names both run IDs</span></span>
+                  </div>
+                  <div class="run-compare-grid">
+                    <article class="run-card run-card--selected">
+                      <div class="run-card-top"><code>RUN-2026-08-21</code><span class="status-badge status--partial"><span aria-hidden="true">!</span> <span data-en="Partial" data-zh="部分完成">Partial</span></span></div>
+                      <strong data-en="Current selected run" data-zh="当前选中运行">Current selected run</strong>
+                      <p data-en="421/438 terminal probes · 4 blockers · registry stale" data-zh="421/438 个探针已终止 · 4 个阻塞项 · 注册表过期">421/438 terminal probes · 4 blockers · registry stale</p>
+                      <button class="text-button" type="button" data-go-view="assessments"><span data-en="Open run" data-zh="打开运行">Open run</span> <span aria-hidden="true">→</span></button>
+                    </article>
+                    <article class="run-card">
+                      <div class="run-card-top"><code>RUN-2026-08-12</code><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Complete" data-zh="完成">Complete</span></span></div>
+                      <strong data-en="Latest complete run" data-zh="最新完整运行">Latest complete run</strong>
+                      <p data-en="438/438 terminal probes · evidence captured 11 days ago" data-zh="438/438 个探针已终止 · 证据于 11 天前采集">438/438 terminal probes · evidence captured 11 days ago</p>
+                      <button class="text-button" type="button" data-go-view="assessments"><span data-en="Pin for comparison" data-zh="固定以比较">Pin for comparison</span> <span aria-hidden="true">→</span></button>
+                    </article>
+                  </div>
+                </section>
+              </section>
+
+              <section class="view" id="view-assessments" data-view="assessments" aria-labelledby="assessments-heading" hidden>
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Assessments / trust the denominator" data-zh="评估 / 证明分母可信">Assessments / trust the denominator</p>
+                    <h1 id="assessments-heading" data-en="What was collected, and is it trustworthy?" data-zh="采集了什么？这些结果可信吗？">What was collected, and is it trustworthy?</h1>
+                    <p class="view-lede" data-en="Runs are immutable. Each expected probe has one terminal result, and every receipt keeps the collector, catalog, support cell, and artifact digests together." data-zh="运行不可变。每个预期探针都有一个终止结果，每张收据都绑定采集器、目录、支持单元和工件摘要。">Runs are immutable. Each expected probe has one terminal result, and every receipt keeps the collector, catalog, support cell, and artifact digests together.</p>
+                  </div>
+                  <div class="action-cluster">
+                    <button class="button button-primary" type="button"><span aria-hidden="true">＋</span> <span data-en="Start preflight" data-zh="开始预检">Start preflight</span></button>
+                    <button class="button button-secondary" type="button"><span data-en="Import reference bundle" data-zh="导入参考包">Import reference bundle</span></button>
+                  </div>
+                </div>
+
+                <div class="callout callout-warning page-callout">
+                  <span class="callout-mark" aria-hidden="true">!</span>
+                  <div>
+                    <strong data-en="Current run is partial" data-zh="当前运行部分完成">Current run is partial</strong>
+                    <p data-en="The collector stopped at a permission boundary. The prior complete run remains available; retry resumes from the durable checkpoint and does not rewrite history." data-zh="采集器在权限边界停止。之前的完整运行仍可用；重试从持久检查点继续，不会改写历史。">The collector stopped at a permission boundary. The prior complete run remains available; retry resumes from the durable checkpoint and does not rewrite history.</p>
+                  </div>
+                  <button class="button button-secondary" type="button"><span data-en="View diagnostic ERX-204" data-zh="查看诊断 ERX-204">View diagnostic ERX-204</span></button>
+                </div>
+
+                <section class="panel" aria-labelledby="runs-heading">
+                  <div class="panel-header panel-header--filters">
+                    <div>
+                      <p class="eyebrow" data-en="Immutable assessment runs" data-zh="不可变评估运行">Immutable assessment runs</p>
+                      <h2 id="runs-heading" data-en="Runs and receipts" data-zh="运行与收据">Runs and receipts</h2>
+                    </div>
+                    <div class="filter-row">
+                      <label class="compact-field"><span data-en="Status" data-zh="状态">Status</span><select aria-label="Filter runs by status" data-aria-en="Filter runs by status" data-aria-zh="按状态筛选运行"><option data-en="All statuses" data-zh="全部状态">All statuses</option><option data-en="Partial" data-zh="部分完成">Partial</option><option data-en="Complete" data-zh="完成">Complete</option></select></label>
+                      <label class="compact-field"><span data-en="Page" data-zh="页码">Page</span><select aria-label="Run page" data-aria-en="Run page" data-aria-zh="运行页码"><option>1 / 3</option></select></label>
+                    </div>
+                  </div>
+                  <div class="table-wrap">
+                    <table class="data-table responsive-table">
+                      <caption class="sr-only" data-en="Immutable assessment runs and their receipts" data-zh="不可变评估运行及其收据">Immutable assessment runs and their receipts</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col" data-en="Run" data-zh="运行">Run</th>
+                          <th scope="col" data-en="Support cell" data-zh="支持单元">Support cell</th>
+                          <th scope="col" data-en="Completeness" data-zh="完整性">Completeness</th>
+                          <th scope="col" data-en="Evidence" data-zh="证据">Evidence</th>
+                          <th scope="col" data-en="Receipts" data-zh="收据">Receipts</th>
+                          <th scope="col"><span class="sr-only" data-en="Actions" data-zh="操作">Actions</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td data-label-en="Run" data-label-zh="运行"><code>RUN-2026-08-21</code><span class="meta-line" data-en="2 days ago · operator: L. Zhang" data-zh="2 天前 · 操作员：L. Zhang">2 days ago · operator: L. Zhang</span></td>
+                          <td data-label-en="Support cell" data-label-zh="支持单元"><strong>EX2019 · CU14</strong><span class="meta-line" data-en="on-prem · catalog v1.0" data-zh="本地部署 · 目录 v1.0">on-prem · catalog v1.0</span></td>
+                          <td data-label-en="Completeness" data-label-zh="完整性"><span class="status-badge status--partial"><span aria-hidden="true">!</span> <span data-en="421 / 438 · partial" data-zh="421 / 438 · 部分">421 / 438 · partial</span></span><span class="meta-line" data-en="17 non-terminal probes" data-zh="17 个未终止探针">17 non-terminal probes</span></td>
+                          <td data-label-en="Evidence" data-label-zh="证据"><span class="status-badge status--stale"><span aria-hidden="true">↻</span> <span data-en="T0 · stale" data-zh="T0 · 过期">T0 · stale</span></span><span class="meta-line" data-en="registry digest changed" data-zh="注册表摘要已变化">registry digest changed</span></td>
+                          <td data-label-en="Receipts" data-label-zh="收据"><button class="text-button" type="button"><span data-en="3 receipts" data-zh="3 张收据">3 receipts</span> <span aria-hidden="true">↗</span></button></td>
+                          <td data-label-en="Actions" data-label-zh="操作"><button class="button button-secondary button-small" type="button"><span data-en="Resume" data-zh="继续">Resume</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Run" data-label-zh="运行"><code>RUN-2026-08-12</code><span class="meta-line" data-en="11 days ago · operator: L. Zhang" data-zh="11 天前 · 操作员：L. Zhang">11 days ago · operator: L. Zhang</span></td>
+                          <td data-label-en="Support cell" data-label-zh="支持单元"><strong>EX2019 · CU14</strong><span class="meta-line" data-en="on-prem · catalog v1.0" data-zh="本地部署 · 目录 v1.0">on-prem · catalog v1.0</span></td>
+                          <td data-label-en="Completeness" data-label-zh="完整性"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="438 / 438 · complete" data-zh="438 / 438 · 完成">438 / 438 · complete</span></span><span class="meta-line" data-en="all terminal probes" data-zh="所有探针已终止">all terminal probes</span></td>
+                          <td data-label-en="Evidence" data-label-zh="证据"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="T0 · valid" data-zh="T0 · 有效">T0 · valid</span></span><span class="meta-line" data-en="digest captured" data-zh="已采集摘要">digest captured</span></td>
+                          <td data-label-en="Receipts" data-label-zh="收据"><button class="text-button" type="button"><span data-en="4 receipts" data-zh="4 张收据">4 receipts</span> <span aria-hidden="true">↗</span></button></td>
+                          <td data-label-en="Actions" data-label-zh="操作"><button class="button button-secondary button-small" type="button"><span data-en="Compare" data-zh="比较">Compare</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Run" data-label-zh="运行"><code>RUN-2026-07-30</code><span class="meta-line" data-en="24 days ago · operator: A. Wu" data-zh="24 天前 · 操作员：A. Wu">24 days ago · operator: A. Wu</span></td>
+                          <td data-label-en="Support cell" data-label-zh="支持单元"><strong>EX2016 · CU23</strong><span class="meta-line" data-en="hybrid · cloud scope absent" data-zh="混合环境 · 缺少云端范围">hybrid · cloud scope absent</span></td>
+                          <td data-label-en="Completeness" data-label-zh="完整性"><span class="status-badge status--error"><span aria-hidden="true">×</span> <span data-en="failed at preflight" data-zh="预检失败">failed at preflight</span></span><span class="meta-line" data-en="endpoint unreachable" data-zh="端点不可达">endpoint unreachable</span></td>
+                          <td data-label-en="Evidence" data-label-zh="证据"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="unassessed" data-zh="未评估">unassessed</span></span><span class="meta-line" data-en="no claim emitted" data-zh="未生成声明">no claim emitted</span></td>
+                          <td data-label-en="Receipts" data-label-zh="收据"><button class="text-button" type="button"><span data-en="1 receipt" data-zh="1 张收据">1 receipt</span> <span aria-hidden="true">↗</span></button></td>
+                          <td data-label-en="Actions" data-label-zh="操作"><button class="button button-secondary button-small" type="button"><span data-en="Review" data-zh="查看">Review</span></button></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="pagination-row">
+                    <span class="meta-line" data-en="Showing 1–3 of 3 immutable runs" data-zh="显示 3 个不可变运行中的 1–3 个">Showing 1–3 of 3 immutable runs</span>
+                    <div class="pagination-actions"><button class="icon-button" type="button" aria-label="Previous page" data-aria-en="Previous page" data-aria-zh="上一页">←</button><button class="icon-button" type="button" aria-label="Next page" data-aria-en="Next page" data-aria-zh="下一页">→</button></div>
+                  </div>
+                </section>
+
+                <section class="panel" aria-labelledby="probe-heading">
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow" data-en="Selected run · RUN-2026-08-21" data-zh="当前运行 · RUN-2026-08-21">Selected run · RUN-2026-08-21</p>
+                      <h2 id="probe-heading" data-en="Terminal probe groups" data-zh="终止探针分组">Terminal probe groups</h2>
+                    </div>
+                    <span class="meta-line" data-en="aria-live announces stage changes only" data-zh="aria-live 仅播报阶段变化">aria-live announces stage changes only</span>
+                  </div>
+                  <div class="probe-list" aria-label="Probe group status" data-aria-en="Probe group status" data-aria-zh="探针组状态">
+                    <div class="probe-row"><span class="probe-mark probe-mark--ready" aria-hidden="true">✓</span><div><strong data-en="Root enumeration" data-zh="根枚举">Root enumeration</strong><span class="meta-line" data-en="126 / 126 terminal · mailbox, room, identity roots" data-zh="126 / 126 已终止 · 邮箱、会议室、身份根">126 / 126 terminal · mailbox, room, identity roots</span></div><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Complete" data-zh="完成">Complete</span></span></div>
+                    <div class="probe-row"><span class="probe-mark probe-mark--partial" aria-hidden="true">!</span><div><strong data-en="Calendar policy probes" data-zh="日历策略探针">Calendar policy probes</strong><span class="meta-line" data-en="92 / 104 terminal · 12 permission-denied" data-zh="104 个中 92 个已终止 · 12 个无权限">92 / 104 terminal · 12 permission-denied</span></div><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Blocked" data-zh="阻塞">Blocked</span></span></div>
+                    <div class="probe-row"><span class="probe-mark probe-mark--unknown" aria-hidden="true">?</span><div><strong data-en="Hybrid cloud-side adapter" data-zh="混合环境云端适配器">Hybrid cloud-side adapter</strong><span class="meta-line" data-en="0 / 36 emitted · consented adapter not present" data-zh="0 / 36 已发出 · 未提供已同意的适配器">0 / 36 emitted · consented adapter not present</span></div><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Incomplete" data-zh="不完整">Incomplete</span></span></div>
+                  </div>
+                </section>
+              </section>
+
+              <section class="view" id="view-outcomes" data-view="outcomes" aria-labelledby="outcomes-heading" hidden>
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Outcomes & capabilities / compare the business result" data-zh="结果与能力 / 比较业务结果">Outcomes &amp; capabilities / compare the business result</p>
+                    <h1 id="outcomes-heading" data-en="Which administrator outcomes are preserved or blocked?" data-zh="哪些管理员结果得到保留，哪些被阻塞？">Which administrator outcomes are preserved or blocked?</h1>
+                    <p class="view-lede" data-en="The registry-backed inventory leads with outcome, Setjoin handling, phase impact, and claim state. Exchange properties and cmdlets stay in technical detail." data-zh="注册表驱动的清单优先展示结果、Setjoin 处理方式、阶段影响和声明状态。Exchange 属性和 cmdlet 保留在技术详情中。">The registry-backed inventory leads with outcome, Setjoin handling, phase impact, and claim state. Exchange properties and cmdlets stay in technical detail.</p>
+                  </div>
+                  <div class="action-cluster">
+                    <button class="button button-secondary" type="button"><span data-en="Export deterministic list" data-zh="导出确定性清单">Export deterministic list</span></button>
+                    <button class="button button-secondary" type="button"><span data-en="Open comparison docs" data-zh="打开比较文档">Open comparison docs</span></button>
+                  </div>
+                </div>
+
+                <section class="panel" aria-labelledby="capabilities-heading">
+                  <div class="panel-header panel-header--filters">
+                    <div>
+                      <p class="eyebrow" data-en="Outcome-first inventory · 6 visible states" data-zh="结果优先清单 · 6 种可见状态">Outcome-first inventory · 6 visible states</p>
+                      <h2 id="capabilities-heading" data-en="Capabilities and workflows" data-zh="能力与工作流">Capabilities and workflows</h2>
+                    </div>
+                    <div class="filter-row">
+                      <label class="compact-field"><span data-en="Preset" data-zh="预设">Preset</span><select aria-label="Capability filter preset" data-aria-en="Capability filter preset" data-aria-zh="能力筛选预设"><option data-en="Blockers first" data-zh="阻塞项优先">Blockers first</option><option data-en="In use" data-zh="使用中">In use</option><option data-en="Selected wave" data-zh="已选波次">Selected wave</option></select></label>
+                      <label class="compact-field"><span data-en="Search" data-zh="搜索">Search</span><input type="search" value="" placeholder="Capability ID or outcome" aria-label="Search capabilities" data-aria-en="Search capabilities" data-aria-zh="搜索能力"></label>
+                    </div>
+                  </div>
+                  <div class="legend-row" aria-label="Mapping state legend" data-aria-en="Mapping state legend" data-aria-zh="映射状态图例">
+                    <span class="legend-label" data-en="Mapping state" data-zh="映射状态">Mapping state</span>
+                    <span class="status-badge status--native"><span aria-hidden="true">✓</span> <span data-en="Native" data-zh="原生">Native</span></span>
+                    <span class="status-badge status--transformed"><span aria-hidden="true">↝</span> <span data-en="Transformed" data-zh="转换">Transformed</span></span>
+                    <span class="status-badge status--alternative"><span aria-hidden="true">↔</span> <span data-en="Alternative" data-zh="替代方案">Alternative</span></span>
+                    <span class="status-badge status--unsupported"><span aria-hidden="true">×</span> <span data-en="Unsupported" data-zh="不支持">Unsupported</span></span>
+                    <span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unassessed" data-zh="未评估">Unassessed</span></span>
+                    <span class="status-badge status--excluded"><span aria-hidden="true">—</span> <span data-en="Excluded" data-zh="排除">Excluded</span></span>
+                  </div>
+                  <p class="inline-note"><span class="callout-mark" aria-hidden="true">?</span> <span data-en="Unknown is not zero, unsupported, or success. Every phase impact remains separate." data-zh="未知不等于零、不支持或成功。每个阶段影响保持独立。">Unknown is not zero, unsupported, or success. Every phase impact remains separate.</span></p>
+                  <div class="table-wrap">
+                    <table class="data-table responsive-table capability-table">
+                      <caption class="sr-only" data-en="Outcome-first capability inventory" data-zh="结果优先能力清单">Outcome-first capability inventory</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col" data-en="Outcome / capability ID" data-zh="结果 / 能力 ID">Outcome / capability ID</th>
+                          <th scope="col" data-en="Setjoin handling" data-zh="Setjoin 处理">Setjoin handling</th>
+                          <th scope="col" data-en="Phase impact" data-zh="阶段影响">Phase impact</th>
+                          <th scope="col" data-en="Claim" data-zh="声明">Claim</th>
+                          <th scope="col"><span class="sr-only" data-en="Details" data-zh="详情">Details</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td data-label-en="Outcome / capability ID" data-label-zh="结果 / 能力 ID"><strong>Calendar visibility</strong><code>CAL-VIS-01</code><span class="meta-line" data-en="Exchange LimitedDetails" data-zh="Exchange LimitedDetails">Exchange LimitedDetails</span></td>
+                          <td data-label-en="Setjoin handling" data-label-zh="Setjoin 处理"><span class="status-badge status--transformed"><span aria-hidden="true">↝</span> <span data-en="Transformed" data-zh="转换">Transformed</span></span><span class="meta-line" data-en="privacy-preserving target rule" data-zh="保留隐私的目标规则">privacy-preserving target rule</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Assessment · cutover" data-zh="评估 · 切换">Assessment · cutover</span><span class="meta-line" data-en="subject/location remain explicit" data-zh="主题/位置保持明确">subject/location remain explicit</span></td>
+                          <td data-label-en="Claim" data-label-zh="声明"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="T0 experimental" data-zh="T0 实验性">T0 experimental</span></span></td>
+                          <td data-label-en="Details" data-label-zh="详情"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Outcome / capability ID" data-label-zh="结果 / 能力 ID"><strong>Room discovery</strong><code>ROOM-LIST-01</code><span class="meta-line" data-en="Named Room List grouping" data-zh="命名会议室列表分组">Named Room List grouping</span></td>
+                          <td data-label-en="Setjoin handling" data-label-zh="Setjoin 处理"><span class="status-badge status--alternative"><span aria-hidden="true">↔</span> <span data-en="Alternative" data-zh="替代方案">Alternative</span></span><span class="meta-line" data-en="resource groups + Finder workflow" data-zh="资源组 + 查找器工作流">resource groups + Finder workflow</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Initial copy · acceptance" data-zh="初始复制 · 验收">Initial copy · acceptance</span><span class="meta-line" data-en="customer owner accepts workflow" data-zh="客户负责人验收工作流">customer owner accepts workflow</span></td>
+                          <td data-label-en="Claim" data-label-zh="声明"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unassessed" data-zh="未评估">Unassessed</span></span></td>
+                          <td data-label-en="Details" data-label-zh="详情"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Outcome / capability ID" data-label-zh="结果 / 能力 ID"><strong>Resource booking policy</strong><code>ROOM-POLICY-02</code><span class="meta-line" data-en="conflict / window / approval subset" data-zh="冲突 / 时间窗 / 审批子集">conflict / window / approval subset</span></td>
+                          <td data-label-en="Setjoin handling" data-label-zh="Setjoin 处理"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unassessed" data-zh="未评估">Unassessed</span></span><span class="meta-line" data-en="permission-denied probes" data-zh="探针无权限">permission-denied probes</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Shadow · cutover" data-zh="影子 · 切换">Shadow · cutover</span><span class="meta-line" data-en="blocker until complete" data-zh="完成前为阻塞项">blocker until complete</span></td>
+                          <td data-label-en="Claim" data-label-zh="声明"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Blocked" data-zh="阻塞">Blocked</span></span></td>
+                          <td data-label-en="Details" data-label-zh="详情"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Outcome / capability ID" data-label-zh="结果 / 能力 ID"><strong>Mailbox-folder ACL roles</strong><code>MAIL-ACL-99</code><span class="meta-line" data-en="arbitrary folder authority" data-zh="任意邮件文件夹权限">arbitrary folder authority</span></td>
+                          <td data-label-en="Setjoin handling" data-label-zh="Setjoin 处理"><span class="status-badge status--unsupported"><span aria-hidden="true">×</span> <span data-en="Unsupported" data-zh="不支持">Unsupported</span></span><span class="meta-line" data-en="deferred unless procurement blocker" data-zh="除非是采购阻塞，否则延后">deferred unless procurement blocker</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Cosmetic only" data-zh="仅外观">Cosmetic only</span><span class="meta-line" data-en="not a V1 wave capability" data-zh="不是 V1 波次能力">not a V1 wave capability</span></td>
+                          <td data-label-en="Claim" data-label-zh="声明"><span class="status-badge status--unsupported"><span aria-hidden="true">×</span> <span data-en="Unsupported" data-zh="不支持">Unsupported</span></span></td>
+                          <td data-label-en="Details" data-label-zh="详情"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                        <tr>
+                          <td data-label-en="Outcome / capability ID" data-label-zh="结果 / 能力 ID"><strong>Transport rules</strong><code>TRANSPORT-EXCL</code><span class="meta-line" data-en="declared scope exclusion" data-zh="声明的范围排除">declared scope exclusion</span></td>
+                          <td data-label-en="Setjoin handling" data-label-zh="Setjoin 处理"><span class="status-badge status--excluded"><span aria-hidden="true">—</span> <span data-en="Excluded" data-zh="排除">Excluded</span></span><span class="meta-line" data-en="owned by another readiness contract" data-zh="由另一个就绪合同负责">owned by another readiness contract</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Not assessed" data-zh="未评估">Not assessed</span></td>
+                          <td data-label-en="Claim" data-label-zh="声明"><span class="status-badge status--excluded"><span aria-hidden="true">—</span> <span data-en="Excluded" data-zh="排除">Excluded</span></span></td>
+                          <td data-label-en="Details" data-label-zh="详情"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="pagination-row"><span class="meta-line" data-en="Showing 5 of 58 registry-backed outcomes · server-side pagination" data-zh="显示 58 个注册表结果中的 5 个 · 服务端分页">Showing 5 of 58 registry-backed outcomes · server-side pagination</span><div class="pagination-actions"><button class="icon-button" type="button" aria-label="Previous page" data-aria-en="Previous page" data-aria-zh="上一页">←</button><button class="icon-button" type="button" aria-label="Next page" data-aria-en="Next page" data-aria-zh="下一页">→</button></div></div>
+                </section>
+
+                <section class="panel comparison-panel" aria-labelledby="comparison-heading">
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow" data-en="Selected record · CAL-VIS-01" data-zh="当前记录 · CAL-VIS-01">Selected record · CAL-VIS-01</p>
+                      <h2 id="comparison-heading" data-en="Dense comparison keeps the business relationship intact" data-zh="密集比较保持业务关系完整">Dense comparison keeps the business relationship intact</h2>
+                    </div>
+                    <span class="status-badge status--transformed"><span aria-hidden="true">↝</span> <span data-en="Transformed" data-zh="转换">Transformed</span></span>
+                  </div>
+                  <details open class="record-disclosure">
+                    <summary><span data-en="Calendar visibility · LimitedDetails" data-zh="日历可见性 · LimitedDetails">Calendar visibility · LimitedDetails</span><span class="summary-chevron" aria-hidden="true">⌄</span></summary>
+                    <div class="record-detail-grid">
+                      <div>
+                        <p class="eyebrow" data-en="Business outcome" data-zh="业务结果">Business outcome</p>
+                        <p data-en="A delegate can see availability, subject, and location while private/confidential events remain redacted." data-zh="委托人可以看到忙闲、主题和位置，同时私人/机密事件保持隐藏。">A delegate can see availability, subject, and location while private/confidential events remain redacted.</p>
+                      </div>
+                      <div>
+                        <p class="eyebrow" data-en="Phase impact" data-zh="阶段影响">Phase impact</p>
+                        <p><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Assessment / cutover" data-zh="评估 / 切换">Assessment / cutover</span></span></p>
+                      </div>
+                    </div>
+                    <div class="compare-mini" role="table" aria-label="Exchange versus Setjoin comparison" data-aria-en="Exchange versus Setjoin comparison" data-aria-zh="Exchange 与 Setjoin 比较">
+                      <div class="compare-mini-heading" role="row"><span role="columnheader" data-en="Exchange source" data-zh="Exchange 来源">Exchange source</span><span role="columnheader" data-en="Setjoin outcome / evidence" data-zh="Setjoin 结果 / 证据">Setjoin outcome / evidence</span></div>
+                      <div class="compare-mini-row" role="row"><span role="cell"><code>Get-MailboxFolderPermission</code><br><span data-en="AccessRights = LimitedDetails" data-zh="AccessRights = LimitedDetails">AccessRights = LimitedDetails</span></span><span role="cell"><strong data-en="Transformed target rule" data-zh="转换后的目标规则">Transformed target rule</strong><br><span data-en="Preserves redaction; requires a named acceptance case." data-zh="保留隐藏规则；需要命名验收用例。">Preserves redaction; requires a named acceptance case.</span></span></div>
+                      <div class="compare-mini-row" role="row"><span role="cell"><code>PrivateItem</code> behavior</span><span role="cell"><strong data-en="Native privacy guard" data-zh="原生隐私保护">Native privacy guard</strong><br><span data-en="Evidence: T0 fixture CAL-NEG-04" data-zh="证据：T0 fixture CAL-NEG-04">Evidence: T0 fixture CAL-NEG-04</span></span></div>
+                    </div>
+                    <div class="detail-footer"><code>capability: calendar.visibility.limited-details</code><button class="text-button" type="button"><span data-en="Open evidence context" data-zh="打开证据上下文">Open evidence context</span> <span aria-hidden="true">→</span></button></div>
+                  </details>
+                </section>
+              </section>
+
+              <section class="view" id="view-mappings" data-view="mappings" aria-labelledby="mappings-heading" hidden>
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Mappings / resolve one accountable transform at a time" data-zh="映射 / 一次解决一个有责任人的转换">Mappings / resolve one accountable transform at a time</p>
+                    <h1 id="mappings-heading" data-en="What transforms, conflicts, or cannot map?" data-zh="哪些内容需要转换、冲突或无法映射？">What transforms, conflicts, or cannot map?</h1>
+                    <p class="view-lede" data-en="Source authority, object type, and native anchor stay visible. Unresolved principals block only the phase impacts that depend on them." data-zh="源权威、对象类型和原生锚点保持可见。未解析主体只阻塞依赖它们的阶段影响。">Source authority, object type, and native anchor stay visible. Unresolved principals block only the phase impacts that depend on them.</p>
+                  </div>
+                  <div class="action-cluster">
+                    <button class="button button-secondary" type="button"><span data-en="Export review queue" data-zh="导出审核队列">Export review queue</span></button>
+                    <button class="button button-primary" type="button"><span data-en="Preview decision" data-zh="预览决策">Preview decision</span></button>
+                  </div>
+                </div>
+
+                <div class="mapping-summary" aria-label="Mapping summary" data-aria-en="Mapping summary" data-aria-zh="映射摘要">
+                  <div class="summary-item"><span class="eyebrow" data-en="Mapped" data-zh="已映射">Mapped</span><strong>238</strong><span class="meta-line" data-en="one-to-one" data-zh="一对一">one-to-one</span></div>
+                  <div class="summary-item summary-item--warning"><span class="eyebrow" data-en="Review" data-zh="待审核">Review</span><strong>12</strong><span class="meta-line" data-en="owner + reason required" data-zh="需要负责人和原因">owner + reason required</span></div>
+                  <div class="summary-item summary-item--danger"><span class="eyebrow" data-en="Unresolved" data-zh="未解析">Unresolved</span><strong>7</strong><span class="meta-line" data-en="required identity anchor missing" data-zh="缺少必需身份锚点">required identity anchor missing</span></div>
+                  <div class="summary-item summary-item--warning"><span class="eyebrow" data-en="Collisions" data-zh="冲突">Collisions</span><strong>3</strong><span class="meta-line" data-en="type-scoped queue" data-zh="按类型划分队列">type-scoped queue</span></div>
+                </div>
+
+                <div class="callout callout-info page-callout">
+                  <span class="callout-mark" aria-hidden="true">i</span>
+                  <div>
+                    <strong data-en="No bulk accept-all or automatic waiver" data-zh="不提供批量全部接受或自动豁免">No bulk accept-all or automatic waiver</strong>
+                    <p data-en="The decide permission owns each mapping decision. Every decision records actor, reason, expiry, affected phase, and a previewed outcome." data-zh="decide 权限负责每项映射决策。每项决策记录操作者、原因、有效期、受影响阶段和预览结果。">The decide permission owns each mapping decision. Every decision records actor, reason, expiry, affected phase, and a previewed outcome.</p>
+                  </div>
+                </div>
+
+                <section class="panel" aria-labelledby="mapping-queue-heading">
+                  <div class="panel-header panel-header--filters">
+                    <div>
+                      <p class="eyebrow" data-en="Priority queue · unresolved first" data-zh="优先队列 · 未解析优先">Priority queue · unresolved first</p>
+                      <h2 id="mapping-queue-heading" data-en="Source to target mappings" data-zh="源到目标映射">Source to target mappings</h2>
+                    </div>
+                    <div class="filter-row">
+                      <label class="compact-field"><span data-en="Queue" data-zh="队列">Queue</span><select aria-label="Mapping queue" data-aria-en="Mapping queue" data-aria-zh="映射队列"><option data-en="Unresolved and collisions" data-zh="未解析与冲突">Unresolved and collisions</option><option data-en="All mappings" data-zh="全部映射">All mappings</option></select></label>
+                      <label class="compact-field"><span data-en="Object type" data-zh="对象类型">Object type</span><select aria-label="Object type" data-aria-en="Object type" data-aria-zh="对象类型"><option data-en="All object types" data-zh="全部对象类型">All object types</option><option data-en="User / group" data-zh="用户 / 组">User / group</option><option data-en="Room / equipment" data-zh="会议室 / 设备">Room / equipment</option></select></label>
+                    </div>
+                  </div>
+                  <div class="table-wrap">
+                    <table class="data-table responsive-table mapping-table">
+                      <caption class="sr-only" data-en="Mapping review queue" data-zh="映射审核队列">Mapping review queue</caption>
+                      <thead><tr><th scope="col" data-en="Source authority / anchor" data-zh="源权威 / 锚点">Source authority / anchor</th><th scope="col" data-en="Target" data-zh="目标">Target</th><th scope="col" data-en="Result" data-zh="结果">Result</th><th scope="col" data-en="Phase impact" data-zh="阶段影响">Phase impact</th><th scope="col" data-en="Owner" data-zh="负责人">Owner</th><th scope="col"><span class="sr-only" data-en="Action" data-zh="操作">Action</span></th></tr></thead>
+                      <tbody>
+                        <tr>
+                          <td data-label-en="Source authority / anchor" data-label-zh="源权威 / 锚点"><strong>Northwind forest</strong><code>user: a•••17</code><span class="meta-line" data-en="directory GUID masked by default" data-zh="默认隐藏目录 GUID">directory GUID masked by default</span></td>
+                          <td data-label-en="Target" data-label-zh="目标"><strong>Setjoin user</strong><code>sj_u_8f•••2</code></td>
+                          <td data-label-en="Result" data-label-zh="结果"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Matched" data-zh="已匹配">Matched</span></span><span class="meta-line" data-en="one-to-one anchor" data-zh="一对一锚点">one-to-one anchor</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="All in-scope phases" data-zh="所有范围内阶段">All in-scope phases</span></td>
+                          <td data-label-en="Owner" data-label-zh="负责人"><span data-en="System-derived" data-zh="系统派生">System-derived</span></td>
+                          <td data-label-en="Action" data-label-zh="操作"><button class="text-button" type="button"><span data-en="Inspect" data-zh="检查">Inspect</span> <span aria-hidden="true">→</span></button></td>
+                        </tr>
+                        <tr class="row-highlight">
+                          <td data-label-en="Source authority / anchor" data-label-zh="源权威 / 锚点"><strong>Northwind forest</strong><code>group: f•••03</code><span class="meta-line" data-en="duplicate anchor candidates" data-zh="存在重复锚点候选">duplicate anchor candidates</span></td>
+                          <td data-label-en="Target" data-label-zh="目标"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="No target selected" data-zh="未选择目标">No target selected</span></span></td>
+                          <td data-label-en="Result" data-label-zh="结果"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Collision" data-zh="冲突">Collision</span></span><span class="meta-line" data-en="merge/split decision required" data-zh="需要合并/拆分决策">merge/split decision required</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Initial copy · cutover" data-zh="初始复制 · 切换">Initial copy · cutover</span></td>
+                          <td data-label-en="Owner" data-label-zh="负责人"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unassigned" data-zh="未分配">Unassigned</span></span></td>
+                          <td data-label-en="Action" data-label-zh="操作"><button class="button button-secondary button-small" type="button"><span data-en="Preview" data-zh="预览">Preview</span></button></td>
+                        </tr>
+                        <tr class="row-highlight">
+                          <td data-label-en="Source authority / anchor" data-label-zh="源权威 / 锚点"><strong>External principal</strong><code>smtp: r•••@vendor</code><span class="meta-line" data-en="email alone is not an anchor" data-zh="不能仅使用电子邮件作为锚点">email alone is not an anchor</span></td>
+                          <td data-label-en="Target" data-label-zh="目标"><span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unresolved" data-zh="未解析">Unresolved</span></span></td>
+                          <td data-label-en="Result" data-label-zh="结果"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Missing authority" data-zh="缺少权威">Missing authority</span></span><span class="meta-line" data-en="never discard silently" data-zh="不得静默丢弃">never discard silently</span></td>
+                          <td data-label-en="Phase impact" data-label-zh="阶段影响"><span data-en="Acceptance only" data-zh="仅影响验收">Acceptance only</span></td>
+                          <td data-label-en="Owner" data-label-zh="负责人"><span data-en="Customer Exchange owner" data-zh="客户 Exchange 负责人">Customer Exchange owner</span></td>
+                          <td data-label-en="Action" data-label-zh="操作"><button class="button button-secondary button-small" type="button"><span data-en="Assign" data-zh="分配">Assign</span></button></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="pagination-row"><span class="meta-line" data-en="Showing 3 of 12 review items · deterministic sort by impact then source key" data-zh="显示 12 个审核项目中的 3 个 · 按影响后按源键确定性排序">Showing 3 of 12 review items · deterministic sort by impact then source key</span><div class="pagination-actions"><button class="icon-button" type="button" aria-label="Previous page" data-aria-en="Previous page" data-aria-zh="上一页">←</button><button class="icon-button" type="button" aria-label="Next page" data-aria-en="Next page" data-aria-zh="下一页">→</button></div></div>
+                </section>
+              </section>
+
+              <section class="view" id="view-documents" data-view="documents" aria-labelledby="documents-heading" hidden>
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Documents / same digest-bound row set" data-zh="文档 / 相同摘要绑定的行集">Documents / same digest-bound row set</p>
+                    <h1 id="documents-heading" data-en="What can operators and customers take away?" data-zh="操作员和客户可以带走什么？">What can operators and customers take away?</h1>
+                    <p class="view-lede" data-en="Every artifact is generated from the registry-backed inventory and bound to project, run, registry, evidence, and locale digests." data-zh="每个工件都从注册表驱动的清单生成，并绑定项目、运行、注册表、证据和语言环境摘要。">Every artifact is generated from the registry-backed inventory and bound to project, run, registry, evidence, and locale digests.</p>
+                  </div>
+                  <div class="action-cluster">
+                    <button class="button button-primary" type="button"><span aria-hidden="true">＋</span> <span data-en="Generate documents" data-zh="生成文档">Generate documents</span></button>
+                    <button class="button button-secondary" type="button"><span data-en="Preview inclusion manifest" data-zh="预览包含清单">Preview inclusion manifest</span></button>
+                  </div>
+                </div>
+
+                <div class="callout callout-warning page-callout">
+                  <span class="callout-mark" aria-hidden="true">↻</span>
+                  <div>
+                    <strong data-en="One artifact is stale" data-zh="有一个工件已过期">One artifact is stale</strong>
+                    <p data-en="The registry digest changed after the last valid generation. The prior artifact remains downloadable; regenerate creates a new immutable version and does not silently overwrite it." data-zh="上次有效生成后注册表摘要发生变化。之前的工件仍可下载；重新生成会创建新的不可变版本，不会静默覆盖旧版本。">The registry digest changed after the last valid generation. The prior artifact remains downloadable; regenerate creates a new immutable version and does not silently overwrite it.</p>
+                  </div>
+                  <button class="button button-secondary" type="button"><span data-en="Regenerate" data-zh="重新生成">Regenerate</span></button>
+                </div>
+
+                <section class="panel" aria-labelledby="artifact-heading">
+                  <div class="panel-header">
+                    <div>
+                      <p class="eyebrow" data-en="Generated from the canonical join" data-zh="由规范联接生成">Generated from the canonical join</p>
+                      <h2 id="artifact-heading" data-en="Document artifacts" data-zh="文档工件">Document artifacts</h2>
+                    </div>
+                    <span class="meta-line" data-en="locale: en-US · run: RUN-2026-08-12" data-zh="语言：en-US · 运行：RUN-2026-08-12">locale: en-US · run: RUN-2026-08-12</span>
+                  </div>
+                  <div class="artifact-list">
+                    <article class="artifact-row">
+                      <div class="artifact-icon" aria-hidden="true">▤</div>
+                      <div class="artifact-main"><strong data-en="Executive readiness report" data-zh="执行层就绪报告">Executive readiness report</strong><span class="meta-line"><code>report.executive.v1</code> · <span data-en="blocker count, evidence freshness, next safe action" data-zh="阻塞项数量、证据新鲜度、下一步安全动作">blocker count, evidence freshness, next safe action</span></span></div>
+                      <span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Ready" data-zh="就绪">Ready</span></span>
+                      <button class="text-button" type="button"><span data-en="Download" data-zh="下载">Download</span> <span aria-hidden="true">↓</span></button>
+                    </article>
+                    <article class="artifact-row">
+                      <div class="artifact-icon" aria-hidden="true">▤</div>
+                      <div class="artifact-main"><strong data-en="Administrator detail" data-zh="管理员详情">Administrator detail</strong><span class="meta-line"><code>report.admin.v1</code> · <span data-en="source → target → phase → evidence → remedy" data-zh="来源 → 目标 → 阶段 → 证据 → 补救">source → target → phase → evidence → remedy</span></span></div>
+                      <span class="status-badge status--stale"><span aria-hidden="true">↻</span> <span data-en="Stale" data-zh="过期">Stale</span></span>
+                      <button class="text-button" type="button"><span data-en="View last valid" data-zh="查看上个有效版本">View last valid</span> <span aria-hidden="true">↗</span></button>
+                    </article>
+                    <article class="artifact-row">
+                      <div class="artifact-icon" aria-hidden="true">▦</div>
+                      <div class="artifact-main"><strong data-en="Exchange comparison matrix" data-zh="Exchange 比较矩阵">Exchange comparison matrix</strong><span class="meta-line"><code>comparison.v1</code> · <span data-en="native / transformed / alternative / unsupported" data-zh="原生 / 转换 / 替代方案 / 不支持">native / transformed / alternative / unsupported</span></span></div>
+                      <span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Ready" data-zh="就绪">Ready</span></span>
+                      <button class="text-button" type="button"><span data-en="Preview" data-zh="预览">Preview</span> <span aria-hidden="true">↗</span></button>
+                    </article>
+                    <article class="artifact-row">
+                      <div class="artifact-icon" aria-hidden="true">▦</div>
+                      <div class="artifact-main"><strong data-en="Acceptance workbook" data-zh="验收工作簿">Acceptance workbook</strong><span class="meta-line"><code>acceptance.v1</code> · <span data-en="named workflows and expected errors/audits" data-zh="命名工作流及预期错误/审计">named workflows and expected errors/audits</span></span></div>
+                      <span class="status-badge status--unknown"><span aria-hidden="true">?</span> <span data-en="Unavailable" data-zh="不可用">Unavailable</span></span>
+                      <button class="text-button is-disabled" type="button" aria-disabled="true"><span data-en="Needs T1 evidence" data-zh="需要 T1 证据">Needs T1 evidence</span></button>
+                    </article>
+                    <article class="artifact-row">
+                      <div class="artifact-icon" aria-hidden="true">{ }</div>
+                      <div class="artifact-main"><strong data-en="Machine-readable JSON export" data-zh="机器可读 JSON 导出">Machine-readable JSON export</strong><span class="meta-line"><code>assessment.v1.json</code> · <span data-en="deterministic rows + omission manifest" data-zh="确定性行集 + 遗漏清单">deterministic rows + omission manifest</span></span></div>
+                      <span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Ready" data-zh="就绪">Ready</span></span>
+                      <button class="text-button" type="button"><span data-en="Download" data-zh="下载">Download</span> <span aria-hidden="true">↓</span></button>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="panel" aria-labelledby="a0-heading">
+                  <div class="panel-header"><div><p class="eyebrow" data-en="Boundary reminder" data-zh="边界提醒">Boundary reminder</p><h2 id="a0-heading" data-en="A0 concierge artifacts stay outside the product run model" data-zh="A0 礼宾工件不进入产品运行模型">A0 concierge artifacts stay outside the product run model</h2></div><span class="status-badge status--excluded"><span aria-hidden="true">—</span> <span data-en="Reference only" data-zh="仅供参考">Reference only</span></span></div>
+                  <p data-en="Static A0 HTML/PDF/JSON reports and receipts may be referenced manually when a V1A project is created. They are never importable as product assessments, never establish replacement readiness, and never replace fresh completeness evidence." data-zh="创建 V1A 项目时可以手动引用静态 A0 HTML/PDF/JSON 报告和收据。它们永远不能作为产品评估导入，不能建立替换就绪结论，也不能替代新的完整性证据。">Static A0 HTML/PDF/JSON reports and receipts may be referenced manually when a V1A project is created. They are never importable as product assessments, never establish replacement readiness, and never replace fresh completeness evidence.</p>
+                  <div class="artifact-meta-grid"><div><span class="eyebrow" data-en="Last valid digest" data-zh="上个有效摘要">Last valid digest</span><code>sha256: 1a88…c6d0</code></div><div><span class="eyebrow" data-en="Inclusion manifest" data-zh="包含清单">Inclusion manifest</span><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="58 included · 0 silent omissions" data-zh="58 项包含 · 0 项静默遗漏">58 included · 0 silent omissions</span></span></div></div>
+                </section>
+              </section>
+
+              <section class="view" id="view-settings" data-view="settings" aria-labelledby="settings-heading" hidden>
+                <div class="view-header">
+                  <div>
+                    <p class="eyebrow" data-en="Settings / project, permissions, and data handling" data-zh="设置 / 项目、权限和数据处理">Settings / project, permissions, and data handling</p>
+                    <h1 id="settings-heading" data-en="Keep ownership and retention explicit" data-zh="明确所有权和保留期限">Keep ownership and retention explicit</h1>
+                    <p class="view-lede" data-en="This project shell is persistent; the selected run is viewer-local. Fresh authority is required for decide, attest, audit, publish, and delete actions." data-zh="项目外壳持久存在；当前运行属于查看者本地上下文。decide、attest、audit、publish 和 delete 操作需要新鲜授权。">This project shell is persistent; the selected run is viewer-local. Fresh authority is required for decide, attest, audit, publish, and delete actions.</p>
+                  </div>
+                  <div class="action-cluster"><button class="button button-secondary" type="button"><span data-en="Save project settings" data-zh="保存项目设置">Save project settings</span></button></div>
+                </div>
+
+                <section class="settings-grid">
+                  <div class="panel">
+                    <div class="panel-header"><div><p class="eyebrow" data-en="Project identity" data-zh="项目身份">Project identity</p><h2 data-en="Northwind · CN-2026-01" data-zh="Northwind · CN-2026-01">Northwind · CN-2026-01</h2></div><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Active" data-zh="活动">Active</span></span></div>
+                    <div class="form-grid">
+                      <label class="field field-wide"><span data-en="Project display name" data-zh="项目显示名称">Project display name</span><input value="Northwind Exchange replacement" aria-label="Project display name" data-aria-en="Project display name" data-aria-zh="项目显示名称"></label>
+                      <label class="field"><span data-en="Default locale" data-zh="默认语言">Default locale</span><select aria-label="Default locale" data-aria-en="Default locale" data-aria-zh="默认语言"><option>en-US</option><option>zh-CN</option></select></label>
+                      <label class="field"><span data-en="Support cell" data-zh="支持单元">Support cell</span><input value="EX2019 / CU14 / on-prem" aria-label="Support cell" data-aria-en="Support cell" data-aria-zh="支持单元"></label>
+                      <label class="field"><span data-en="Freshness window" data-zh="新鲜度窗口">Freshness window</span><select aria-label="Freshness window" data-aria-en="Freshness window" data-aria-zh="新鲜度窗口"><option data-en="T0 · 30 days" data-zh="T0 · 30 天">T0 · 30 days</option><option data-en="T1 · 180 days" data-zh="T1 · 180 天">T1 · 180 days</option></select></label>
+                    </div>
+                    <div class="settings-note"><span class="callout-mark" aria-hidden="true">i</span><span data-en="Project selection is global and persistent. Run selection stays in the URL/session context and never rewrites an immutable run." data-zh="项目选择全局且持久。运行选择保留在 URL/会话上下文中，永远不会改写不可变运行。">Project selection is global and persistent. Run selection stays in the URL/session context and never rewrites an immutable run.</span></div>
+                  </div>
+
+                  <div class="panel">
+                    <div class="panel-header"><div><p class="eyebrow" data-en="Data handling" data-zh="数据处理">Data handling</p><h2 data-en="Minimize, mask, then delete" data-zh="最小化、隐藏，然后删除">Minimize, mask, then delete</h2></div><span class="status-badge status--partial"><span aria-hidden="true">!</span> <span data-en="Review required" data-zh="需要审核">Review required</span></span></div>
+                    <dl class="settings-list">
+                      <div><dt data-en="Raw export retention" data-zh="原始导出保留">Raw export retention</dt><dd data-en="Until report acceptance or 30 days, whichever comes first" data-zh="截至报告验收或 30 天，以较早者为准">Until report acceptance or 30 days, whichever comes first</dd></div>
+                      <div><dt data-en="Default redaction" data-zh="默认脱敏">Default redaction</dt><dd data-en="No message content, credentials, free text, or unnecessary personal attributes" data-zh="不含邮件内容、凭据、自由文本或不必要的个人属性">No message content, credentials, free text, or unnecessary personal attributes</dd></div>
+                      <div><dt data-en="Deletion receipt" data-zh="删除收据">Deletion receipt</dt><dd><code>pending · owner: privacy</code></dd></div>
+                    </dl>
+                    <button class="text-button" type="button"><span data-en="Open privacy inventory" data-zh="打开隐私清单">Open privacy inventory</span> <span aria-hidden="true">→</span></button>
+                  </div>
+                </section>
+
+                <section class="panel" aria-labelledby="permissions-heading">
+                  <div class="panel-header"><div><p class="eyebrow" data-en="Session-derived capability catalog" data-zh="会话派生能力目录">Session-derived capability catalog</p><h2 id="permissions-heading" data-en="Seven granular permissions" data-zh="七项细粒度权限">Seven granular permissions</h2></div><span class="meta-line" data-en="reader view masks raw evidence" data-zh="read 视图隐藏原始证据">reader view masks raw evidence</span></div>
+                  <div class="table-wrap">
+                    <table class="data-table responsive-table permission-table">
+                      <caption class="sr-only" data-en="Exchange assessment permissions" data-zh="Exchange 评估权限">Exchange assessment permissions</caption>
+                      <thead><tr><th scope="col" data-en="Permission" data-zh="权限">Permission</th><th scope="col" data-en="Owns" data-zh="负责">Owns</th><th scope="col" data-en="Current actor" data-zh="当前操作者">Current actor</th><th scope="col" data-en="Fresh authority" data-zh="新鲜授权">Fresh authority</th></tr></thead>
+                      <tbody>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.read</code></td><td data-label-en="Owns" data-label-zh="负责" data-en="masked summaries and navigation" data-zh="隐藏摘要和导航">masked summaries and navigation</td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Granted" data-zh="已授予">Granted</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="No" data-zh="否">No</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.run</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="preflight, collection, import, generation" data-zh="预检、采集、导入、生成">preflight, collection, import, generation</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Granted" data-zh="已授予">Granted</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="No" data-zh="否">No</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.decide</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="mapping acceptance and waivers" data-zh="映射接受和豁免">mapping acceptance and waivers</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Hidden" data-zh="隐藏">Hidden</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="Required" data-zh="需要">Required</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.attest</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="zero-population and backup-expiry attestations" data-zh="零人口和备份到期证明">zero-population and backup-expiry attestations</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Not granted" data-zh="未授予">Not granted</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="Required" data-zh="需要">Required</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.audit</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="raw cases, artifacts, and freshness" data-zh="原始用例、工件和新鲜度">raw cases, artifacts, and freshness</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--ready"><span aria-hidden="true">✓</span> <span data-en="Granted" data-zh="已授予">Granted</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="Required" data-zh="需要">Required</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.publish</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="publishable claims and customer documents" data-zh="可发布声明和客户文档">publishable claims and customer documents</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Hidden" data-zh="隐藏">Hidden</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="Required" data-zh="需要">Required</span></td></tr>
+                        <tr><td data-label-en="Permission" data-label-zh="权限"><code>migration.assessment.delete</code></td><td data-label-en="Owns" data-label-zh="负责"><span data-en="artifact, run, and project disposal" data-zh="工件、运行和项目处置">artifact, run, and project disposal</span></td><td data-label-en="Current actor" data-label-zh="当前操作者"><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Not granted" data-zh="未授予">Not granted</span></span></td><td data-label-en="Fresh authority" data-label-zh="新鲜授权"><span data-en="Required" data-zh="需要">Required</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="inline-note"><span class="callout-mark" aria-hidden="true">i</span> <span data-en="Direct routes return a typed permission rejection. Unavailable navigation and actions do not become a generic empty state." data-zh="直接访问路由会返回类型化的权限拒绝。不可用的导航和操作不会伪装成通用空状态。">Direct routes return a typed permission rejection. Unavailable navigation and actions do not become a generic empty state.</span></p>
+                </section>
+
+                <section class="panel" aria-labelledby="disposal-heading">
+                  <div class="panel-header"><div><p class="eyebrow" data-en="Preview before disposal" data-zh="处置前预览">Preview before disposal</p><h2 id="disposal-heading" data-en="Object-specific deletion previews" data-zh="按对象区分的删除预览">Object-specific deletion previews</h2></div><span class="status-badge status--blocked"><span aria-hidden="true">!</span> <span data-en="Fresh delete authority required" data-zh="需要新的删除授权">Fresh delete authority required</span></span></div>
+                  <div class="disposal-list">
+                    <details class="disposal-item"><summary><span data-en="Artifact deletion preview" data-zh="工件删除预览">Artifact deletion preview</span><span class="summary-chevron" aria-hidden="true">⌄</span></summary><div class="disposal-preview"><p data-en="Would delete 4 generated artifacts for RUN-2026-08-12, invalidate links, propagate to caches/backups, and emit a receipt. Last valid artifact is recoverable until the retention deadline." data-zh="将删除 RUN-2026-08-12 的 4 个生成工件，使链接失效，传播到缓存/备份并生成收据。在保留期限前可恢复上个有效工件。">Would delete 4 generated artifacts for RUN-2026-08-12, invalidate links, propagate to caches/backups, and emit a receipt. Last valid artifact is recoverable until the retention deadline.</p><button class="button button-danger" type="button" aria-disabled="true"><span data-en="Delete artifact · unavailable" data-zh="删除工件 · 不可用">Delete artifact · unavailable</span></button></div></details>
+                    <details class="disposal-item"><summary><span data-en="Run deletion preview" data-zh="运行删除预览">Run deletion preview</span><span class="summary-chevron" aria-hidden="true">⌄</span></summary><div class="disposal-preview"><p data-en="Would delete the immutable assessment facts, mappings, and receipts for the selected run after confirming retention and project-owner approval. The project remains." data-zh="确认保留期限和项目负责人批准后，将删除所选运行的不可变评估事实、映射和收据。项目仍保留。">Would delete the immutable assessment facts, mappings, and receipts for the selected run after confirming retention and project-owner approval. The project remains.</p><button class="button button-danger" type="button" aria-disabled="true"><span data-en="Delete run · unavailable" data-zh="删除运行 · 不可用">Delete run · unavailable</span></button></div></details>
+                    <details class="disposal-item"><summary><span data-en="Project deletion preview" data-zh="项目删除预览">Project deletion preview</span><span class="summary-chevron" aria-hidden="true">⌄</span></summary><div class="disposal-preview"><p data-en="Would delete the project, all runs, mappings, artifacts, and linkable pseudonyms after the later project-retention or rollback deadline. A typed receipt would confirm propagation." data-zh="将在项目保留期限或回滚期限中较晚者之后，删除项目、所有运行、映射、工件和可关联伪名。类型化收据将确认传播完成。">Would delete the project, all runs, mappings, artifacts, and linkable pseudonyms after the later project-retention or rollback deadline. A typed receipt would confirm propagation.</p><button class="button button-danger" type="button" aria-disabled="true"><span data-en="Delete project · unavailable" data-zh="删除项目 · 不可用">Delete project · unavailable</span></button></div></details>
+                  </div>
+                </section>
+              </section>
+            </div>
+
+            <aside class="context-panel" aria-labelledby="context-heading">
+              <div class="context-panel-header">
+                <div>
+                  <p class="eyebrow" data-en="Evidence context" data-zh="证据上下文">Evidence context</p>
+                  <h2 id="context-heading" data-en="Why this claim is not publishable" data-zh="为什么该声明不可发布">Why this claim is not publishable</h2>
+                </div>
+                <span class="context-pulse" aria-hidden="true">•</span>
+              </div>
+              <div class="context-section">
+                <div class="context-status-line"><span class="status-badge status--stale"><span aria-hidden="true">↻</span> <span data-en="Evidence stale" data-zh="证据过期">Evidence stale</span></span><span class="meta-line" data-en="changed 2 days ago" data-zh="2 天前变化">changed 2 days ago</span></div>
+                <dl class="context-facts">
+                  <div><dt data-en="Registry digest" data-zh="注册表摘要">Registry digest</dt><dd><code>sha256: 6be2…f03a</code></dd></div>
+                  <div><dt data-en="Captured digest" data-zh="采集摘要">Captured digest</dt><dd><code>sha256: 9d4a…e71c</code></dd></div>
+                  <div><dt data-en="Freshness rule" data-zh="新鲜度规则">Freshness rule</dt><dd data-en="T0 · 30 days or digest change" data-zh="T0 · 30 天或摘要变化">T0 · 30 days or digest change</dd></div>
+                </dl>
+              </div>
+              <div class="context-section">
+                <p class="eyebrow" data-en="Evidence tiers" data-zh="证据层级">Evidence tiers</p>
+                <ul class="tier-list">
+                  <li><span class="tier-code">T0</span><div><strong data-en="Fixture / experimental" data-zh="Fixture / 实验性">Fixture / experimental</strong><span class="meta-line" data-en="schema and low-risk mapping proof" data-zh="模式和低风险映射证明">schema and low-risk mapping proof</span></div></li>
+                  <li><span class="tier-code">T1</span><div><strong data-en="Controlled live / provisional" data-zh="受控现场 / 临时">Controlled live / provisional</strong><span class="meta-line" data-en="live support cell + reconciliation" data-zh="现场支持单元 + 对账">live support cell + reconciliation</span></div></li>
+                  <li><span class="tier-code tier-code--muted">T2</span><div><strong data-en="Representative live / supported" data-zh="代表性现场 / 支持">Representative live / supported</strong><span class="meta-line" data-en="customer acceptance + release receipt" data-zh="客户验收 + 发布收据">customer acceptance + release receipt</span></div></li>
+                </ul>
+              </div>
+              <div class="context-section">
+                <p class="eyebrow" data-en="Reader versus auditor" data-zh="read 与 audit">Reader versus auditor</p>
+                <div class="role-row"><span class="role-chip"><span aria-hidden="true">R</span> <span data-en="read" data-zh="read">read</span></span><span data-en="masked admin summary" data-zh="隐藏的管理员摘要">masked admin summary</span></div>
+                <div class="role-row"><span class="role-chip role-chip--audit"><span aria-hidden="true">A</span> <span data-en="audit" data-zh="audit">audit</span></span><span data-en="exact cases, artifacts, freshness" data-zh="精确用例、工件、新鲜度">exact cases, artifacts, freshness</span></div>
+              </div>
+              <div class="context-section context-section--action">
+                <p class="eyebrow" data-en="Recovery" data-zh="恢复">Recovery</p>
+                <strong data-en="Rerun after the registry is reconciled" data-zh="注册表对齐后重新运行">Rerun after the registry is reconciled</strong>
+                <p class="meta-line" data-en="The prior valid artifact stays available while a new immutable receipt is created." data-zh="创建新的不可变收据时，之前有效的工件保持可用。">The prior valid artifact stays available while a new immutable receipt is created.</p>
+                <button class="button button-secondary button-full" type="button" data-go-view="assessments"><span data-en="Open evidence path" data-zh="打开证据路径">Open evidence path</span> <span aria-hidden="true">→</span></button>
+              </div>
+              <p class="context-footnote"><span class="status-mark status-mark--unknown" aria-hidden="true">?</span> <span data-en="No aggregate compatibility score is shown." data-zh="不显示汇总兼容性分数。">No aggregate compatibility score is shown.</span></p>
+            </aside>
+          </div>
+
+          <footer class="page-footer">
+            <span data-en="Static D0 wireframe · no production data · no human/admin validation claimed" data-zh="静态 D0 线框 · 无生产数据 · 不声称已完成人工/管理员验证">Static D0 wireframe · no production data · no human/admin validation claimed</span>
+            <span><code>docs/designs/exchange-replacement-wireframes/</code></span>
+          </footer>
+        </div>
+      </main>
+    </div>
+
+    <p class="sr-only" id="state-announcement" aria-live="polite"></p>
+    <script src="wireframe.js"></script>
+  </body>
+</html>

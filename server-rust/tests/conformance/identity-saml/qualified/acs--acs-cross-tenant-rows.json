@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "route": "POST /auth/saml/{idp}/acs",
+  "case": "acs-cross-tenant-row-effects",
+  "effects": [
+    {
+      "table": "saml_projection",
+      "snapshot": {
+        "after": {
+          "assertions": [],
+          "sessions": 0,
+          "tokens": 0,
+          "users": 0
+        },
+        "before": {
+          "assertions": [],
+          "sessions": 0,
+          "tokens": 0,
+          "users": 0
+        }
+      },
+      "identity": null,
+      "mapping": null
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "Usage: mailctl user create|list|delete|password|quota|bulk-create\n  user create --email <e> [--display <d>] [--password-file <f> | --password-stdin]\n  user list\n  user delete <email>\n  user password <email> (--new-password-file <f> | --new-password-stdin)\n  user quota get <email>\n  user quota set <email> <bytes>\n  user bulk-create <file.csv>\n\nFlags (all subcommands): --json, --quiet, --yes/-y\n",
+  "stderr": "",
+  "exit": 0
+}

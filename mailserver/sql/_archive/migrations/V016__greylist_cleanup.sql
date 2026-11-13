@@ -1,0 +1,11 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- V016: Greylist cleanup — prune stale entries to prevent unbounded growth
+-- of the unlogged greylist table in shared_buffers.
+--
+-- Prune entries older than 90 days that never passed greylisting
+-- (spambots that don't retry, one-off spam attempts).
+-- Keep whitelisted entries for 180 days (legitimate senders that pass greylisting
+-- the first time and are auto-whitelisted — they should be recognized on repeat).
+-- [pg_cron→Go cron worker] SELECT cron.schedule('prune-greylist', '30 3 * * *',
+--   $$ DELETE FROM greylist WHERE (NOT whitelisted AND last_seen < now() - interval '90 days')
+--       OR (whitelisted AND last_seen < now() - interval '180 days'); $$);

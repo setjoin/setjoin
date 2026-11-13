@@ -1,0 +1,26 @@
+{
+  "case": "mux-success",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/auth/oidc/",
+      "query": "",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/missing"
+    },
+    "response": {
+      "body": "404 page not found\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 404
+    }
+  },
+  "route": "* /auth/oidc/ mux"
+}

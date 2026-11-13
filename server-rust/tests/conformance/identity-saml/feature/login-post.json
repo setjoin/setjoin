@@ -1,0 +1,44 @@
+{
+  "case": "login-post",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "method": "GET",
+      "path": "/auth/saml/idfed3/login"
+    },
+    "response": {
+      "authn_request": "<samlp:AuthnRequest xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ID=\"_request\" Version=\"2.0\" IssueInstant=\"_instant\" Destination=\"https://idp.idfed3.test/sso\" AssertionConsumerServiceURL=\"https://auth.idfed3.test/auth/saml/idfed3/acs\" ProtocolBinding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\"><saml:Issuer Format=\"urn:oasis:names:tc:SAML:2.0:nameid-format:entity\">https://auth.idfed3.test/saml/metadata</saml:Issuer><ds:Signature xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/><ds:SignatureMethod Algorithm=\"http://www.w3.org/2001/04/xmldsig-more#rsa-sha256\"/><ds:Reference URI=\"#_request\"><ds:Transforms><ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\"/><ds:Transform Algorithm=\"http://www.w3.org/2001/10/xml-exc-c14n#\"/></ds:Transforms><ds:DigestMethod Algorithm=\"http://www.w3.org/2001/04/xmlenc#sha256\"/><ds:DigestValue>_digest</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue>_signature</ds:SignatureValue><ds:KeyInfo><ds:X509Data><ds:X509Certificate>MIIDFzCCAf+gAwIBAgIUYGRzOFBWCsZNZkwFx6qx1X9LXsswDQYJKoZIhvcNAQELBQAwGzEZMBcGA1UEAwwQYXV0aC5pZGZlZDMudGVzdDAeFw0yNjExMDYyMTI3NDFaFw0zNjExMDMyMTI3NDFaMBsxGTAXBgNVBAMMEGF1dGguaWRmZWQzLnRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC3HP9pooECyWLo9EcYVoyEh/jrRj2ULn8kIifUNPgMb65QCyHYvCxjWtoLIda8KrE4v2qJR2g5acQcEUkrXk9twOfEMWZZPJUMwmeCjSKWvO6QXLiaEjV8fLcOegU2DtiYuyq2OYX0hWlMpvuTDicE8h+by8nTA71MG0YEMy0/g2b9Mw1aoGxUQa4efc8ArDfD9fkeV9uYYrTUVhYcxeg2i/7dqn0WPU3Op0rjcAh6ZWn0DDKzpoaYxkDqmoRzgn/Ott++GOlhcEbloz8f/DZ9+RwxhiiwfMi8XiBMebhwzgqYkCMU4M0pgqtIMNi8fgG9tSWjPR9rZ/56VA5Um3RbAgMBAAGjUzBRMB0GA1UdDgQWBBRW29KMiqBU+Q9HUfl1yDGigTz6sDAfBgNVHSMEGDAWgBRW29KMiqBU+Q9HUfl1yDGigTz6sDAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBSNbdKlovUItbWbRFYFCk6r/m8DtioYAZm3acRY51dFTidH2LpjNKHSoau2+CWiE4MwLfxspD+f7KbybKV+sTOrJhvp4MY/CcIdODfsB5ajGc7McgTgvMa0n0UhNwhKOlgLYJT0IBsqcgPDxVTaj86g8DJmY4g9BHxYFRaCZ1oarvUvPcgIYFgOFy7CRTxkffbeUucAOWD5xKDc4KtFJ/lo3lDmECmvsdHxY1Te3Jq8NcDkGVrTQElDQDbklD788xeUJxZOcKx+963biYX481UTQ6hhz924+E0sf1E864pQ4/A516z8RF0yhL0jMnd31l5D8R14aRh2GFqtEdEUOiU</ds:X509Certificate></ds:X509Data></ds:KeyInfo></ds:Signature><samlp:NameIDPolicy AllowCreate=\"true\"/></samlp:AuthnRequest>",
+      "body": "<!DOCTYPE html><html><body><form method=\"post\" action=\"https://idp.idfed3.test/sso\" id=\"SAMLRequestForm\"><input type=\"hidden\" name=\"SAMLRequest\" value=\"_request\" /><input type=\"hidden\" name=\"RelayState\" value=\"_relay\" /><input id=\"SAMLSubmitButton\" type=\"submit\" value=\"Submit\" /></form><script>document.getElementById('SAMLSubmitButton').style.visibility=\"hidden\";document.getElementById('SAMLRequestForm').submit();</script></body></html>",
+      "headers": {
+        "content-security-policy": "default-src; script-src 'sha256-AjPdJSbZmeWHnEc5ykvJFay8FTWeTeRbs9dutfZ0HqE='; reflected-xss block; referrer no-referrer;",
+        "content-type": "text/html",
+        "set-cookie": [
+          "saml__relay=_tracked; Path=/auth/saml/idfed3/acs; Max-Age=90; HttpOnly; SameSite=None; Secure"
+        ]
+      },
+      "status": 200,
+      "tracked": {
+        "aud": [
+          "https://auth.idfed3.test"
+        ],
+        "exp": "_exp",
+        "flow": null,
+        "iat": "_iat",
+        "id": "_request",
+        "iss": "https://auth.idfed3.test",
+        "nbf": "_nbf",
+        "purpose": "login",
+        "reg": 34101,
+        "saml-authn-request": true,
+        "sub": "_relay",
+        "uri": "/auth/saml/idfed3/login"
+      }
+    }
+  },
+  "route": "GET /auth/saml/{idp}/login"
+}

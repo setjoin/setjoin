@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/jobs/00000000-0000-4000-8000-000000000001/results?after=1&limit=3",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"items\": [\n    {\n      \"sequence\": \"2\",\n      \"userId\": \"7\",\n      \"state\": \"completed\",\n      \"result\": {},\n      \"createdAt\": \"2026-01-01T00:00:00Z\"\n    }\n  ],\n  \"nextSequence\": \"2\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

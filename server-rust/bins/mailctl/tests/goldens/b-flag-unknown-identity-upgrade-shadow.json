@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity upgrade shadow:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -source string\n    \tnormalized source key\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

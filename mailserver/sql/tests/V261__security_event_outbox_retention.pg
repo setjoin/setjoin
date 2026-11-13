@@ -1,0 +1,187 @@
+-- pgTAP for V261 security_event_outbox retention (W-P1.5 "C4 residue", the
+-- owner-approved reap decision for the V253 outbox).
+--
+-- Covers the r2-amended (Astra C4-RETENTION) test surface:
+--   * install posture: security_event_outbox_prune() resolves, the V261 config
+--     seed (security_event_outbox_retain_days = 90) is present, and the sweep
+--     is a SECURITY DEFINER function owned by setjoin_worker;
+--   * worker-only function ACLs (the load-bearing denial surface, the V253
+--     enqueue pattern): setjoin_app has NO EXECUTE on the sweep and setjoin_
+--     worker holds the grant;
+--   * the sweep deletes EXACTLY delivered (status='done') rows whose
+--     delivered_at left the window — in-window delivered rows, past-due
+--     PENDING rows (the delivery promise) and FAILED rows (the durable alert
+--     signal) survive untouched;
+--   * a configured (non-default) window is honored;
+--   * zero/negative/non-integer stored values are REFUSED (BZ040 through
+--     cron_retention_days) and a refused sweep deletes NOTHING;
+--   * an absent key falls back to the built-in 90-day default;
+--   * the app-role denial is NON-VACUOUS (r2 finding 1): an ELIGIBLE STALE row
+--     — one a privileged sweep WOULD delete — survives the denied app-role
+--     call, and the worker credential then removes it, proving the EXECUTE
+--     denial is the only barrier (live app-role calls raise 42501);
+--   * carve-out survival: re-applying the provisioning grant sequence (the
+--     broad GRANT EXECUTE ON ALL FUNCTIONS, then the provision-roles.sql
+--     worker-only carve-out) keeps the app denial and the worker grant.
+BEGIN;
+SELECT plan(29);
+
+-- ── 1. Install posture: function + config seed + definer shape + ACLs ────────
+SELECT has_function('security_event_outbox_prune', ARRAY[]::text[],
+  'V261: security_event_outbox_prune() exists');
+SELECT is(
+  (SELECT value #>> '{}' FROM system_config WHERE key = 'security_event_outbox_retain_days'),
+  '90', 'V261: security_event_outbox_retain_days seeded at the 90-day default');
+SELECT is(
+  (SELECT prosecdef FROM pg_proc
+    WHERE oid = 'security_event_outbox_prune()'::regprocedure),
+  true, 'r2: the retention sweep is SECURITY DEFINER (definer-privilege surface)');
+SELECT is(
+  (SELECT rolname FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.oid = 'security_event_outbox_prune()'::regprocedure),
+  'setjoin_worker', 'r2: the retention sweep is owned by setjoin_worker (owner-set)');
+SELECT is(
+  has_function_privilege('setjoin_app', 'security_event_outbox_prune()', 'EXECUTE'),
+  false, 'r2: setjoin_app has NO EXECUTE on the retention sweep (worker-only carve-out)');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'security_event_outbox_prune()', 'EXECUTE'),
+  true, 'r2: setjoin_worker holds the EXECUTE grant on the retention sweep');
+
+-- ── 2. The sweep prunes exactly the stale delivered row ──────────────────────
+-- All writes and the sweep run as setjoin_worker — the production caller
+-- (secevents worker, BYPASSRLS pool; the definer role of the sweep).
+SET LOCAL ROLE setjoin_worker;
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.stale_done', '{"k":"stale-done"}', now() - interval '1 second')
+  RETURNING id AS sd \gset
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.fresh_done', '{"k":"fresh-done"}', now() - interval '1 second')
+  RETURNING id AS fd \gset
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.stale_pending', '{"k":"stale-pending"}', now() - interval '1 second')
+  RETURNING id AS sp \gset
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.stale_failed', '{"k":"stale-failed"}', now() - interval '1 second')
+  RETURNING id AS sf \gset
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '91 days'
+  WHERE id = :sd;
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '5 hours'
+  WHERE id = :fd;
+UPDATE security_event_outbox SET status = 'failed', last_error = 'v261 pgtap dead letter'
+  WHERE id = :sf;
+
+SELECT is(security_event_outbox_prune(), 1::bigint,
+  'sweep deletes exactly the one delivered row past the default window');
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :sd), 0,
+  'delivered row from 91 days ago is pruned');
+SELECT ok(
+  (SELECT status = 'done' AND delivered_at IS NOT NULL
+     FROM security_event_outbox WHERE id = :fd),
+  'in-window delivered row (5h) survives untouched');
+SELECT ok(
+  (SELECT status = 'pending' AND delivered_at IS NULL
+     FROM security_event_outbox WHERE id = :sp),
+  'past-due PENDING row survives — the delivery promise is never pruned');
+SELECT ok(
+  (SELECT status = 'failed' AND delivered_at IS NULL
+     FROM security_event_outbox WHERE id = :sf),
+  'FAILED row survives — the durable alert signal is retained');
+
+-- ── 3. A configured window is honored ────────────────────────────────────────
+UPDATE system_config SET value = '1' WHERE key = 'security_event_outbox_retain_days';
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.window1d', '{"k":"two-days"}', now() - interval '1 second')
+  RETURNING id AS w1 \gset
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '2 days'
+  WHERE id = :w1;
+SELECT is(security_event_outbox_prune(), 1::bigint,
+  'configured 1-day window sweeps the row delivered 2 days ago');
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :w1), 0,
+  'row delivered outside the configured window is pruned');
+
+-- ── 4. Destructive-parameter refusal: a bad key deletes NOTHING ──────────────
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.refusal_probe', '{"k":"probe"}', now() - interval '1 second')
+  RETURNING id AS rp \gset
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '91 days'
+  WHERE id = :rp;
+UPDATE system_config SET value = '0' WHERE key = 'security_event_outbox_retain_days';
+SELECT throws_ok($stmt$SELECT security_event_outbox_prune()$stmt$,
+  'BZ040', NULL, 'zero-day retention is refused (BZ040), not a full-outbox delete');
+UPDATE system_config SET value = '-5' WHERE key = 'security_event_outbox_retain_days';
+SELECT throws_ok($stmt$SELECT security_event_outbox_prune()$stmt$,
+  'BZ040', NULL, 'negative retention is refused (BZ040)');
+UPDATE system_config SET value = to_jsonb('soon'::text) WHERE key = 'security_event_outbox_retain_days';
+SELECT throws_ok($stmt$SELECT security_event_outbox_prune()$stmt$,
+  'BZ040', NULL, 'non-integer retention is refused (BZ040)');
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :rp), 1,
+  'every refused sweep deleted NOTHING — the stale delivered row is still there');
+
+-- ── 5. Absent key falls back to the built-in 90-day default ──────────────────
+DELETE FROM system_config WHERE key = 'security_event_outbox_retain_days';
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.in_default_window', '{"k":"89d"}', now() - interval '1 second')
+  RETURNING id AS d89 \gset
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '89 days'
+  WHERE id = :d89;
+SELECT is(security_event_outbox_prune(), 1::bigint,
+  'absent key: default 90-day window sweeps the 91-day row (and only it)');
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :d89), 1,
+  'absent key: the 89-day delivered row survives the default window');
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :rp), 0,
+  'absent key: the 91-day row from the refusal block is now swept');
+
+-- ── 6. r2: the app-role denial is NON-VACUOUS on an ELIGIBLE STALE row ───────
+-- Astra C4-RETENTION finding 1: the earlier draft deleted the last eligible
+-- stale row BEFORE switching roles, so its app-role assertions passed even if
+-- app-role pruning had gained worker privileges. The probe row here is one the
+-- sweep WOULD delete (delivered 91 days ago, past the 90-day window): the app
+-- credential cannot remove it (EXECUTE denied → 42501, row survives) and the
+-- worker credential can (row gone) — the worker-only EXECUTE denial is the
+-- only barrier.
+INSERT INTO security_event_outbox (event_type, payload, next_attempt_at)
+  VALUES ('secevents_v261.acl_probe', '{"k":"acl-probe"}', now() - interval '1 second')
+  RETURNING id AS probe \gset
+UPDATE security_event_outbox SET status = 'done', delivered_at = now() - interval '91 days'
+  WHERE id = :probe;
+-- (still setjoin_worker from section 2 — the production caller seeds the row.)
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok($stmt$SELECT security_event_outbox_prune()$stmt$,
+  '42501', NULL, 'app-role EXECUTE of the retention sweep is DENIED (permission denied for function)');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :probe), 1,
+  'the ELIGIBLE STALE row survives the denied app-role sweep — the app credential cannot reap');
+
+-- Carve-out survival (V253 §9 form): replay the exact provisioning sequence —
+-- the broad GRANT EXECUTE ON ALL FUNCTIONS (provision-roles.sql:168) followed
+-- by the provision-roles.sql worker-only carve-out — and prove the denial is
+-- re-established on every provisioning run.
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO setjoin_app, setjoin_worker;
+SELECT is(
+  has_function_privilege('setjoin_app', 'security_event_outbox_prune()', 'EXECUTE'),
+  true, 'carve-out survival: the broad re-grant DOES admit the app (the hazard the carve-out removes)');
+REVOKE ALL ON FUNCTION security_event_outbox_prune() FROM setjoin_app;
+GRANT EXECUTE ON FUNCTION security_event_outbox_prune() TO setjoin_worker;
+SELECT is(
+  has_function_privilege('setjoin_app', 'security_event_outbox_prune()', 'EXECUTE'),
+  false, 'carve-out survival: after the broad re-grant the app EXECUTE denial holds');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'security_event_outbox_prune()', 'EXECUTE'),
+  true, 'carve-out survival: the worker EXECUTE grant holds after the re-grant');
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok($stmt$SELECT security_event_outbox_prune()$stmt$,
+  '42501', NULL, 'carve-out survival: a live app-role call is still permission-denied');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :probe), 1,
+  'the eligible stale row STILL survives both denied app-role sweeps');
+
+-- Worker control: the owning credential CAN reap the eligible stale row.
+SET LOCAL ROLE setjoin_worker;
+SELECT is(security_event_outbox_prune(), 1::bigint,
+  'worker-role sweep removes exactly the seeded eligible stale row');
+RESET ROLE;
+SELECT is((SELECT count(*)::int FROM security_event_outbox WHERE id = :probe), 0,
+  'the eligible stale row is GONE after the worker sweep — the EXECUTE denial was the only barrier');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,26 @@
+{
+  "session_status": "expired",
+  "item_status": "aborted",
+  "remaining_chunks": 0,
+  "removed_object": true,
+  "requests": [
+    {
+      "method": "GET",
+      "uri": "/mailblobs/?location=",
+      "body": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": "test-access/\u003cdate\u003e/us-east-1/s3/aws4_request",
+      "signed_headers": "host;x-amz-content-sha256;x-amz-date",
+      "signature_valid": true
+    },
+    {
+      "method": "DELETE",
+      "uri": "/mailblobs/\u003cquarantine-key\u003e",
+      "body": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "scope": "test-access/\u003cdate\u003e/eu-central-1/s3/aws4_request",
+      "signed_headers": "host;x-amz-content-sha256;x-amz-date",
+      "signature_valid": true
+    }
+  ]
+}

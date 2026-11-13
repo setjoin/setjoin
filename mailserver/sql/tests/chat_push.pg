@@ -1,0 +1,236 @@
+-- chat_push.pg: Chat A3.5 mobile-push rider. Task 1 — V124 chat_push_intents
+-- schema + feature.chat_push toggle. Task 2 (below) — chat_message_send's
+-- toggle-gated enqueue + the chat_push_should_notify drain-time gate matrix.
+--
+-- TZ-hermetic (push_should_notify.pg precedent): no default calendar row is
+-- created for the gate fixtures, so the DND branch resolves tz via the
+-- COALESCE(...,'UTC') fallback and evaluates against `now() AT TIME ZONE
+-- 'UTC'`. The DND windows below are full-day / zero-day so the verdict
+-- never depends on wall-clock time.
+BEGIN;
+SET LOCAL timezone = 'UTC';
+SELECT plan(29);
+
+SELECT has_table('public', 'chat_push_intents', 'chat_push_intents table exists');
+SELECT has_column('public', 'chat_push_intents', 'channel_id', 'has channel_id');
+SELECT has_column('public', 'chat_push_intents', 'message_id', 'has message_id');
+SELECT has_column('public', 'chat_push_intents', 'sender_user_id', 'has sender_user_id');
+SELECT has_column('public', 'chat_push_intents', 'status', 'has status');
+SELECT col_default_is('public', 'chat_push_intents', 'status', 'pending'::text,
+  'status defaults to pending');
+
+-- has_index(table, index) — the 3-arg (table, index, description) form
+-- resolves ambiguously against the (table, index, columns[]) overload; the
+-- 2-arg form is the unambiguous precedent (smime_journal_cert.pg).
+SELECT has_index('chat_push_intents', 'idx_chat_push_intents_due');
+SELECT has_index('chat_push_intents', 'idx_chat_push_intents_chan_pending');
+
+-- ── UNIQUE(message_id) — direct duplicate INSERT (the reducer can never
+-- replay a message id: fresh identity per call, so ON CONFLICT is
+-- unreachable from the sole writer — keep it as free insurance, test it
+-- directly per the plan). ──────────────────────────────────────────────
+INSERT INTO domains (id, name, created_at) VALUES (7900, 'a35-push.example', now())
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (7900, 'a35p1', 7900, 'a35p1@a35-push.example', 'A35 Push One')
+  ON CONFLICT DO NOTHING;
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'push-fixture', 7900)
+  RETURNING id AS chan_id \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES
+  (:chan_id, 1, 7900, 'push fixture message')
+  RETURNING id AS msg_id \gset
+
+INSERT INTO chat_push_intents (channel_id, message_id, sender_user_id)
+  VALUES (:chan_id, :msg_id, 7900);
+
+SELECT throws_ok(
+  format($$ INSERT INTO chat_push_intents (channel_id, message_id, sender_user_id) VALUES (%s, %s, %s) $$,
+    :chan_id, :msg_id, 7900),
+  '23505', NULL, 'duplicate message_id insert violates UNIQUE(message_id)');
+
+SELECT is((SELECT count(*)::int FROM chat_push_intents WHERE message_id = :msg_id), 1,
+  'exactly one intent row survives per message');
+
+-- ── toggle seeded OFF ─────────────────────────────────────────────────
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.chat_push'),
+  FALSE, 'feature.chat_push seeded FALSE');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- Task 2a: chat_message_send's toggle-gated enqueue.
+-- ════════════════════════════════════════════════════════════════════════
+SELECT mk_account('a35s2') AS mb_sender2 \gset
+SELECT user_id AS sender2_uid FROM mailboxes WHERE id = :mb_sender2 \gset
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'push-enqueue-fixture', :sender2_uid)
+  RETURNING id AS chan2_id \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:chan2_id, :sender2_uid, 'owner');
+
+-- toggle OFF (seeded default): send produces NO intent row.
+SELECT (chat_message_send(:sender2_uid, :chan2_id, 'toggle-off body'))->>'messageId' AS msg_off_id \gset
+SELECT is(
+  (SELECT count(*)::int FROM chat_push_intents WHERE message_id = (:msg_off_id)::bigint),
+  0, 'feature.chat_push OFF (seeded default) → chat_message_send enqueues nothing');
+
+-- toggle ON: send writes exactly one intent row, correct columns.
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_push';
+SELECT (chat_message_send(:sender2_uid, :chan2_id, 'toggle-on body'))->>'messageId' AS msg_on_id \gset
+SELECT results_eq(
+  format($$ SELECT channel_id, message_id, sender_user_id FROM chat_push_intents WHERE message_id = %s $$, :msg_on_id),
+  format($$ VALUES (%s::bigint, %s::bigint, %s::bigint) $$, :chan2_id, :msg_on_id, :sender2_uid),
+  'feature.chat_push ON → chat_message_send enqueues exactly one correct intent row');
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_push'; -- restore seeded-OFF for the rest of the suite
+
+-- ════════════════════════════════════════════════════════════════════════
+-- Task 2b: chat_push_should_notify — the drain-time decision-matrix gate.
+-- Decision order (first FALSE wins, per the plan):
+--   1. sender never pushes to self (author_id)
+--   2. in-meeting suppression (A/B leftover item 4 — recipient PRESENTLY a
+--      participant of a LIVE meeting bridged to the channel)
+--   3. per-channel notif_level (none / mentions+qualifier / all)
+--   4. global user_notification_prefs.chat_notifications (off / mentions+qualifier / all)
+--   5. push_enabled FALSE
+--   6. DND window
+--   7. soft-deleted message
+-- "qualifier" = mentioned in chat_mentions OR message broadcast OR channel kind != 'channel'.
+-- ════════════════════════════════════════════════════════════════════════
+SELECT mk_account('a35gsend') AS mb_g_sender \gset
+SELECT user_id AS g_sender_uid FROM mailboxes WHERE id = :mb_g_sender \gset
+SELECT mk_account('a35galice') AS mb_g_alice \gset
+SELECT user_id AS g_alice_uid FROM mailboxes WHERE id = :mb_g_alice \gset
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'gate-fixture', :g_sender_uid)
+  RETURNING id AS gchan_id \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role, notif_level) VALUES
+  (:gchan_id, :g_sender_uid, 'owner', 'all'),
+  (:gchan_id, :g_alice_uid, 'member', 'all');
+
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:gchan_id, 1, :g_sender_uid, 'plain msg')
+  RETURNING id AS gmsg_plain \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:gchan_id, 2, :g_sender_uid, 'mention msg')
+  RETURNING id AS gmsg_mention \gset
+INSERT INTO chat_mentions (message_id, mentioned_user_id) VALUES (:gmsg_mention, :g_alice_uid);
+INSERT INTO chat_messages (channel_id, seq, author_id, body, broadcast) VALUES (:gchan_id, 3, :g_sender_uid, 'broadcast msg', 'channel')
+  RETURNING id AS gmsg_bcast \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, deleted_at) VALUES (:gchan_id, 4, :g_sender_uid, 'deleted msg', now())
+  RETURNING id AS gmsg_deleted \gset
+
+-- A DM channel: notif_level='mentions' always qualifies there (kind != 'channel'),
+-- with no personal mention/broadcast on the message itself.
+INSERT INTO chat_channels (kind, name, created_by, member_key) VALUES ('dm', NULL, :g_sender_uid, 'dm-a35-gate-fixture')
+  RETURNING id AS gdm_id \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role, notif_level) VALUES
+  (:gdm_id, :g_sender_uid, 'member', 'all'),
+  (:gdm_id, :g_alice_uid, 'member', 'mentions');
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:gdm_id, 1, :g_sender_uid, 'dm msg')
+  RETURNING id AS gmsg_dm \gset
+
+-- account-level prefs: push on, chat_notifications all, no DND.
+INSERT INTO user_notification_prefs (user_id, device_fingerprint, push_enabled, chat_notifications)
+  VALUES (:g_alice_uid, NULL, TRUE, 'all');
+
+-- 1) baseline: notif_level=all + plain message, no mention/broadcast → notify.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), TRUE,
+  'notif_level=all + plain message → notify');
+
+-- 2) notif_level='none' → never, even when mentioned.
+UPDATE chat_channel_members SET notif_level = 'none' WHERE channel_id = :gchan_id AND user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_mention), FALSE,
+  'notif_level=none → no notify even when mentioned');
+
+-- 3) notif_level='mentions' + non-qualifying plain message → suppressed.
+UPDATE chat_channel_members SET notif_level = 'mentions' WHERE channel_id = :gchan_id AND user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), FALSE,
+  'notif_level=mentions + non-mention message → no notify');
+
+-- 4) notif_level='mentions' + actually mentioned → notify.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_mention), TRUE,
+  'notif_level=mentions + mentioned → notify');
+
+-- 5) notif_level='mentions' + @channel broadcast → notify without a personal mention.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_bcast), TRUE,
+  'notif_level=mentions + broadcast → notify');
+
+-- 6) notif_level='mentions' in a DM → always qualifies.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gdm_id, :gmsg_dm), TRUE,
+  'notif_level=mentions in a DM → always qualifies');
+
+-- back to 'all' for the remaining (global-pref / push / DND / self / deleted) cases.
+UPDATE chat_channel_members SET notif_level = 'all' WHERE channel_id = :gchan_id AND user_id = :g_alice_uid;
+
+-- 7) global chat_notifications='off' → never.
+UPDATE user_notification_prefs SET chat_notifications = 'off' WHERE user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), FALSE,
+  'global chat_notifications=off → no notify');
+UPDATE user_notification_prefs SET chat_notifications = 'all' WHERE user_id = :g_alice_uid;
+
+-- 8) push_enabled=false → never.
+UPDATE user_notification_prefs SET push_enabled = FALSE WHERE user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), FALSE,
+  'push_enabled=false → no notify');
+UPDATE user_notification_prefs SET push_enabled = TRUE WHERE user_id = :g_alice_uid;
+
+-- 9) DND window covering the whole day, every day → suppressed.
+UPDATE user_notification_prefs SET dnd_start = '00:00:00', dnd_end = '23:59:59', dnd_days = 127
+  WHERE user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), FALSE,
+  'inside DND window → no notify');
+
+-- 10) same window but day-mask excludes today → outside DND → notify.
+UPDATE user_notification_prefs SET dnd_days = 0 WHERE user_id = :g_alice_uid;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), TRUE,
+  'DND day-mask excludes today → notify');
+UPDATE user_notification_prefs SET dnd_start = NULL, dnd_end = NULL WHERE user_id = :g_alice_uid;
+
+-- 11) sender never pushes to self.
+SELECT is(chat_push_should_notify(:g_sender_uid, :gchan_id, :gmsg_plain), FALSE,
+  'author never notified of their own message');
+
+-- 12) soft-deleted message (deleted between enqueue and drain) → no notify.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_deleted), FALSE,
+  'soft-deleted message → no notify');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- A/B leftover item 4: in-meeting suppression — chat_push_should_notify had
+-- no in-meeting exception; every bridged in-meeting chat message would
+-- OS-push every recipient who is BY DEFINITION watching the meeting.
+-- Suppression is scoped to the recipient's OWN live participation, never
+-- "a meeting exists for this channel".
+-- ════════════════════════════════════════════════════════════════════════
+SELECT mk_account('a35gbob') AS mb_g_bob \gset
+SELECT user_id AS g_bob_uid FROM mailboxes WHERE id = :mb_g_bob \gset
+
+INSERT INTO meetings (title, owner_user_id, state, chat_channel_id) VALUES
+  ('gate-fixture huddle', :g_sender_uid, 'live', :gchan_id)
+  RETURNING id AS gmeet_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at) VALUES
+  (:gmeet_id, :g_alice_uid, 'u:' || :g_alice_uid, 'member', now())
+  RETURNING id AS gpart_id \gset
+
+-- 13) live meeting bound to the channel + recipient presently in it → suppressed.
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), FALSE,
+  'recipient live-in-meeting bridged to the channel → push suppressed');
+
+-- 14) meeting ended → suppression lifts, push resumes.
+UPDATE meetings SET state = 'ended', ended_at = now() WHERE id = :gmeet_id;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), TRUE,
+  'meeting ended → push resumes');
+UPDATE meetings SET state = 'live', ended_at = NULL WHERE id = :gmeet_id;
+
+-- 15) recipient left the meeting → suppression lifts even though the meeting is still live.
+UPDATE meeting_participants SET left_at = now() WHERE id = :gpart_id;
+SELECT is(chat_push_should_notify(:g_alice_uid, :gchan_id, :gmsg_plain), TRUE,
+  'recipient left the meeting → push resumes even though the meeting is still live');
+UPDATE meeting_participants SET left_at = NULL WHERE id = :gpart_id;
+
+-- 16) a channel member who never joined the huddle at all is pushed normally
+-- (mind chat_channel_provisioned: a meeting can bridge a PRE-EXISTING
+-- channel, where plain channel membership never implies meeting
+-- participation — suppression keys on an actual meeting_participants row,
+-- never bare chat_channel_members).
+INSERT INTO chat_channel_members (channel_id, user_id, role, notif_level) VALUES
+  (:gchan_id, :g_bob_uid, 'member', 'all');
+SELECT is(chat_push_should_notify(:g_bob_uid, :gchan_id, :gmsg_plain), TRUE,
+  'a channel member who never joined the live meeting is pushed normally, not suppressed');
+
+SELECT * FROM finish();
+ROLLBACK;

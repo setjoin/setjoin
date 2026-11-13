@@ -1,0 +1,537 @@
+-- chat_purge.pg — Chat A4a Task 6: chat_purge_expired (the ONE place chat
+-- content dies) + chat_purge_run (the draining cron wrapper).
+-- Task 7 extends it: attachment storage reclamation (the A2 deferral) --
+-- solo node/version/chunk fully reclaimed + GC-queued, a shared chunk merely
+-- decrements (never GCed while a surviving message still holds it), a voice
+-- message's audio/* attachment reclaimed the same way, and the space's
+-- used_bytes drops by exactly the reclaimed size.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 6/7.
+BEGIN;
+SELECT plan(94);
+
+-- ── real user for the attachment satellite (drive FKs need real users(id)) ─
+SELECT mk_account('purgeA') AS mba \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── toggle belt: feature.chat_compliance is seeded OFF ─────────────────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-toggle-off', 95001, 30)
+  RETURNING id AS toggle_off_ch \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:toggle_off_ch, 1, 95001, 'stale', now() - interval '40 days');
+
+SELECT is((SELECT count(*) FROM chat_purge_expired())::int, 0,
+  'feature.chat_compliance OFF -> chat_purge_expired returns zero rows immediately');
+SELECT is(chat_purge_run(), 0, 'feature.chat_compliance OFF -> chat_purge_run also returns 0');
+SELECT is((SELECT count(*) FROM chat_messages WHERE channel_id = :toggle_off_ch)::int, 1,
+  'the stale message was NOT destroyed while the toggle is OFF');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── p_reg: regular channel, 30-day override — the satellite-cascade proof ──
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-reg', 95101, 30)
+  RETURNING id AS p_reg \gset
+
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_reg, 1, 95101, 'current body after edit', now() - interval '31 days')
+  RETURNING id AS m_old \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_reg, 2, 95101, 'survives', now() - interval '29 days')
+  RETURNING id AS m_new \gset
+
+-- m_old was edited: the anchor/purge digest must use prior_body (the FIRST
+-- revision), never the current body.
+INSERT INTO chat_message_revisions (channel_id, message_id, prior_body, edited_by, created_at)
+  VALUES (:p_reg, :m_old, 'original body before edit', 95101, now() - interval '30 days');
+
+INSERT INTO chat_message_pins (channel_id, message_id, pinned_by) VALUES (:p_reg, :m_old, 95101);
+INSERT INTO chat_saved_messages (user_id, message_id) VALUES (95102, :m_old);
+INSERT INTO chat_mentions (message_id, mentioned_user_id) VALUES (:m_old, 95103);
+INSERT INTO chat_message_reactions (message_id, user_id, emoji) VALUES (:m_old, 95104, '👍');
+INSERT INTO chat_push_intents (channel_id, message_id, sender_user_id) VALUES (:p_reg, :m_old, 95101);
+
+INSERT INTO chat_polls (message_id, channel_id, question, created_by)
+  VALUES (:m_old, :p_reg, 'q?', 95101) RETURNING id AS poll1 \gset
+INSERT INTO chat_poll_options (poll_id, ordinal, label) VALUES (:poll1, 0, 'A') RETURNING id AS opt_a \gset
+INSERT INTO chat_poll_options (poll_id, ordinal, label) VALUES (:poll1, 1, 'B');
+INSERT INTO chat_poll_votes (poll_id, option_id, user_id) VALUES (:poll1, :opt_a, 95102);
+
+-- Attachment link row: minimal real drive_spaces/drive_nodes/drive_file_versions
+-- fixture (not the full chat_space_ensure/put_version reducer chain — this only
+-- needs to prove the CASCADE, not re-prove Drive P1/A2's own coverage).
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('purge-test-space', :ua) RETURNING id AS space1 \gset
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space1, 'file', 'f.txt', :ua) RETURNING id AS node1 \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node1, :space1, 5);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node1, :space1, repeat('a', 64), 5, :ua) RETURNING id AS ver1 \gset
+UPDATE drive_files SET head_version_id = :ver1 WHERE node_id = :node1;
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes)
+  VALUES (:p_reg, :m_old, :node1, :ver1, 'f.txt', 5);
+
+-- ── p_gxp: gxp channel — NEVER selected, even past its own WORM floor and
+--    with an enabled org policy that would otherwise apply ─────────────────
+INSERT INTO chat_channels (kind, name, created_by, classification, retention_days, worm_mode)
+  VALUES ('dm', NULL, 95201, 'gxp', 7, 'governance')
+  RETURNING id AS p_gxp \gset
+INSERT INTO chat_retention_policies (name, applies_to, duration_days, effective_at)
+  VALUES ('purge-org-dm', 'dm', 7, now() - interval '1 minute');
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_gxp, 1, 95201, 'gxp edited body', now() - interval '10 days')
+  RETURNING id AS m_gxp \gset
+INSERT INTO chat_message_revisions (channel_id, message_id, prior_body, edited_by, created_at)
+  VALUES (:p_gxp, :m_gxp, 'gxp original body', 95201, now() - interval '9 days');
+
+-- ── p_held: regular channel, held before the run — excluded by the leading
+--    predicate ─────────────────────────────────────────────────────────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days, legal_hold, legal_hold_reason)
+  VALUES ('channel', 'purge-held', 95301, 5, TRUE, 'case-held')
+  RETURNING id AS p_held \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_held, 1, 95301, 'held msg', now() - interval '6 days')
+  RETURNING id AS m_held \gset
+
+-- ── p_null: no override, no matching policy -> NULL -> never selected ──────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'purge-null', 95401)
+  RETURNING id AS p_null \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_null, 1, 95401, 'ancient but ungoverned', now() - interval '365 days')
+  RETURNING id AS m_null \gset
+
+-- ── p_dry: regular channel, 10-day override — the dry-run proof ────────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-dry', 95501, 10)
+  RETURNING id AS p_dry \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_dry, 1, 95501, 'dry-run target', now() - interval '11 days')
+  RETURNING id AS m_dry \gset
+
+-- ── p_sched1: expired message + the scheduled_actions status/age matrix ────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-sched1', 95601, 5)
+  RETURNING id AS p_sched1 \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_sched1, 1, 95601, 'sched1 msg', now() - interval '6 days')
+  RETURNING id AS m_sched1, author_id AS m_sched1_author, created_at AS m_sched1_created \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() - interval '7 days',
+          jsonb_build_object('channelId', :p_sched1, 'userId', 95601, 'body', 'done-old'),
+          'done', now() - interval '7 days')
+  RETURNING id AS sa_done_old \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() - interval '7 days',
+          jsonb_build_object('channelId', :p_sched1, 'userId', 95601, 'body', 'failed-old'),
+          'failed', now() - interval '7 days')
+  RETURNING id AS sa_failed_old \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() + interval '1 day',
+          jsonb_build_object('channelId', :p_sched1, 'userId', 95601, 'body', 'done-young'),
+          'done', now() - interval '1 day')
+  RETURNING id AS sa_done_young \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() - interval '7 days',
+          jsonb_build_object('channelId', :p_sched1, 'userId', 95601, 'body', 'pending-old'),
+          'pending', now() - interval '7 days')
+  RETURNING id AS sa_pending_old \gset
+
+-- ── p_sched0: N5 case 1 — ZERO expired messages, one expired 'failed' row ──
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-sched0', 95701, 5)
+  RETURNING id AS p_sched0 \gset
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() - interval '7 days',
+          jsonb_build_object('channelId', :p_sched0, 'userId', 95701, 'body', 'zero-msg-failed'),
+          'failed', now() - interval '7 days')
+  RETURNING id AS sa_sched0 \gset
+
+-- ── p_sched2: N5 case 2 setup — a message that WILL be fully purged in run1;
+--    its stale scheduled row is added AFTER run1 (below) ───────────────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-sched2', 95801, 5)
+  RETURNING id AS p_sched2 \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_sched2, 1, 95801, 'sched2 msg', now() - interval '6 days')
+  RETURNING id AS m_sched2 \gset
+
+-- ── p_attach: Task 7 — attachment storage reclamation, isolated in its own
+--    channel/space so it doesn't disturb p_reg's already-pinned counts ─────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-attach', 96101, 30)
+  RETURNING id AS p_attach \gset
+
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('purge-attach-space', :ua) RETURNING id AS space2 \gset
+
+-- solo: referenced by nothing else -- purging it must fully reclaim node +
+-- version + chunk (ref_count 1->0, GC-queued).
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_attach, 1, 96101, 'attach-purge', now() - interval '31 days')
+  RETURNING id AS m_att_purge \gset
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref)
+  VALUES ('g', repeat('c', 64), 11, 'drive/g/'||repeat('c', 64));
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space2, 'file', 'solo.bin', :ua) RETURNING id AS node_solo \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node_solo, :space2, 11);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node_solo, :space2, repeat('c', 64), 11, :ua) RETURNING id AS ver_solo \gset
+UPDATE drive_files SET head_version_id = :ver_solo WHERE node_id = :node_solo;
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (:ver_solo, 0, 'g', repeat('c', 64));
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes)
+  VALUES (:p_attach, :m_att_purge, :node_solo, :ver_solo, 'solo.bin', 11);
+
+-- shared: m_att_purge's SECOND attachment and m_att_survive's (below) attachment
+-- reference the SAME chunk. Purging m_att_purge must fully destroy node_sharea/
+-- ver_sharea (they belong to the purged message) while the chunk itself merely
+-- drops ref_count 2->1 -- never GCed, because node_shareb/ver_shareb (attached
+-- to the surviving message) still holds a live drive_version_chunks row.
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref)
+  VALUES ('g', repeat('d', 64), 13, 'drive/g/'||repeat('d', 64));
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space2, 'file', 'sharea.bin', :ua) RETURNING id AS node_sharea \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node_sharea, :space2, 13);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node_sharea, :space2, repeat('d', 64), 13, :ua) RETURNING id AS ver_sharea \gset
+UPDATE drive_files SET head_version_id = :ver_sharea WHERE node_id = :node_sharea;
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (:ver_sharea, 0, 'g', repeat('d', 64));
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes, ordinal)
+  VALUES (:p_attach, :m_att_purge, :node_sharea, :ver_sharea, 'sharea.bin', 13, 1);
+
+-- voice: msg_type='voice', content_type='audio/*' -- spec-delta 4's explicit
+-- "verify, don't assume" voice-attachment proof; reclaimed the same way.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at, msg_type)
+  VALUES (:p_attach, 2, 96101, 'attach-voice', now() - interval '31 days', 'voice')
+  RETURNING id AS m_att_voice \gset
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref)
+  VALUES ('g', repeat('e', 64), 17, 'drive/g/'||repeat('e', 64));
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space2, 'file', 'voice.webm', :ua) RETURNING id AS node_voice \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node_voice, :space2, 17);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node_voice, :space2, repeat('e', 64), 17, :ua) RETURNING id AS ver_voice \gset
+UPDATE drive_files SET head_version_id = :ver_voice WHERE node_id = :node_voice;
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (:ver_voice, 0, 'g', repeat('e', 64));
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, content_type, size_bytes)
+  VALUES (:p_attach, :m_att_voice, :node_voice, :ver_voice, 'voice.webm', 'audio/webm', 17);
+
+-- survive: 5 days old, well under the 30-day ceiling -- holds the OTHER half
+-- of the shared chunk, and must be completely untouched by this run.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_attach, 3, 96101, 'attach-survive', now() - interval '5 days')
+  RETURNING id AS m_att_survive \gset
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space2, 'file', 'shareb.bin', :ua) RETURNING id AS node_shareb \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node_shareb, :space2, 13);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node_shareb, :space2, repeat('d', 64), 13, :ua) RETURNING id AS ver_shareb \gset
+UPDATE drive_files SET head_version_id = :ver_shareb WHERE node_id = :node_shareb;
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (:ver_shareb, 0, 'g', repeat('d', 64));
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes)
+  VALUES (:p_attach, :m_att_survive, :node_shareb, :ver_shareb, 'shareb.bin', 13);
+
+-- used_bytes = 11(solo) + 13(sharea) + 13(shareb) + 17(voice) = 54; after the
+-- run, only shareb's 13 should remain (11+13+17 = 41 reclaimed).
+UPDATE drive_spaces SET used_bytes = 54 WHERE id = :space2;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── dry-run: destroys nothing, advances no floor, writes no act, reports
+--    the same per-channel message counts the real run then destroys ────────
+SELECT is((SELECT purged_count FROM chat_purge_expired(1000, TRUE) WHERE channel_id = :p_reg),
+  1, 'dry-run reports purged_count=1 for p_reg');
+SELECT is((SELECT purged_count FROM chat_purge_expired(1000, TRUE) WHERE channel_id = :p_dry),
+  1, 'dry-run reports purged_count=1 for p_dry');
+SELECT is((SELECT purged_count FROM chat_purge_expired(1000, TRUE) WHERE channel_id = :p_sched1),
+  1, 'dry-run reports purged_count=1 for p_sched1');
+SELECT is((SELECT count(*) FROM chat_purge_expired(1000, TRUE)
+            WHERE channel_id IN (:p_gxp, :p_held, :p_null, :p_sched0))::int,
+  0, 'dry-run selects zero rows for gxp/held/null/zero-message channels');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_old)::int, 1,
+  'dry-run destroyed nothing: m_old still present');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE action = 'purge.execute')::int, 0,
+  'dry-run wrote no purge.execute act anywhere');
+SELECT is((SELECT last_purged_seq FROM chat_channels WHERE id = :p_reg), 0::bigint,
+  'dry-run advanced no floor');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── the real run ─────────────────────────────────────────────────────────
+CREATE TEMP TABLE run1 AS SELECT * FROM chat_purge_expired(1000, FALSE);
+
+SELECT is((SELECT purged_count FROM run1 WHERE channel_id = :p_reg), 1,
+  'run1: p_reg purged_count=1 (matches the dry-run preview)');
+SELECT is((SELECT retention_days FROM run1 WHERE channel_id = :p_reg), 30,
+  'run1: p_reg retention_days echoes the effective ceiling');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_old)::int, 0, 'm_old destroyed');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_new)::int, 1,
+  'm_new (29 days old, under the 30-day ceiling) survives');
+
+-- satellites of m_old are ALL gone (CASCADE)
+SELECT is((SELECT count(*) FROM chat_message_revisions WHERE message_id = :m_old)::int, 0, 'revision cascaded');
+SELECT is((SELECT count(*) FROM chat_message_pins WHERE message_id = :m_old)::int, 0, 'pin cascaded');
+SELECT is((SELECT count(*) FROM chat_saved_messages WHERE message_id = :m_old)::int, 0, 'saved cascaded');
+SELECT is((SELECT count(*) FROM chat_mentions WHERE message_id = :m_old)::int, 0, 'mention cascaded');
+SELECT is((SELECT count(*) FROM chat_message_reactions WHERE message_id = :m_old)::int, 0, 'reaction cascaded');
+SELECT is((SELECT count(*) FROM chat_push_intents WHERE message_id = :m_old)::int, 0, 'push_intent cascaded');
+SELECT is((SELECT count(*) FROM chat_polls WHERE message_id = :m_old)::int, 0, 'poll cascaded');
+SELECT is((SELECT count(*) FROM chat_poll_options WHERE poll_id = :poll1)::int, 0, 'poll options cascaded');
+SELECT is((SELECT count(*) FROM chat_poll_votes WHERE poll_id = :poll1)::int, 0, 'poll votes cascaded');
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :m_old)::int, 0,
+  'attachment link row cascaded');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── p_attach: Task 7 — attachment storage reclamation, DB-gated proof ──────
+SELECT is((SELECT purged_count FROM run1 WHERE channel_id = :p_attach), 2,
+  'run1: p_attach purged_count=2 (m_att_purge + m_att_voice; m_att_survive is 5 days old, under the 30-day ceiling)');
+
+-- solo: node + version fully gone; chunk ref_count 1->0 and GC-queued.
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id = :node_solo)::int, 0, 'solo attachment node reclaimed');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :ver_solo)::int, 0, 'solo attachment version reclaimed');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('c', 64)), 0::bigint,
+  'solo chunk ref_count dropped to 0');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 'g' AND sha256 = repeat('c', 64))::int, 1,
+  'solo chunk queued for GC now that ref_count=0');
+
+-- shared: node_sharea/ver_sharea (belonged to the purged message) fully gone;
+-- the chunk itself only drops 2->1 -- NOT GCed -- because node_shareb (the
+-- surviving message's attachment) still references it.
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id = :node_sharea)::int, 0, 'shared-chunk purged-side node reclaimed');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :ver_sharea)::int, 0, 'shared-chunk purged-side version reclaimed');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('d', 64)), 1::bigint,
+  'shared chunk ref_count merely drops 2->1, not GCed');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 'g' AND sha256 = repeat('d', 64))::int, 0,
+  'shared chunk is NOT queued for GC -- a surviving message still holds it');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id = :node_shareb)::int, 1,
+  'shared-chunk surviving-side node (node_shareb) untouched');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :ver_shareb)::int, 1,
+  'shared-chunk surviving-side version (ver_shareb) untouched');
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :m_att_survive)::int, 1,
+  'the surviving message''s own attachment link row is untouched');
+
+-- voice: spec-delta 4 -- an audio/* attachment on a msg_type=''voice'' message
+-- is reclaimed exactly like any other attachment.
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id = :node_voice)::int, 0, 'voice attachment node reclaimed');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :ver_voice)::int, 0, 'voice attachment version reclaimed');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('e', 64)), 0::bigint,
+  'voice chunk ref_count dropped to 0');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 'g' AND sha256 = repeat('e', 64))::int, 1,
+  'voice chunk queued for GC');
+
+-- the space's used_bytes drops by EXACTLY the reclaimed size (11+13+17=41),
+-- leaving only shareb's 13 (the drive_space_quota_charge leg inside
+-- drive_node_destroy_hard, :94).
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id = :space2), 13::bigint,
+  'used_bytes dropped by exactly the reclaimed bytes (54 - 41 = 13)');
+
+-- gxp / held / null are ALL untouched
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_gxp)::int, 1,
+  'gxp channel never purged, even 3 days past its own WORM floor + an enabled org policy');
+SELECT is((SELECT count(*) FROM run1 WHERE channel_id = :p_gxp)::int, 0, 'no run1 row for p_gxp');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :p_gxp AND action = 'purge.execute')::int,
+  0, 'no purge.execute act for p_gxp');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_held)::int, 1,
+  'held channel never purged (leading predicate)');
+SELECT is((SELECT count(*) FROM run1 WHERE channel_id = :p_held)::int, 0, 'no run1 row for p_held');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_null)::int, 1,
+  'NULL-retention channel (no policy, no override) never selected');
+SELECT is((SELECT count(*) FROM run1 WHERE channel_id = :p_null)::int, 0, 'no run1 row for p_null');
+
+-- exactly ONE purge.execute act per channel, with the full after_state shape
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :p_reg AND action = 'purge.execute')::int,
+  1, 'exactly one purge.execute act for p_reg');
+SELECT is((SELECT (after_state->>'purgedCount')::int FROM chat_audit_log
+            WHERE channel_id = :p_reg AND action = 'purge.execute'), 1, 'act purgedCount=1');
+SELECT is((SELECT (after_state->>'idFrom')::bigint FROM chat_audit_log
+            WHERE channel_id = :p_reg AND action = 'purge.execute'), :m_old::bigint, 'act idFrom=m_old');
+SELECT is((SELECT (after_state->>'idTo')::bigint FROM chat_audit_log
+            WHERE channel_id = :p_reg AND action = 'purge.execute'), :m_old::bigint, 'act idTo=m_old');
+SELECT is((SELECT (after_state->>'retentionDays')::int FROM chat_audit_log
+            WHERE channel_id = :p_reg AND action = 'purge.execute'), 30, 'act retentionDays=30');
+SELECT is((SELECT after_state->>'source' FROM chat_audit_log
+            WHERE channel_id = :p_reg AND action = 'purge.execute'), 'retention', 'act source=retention');
+
+-- destroyedElems is a PER-ID digest-element map, using the FIRST revision's
+-- prior_body (the edit-before-purge case), never the current body. now() is
+-- FROZEN for the whole transaction in Postgres, so recomputing
+-- now() - interval '31 days' here yields the exact same instant used at
+-- INSERT time above.
+SELECT is(
+  (SELECT after_state->'destroyedElems'->>(:m_old::text) FROM chat_audit_log
+    WHERE channel_id = :p_reg AND action = 'purge.execute'),
+  (:m_old)::text || ':' || (95101)::text || ':' ||
+    extract(epoch from (now() - interval '31 days'))::text || ':' ||
+    encode(sha256(convert_to('original body before edit', 'UTF8')), 'hex'),
+  'destroyedElems uses the prior (pre-edit) body, in the exact id:author:epoch:sha256hex shape');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── p_dry: the real run actually destroys what the dry-run previewed ───────
+SELECT is((SELECT purged_count FROM run1 WHERE channel_id = :p_dry), 1,
+  'run1: p_dry purged_count=1, matching its own dry-run preview');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_dry)::int, 0, 'm_dry destroyed for real');
+
+-- ── p_sched1: the scheduled_actions status/age matrix ──────────────────────
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_sched1)::int, 0, 'p_sched1 message destroyed');
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_done_old')::int, 0,
+  'a done row older than retention is destroyed');
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_failed_old')::int, 0,
+  'a failed row older than retention is destroyed');
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_done_young')::int, 1,
+  'a done row younger than retention survives');
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_pending_old')::int, 1,
+  'a pending row ALWAYS survives, no matter its age');
+
+-- ── F4 (pipeline review fix): the scheduled-row destruction folds into the
+-- SAME purge.execute act as the message stats — sa_done_old + sa_failed_old
+-- destroyed, sa_done_young/sa_pending_old excluded ─────────────────────────
+SELECT is((SELECT (after_state->>'scheduledDestroyedCount')::int FROM chat_audit_log
+            WHERE channel_id = :p_sched1 AND action = 'purge.execute'), 2,
+  'p_sched1''s purge.execute act carries scheduledDestroyedCount=2 (done-old + failed-old)');
+SELECT is((SELECT jsonb_array_length(after_state->'scheduledDestroyedIds') FROM chat_audit_log
+            WHERE channel_id = :p_sched1 AND action = 'purge.execute'), 2,
+  'p_sched1''s purge.execute act carries a scheduledDestroyedIds array of length 2');
+SELECT ok((SELECT after_state->'scheduledDestroyedIds' ? :'sa_done_old' FROM chat_audit_log
+            WHERE channel_id = :p_sched1 AND action = 'purge.execute'),
+  'scheduledDestroyedIds contains sa_done_old''s id');
+SELECT ok((SELECT after_state->'scheduledDestroyedIds' ? :'sa_failed_old' FROM chat_audit_log
+            WHERE channel_id = :p_sched1 AND action = 'purge.execute'),
+  'scheduledDestroyedIds contains sa_failed_old''s id');
+
+-- ── p_sched0: N5 case 1 — zero expired messages, but the expired failed row
+--    IS destroyed (the DELETE runs before the message-count CONTINUE) ──────
+SELECT is((SELECT count(*) FROM run1 WHERE channel_id = :p_sched0)::int, 0,
+  'p_sched0 produces no run1 row (zero expired messages -> no purged_count summary row)');
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_sched0')::int, 0,
+  'N5: the expired failed row is destroyed even with zero expired messages in the channel');
+
+-- FIX 2 (F4 residual, confirmation-review fix): a scheduled-only purge (zero
+-- expired messages, one expired scheduled row) now DOES write its own
+-- purge.execute act — the destruction trace is no longer dropped just
+-- because no message.CONTINUE'd this channel out before reaching the act.
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :p_sched0 AND action = 'purge.execute')::int,
+  1, 'p_sched0 (scheduled-only) DOES get its own purge.execute act (F4 residual closed)');
+SELECT is((SELECT (after_state->>'purgedCount')::int FROM chat_audit_log
+            WHERE channel_id = :p_sched0 AND action = 'purge.execute'), 0,
+  'p_sched0''s act carries purgedCount=0 (no messages destroyed)');
+SELECT is((SELECT after_state->>'idFrom' FROM chat_audit_log
+            WHERE channel_id = :p_sched0 AND action = 'purge.execute'), NULL,
+  'p_sched0''s act carries a NULL idFrom (no messages destroyed)');
+SELECT is((SELECT after_state->'destroyedElems' FROM chat_audit_log
+            WHERE channel_id = :p_sched0 AND action = 'purge.execute'), '{}'::jsonb,
+  'p_sched0''s act carries an empty destroyedElems map (message leg empty, scheduled leg non-empty)');
+SELECT is((SELECT (after_state->>'scheduledDestroyedCount')::int FROM chat_audit_log
+            WHERE channel_id = :p_sched0 AND action = 'purge.execute'), 1,
+  'p_sched0''s act carries scheduledDestroyedCount=1');
+SELECT ok((SELECT after_state->'scheduledDestroyedIds' ? :'sa_sched0' FROM chat_audit_log
+            WHERE channel_id = :p_sched0 AND action = 'purge.execute'),
+  'p_sched0''s act carries scheduledDestroyedIds containing sa_sched0''s id');
+-- the anchor/chain reconciliation stays valid over this scheduled-only act:
+-- verify_chat_audit_chain walks every row's HMAC link regardless of action,
+-- so an extra purge.execute act with an empty destroyedElems map must not
+-- break it.
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:p_sched0)),
+  'p_sched0''s audit chain still verifies after the scheduled-only purge.execute act');
+
+-- ── p_sched2: purged for real in run1 (the "already-purged channel" half of
+--    the N5 case-2 scenario, completed below in run2) ──────────────────────
+SELECT is((SELECT purged_count FROM run1 WHERE channel_id = :p_sched2), 1,
+  'run1: p_sched2''s message purged');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_sched2)::int, 0, 'm_sched2 destroyed');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── belt: a hold flipped MID-RUN does not abort the whole sweep. The
+--    leading WHERE-clause predicate only sees state at cursor-open time;
+--    this proves the BZ194 catch backstops it for a channel that becomes
+--    held DURING the same run (a real concurrent admin call would look
+--    identical to chat_purge_expired) ───────────────────────────────────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-belt-t', 95901, 5)
+  RETURNING id AS belt_t \gset
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-belt-h', 95901, 5)
+  RETURNING id AS belt_h \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:belt_t, 1, 95901, 'belt-t msg', now() - interval '6 days');
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:belt_h, 1, 95901, 'belt-h msg', now() - interval '6 days')
+  RETURNING id AS m_belt_h \gset
+
+-- Test-harness only, dropped by the transaction ROLLBACK at the end of this
+-- file: relies on belt_t being scanned before belt_h in the cursor's Seq Scan
+-- (physical/insertion order for two fresh rows in one small, freshly-loaded
+-- table, in the absence of any ORDER BY — the production reducer has none by
+-- design, since order never matters for a set-based sweep; this test-only
+-- assumption is safe and does not encode any ordering requirement into the
+-- reducer itself).
+SELECT format($ddl$
+  CREATE OR REPLACE FUNCTION test_midrun_hold_flip() RETURNS trigger
+  LANGUAGE plpgsql AS $body$
+  BEGIN
+    IF OLD.channel_id = %1$s THEN
+      UPDATE chat_channels SET legal_hold = true, legal_hold_reason = 'midrun'
+        WHERE id = %2$s;
+    END IF;
+    RETURN OLD;
+  END $body$;
+$ddl$, :belt_t, :belt_h) \gexec
+CREATE TRIGGER test_midrun_hold_flip_trg BEFORE DELETE ON chat_messages
+  FOR EACH ROW EXECUTE FUNCTION test_midrun_hold_flip();
+
+-- ── N5 case 2, same run2 call: a channel whose messages were ALL destroyed
+--    on an earlier run (p_sched2, run1 above) now has zero expired messages
+--    but a stale scheduled row added AFTER run1 -- it must still be reaped ──
+INSERT INTO scheduled_actions (action_kind, fire_at, payload, status, created_at)
+  VALUES ('chat_send', now() - interval '7 days',
+          jsonb_build_object('channelId', :p_sched2, 'userId', 95801, 'body', 'post-run1-stale'),
+          'done', now() - interval '7 days')
+  RETURNING id AS sa_sched2_stale \gset
+
+CREATE TEMP TABLE run2 AS SELECT * FROM chat_purge_expired(1000, FALSE);
+
+SELECT is((SELECT count(*) FROM run2)::int, 1,
+  'run2 contains exactly ONE row: belt_t (belt_h excluded by the BZ194 catch, p_sched2 has nothing left)');
+SELECT is((SELECT purged_count FROM run2 WHERE channel_id = :belt_t), 1,
+  'belt_t (never held) is purged normally -- one held channel does not abort the batch');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_belt_h)::int, 1,
+  'belt_h''s message survives -- the mid-run hold flip stopped its destruction via the trigger, not the predicate');
+SELECT is((SELECT legal_hold FROM chat_channels WHERE id = :belt_h), TRUE,
+  'belt_h is now held (the mid-run flip actually happened)');
+SELECT is((SELECT count(*) FROM run2 WHERE channel_id = :belt_h)::int, 0,
+  'belt_h produced no run2 row (the BZ194 exception was caught, not propagated)');
+
+SELECT is((SELECT count(*) FROM scheduled_actions WHERE id = :'sa_sched2_stale')::int, 0,
+  'N5 case 2: a stale scheduled row on an already-fully-purged channel is still destroyed');
+SELECT is((SELECT count(*) FROM run2 WHERE channel_id = :p_sched2)::int, 0,
+  'p_sched2 produces no run2 row (zero NEW expired messages this run)');
+
+-- ── last_purged_seq: advances to the max destroyed seq; a channel with
+--    nothing left to purge is simply not revisited ─────────────────────────
+SELECT is((SELECT last_purged_seq FROM chat_channels WHERE id = :p_reg), 1::bigint,
+  'p_reg last_purged_seq advanced to the destroyed message''s seq (1)');
+SELECT is((SELECT last_purged_seq FROM chat_channels WHERE id = :p_sched1), 1::bigint,
+  'p_sched1 last_purged_seq advanced to 1');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :p_reg AND action = 'purge.execute')::int,
+  1, 'p_reg still has exactly one purge.execute act after run2 (no re-purge of an already-drained channel)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── chat_purge_run(): drains + writes ONE org-level chat.purge_run act ──────
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'purge-run-smoke', 96001, 5)
+  RETURNING id AS p_run_smoke \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:p_run_smoke, 1, 96001, 'drain me', now() - interval '6 days')
+  RETURNING id AS m_run_smoke \gset
+
+-- one chat.purge_run row already exists from the toggle-OFF smoke call at the
+-- top of this file (audit_write fires unconditionally, even for a 0/0 no-op
+-- run) — assert against the DELTA, not an absolute count.
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action = 'chat.purge_run')::int, 1,
+  'exactly one chat.purge_run act exists so far (from the earlier toggle-OFF call)');
+SELECT is(chat_purge_run(), 1, 'chat_purge_run() drains the one eligible message and returns its count');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :m_run_smoke)::int, 0,
+  'chat_purge_run() actually destroyed the message via chat_purge_expired underneath');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action = 'chat.purge_run')::int, 2,
+  'chat_purge_run() wrote exactly one NEW org-level admin_audit_log row (2 total)');
+SELECT is((SELECT (after_state->>'messages')::int FROM admin_audit_log
+            WHERE action = 'chat.purge_run' ORDER BY id DESC LIMIT 1),
+  1, 'the latest chat.purge_run act reports the total messages drained');
+SELECT is((SELECT (after_state->>'drained')::boolean FROM admin_audit_log
+            WHERE action = 'chat.purge_run' ORDER BY id DESC LIMIT 1),
+  TRUE, 'a single-pass drain (backlog smaller than one batch) reports drained=true');
+SELECT is(chat_purge_run(), 0, 'a second chat_purge_run() call is a no-op (nothing left to drain)');
+
+SELECT * FROM finish(); ROLLBACK;

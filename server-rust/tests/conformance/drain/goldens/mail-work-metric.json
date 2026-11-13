@@ -1,0 +1,21 @@
+{
+  "case": "mail-work-metric",
+  "format": 1,
+  "go_source": "61fde0967024a9542792f55bc8ac53ab6cb05ede",
+  "observation": {
+    "metrics": [
+      [
+        1,
+        1,
+        1
+      ]
+    ],
+    "outbox": [
+      "metric",
+      "completed",
+      "1",
+      "",
+      "projected"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "case": "dmarc-report-failures-fail",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "queued": [
+      [
+        "<dmarc-report-two.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>",
+        "dmarc-reports@mx.dmarc5-oracle.test",
+        [
+          "rua@reports.test"
+        ],
+        "pending",
+        "From: DMARC Reporter <dmarc-reports@mx.dmarc5-oracle.test>\r\nTo: rua@reports.test\r\nSubject: Report Domain: two.dmarc5-oracle.test Submitter: mx.dmarc5-oracle.test\r\nDate: <date>\r\nMessage-ID: <dmarc-report-two.dmarc5-oracle.test-<n>@mx.dmarc5-oracle.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=dmarc-<n>\r\n\r\n--dmarc-<n>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThis is a DMARC aggregate report for two.dmarc5-oracle.test.\r\n\r\n--dmarc-<n>\r\nContent-Type: application/gzip\r\nContent-Disposition: attachment; filename=dmarc.xml\r\nContent-Transfer-Encoding: base64\r\n\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<feedback>\n  <version>1</version>\n  <report_metadata>\n    <org_name>Org &amp; &lt;Co&gt; &#34;q&#34; &#39;a&#39;</org_name>\n    <email>dmarc-reports@mx.dmarc5-oracle.test</email>\n    <report_id>two.dmarc5-oracle.test.<n></report_id>\n    <date_range>\n      <begin>1790812800</begin>\n      <end>1790899200</end>\n    </date_range>\n  </report_metadata>\n  <policy_published>\n    <domain>Org &amp; &lt;Co&gt; &#34;q&#34; &#39;a&#39;</domain>\n    <adkim>r</adkim>\n    <aspf>r</aspf>\n    <p>none</p>\n    <pct>100</pct>\n  </policy_published>\n  <record>\n    <source_ip>0.0.0.0</source_ip>\n    <count>7</count>\n    <policy_evaluated>\n      <disposition>none</disposition>\n      <dkim>fail</dkim>\n      <spf>fail</spf>\n    </policy_evaluated>\n    <auth_results>\n      <dkim>\n        <domain>Org &amp; &lt;Co&gt; &#34;q&#34; &#39;a&#39;</domain>\n        <result>fail</result>\n      </dkim>\n      <spf>\n        <domain>Org &amp; &lt;Co&gt; &#34;q&#34; &#39;a&#39;</domain>\n        <result>fail</result>\n      </spf>\n    </auth_results>\n  </record>\n</feedback>\r\n--dmarc-<n>--\r\n",
+        0
+      ]
+    ],
+    "remaining": []
+  }
+}

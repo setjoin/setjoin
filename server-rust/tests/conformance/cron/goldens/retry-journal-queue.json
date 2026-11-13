@@ -1,0 +1,41 @@
+{
+  "case": "retry-journal-queue",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "journal": [
+              "gofree-cron-j1:pending:0::",
+              "gofree-cron-j2:deferred:1::false",
+              "gofree-cron-j3:deferred:1::true"
+            ],
+            "materialised": []
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "journal": [
+              "gofree-cron-j1:pending:0::",
+              "gofree-cron-j2:delivered:1::false",
+              "gofree-cron-j3:deferred:1::true"
+            ],
+            "materialised": [
+              "gofree-cron-j2:true:false"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

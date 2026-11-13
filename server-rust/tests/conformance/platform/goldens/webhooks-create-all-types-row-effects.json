@@ -1,0 +1,33 @@
+{
+  "case": "all-types-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "deliveries": 0,
+          "event_types": "[\"user.created\", \"user.deleted\", \"user.updated\", \"auth.login_failed\", \"auth.login\", \"mailbox.quota_warning\", \"system.health_alert\", \"migration.completed\", \"migration.failed\", \"mail.received\", \"mail.sent\", \"mail.rule_triggered\", \"calendar.invitation\", \"mailbox.suspended\", \"mailbox.resumed\", \"mailbox.detached\", \"mailbox.reconnected\", \"mailbox.purge_scheduled\", \"mailbox.purge_cancelled\", \"mailbox.purged\", \"mailwork.claimed\", \"mailwork.assigned\", \"mailwork.handed_off\", \"mailwork.completed\", \"mailwork.sla_breached\"]",
+          "is_active": true,
+          "legacy_prev_secret": null,
+          "legacy_secret": null,
+          "prev_secret_enc": {
+            "cell": "null",
+            "key": null
+          },
+          "scope": "self",
+          "secret_enc": {
+            "cell": "sealed",
+            "key": "v1",
+            "opens_to": "<returned>"
+          },
+          "url": "https://plat4-new.example/hook",
+          "user": "<admin>"
+        }
+      ],
+      "before": [],
+      "table": "webhook_subscriptions"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/webhooks"
+}

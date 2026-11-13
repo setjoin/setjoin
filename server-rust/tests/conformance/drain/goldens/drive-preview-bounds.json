@@ -1,0 +1,53 @@
+{
+  "case": "drive-preview-bounds",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|<lying>|4|drive/g/<lying>|rc=1",
+      "g|<small>|4|drive/g/<small>|rc=1",
+      "g|<bigout>|4|drive/g/<bigout>|rc=1",
+      "g|b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43|13|drive/g/b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43|rc=1",
+      "g|<declared>|16|drive/g/<declared>|rc=1"
+    ],
+    "preview_chunks": [
+      "1:0:g:b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43"
+    ],
+    "s3": {
+      "keys": [
+        "drive/g/<lying>",
+        "drive/g/<small>",
+        "drive/g/<bigout>",
+        "drive/g/b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43",
+        "drive/g/<declared>"
+      ],
+      "requests": [
+        {
+          "body_len": 13,
+          "body_sha256": "b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<bigout>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<lying>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<small>"
+        }
+      ]
+    },
+    "versions": [
+      "1:ready:b3f5da7f40eaa14c46f87ebafd0d33438785ef6b400d2c310a05bc9b956e9e43",
+      "2:failed:-",
+      "3:failed:-",
+      "4:failed:-"
+    ]
+  }
+}

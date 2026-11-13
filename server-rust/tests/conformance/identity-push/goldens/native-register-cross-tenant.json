@@ -1,0 +1,89 @@
+{
+  "case": "native-register-cross-tenant",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [
+      {
+        "action": "mfa_reauth_refused",
+        "ip": "127.0.0.1/32",
+        "notes": "native device register without a valid possession proof",
+        "owner": "foreign",
+        "target_type": "user"
+      }
+    ],
+    "effects": {
+      "audit": [
+        {
+          "action": "mfa_reauth_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "native device register without a valid possession proof",
+          "owner": "foreign",
+          "target_type": "user"
+        }
+      ],
+      "devices": [],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "idmfa3-actor",
+          "live": true,
+          "method": "password",
+          "operation": "device.register.native",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        },
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "users": [
+        {
+          "generation": 2,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"device_name\":\"IDMFA3 device\",\"device_public_key\":\"046ff03b949241ce1dadd43519e6960e0a85b41a69a05c328103aa2bce1594ca163c4f753a55bf01dc53f6c0b0c7eee78b40c6ff7d25a96e2282b989cef71c144a\",\"provider\":\"fcm\",\"push_token\":\"idmfa3-device-token\",\"reauth_token\":\"idmfa3-backup-proof\",\"user_id\":<foreign>}",
+      "method": "POST",
+      "path": "/auth/device/register"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/reauth-required\",\"title\":\"Re-authentication required\",\"status\":403,\"detail\":\"prove possession at /auth/mfa/reauth (or the possession endpoints for C1 accounts) and retry with the issued reauth_token\",\"instance\":\"/auth/device/register\",\"remediation\":\"reauth\",\"code\":\"reauth_required\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /auth/device/register"
+}

@@ -1,0 +1,56 @@
+-- #339/#523 public reducer seam: exact code capability, owner, expiry and single use.
+BEGIN;
+SELECT plan(28);
+INSERT INTO domains(name,is_local) VALUES('rust-idfed1-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash) VALUES('a@rust-idfed1-pgtap.test','a@rust-idfed1-pgtap.test','actor',:dom,'x') RETURNING id AS u \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash) VALUES('b@rust-idfed1-pgtap.test','b@rust-idfed1-pgtap.test','foreign',:dom,'x') RETURNING id AS ou \gset
+INSERT INTO oidc_clients(id,name,secret,redirect_uris) VALUES('rust-idfed1-pgtap','test','x',ARRAY['https://rp.test/cb']);
+INSERT INTO oidc_auth_requests(id,client_id,redirect_uri,state,nonce,code_challenge,scopes,user_id,done,code_hash)
+VALUES('actor','rust-idfed1-pgtap','https://rp.test/cb','state','','',ARRAY['openid'],:u,true,digest('actor','sha256')),
+      ('foreign','rust-idfed1-pgtap','https://rp.test/cb','state','','',ARRAY['openid'],:ou,true,digest('foreign','sha256')),
+      ('pending','rust-idfed1-pgtap','https://rp.test/cb','state','','',ARRAY['openid'],:u,false,digest('pending','sha256')),
+      ('expired','rust-idfed1-pgtap','https://rp.test/cb','state','','',ARRAY['openid'],:u,true,digest('expired','sha256'));
+UPDATE oidc_auth_requests SET expires_at=now()-interval '1 minute' WHERE id='expired';
+SELECT set_config('app.current_user_id',:'u',true);
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:ou,digest('actor','sha256'),'rust-idfed1-pgtap')),0::bigint,'GUC owner mismatch cannot consume');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:u,digest('foreign','sha256'),'rust-idfed1-pgtap')),0::bigint,'actor cannot consume a foreign capability');
+SELECT is((SELECT user_id FROM rust_identity_oidc_consume(:u,digest('actor','sha256'),'rust-idfed1-pgtap')),:u::bigint,'exact actor capability is returned and consumed');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:u,digest('actor','sha256'),'rust-idfed1-pgtap')),0::bigint,'code cannot be consumed twice');
+SELECT is((SELECT count(*) FROM oidc_auth_requests WHERE id='actor'),0::bigint,'consumption deletes its row');
+INSERT INTO oidc_auth_requests(id,client_id,redirect_uri,state,nonce,code_challenge,scopes,user_id,done,code_hash) VALUES('other-client','rust-idfed1-pgtap','https://rp.test/cb','state','','',ARRAY['openid'],:u,true,digest('other-client','sha256'));
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:u,digest('other-client','sha256'),'someone-else')),0::bigint,'another client cannot consume (burn) the code');
+SELECT is((SELECT count(*) FROM oidc_auth_requests WHERE id='other-client'),1::bigint,'the code survives the other client attempt');
+SELECT is((SELECT count(*) FROM oidc_auth_requests WHERE id='foreign' AND user_id=:ou),1::bigint,'foreign request remains intact');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:u,digest('pending','sha256'),'rust-idfed1-pgtap')),0::bigint,'incomplete request is not an authorization code');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_consume(:u,digest('expired','sha256'),'rust-idfed1-pgtap')),0::bigint,'expired request is not an authorization code');
+INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at,refresh_token_hash,refresh_expires_at)
+VALUES('old-actor','rust-idfed1-pgtap',:u,:'u',ARRAY['openid','offline_access'],now()+interval '5 minutes','actor-hash',now()+interval '30 days'),
+      ('old-foreign','rust-idfed1-pgtap',:ou,:'ou',ARRAY['openid','offline_access'],now()+interval '5 minutes','foreign-hash',now()+interval '30 days');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:ou,'rust-idfed1-pgtap','actor-hash','bad-guc',ARRAY['openid'],'new-hash')),0::bigint,'rotation repeats transaction principal');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:u,'rust-idfed1-pgtap','foreign-hash','bad-owner',ARRAY['openid'],'new-hash')),0::bigint,'rotation cannot consume another owner');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:u,'rust-idfed1-pgtap','actor-hash','new-actor',ARRAY['openid','offline_access'],'new-actor-hash')),1::bigint,'active owned refresh rotates');
+SELECT ok((SELECT revoked_at IS NOT NULL FROM oidc_tokens WHERE id='old-actor' AND user_id=:u),'predecessor is revoked in the rotation');
+SELECT is((SELECT count(*) FROM oidc_tokens WHERE id='new-actor' AND user_id=:u AND refresh_token_hash='new-actor-hash' AND refresh_expires_at>now()+interval '29 days'),1::bigint,'successor keeps the owned refresh lifetime');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:u,'rust-idfed1-pgtap','actor-hash','reuse',ARRAY['openid'],'reuse-hash')),0::bigint,'revoked predecessor cannot rotate twice');
+INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at,refresh_token_hash,refresh_expires_at)
+VALUES('fault-actor','rust-idfed1-pgtap',:u,:'u',ARRAY['openid','offline_access'],now()+interval '5 minutes','fault-hash',now()+interval '30 days');
+SELECT throws_ok(format('SELECT * FROM rust_identity_oidc_rotate(%s,%L,%L,%L,ARRAY[%L],%L)',:u,'rust-idfed1-pgtap','fault-hash','new-actor','openid','fault-new-hash'),'23505',NULL,'successor insert failure rolls rotation back');
+SELECT is((SELECT count(*) FROM oidc_tokens WHERE id='fault-actor' AND user_id=:u AND revoked_at IS NULL AND refresh_token_hash='fault-hash'),1::bigint,'failed rotation leaves predecessor active');
+-- #523 refresh families: inheritance, absolute lifetime, reuse revocation.
+SELECT is((SELECT refresh_family FROM oidc_tokens WHERE id='new-actor'),'old-actor','successor joins the predecessor family (legacy rows are a family of one)');
+SELECT ok((SELECT refresh_family_expires_at FROM oidc_tokens WHERE id='new-actor')<=now()+interval '90 days' AND (SELECT refresh_family_expires_at FROM oidc_tokens WHERE id='new-actor')>now()+interval '89 days','a pre-family row is capped 90 days from its creation');
+INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at,refresh_token_hash,refresh_expires_at,refresh_family,refresh_family_expires_at)
+VALUES('cap-actor','rust-idfed1-pgtap',:u,:'u',ARRAY['openid','offline_access'],now()+interval '5 minutes','cap-hash',now()+interval '30 days','cap-actor',now()+interval '10 days'),
+      ('dead-actor','rust-idfed1-pgtap',:u,:'u',ARRAY['openid','offline_access'],now()+interval '5 minutes','dead-hash',now()+interval '30 days','dead-actor',now()-interval '1 minute');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:u,'rust-idfed1-pgtap','cap-hash','cap-next',ARRAY['openid','offline_access'],'cap-next-hash')),1::bigint,'rotation inside the family lifetime succeeds');
+SELECT ok((SELECT refresh_expires_at<=now()+interval '10 days' AND refresh_family_expires_at=(SELECT refresh_family_expires_at FROM oidc_tokens WHERE id='cap-actor') FROM oidc_tokens WHERE id='cap-next'),'rotation never slides past the family cap and never re-extends it');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_rotate(:u,'rust-idfed1-pgtap','dead-hash','dead-next',ARRAY['openid'],'dead-next-hash')),0::bigint,'an expired family cannot rotate');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_reuse(:ou,'rust-idfed1-pgtap','cap-hash')),0::bigint,'reuse revocation repeats the transaction principal');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_reuse(:u,'someone-else','cap-hash')),0::bigint,'reuse revocation is bound to the presenting client');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_reuse(:u,'rust-idfed1-pgtap','foreign-hash')),0::bigint,'an unspent token is not a reuse');
+SELECT is((SELECT revoked FROM rust_identity_oidc_reuse(:u,'rust-idfed1-pgtap','cap-hash')),1::bigint,'reuse of a spent token revokes the live rest of its family');
+SELECT is((SELECT count(*) FROM oidc_tokens WHERE refresh_family='cap-actor' AND revoked_at IS NULL),0::bigint,'the whole family is revoked');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

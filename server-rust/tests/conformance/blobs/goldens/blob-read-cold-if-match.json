@@ -1,0 +1,103 @@
+{
+  "case": "cold-if-match",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "normalization": [
+    "HTTP Date",
+    "validated 60-hex multipart boundary"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/blobs/{sha256}",
+      "headers": {
+        "if-match": "\"other\""
+      },
+      "method": "GET",
+      "path": "/blobs/{sha256}"
+    },
+    "response": {
+      "body": "scoped attachment",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "17"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "text/plain"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs3-read-oracle"
+        ]
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": "scoped attachment",
+        "headers": {
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "17"
+          ],
+          "content-security-policy": [
+            "default-src 'none'; sandbox"
+          ],
+          "content-type": [
+            "text/plain"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs3-read-oracle"
+          ]
+        },
+        "status": 200
+      }
+    ]
+  },
+  "route": "GET /blobs/{sha256}"
+}

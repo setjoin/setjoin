@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity transition watch:\n  -interval duration\n    \tpoll interval (250ms..30s) (default 2s)\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -timeout duration\n    \tmaximum wait (1s..30m) (default 5m0s)\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

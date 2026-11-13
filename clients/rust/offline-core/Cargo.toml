@@ -1,0 +1,60 @@
+[package]
+name = "offline-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+name = "offline_core"
+
+# ponytail: sm4-page-cipher gates SQLCipher SQLCIPHER_CRYPTO_CUSTOM wiring only;
+# the sm4/ghash/subtle crates are unconditional (A2 standalone oracle gate needs them).
+# Enable this feature ONLY after a custom SQLCipher build confirms SQLCIPHER_CRYPTO_CUSTOM
+# composes with the build — bundled-sqlcipher-vendored-openssl uses SQLCIPHER_CRYPTO_OPENSSL
+# (compile-time, not runtime-switchable). See A1 report concern.
+[features]
+sm4-page-cipher = []
+
+[dependencies]
+rusqlite   = { version = "0.40", features = ["bundled-sqlcipher-vendored-openssl"] }
+serde_json = "1"
+serde      = { version = "1", features = ["derive"] }
+hex        = "0.4"
+base64     = "0.23"
+uniffi     = "0.32"
+guard-core = { path = "../guard-core" }
+thiserror  = "2"
+zeroize    = "1"
+# SM4-GCM standalone core (A2). AES-256 default is unaffected (bundled-sqlcipher-vendored-openssl).
+# ponytail: AesGcm<Sm4,U12> is incompatible with sm4 0.6 (InnerInit not implemented);
+# hand-rolled GCM = CTR (sm4 block) + ghash; cipher is the trait crate.
+sm4    = "0.6"
+ghash  = "0.6"
+subtle = "2"
+# Drive byte plane (ARCH-017 / spec §3.6 — locked choices; no tokio, one-chunk
+# peak memory). rustls-platform-verifier pinned to 0.7 (NOT the plan's original
+# 0.3) to match clients/desktop/src-tauri/Cargo.lock:3872; its
+# with_platform_verifier() is fallible (returns Result) from 0.5 onward.
+# ureq's own rustls dep pulls in the "ring" crypto-provider feature; our rustls
+# dep intentionally installs no provider of its own (default-features off, no
+# aws_lc_rs/ring feature) so cargo's feature unification leaves exactly one
+# provider (ring) compiled in — two providers present at once makes
+# rustls::ClientConfig::builder() unable to pick a default and panic at runtime.
+# ureq 3 no longer exposes the custom rustls ClientConfig hook used below and
+# its built-in platform-verifier feature currently resolves verifier 0.6. Keep
+# the newest compatible ureq 2 line until the OS-trust verifier can move without
+# weakening the single-provider / native trust-store contract.
+ureq                     = { version = "2", default-features = false, features = ["tls"] }
+rustls                   = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
+tiny_http                = "0.12"
+sha2                     = "0.11"
+rand                     = "0.10"
+uuid                     = { version = "1", features = ["v4"] }
+
+[build-dependencies]
+uniffi = { version = "0.32", features = ["build"] }
+
+[dev-dependencies]
+tempfile = "3"

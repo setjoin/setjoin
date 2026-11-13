@@ -1,0 +1,108 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "retention_policy_delete",
+        "after_state": null,
+        "before_state": {
+          "domainId": "<domain>",
+          "name": "Domain policy"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": 960002,
+        "target_type": "retention_policy",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "policies": [
+            {
+              "action": "hold",
+              "created_at": "<timestamp>",
+              "description": "Forever",
+              "domain_id": null,
+              "id": 960001,
+              "is_default": true,
+              "name": "Global <policy>",
+              "retain_days": null
+            }
+          ]
+        },
+        "before": {
+          "policies": [
+            {
+              "action": "hold",
+              "created_at": "<timestamp>",
+              "description": "Forever",
+              "domain_id": null,
+              "id": 960001,
+              "is_default": true,
+              "name": "Global <policy>",
+              "retain_days": null
+            },
+            {
+              "action": "delete",
+              "created_at": "<timestamp>",
+              "description": "",
+              "domain_id": "<domain>",
+              "id": 960002,
+              "is_default": false,
+              "name": "Domain policy",
+              "retain_days": 30
+            }
+          ]
+        },
+        "table": "retention_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "DELETE",
+      "path": "/admin/retention/policies/{id}"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl2-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "DELETE /admin/retention/policies/{id}"
+}

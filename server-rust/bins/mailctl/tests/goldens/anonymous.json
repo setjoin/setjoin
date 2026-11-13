@@ -1,0 +1,15 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/health",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "map[status:ok]\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,533 @@
+-- meet_local_capture.pg — MEET plan M5 slice 2: the Electron local-first
+-- capture lease + truthful local-package registration (V268,
+-- meeting_local_capture.sql).
+-- Covers: the acquire fences (the reused M4 chain — BZ185/BZ186/BZ190/BZ199
+-- guest arm/BZ276-free profile — plus the M5 shapes BZ283/BZ278
+-- single-primary across DEVICES), the reducer-commit-before-capture
+-- ordering (recording + banner BEFORE the lease), the idempotent reattach
+-- (crash recovery: same (meeting, device) live lease returns, never a
+-- twin; a new generation only after a stop), the heartbeat contract
+-- (monotonic seq with exact-replay refresh and BZ283 regression refusal,
+-- stale generation BZ282, the foreign-caller indistinguishable BZ282, the
+-- final stopped frame, the lazy expiry arm answering the stop FACT), the
+-- revocation/user stop (owner floor, idempotent replay, BZ283 reason), the
+-- meeting_end same-txn arm (a lease never outlives its meeting), the
+-- worker-plane expiry drain, and the truthful local-package registration:
+-- the receipt + segment rows through the EXISTING meeting_semantic_segment_
+-- ingest (same BZ279 overlap belt), idempotent replay, conflicting
+-- re-registration BZ284, register-before-stop BZ283, every untruthful
+-- descriptor shape BZ284, the HISTORICAL-attendee authority floor, and the
+-- truthful-locality export refusal (BZ281 local_only).
+--
+-- Plan: retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-
+-- semantic-recording.md, M5. Contracts: internal/meet/presentation/
+-- (acquisition.go CaptureLease, policy.go invariants, segment.go),
+-- clients/desktop/electron/src/meet/ (slice-1 substrate).
+-- The FORCE-RLS cross-tenant proof lives in meet_local_capture_rls.pg.
+
+BEGIN;
+SELECT plan(75);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('m5-host@meet-local.test') AS host \gset
+SELECT mk_auth_user('m5-member@meet-local.test') AS member \gset
+SELECT mk_auth_user('m5-other@meet-local.test') AS other \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures: m1 — live, host + member; m3 — ended; m4 — live with an
+-- ADMITTED GUEST (the BZ199 arm); m5 — live (the meeting_end arm).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m1', :host, 'live')
+  RETURNING id AS m1 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :member, 'u:' || :member, 'member', now());
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m3', :host, 'ended')
+  RETURNING id AS m3 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m3, :host, 'u:' || :host, 'host', now());
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m4', :host, 'live')
+  RETURNING id AS m4 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m4, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:m4, 'Gary Guest', 'admitted') RETURNING id AS m4_guest_req \gset
+INSERT INTO meeting_participants (meeting_id, guest_display_name, identity, role)
+  VALUES (:m4, 'Gary Guest', 'g:' || :m4_guest_req, 'guest');
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m5', :host, 'live')
+  RETURNING id AS m5 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m5, :host, 'u:' || :host, 'host', now());
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 — meeting_local_capture_lease_acquire: the fences + the positive path.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s + 1000, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m1),
+  'BZ185', NULL, 'an unknown meeting is BZ185 (the reused start chain)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :member, :m1),
+  'BZ186', NULL, 'a plain member cannot acquire (host/cohost floor via the start)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m3),
+  'BZ190', NULL, 'an ended meeting refuses acquire');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m4),
+  'BZ199', NULL, 'an admitted guest blocks the acquire (shared BZ199 arm)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, '', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m1),
+  'BZ283', NULL, 'an empty device id is BZ283');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["screen"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m1),
+  'BZ283', NULL, 'a video surface is BZ283 (no surfaces, no lease)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 3) $$, :host, :m1),
+  'BZ283', NULL, 'a cadence under 5s is BZ283 (the server tightens, never loosens)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{}'::jsonb, 10) $$, :host, :m1),
+  'BZ283', NULL, 'a producer without its version pins is BZ283');
+
+-- The positive acquire: recording + banner FIRST, then the lease.
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone","systemAudio"]'::jsonb,
+  '{"platform":"darwin","platformVersion":"24.0.0","captureApiVersion":"electron-1+chromium-2"}'::jsonb, 10)
+  AS lease1 \gset
+SELECT is((SELECT (lease->>'leaseGeneration')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t), 1::bigint,
+  'the first lease mints generation 1');
+SELECT is((SELECT recording_id FROM meeting_local_capture_leases
+            WHERE meeting_id = :m1 AND device_id = 'dev-a' AND lease_state = 'live'),
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t),
+  'the lease binds the live recording it captures under');
+SELECT is((SELECT capture_mode FROM meeting_semantic_recordings WHERE id =
+            (SELECT recording_id FROM meeting_local_capture_leases
+              WHERE meeting_id = :m1 AND device_id = 'dev-a' AND lease_state = 'live')),
+  'local_registered', 'the lease rides a local_registered semantic recording');
+SELECT is((SELECT local_only FROM meeting_semantic_recordings WHERE id =
+            (SELECT recording_id FROM meeting_local_capture_leases
+              WHERE meeting_id = :m1 AND device_id = 'dev-a' AND lease_state = 'live')),
+  true, 'a local_registered capture is local_only (truthful locality)');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_children WHERE recording_id =
+            (SELECT recording_id FROM meeting_local_capture_leases
+              WHERE meeting_id = :m1 AND device_id = 'dev-a' AND lease_state = 'live')),
+  3::bigint, 'the expected child set is seeded without a media child (manifest/timeline/integrity)');
+SELECT is(meeting_recording_active(:m1), true,
+  'the banner truth counts a live local capture (one recording-active predicate)');
+SELECT ok((SELECT (lease->>'expiresAtUnixMs')::bigint > (lease->>'heartbeatSeconds')::bigint * 1000
+           FROM (SELECT :'lease1'::jsonb AS lease) t),
+  'the server TTL exceeds one heartbeat slot (3 × cadence)');
+
+-- Idempotent reattach: the SAME (meeting, device) reattaches, never twins.
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS reattach \gset
+SELECT is((SELECT (lease->>'reattached')::text FROM (SELECT :'reattach'::jsonb AS lease) t), 'true',
+  'the same (meeting, device) reattaches idempotently (crash recovery)');
+SELECT is((SELECT (lease->>'recordingId')::bigint FROM (SELECT :'reattach'::jsonb AS lease) t),
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t),
+  'the reattach returns the SAME recording (never a second capture)');
+SELECT is((SELECT COUNT(*) FROM meeting_local_capture_leases
+            WHERE meeting_id = :m1 AND lease_state = 'live'), 1::bigint,
+  'one live lease exists (one live lease per meeting device set)');
+
+-- A second DEVICE cannot capture the same meeting (single-primary-mode).
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(%s, %s, 'dev-b', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :host, :m1),
+  'BZ278', NULL, 'a second device is BZ278 (single-primary-mode, B2⇄M4⇄M5)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 — meeting_local_capture_lease_heartbeat: monotonic seq, generations,
+-- the foreign-caller anti-oracle, the final stopped frame.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_heartbeat(%s, %s, %s, 1, 1, 'capturing', NULL) $$,
+         :member, :m1,
+         (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)),
+  'BZ282', NULL, 'a foreign caller is the indistinguishable BZ282 not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_heartbeat(%s, %s, %s, 99, 1, 'capturing', NULL) $$,
+         :host, :m1,
+         (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)),
+  'BZ282', NULL, 'a stale lease generation fails closed (BZ282)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_heartbeat(%s, %s, %s + 1000, 1, 1, 'capturing', NULL) $$,
+         :host, :m1,
+         (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)),
+  'BZ282', NULL, 'an unknown lease is the indistinguishable BZ282 not-found');
+
+SELECT meeting_local_capture_lease_heartbeat(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t),
+  1, 3, 'capturing', 4242) AS hb1 \gset
+SELECT is((SELECT (hb->>'stop')::text FROM (SELECT :'hb1'::jsonb AS hb) t), 'false',
+  'a live lease answers stop:false');
+SELECT is((SELECT last_seq FROM meeting_local_capture_leases
+            WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)
+              AND lease_state = 'live'), 3::bigint,
+  'the heartbeat records its honest liveness facts (seq, disk)');
+SELECT is((SELECT last_disk_free_bytes FROM meeting_local_capture_leases
+            WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)
+              AND lease_state = 'live'), 4242::bigint,
+  'the observed disk-free fact is recorded (unprovable space is never assumed)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_heartbeat(%s, %s, %s, 1, 2, 'capturing', NULL) $$,
+         :host, :m1,
+         (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)),
+  'BZ283', NULL, 'a seq regression is BZ283 (frames are never fabricated backwards)');
+SELECT meeting_local_capture_lease_heartbeat(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t),
+  1, 3, 'capturing', 4242) AS hb2 \gset
+SELECT is((SELECT (hb->>'stop')::text FROM (SELECT :'hb2'::jsonb AS hb) t), 'false',
+  'an exact replay of the last frame is the lost-response retry (stop:false)');
+
+-- The final stopped frame stops the lease AND its recording.
+SELECT meeting_local_capture_lease_heartbeat(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t),
+  1, 4, 'stopped', 4242) AS hb3 \gset
+SELECT is((SELECT (hb->>'stop')::text FROM (SELECT :'hb3'::jsonb AS hb) t), 'true',
+  'the final stopped frame answers stop:true');
+SELECT is((SELECT (hb->>'stopReason')::text FROM (SELECT :'hb3'::jsonb AS hb) t), 'device_stopped',
+  'the device stop names device_stopped');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id =
+            (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease1'::jsonb AS lease) t)),
+  'stopped', 'the recording stopped with the device''s final frame');
+SELECT is(meeting_recording_active(:m1), false,
+  'the banner truth cleared (single recording-active predicate)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 — stop + re-acquire generations + idempotent stop replay.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease2 \gset
+SELECT is((SELECT (lease->>'leaseGeneration')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t), 2::bigint,
+  'a re-acquire after a stop mints generation 2 (stale heartbeats fail closed)');
+SELECT is((SELECT (lease->>'reattached')::text FROM (SELECT :'lease2'::jsonb AS lease) t), 'false',
+  'a fresh recording after a stop is a fresh acquire, not a reattach');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_stop(%s, %s, %s, 2, 'because') $$,
+         :host, :m1, (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t)),
+  'BZ283', NULL, 'a stop names user_stop or revoked (BZ283)');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_stop(%s, %s, %s + 1000, NULL, 'user_stop') $$,
+         :host, :m1, (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t)),
+  'BZ282', NULL, 'a stop against an unknown lease is the indistinguishable BZ282');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_lease_stop(%s, %s, %s, 2, 'user_stop') $$,
+         :member, :m1, (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t)),
+  'BZ186', NULL, 'a plain member cannot stop another device''s lease');
+
+SELECT meeting_local_capture_lease_stop(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t),
+  2, 'revoked') AS stop1 \gset
+SELECT is((SELECT (s->>'leaseState')::text FROM (SELECT :'stop1'::jsonb AS s) t), 'stopped',
+  'the revocation stop flips the lease stopped');
+SELECT is((SELECT (s->>'stopReason')::text FROM (SELECT :'stop1'::jsonb AS s) t), 'revoked',
+  'the stop reason is the caller''s named revocation');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id =
+            (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t)),
+  'stopped', 'the stop flips the recording in the SAME txn (lease and banner never disagree)');
+SELECT meeting_local_capture_lease_stop(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease2'::jsonb AS lease) t),
+  2, 'user_stop') AS stop2 \gset
+SELECT is((SELECT (s->>'alreadyStopped')::text FROM (SELECT :'stop2'::jsonb AS s) t), 'true',
+  'a stop replay is idempotent (the first terminal fact stands)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 — the meeting_end same-txn arm: a lease never outlives its meeting.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_local_capture_lease_acquire(:host, :m5, 'dev-e', '["systemAudio"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease5 \gset
+SELECT meeting_end(:host, :m5) AS room5 \gset
+SELECT is((SELECT lease_state FROM meeting_local_capture_leases
+            WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease5'::jsonb AS lease) t)),
+  'stopped', 'meeting_end stops the live lease in the SAME txn');
+SELECT is((SELECT stop_reason FROM meeting_local_capture_leases
+            WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease5'::jsonb AS lease) t)),
+  'meeting_ended', 'the lease records WHY it stopped (meeting_ended)');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id =
+            (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease5'::jsonb AS lease) t)),
+  'stopped', 'the M4 arm (same txn) stopped the recording for the M5 lease');
+SELECT is((SELECT COUNT(*) FROM _test_notify_log
+            WHERE payload LIKE '%recording_state%' AND payload LIKE '%"stopReason":"meeting_ended"%'),
+  0::bigint,
+  'meeting_end adds no duplicate lease push (the M4 recording_state arm carries the stop)');
+SELECT meeting_local_capture_lease_heartbeat(:host, :m5,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease5'::jsonb AS lease) t),
+  1, 1, 'capturing', NULL) AS hb5 \gset
+SELECT is((SELECT (hb->>'stop')::text FROM (SELECT :'hb5'::jsonb AS hb) t), 'true',
+  'the device''s next heartbeat meets the stop FACT, never a refreshed deadline');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 — expiry: the lazy heartbeat arm + the worker-plane drain.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease3 \gset
+UPDATE meeting_local_capture_leases
+   SET expires_at = now() - interval '1 second'
+ WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease3'::jsonb AS lease) t);
+SELECT meeting_local_capture_lease_heartbeat(:host, :m1,
+  (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease3'::jsonb AS lease) t),
+  3, 1, 'capturing', NULL) AS hbx \gset
+SELECT is((SELECT (hb->>'stop')::text FROM (SELECT :'hbx'::jsonb AS hb) t), 'true',
+  'an expired lease answers the stop FACT (captureLeaseExpired)');
+SELECT is((SELECT (hb->>'stopReason')::text FROM (SELECT :'hbx'::jsonb AS hb) t), 'expired',
+  'the stop fact names expired');
+SELECT is((SELECT lease_state FROM meeting_local_capture_leases
+            WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease3'::jsonb AS lease) t)),
+  'expired', 'the lazy arm flips the lease expired');
+
+-- The worker-plane drain converges any remaining expired live rows.
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease4 \gset
+UPDATE meeting_local_capture_leases
+   SET expires_at = now() - interval '1 second'
+ WHERE recording_id = (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease4'::jsonb AS lease) t);
+SELECT is(meeting_local_capture_lease_expire(50), 1,
+  'the worker drain expires exactly the one stale live lease');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE id =
+            (SELECT (lease->>'recordingId')::bigint FROM (SELECT :'lease4'::jsonb AS lease) t)),
+  'stopped', 'the drain stops the recording truthfully (unregistered segments stay unregistered)');
+SELECT is(meeting_local_capture_lease_expire(50), 0,
+  'the drain re-run is a no-op (converged state never re-fires)');
+SELECT is((SELECT COUNT(*) FROM meeting_local_capture_leases WHERE lease_state = 'live'), 0::bigint,
+  'no live lease survives the expiry arms');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — meeting_local_capture_register: the truthful local-package
+-- registration (receipt + segment bindings through the wave-4 ingest).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease6 \gset
+SELECT (lease->>'recordingId')::bigint AS rec6 FROM (SELECT :'lease6'::jsonb AS lease) t \gset
+
+-- Register BEFORE stop is refused (stop and reconcile).
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              '{"schema":"sjrec-local-v1","meetingId":%s,"packageState":"finalized",
+                "captureMode":"local_registered","policyMode":"local_only","surfaces":["microphone"],
+                "startedAtUnixMs":1,"endedAtUnixMs":2,"segments":[{"seq":1,"state":"failed",
+                "interval":{"startMs":0,"endMs":1},"wallStartUnixMs":1,"wallEndUnixMs":2,
+                "interruptReason":"x"}],"uploadedToDrive":false,
+                "coverage":{"available":[],"gaps":[{"startMs":0,"endMs":1}]},"integrityDigest":"%s"}') $$,
+         :host, :m1, :rec6, :m1, repeat('cd', 32)),
+  'BZ283', NULL, 'a register against a capture that has not stopped is BZ283');
+
+SELECT meeting_local_capture_lease_stop(:host, :m1, :rec6, 5, 'user_stop') AS stop6 \gset
+
+-- Authority: a non-attendee is the indistinguishable BZ278; a plain
+-- attendee who neither owns the device nor holds authority is BZ186.
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s, '{}'::jsonb) $$, :other, :m1, :rec6),
+  'BZ278', NULL, 'a non-attendee registration is the anti-oracle BZ278');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s, '{}'::jsonb) $$, :member, :m1, :rec6),
+  'BZ186', NULL, 'a plain member (not the device owner, not host) is BZ186');
+
+-- Untruthful envelope shapes refuse BZ284 BEFORE any segment work.
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_set('{"schema":"sjrec-local-v2"}'::jsonb, '{x}', '1')) $$, :host, :m1, :rec6),
+  'BZ284', NULL, 'a schema-drifted descriptor is not admitted');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','server_audio',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('ab',32),'segments',
+                '[{"seq":1,"state":"failed","interval":{"startMs":0,"endMs":1},
+                  "wallStartUnixMs":1,"wallEndUnixMs":2,"interruptReason":"x"}]'::jsonb)) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a non-local captureMode descriptor is not admitted');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s + 1,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('ab',32),'segments',
+                '[{"seq":1,"state":"failed","interval":{"startMs":0,"endMs":1},
+                  "wallStartUnixMs":1,"wallEndUnixMs":2,"interruptReason":"x"}]'::jsonb)) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a descriptor foreign to the meeting is not admitted');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','recording','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,
+                'integrityDigest',repeat('ab',32),'segments',
+                '[{"seq":1,"state":"failed","interval":{"startMs":0,"endMs":1},
+                  "wallStartUnixMs":1,"wallEndUnixMs":2,"interruptReason":"x"}]'::jsonb)) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a still-recording descriptor is not a sealed package');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',true,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('ab',32),'segments',
+                '[{"seq":1,"state":"failed","interval":{"startMs":0,"endMs":1},
+                  "wallStartUnixMs":1,"wallEndUnixMs":2,"interruptReason":"x"}]'::jsonb)) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a descriptor claiming uploads is not admitted (no upload path exists)');
+
+-- The truthful registration: one verified segment + one truthful
+-- interrupted segment over [0,1500), sealed.
+SELECT meeting_local_capture_register(:host, :m1, :rec6,
+  jsonb_build_object(
+    'schema', 'sjrec-local-v1',
+    'meetingId', :m1,
+    'packageState', 'interrupted',
+    'captureMode', 'local_registered',
+    'policyMode', 'local_only',
+    'uploadedToDrive', false,
+    'surfaces', '["microphone"]'::jsonb,
+    'startedAtUnixMs', 500,
+    'endedAtUnixMs', 1800,
+    'integrityDigest', repeat('ab', 32),
+    'segments', jsonb_build_array(
+      jsonb_build_object('seq', 1, 'state', 'verified',
+        'contentSha256', repeat('ab', 32), 'byteSize', 100,
+        'mimeType', 'audio/webm', 'codec', 'opus', 'container', 'webm',
+        'interval', jsonb_build_object('startMs', 0, 'endMs', 1000),
+        'wallStartUnixMs', 500, 'wallEndUnixMs', 1500),
+      jsonb_build_object('seq', 2, 'state', 'interrupted',
+        'interval', jsonb_build_object('startMs', 1000, 'endMs', 1500),
+        'wallStartUnixMs', 1500, 'wallEndUnixMs', 1800,
+        'interruptReason', 'consent revoked')))) AS reg1 \gset
+SELECT is((SELECT (r->>'alreadyRegistered')::text FROM (SELECT :'reg1'::jsonb AS r) t), 'false',
+  'the truthful descriptor registers');
+SELECT is((SELECT (r->>'segmentCount')::int FROM (SELECT :'reg1'::jsonb AS r) t), 2,
+  'the receipt counts every bound segment');
+SELECT is((SELECT local_descriptor_digest FROM meeting_semantic_recordings WHERE id = :rec6),
+  repeat('ab', 32), 'the receipt stores the sealed descriptor digest');
+SELECT ok((SELECT registered_at IS NOT NULL FROM meeting_semantic_recordings WHERE id = :rec6),
+  'the receipt stamps registration time');
+
+-- The segments landed through the WAVE-4 ingest contract (same rows, same
+-- rules): verified acknowledged, interrupted truthful.
+SELECT is((SELECT state || '/' || ack_state FROM meeting_semantic_segments
+            WHERE recording_id = :rec6 AND seq = 1), 'verified/acknowledged',
+  'the verified segment landed acknowledged (the registration IS the ack)');
+SELECT is((SELECT state || '/' || COALESCE(interrupt_reason,'') FROM meeting_semantic_segments
+            WHERE recording_id = :rec6 AND seq = 2), 'interrupted/consent revoked',
+  'the interrupted segment landed with its truthful reason');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_segments WHERE recording_id = :rec6), 2::bigint,
+  'exactly the descriptor''s segments exist (nothing synthesized)');
+
+-- Idempotent replay: the SAME sealed descriptor replays its receipt.
+SELECT meeting_local_capture_register(:host, :m1, :rec6,
+  jsonb_build_object(
+    'schema', 'sjrec-local-v1',
+    'meetingId', :m1,
+    'packageState', 'interrupted',
+    'captureMode', 'local_registered',
+    'policyMode', 'local_only',
+    'uploadedToDrive', false,
+    'surfaces', '["microphone"]'::jsonb,
+    'startedAtUnixMs', 500,
+    'endedAtUnixMs', 1800,
+    'integrityDigest', repeat('ab', 32),
+    'segments', jsonb_build_array(
+      jsonb_build_object('seq', 1, 'state', 'verified',
+        'contentSha256', repeat('ab', 32), 'byteSize', 100,
+        'mimeType', 'audio/webm', 'codec', 'opus', 'container', 'webm',
+        'interval', jsonb_build_object('startMs', 0, 'endMs', 1000),
+        'wallStartUnixMs', 500, 'wallEndUnixMs', 1500),
+      jsonb_build_object('seq', 2, 'state', 'interrupted',
+        'interval', jsonb_build_object('startMs', 1000, 'endMs', 1500),
+        'wallStartUnixMs', 1500, 'wallEndUnixMs', 1800,
+        'interruptReason', 'consent revoked')))) AS reg2 \gset
+SELECT is((SELECT (r->>'alreadyRegistered')::text FROM (SELECT :'reg2'::jsonb AS r) t), 'true',
+  'the same sealed descriptor replays as alreadyRegistered');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_segments WHERE recording_id = :rec6), 2::bigint,
+  'the replay inserted nothing (idempotent re-entry)');
+
+-- A conflicting re-registration rewrites settled history: BZ284.
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',500,'endedAtUnixMs',1800,
+                'integrityDigest',repeat('ef',32),'segments',
+                jsonb_build_array(jsonb_build_object('seq',1,'state','verified',
+                  'contentSha256',repeat('ef',32),'byteSize',100,
+                  'mimeType','audio/webm','codec','opus','container','webm',
+                  'interval',jsonb_build_object('startMs',0,'endMs',1000),
+                  'wallStartUnixMs',500,'wallEndUnixMs',1500)))) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a conflicting re-registration is not admitted (registration is immutable)');
+
+-- Untruthful segment shapes refuse BZ284 even past the envelope.
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('cd',32),'segments',
+                jsonb_build_array(jsonb_build_object('seq',1,'state','verified',
+                  'contentSha256',repeat('cd',32),'byteSize',100,
+                  'mimeType','audio/webm','codec','opus','container','webm',
+                  'interval',jsonb_build_object('startMs',0,'endMs',1000),
+                  'wallStartUnixMs',500,'wallEndUnixMs',1500),
+                jsonb_build_object('seq',2,'state','capturing',
+                  'interval',jsonb_build_object('startMs',1000,'endMs',1500),
+                  'wallStartUnixMs',1500,'wallEndUnixMs',1800)))) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'a capturing segment in a sealed package is not admitted');
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('cd',32),'segments',
+                jsonb_build_array(jsonb_build_object('seq',1,'state','interrupted',
+                  'interval',jsonb_build_object('startMs',0,'endMs',1),
+                  'wallStartUnixMs',1,'wallEndUnixMs',2)))) $$,
+         :host, :m1, :rec6, :m1),
+  'BZ284', NULL, 'an interrupted segment without its reason is not admitted');
+
+-- Duplicate verified media fails closed with the SAME code the worker
+-- plane raises (the shared overlap belt, BZ279).
+SELECT meeting_local_capture_lease_acquire(:host, :m1, 'dev-a', '["microphone"]'::jsonb,
+  '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) AS lease7 \gset
+SELECT (lease->>'recordingId')::bigint AS rec7 FROM (SELECT :'lease7'::jsonb AS lease) t \gset
+SELECT meeting_local_capture_lease_stop(:host, :m1, :rec7, 6, 'user_stop') AS stop7 \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_local_capture_register(%s, %s, %s,
+              jsonb_build_object('schema','sjrec-local-v1','captureMode','local_registered',
+                'meetingId',%s,'packageState','finalized','uploadedToDrive',false,
+                'surfaces','["microphone"]'::jsonb,'startedAtUnixMs',1,'endedAtUnixMs',2,
+                'integrityDigest',repeat('cd',32),'segments',
+                jsonb_build_array(
+                  jsonb_build_object('seq',1,'state','verified',
+                    'contentSha256',repeat('cd',32),'byteSize',100,
+                    'mimeType','audio/webm','codec','opus','container','webm',
+                    'interval',jsonb_build_object('startMs',0,'endMs',1000),
+                    'wallStartUnixMs',1,'wallEndUnixMs',2),
+                  jsonb_build_object('seq',2,'state','verified',
+                    'contentSha256',repeat('ef',32),'byteSize',100,
+                    'mimeType','audio/webm','codec','opus','container','webm',
+                    'interval',jsonb_build_object('startMs',500,'endMs',1500),
+                    'wallStartUnixMs',2,'wallEndUnixMs',3)))) $$,
+         :host, :m1, :rec7, :m1),
+  'BZ279', NULL, 'duplicate verified media is the shared BZ279 (the ingest overlap belt)');
+SELECT is((SELECT COUNT(*) FROM meeting_semantic_segments WHERE recording_id = :rec7), 0::bigint,
+  'the refused registration left no partial segment rows (one-transaction atomicity)');
+
+-- Truthful locality end-to-end: the registered local package exports
+-- NOTHING centrally (BZ281 local_only).
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_export_request(%s, %s, %s, NULL, NULL) $$, :host, :m1, :rec6),
+  'BZ281', NULL, 'a registered local package exports nothing centrally (truthful locality)');
+
+SELECT * FROM finish();
+ROLLBACK;

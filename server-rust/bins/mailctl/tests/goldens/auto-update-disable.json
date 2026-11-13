@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/system/auto-update",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"enabled\":false}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 599: unexpected request\n",
+  "exit": 1
+}

@@ -1,0 +1,336 @@
+{
+  "case": "incremental-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ad_sync_bind_dn",
+            "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_domain",
+            "value": "\"ad.example.test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_ldap_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ad_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [
+          {
+            "object_key": "40302012-6050-8070-90a0-b0c0d0e0f002",
+            "state": "applied"
+          },
+          {
+            "object_key": "4030201c-6050-8070-90a0-b0c0d0e0f00c",
+            "state": "applied"
+          }
+        ],
+        "links": [
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302012-6050-8070-90a0-b0c0d0e0f002",
+            "user": "bob@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302014-6050-8070-90a0-b0c0d0e0f004",
+            "user": "dave@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302018-6050-8070-90a0-b0c0d0e0f008",
+            "user": "hank@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "4030201c-6050-8070-90a0-b0c0d0e0f00c",
+            "user": "zed@host-a.test"
+          }
+        ],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": {
+              "usn": "1009"
+            },
+            "generation": 1,
+            "state": "active"
+          }
+        ],
+        "sync_log": [
+          {
+            "checked": 2,
+            "created": 2,
+            "details": {
+              "batchId": "<uuid>",
+              "cursorDigest": "1d8a15ac59f86f02200c7a190d488a9e655780cab9304c5c0c49830562b6c02f",
+              "quarantined": 0
+            },
+            "disabled": 0,
+            "error": null,
+            "skipped": 0,
+            "source": "ad",
+            "updated": 0
+          }
+        ],
+        "users": [
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ad6-admin",
+            "email": "ad6-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ad6-admin@host-a.test"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Bob Renamed",
+            "email": "bob@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": "bob@CORP.EXAMPLE",
+            "last_name": null,
+            "local_overrides": {
+              "job_title": "Local Title"
+            },
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "bob"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Dave",
+            "email": "dave@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "dave"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Hank",
+            "email": "hank@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "hank"
+          },
+          {
+            "ad_object_guid": "4030201c-6050-8070-90a0-b0c0d0e0f00c",
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Zed Newer",
+            "email": "zed@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "zed"
+          }
+        ]
+      },
+      "before": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ad_sync_bind_dn",
+            "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_domain",
+            "value": "\"ad.example.test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_ldap_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ad_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302012-6050-8070-90a0-b0c0d0e0f002",
+            "user": "bob@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302014-6050-8070-90a0-b0c0d0e0f004",
+            "user": "dave@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "40302018-6050-8070-90a0-b0c0d0e0f008",
+            "user": "hank@host-a.test"
+          }
+        ],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": {
+              "usn": "1005"
+            },
+            "generation": 1,
+            "state": "active"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ad6-admin",
+            "email": "ad6-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ad6-admin@host-a.test"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Bob Old",
+            "email": "bob@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": "bob@CORP.EXAMPLE",
+            "last_name": null,
+            "local_overrides": {
+              "job_title": "Local Title"
+            },
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "bob"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Dave",
+            "email": "dave@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "dave"
+          },
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Hank",
+            "email": "hank@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ad",
+            "username": "hank"
+          }
+        ]
+      },
+      "directory": [
+        "bind dn=CN=svc,DC=ad,DC=example,DC=test password=ok",
+        "search base=DC=ad,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(&(objectClass=user)(objectCategory=person))(uSNChanged>=1005)) attrs=objectGUID,mail,displayName,givenName,sn,sAMAccountName,userPrincipalName,userAccountControl,department,title,manager,telephoneNumber,proxyAddresses,uSNChanged page=500"
+      ],
+      "table": "ad"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/ad/sync"
+}

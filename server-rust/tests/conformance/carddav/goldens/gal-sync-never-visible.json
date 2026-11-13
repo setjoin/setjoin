@@ -1,0 +1,172 @@
+{
+  "case": "never-visible",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "books": [
+            {
+              "description": "Personal & shared",
+              "id": 994271,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-a>",
+              "name": "CAL5 Owner"
+            },
+            {
+              "description": "Foreign",
+              "id": 994272,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-b>",
+              "name": "CAL5 Other"
+            }
+          ],
+          "contacts": [],
+          "journal": [
+            {
+              "collection_id": null,
+              "datatype": "AddressBook",
+              "entity_id": 994271,
+              "mailbox_id": "<mailbox-a>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            },
+            {
+              "collection_id": null,
+              "datatype": "AddressBook",
+              "entity_id": 994272,
+              "mailbox_id": "<mailbox-b>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            }
+          ],
+          "state": [
+            {
+              "datatype": "AddressBook",
+              "mailbox_id": "<mailbox-a>",
+              "seq": 1
+            },
+            {
+              "datatype": "AddressBook",
+              "mailbox_id": "<mailbox-b>",
+              "seq": 1
+            }
+          ],
+          "visibility": []
+        },
+        "before": {
+          "books": [
+            {
+              "description": "Personal & shared",
+              "id": 994271,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-a>",
+              "name": "CAL5 Owner"
+            },
+            {
+              "description": "Foreign",
+              "id": 994272,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-b>",
+              "name": "CAL5 Other"
+            }
+          ],
+          "contacts": [],
+          "journal": [
+            {
+              "collection_id": null,
+              "datatype": "AddressBook",
+              "entity_id": 994271,
+              "mailbox_id": "<mailbox-a>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            },
+            {
+              "collection_id": null,
+              "datatype": "AddressBook",
+              "entity_id": 994272,
+              "mailbox_id": "<mailbox-b>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            }
+          ],
+          "state": [
+            {
+              "datatype": "AddressBook",
+              "mailbox_id": "<mailbox-a>",
+              "seq": 1
+            },
+            {
+              "datatype": "AddressBook",
+              "mailbox_id": "<mailbox-b>",
+              "seq": 1
+            }
+          ],
+          "visibility": []
+        },
+        "table": "f17-carddav"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "<r:sync-collection xmlns:r=\"DAV:\" xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag/><c:address-data/></d:prop><d:sync-token>1925089445000000-2</d:sync-token></r:sync-collection>",
+      "concrete_method": "REPORT",
+      "method": "*",
+      "path": "/carddav/"
+    },
+    "response": {
+      "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<D:error xmlns:D=\"DAV:\"><D:valid-sync-token/></D:error>",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "94"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/xml; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-cal5-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "* /carddav/ gal-sync"
+}

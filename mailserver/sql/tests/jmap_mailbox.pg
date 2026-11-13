@@ -1,0 +1,130 @@
+-- pgTAP: jmap_mailbox.sql — mailbox query with filters, sort, pagination
+BEGIN;
+SELECT plan(12);
+
+INSERT INTO domains (name, is_local) VALUES ('mbx.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 105001 != mailbox 5001). The reducer takes the
+-- MAILBOX id (5001); a stray user_id = p_mailbox_id confusion would match nothing.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (105001, 'mbxuser', (SELECT id FROM domains WHERE name='mbx.test'), 'u@mbx.test', 'User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5001, 105001, (SELECT id FROM domains WHERE name='mbx.test'), 'u@mbx.test', 'User', 'personal', TRUE);
+
+-- Test 1: query returns mailbox list
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_mailbox_query(5001)->'ids') > 0),
+  'mailbox query returns IDs'
+);
+
+-- Test 2: filter by name
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_mailbox_query(5001, '{"name":"Inbox"}'::JSONB)->'ids') > 0),
+  'filter by name works'
+);
+
+-- Test 3: filter by role
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_mailbox_query(5001, '{"role":"inbox"}'::JSONB)->'ids') > 0),
+  'filter by role works'
+);
+
+-- Test 4: pagination limits results
+SELECT ok(
+  (SELECT (jmap_mailbox_query(5001, NULL, NULL, 0, 1)->'ids')::TEXT <> '[]'),
+  'pagination with limit=1 returns results'
+);
+
+-- ── ADR-003: jmap_mailbox_get resolves the caller's user via account_scope() ──
+-- The delegate-grant join in jmap_mailbox_get keys on the user BEHIND the caller's
+-- mailbox. That user is resolved via account_scope(p_mailbox_id) — not a hand-join
+-- of `mailboxes`. With divergent ids, a coincidental match is impossible, so this
+-- proves the shared mailbox's tags surface ONLY when the right user is resolved.
+--
+-- A separate SHARED mailbox (5002) whose tags the caller (user 105001) is granted
+-- 'read' on via mailbox_delegates.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (5002, NULL, (SELECT id FROM domains WHERE name='mbx.test'), 'team@mbx.test', 'Team', 'personal', FALSE);
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (5002, 105001, 'read', 105001);
+
+-- Test 5: jmap_mailbox_get returns the shared mailbox's tags to the delegate
+-- (account_scope(5001) → user 105001 → matches the delegate grant on 5002).
+SELECT ok(
+  (SELECT count(*) > 0 FROM jsonb_array_elements(
+     (jmap_mailbox_get(5001))->'list') e
+   WHERE (e->>'id')::BIGINT IN (SELECT id FROM tags WHERE mailbox_id = 5002)),
+  'jmap_mailbox_get surfaces a delegated mailbox tag via account_scope resolution'
+);
+
+-- Test 6: a mailbox with NO delegate grant for this user does NOT leak its tags.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (5003, NULL, (SELECT id FROM domains WHERE name='mbx.test'), 'secret@mbx.test', 'Secret', 'personal', FALSE);
+SELECT is(
+  (SELECT count(*)::INT FROM jsonb_array_elements(
+     (jmap_mailbox_get(5001))->'list') e
+   WHERE (e->>'id')::BIGINT IN (SELECT id FROM tags WHERE mailbox_id = 5003)),
+  0,
+  'a non-delegated mailbox does not leak its tags (no over-broad account_scope match)'
+);
+
+-- ── DIVERGENT-ID notFound FIX (jmap_mailbox_get) ──────────────────────────────
+-- BEFORE the seam, jmap_mailbox_get probed `tags WHERE id = x` ORG-WIDE: a tag
+-- belonging to a non-delegated foreign mailbox (5003) requested by this caller was
+-- NEITHER in list NOR in notFound (a cross-mailbox existence oracle). Routing
+-- through the found-set diff fixes it — that foreign tag id now appears in
+-- notFound. (Fails on the old org-wide probe — that's the fix landing.)
+-- 5003's own Inbox tag is the foreign id; 5001's Inbox tag is the owned id.
+SELECT ok(
+  (jmap_mailbox_get(5001, ARRAY[
+     (SELECT id FROM tags WHERE mailbox_id = 5001 AND name = 'Inbox'),
+     (SELECT id FROM tags WHERE mailbox_id = 5003 AND name = 'Inbox')
+   ])->'notFound') ? (SELECT id FROM tags WHERE mailbox_id = 5003 AND name = 'Inbox')::TEXT,
+  'mailbox_get: a non-delegated foreign tag id appears in notFound (org-wide oracle fixed)'
+);
+
+-- The owned tag id is NOT in notFound (and never leaks via the seam diff).
+SELECT ok(
+  NOT ((jmap_mailbox_get(5001, ARRAY[
+     (SELECT id FROM tags WHERE mailbox_id = 5001 AND name = 'Inbox'),
+     (SELECT id FROM tags WHERE mailbox_id = 5003 AND name = 'Inbox')
+   ])->'notFound') ? (SELECT id FROM tags WHERE mailbox_id = 5001 AND name = 'Inbox')::TEXT),
+  'mailbox_get: the owned tag id is absent from notFound'
+);
+
+-- ── Colored labels (Mailbox/set create+update color whitelist) ────────────────
+-- Create a user tag WITH a whitelisted hue; jmap_mailbox_get must echo `color`.
+SELECT jmap_mailbox_set_create(5001, '{"nt":{"name":"Work","color":"green"}}'::JSONB);
+SELECT is(
+  (jmap_mailbox_get(5001, ARRAY[(SELECT id FROM tags WHERE mailbox_id=5001 AND name='Work')])
+     ->'list'->0->>'color'),
+  'green',
+  'create-with-color stores the hue; jmap_mailbox_get echoes color'
+);
+
+-- An out-of-whitelist color is rejected server-side and stored NULL (not raw text).
+SELECT jmap_mailbox_set_create(5001, '{"nt2":{"name":"Play","color":"chartreuse"}}'::JSONB);
+SELECT is(
+  (jmap_mailbox_get(5001, ARRAY[(SELECT id FROM tags WHERE mailbox_id=5001 AND name='Play')])
+     ->'list'->0->>'color'),
+  NULL,
+  'an out-of-whitelist color is rejected (stored NULL, not arbitrary text)'
+);
+
+-- Update recolors a user tag to a whitelisted hue.
+SELECT jmap_mailbox_set_update(5001, jsonb_build_object(
+  (SELECT id FROM tags WHERE mailbox_id=5001 AND name='Work')::TEXT, '{"color":"rose"}'::JSONB));
+SELECT is(
+  (jmap_mailbox_get(5001, ARRAY[(SELECT id FROM tags WHERE mailbox_id=5001 AND name='Work')])
+     ->'list'->0->>'color'),
+  'rose',
+  'update recolors a user tag to a whitelisted hue'
+);
+
+-- A SYSTEM tag (Inbox) cannot be recolored: the id lands in notUpdated.
+SELECT ok(
+  (jmap_mailbox_set_update(5001, jsonb_build_object(
+     (SELECT id FROM tags WHERE mailbox_id=5001 AND name='Inbox')::TEXT, '{"color":"blue"}'::JSONB))
+   ->'notUpdated') ? (SELECT id FROM tags WHERE mailbox_id=5001 AND name='Inbox')::TEXT,
+  'a system tag cannot be recolored (notUpdated)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

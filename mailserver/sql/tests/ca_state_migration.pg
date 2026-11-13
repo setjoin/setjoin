@@ -1,0 +1,58 @@
+-- pgTAP: ca_state_migration.pg — V026 state enum + exclude columns + sync trigger + F6 CHECK + break-glass seed.
+BEGIN;
+SELECT plan(11);
+
+-- columns exist with the right types/defaults
+SELECT has_column('conditional_access_policies', 'state',          'state column added');
+SELECT has_column('conditional_access_policies', 'exclude_users',  'exclude_users column added');
+SELECT has_column('conditional_access_policies', 'exclude_groups', 'exclude_groups column added');
+SELECT col_default_is('conditional_access_policies', 'state', 'off', 'state defaults off');
+
+-- back-fill: an enabled row reads state='on', a disabled row reads state='off'
+INSERT INTO conditional_access_policies (id, priority, name, enabled, scope_type, conditions, actions)
+  VALUES (700001, 7001, 'mig-on', TRUE, 'global', '{}', '{"action":"block"}');
+SELECT is(
+  (SELECT state FROM conditional_access_policies WHERE id = 700001),
+  'on', 'INSERT enabled=TRUE syncs state=on via trigger');
+
+-- HAZARD: ca_sync_enabled is the SOLE writer of enabled — a direct enabled write is overridden.
+UPDATE conditional_access_policies SET state = 'off', enabled = TRUE WHERE id = 700001;
+SELECT is(
+  (SELECT enabled FROM conditional_access_policies WHERE id = 700001),
+  FALSE, 'direct enabled=TRUE with state=off is silently overridden to enabled=FALSE');
+
+-- array CHECK rejects a non-array exclude_users
+SELECT throws_ok(
+  $$ UPDATE conditional_access_policies SET exclude_users = '"nope"'::jsonb WHERE id = 700001 $$,
+  '23514', NULL, 'non-array exclude_users rejected by CHECK');
+
+-- report_only sets enabled=false (so the partial-unique index stays valid)
+UPDATE conditional_access_policies SET state = 'report_only' WHERE id = 700001;
+SELECT is(
+  (SELECT enabled FROM conditional_access_policies WHERE id = 700001),
+  FALSE, 'report_only maps to enabled=false');
+
+-- break-glass system_config key seeded
+SELECT is(
+  (SELECT value FROM system_config WHERE key = 'ca_break_glass_user_ids'),
+  '[]'::jsonb, 'ca_break_glass_user_ids seeded as empty array');
+
+-- F6 CHECK constraint: a bad condition key is rejected at the row level (direct SQL).
+-- ca_validate_policy_document(conditions, actions) is IMMUTABLE and returns false for
+-- unknown keys, which flips the CHECK to false and raises a 23514 check_violation.
+SELECT throws_ok(
+  $$ UPDATE conditional_access_policies
+        SET conditions = '{"unknown_key": "val"}'::jsonb
+      WHERE id = 700001 $$,
+  '23514', NULL, 'F6 CHECK: unknown condition key rejected by ca_policy_doc_valid constraint');
+
+-- F6 CHECK constraint: a valid policy document passes.
+SELECT lives_ok(
+  $$ UPDATE conditional_access_policies
+        SET conditions = '{"device_trust": "managed"}'::jsonb,
+            actions    = '{"action":"block"}'::jsonb
+      WHERE id = 700001 $$,
+  'F6 CHECK: valid condition key + action passes the ca_policy_doc_valid constraint');
+
+SELECT finish();
+ROLLBACK;

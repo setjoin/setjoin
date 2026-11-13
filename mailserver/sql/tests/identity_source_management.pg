@@ -1,0 +1,268 @@
+-- pgTAP: normalized identity-source configuration, secret, lifecycle, and
+-- accepted-drain contract.
+BEGIN;
+SELECT plan(33);
+SET LOCAL app.capture_notify = 'on';
+
+CREATE TEMP TABLE ism_fixture (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+INSERT INTO ism_fixture VALUES
+    ('actor_mailbox',mk_account('ism-actor')::text),
+    ('apply_key',gen_random_uuid()::text),
+    ('validate_key',gen_random_uuid()::text),
+    ('activate_key',gen_random_uuid()::text),
+    ('pause_key',gen_random_uuid()::text),
+    ('resume_key',gen_random_uuid()::text),
+    ('pause2_key',gen_random_uuid()::text),
+    ('retire_key',gen_random_uuid()::text),
+    ('secret_key',gen_random_uuid()::text),
+    ('rotate_key',gen_random_uuid()::text),
+    ('batch_key',gen_random_uuid()::text);
+INSERT INTO ism_fixture
+SELECT 'actor',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM ism_fixture WHERE key='actor_mailbox');
+
+SELECT has_table('public','identity_source_operations',
+    'source operation receipts are durable');
+SELECT col_is_pk('public','identity_source_operations',ARRAY['idempotency_key'],
+    'idempotency key is globally unique');
+SELECT is(
+    (SELECT relrowsecurity::text || ':' || relforcerowsecurity::text
+       FROM pg_class WHERE oid='identity_source_operations'::regclass),
+    'true:true','source operation receipts are FORCE RLS');
+SELECT is(
+    (SELECT rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
+      WHERE c.oid='identity_source_operations'::regclass),
+    'setjoin_owner','source operation receipts have isolated ownership');
+SELECT has_column('public','identity_sources','previous_config_envelope',
+    'source retains one prior encrypted envelope for rotation grace');
+SELECT has_column('public','identity_sources','previous_config_expires_at',
+    'prior encrypted envelope has an explicit expiry');
+
+SELECT is(
+    identity_source_config_apply(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','ISM SCIM','scim',
+        '{"authenticate":false,"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+        convert_to('encrypted-public-document','utf8'),1,1,NULL,
+        (SELECT value::uuid FROM ism_fixture WHERE key='apply_key'),
+        'create source management fixture'
+    )->>'state',
+    'draft','apply creates a draft and never activates implicitly');
+SELECT is(
+    (SELECT count(*)::integer FROM identity_sources WHERE source_key='scim:ism'),
+    1,'apply creates exactly one source');
+SELECT is(
+    identity_source_config_apply(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','ISM SCIM','scim',
+        '{"authenticate":false,"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+        convert_to('encrypted-public-document','utf8'),1,1,NULL,
+        (SELECT value::uuid FROM ism_fixture WHERE key='apply_key'),
+        'create source management fixture'
+    )->>'replayed',
+    'true','same apply request replays the durable receipt');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_config_apply(
+            %s,'scim:ism','Changed','scim',
+            '{"authenticate":false,"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+            convert_to('encrypted-public-document','utf8'),1,1,NULL,%L::uuid,'changed request'
+        )$$,
+        (SELECT value FROM ism_fixture WHERE key='actor'),
+        (SELECT value FROM ism_fixture WHERE key='apply_key')
+    ),
+    'BZ240','identity source idempotency key was reused',
+    'idempotency key cannot bind a different request');
+
+INSERT INTO ism_fixture
+SELECT 'generation',generation::text FROM identity_sources WHERE source_key='scim:ism';
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','validate',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='validate_key'),
+        'server dry run validated source'
+    )->>'state',
+    'validated','successful dry run advances draft to validated');
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','validate',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='validate_key'),
+        'server dry run validated source'
+    )->>'replayed',
+    'true','lifecycle replay returns the original receipt');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_lifecycle(%s,'scim:ism','activate',1,%L::uuid,'stale')$$,
+        (SELECT value FROM ism_fixture WHERE key='actor'),
+        gen_random_uuid()
+    ),
+    'BZ229','identity source generation is stale',
+    'lifecycle requires current generation CAS');
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','activate',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='activate_key'),
+        'activate validated source'
+    )->>'state',
+    'active','validated source activates explicitly');
+
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT id FROM identity_sources WHERE source_key='scim:ism'),
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='batch_key'),
+        '{"cursor":"accepted"}'::jsonb,'[]'::jsonb
+    )->>'entries',
+    '0','active source accepts a bounded empty batch');
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','pause',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='pause_key'),
+        'pause source admission'
+    )->>'state',
+    'paused','pause fences new discovery');
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT id FROM identity_sources WHERE source_key='scim:ism'),
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='batch_key'),0
+    )->>'cursorAdvanced',
+    'true','already-accepted batch drains after pause generation bump');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_batch_begin(
+          (SELECT id FROM identity_sources WHERE source_key='scim:ism'),
+          %s,%L::uuid,'{"cursor":"new"}'::jsonb,'[]'::jsonb
+        )$$,
+        (SELECT value FROM ism_fixture WHERE key='generation'),
+        gen_random_uuid()
+    ),
+    'BZ229','identity source generation is stale',
+    'paused source rejects stale-generation new discovery');
+
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_secret_set(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','bearerToken',convert_to('encrypted-with-secret','utf8'),
+        2,(SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        false,0,(SELECT value::uuid FROM ism_fixture WHERE key='secret_key'),
+        'set initial source secret'
+    )->>'secretConfigured',
+    'true','secret mutation returns only configured posture');
+SELECT is(
+    (SELECT encode(config_envelope,'escape') FROM identity_sources
+      WHERE source_key='scim:ism'),
+    'encrypted-with-secret','database receives only the encrypted envelope');
+SELECT is(
+    (SELECT previous_config_envelope IS NULL FROM identity_sources
+      WHERE source_key='scim:ism'),
+    true,'initial secret set retains no previous envelope');
+
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_secret_set(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','bearerToken',convert_to('encrypted-rotated-secret','utf8'),
+        3,(SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        true,3600,(SELECT value::uuid FROM ism_fixture WHERE key='rotate_key'),
+        'rotate source secret'
+    )->>'secretName',
+    'bearerToken','rotation result contains the name but no secret bytes');
+SELECT is(
+    (SELECT encode(previous_config_envelope,'escape') FROM identity_sources
+      WHERE source_key='scim:ism'),
+    'encrypted-with-secret','rotation retains only prior ciphertext');
+SELECT ok(
+    (SELECT previous_config_expires_at > statement_timestamp()
+      FROM identity_sources WHERE source_key='scim:ism'),
+    'rotation grace is bounded by an expiry');
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+      WHERE source_id=(SELECT id FROM identity_sources WHERE source_key='scim:ism')
+        AND action IN ('source_secret_set','source_secret_rotated')),
+    2,'secret audit evidence contains one event per accepted mutation');
+
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','resume',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='resume_key'),
+        'resume source admission'
+    )->>'state',
+    'active','paused source resumes');
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','pause',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='pause2_key'),
+        'pause before retirement'
+    )->>'state',
+    'paused','active source pauses before retirement');
+UPDATE ism_fixture SET value=(
+    SELECT generation::text FROM identity_sources WHERE source_key='scim:ism'
+) WHERE key='generation';
+SELECT is(
+    identity_source_lifecycle(
+        (SELECT value::bigint FROM ism_fixture WHERE key='actor'),
+        'scim:ism','retire',
+        (SELECT value::bigint FROM ism_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM ism_fixture WHERE key='retire_key'),
+        'retire source permanently'
+    )->>'state',
+    'retired','paused source retires terminally');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_lifecycle(
+          %s,'scim:ism','resume',
+          (SELECT generation FROM identity_sources WHERE source_key='scim:ism'),
+          %L::uuid,'cannot resume retired'
+        )$$,
+        (SELECT value FROM ism_fixture WHERE key='actor'),gen_random_uuid()
+    ),
+    'BZ238','illegal identity source lifecycle transition',
+    'retired source cannot resume');
+SELECT is(
+    (SELECT state FROM identity_sources WHERE source_key='scim:ism'),
+    'retired','illegal terminal transition mutates nothing');
+SELECT is(
+    (SELECT enabled FROM feature_toggles WHERE key='feature.identity_model_v2'),
+    false,'source management leaves master flag off');
+SELECT is(
+    (SELECT enabled FROM feature_toggles WHERE key='feature.identity_normalized_reads'),
+    false,'source management leaves normalized reads off');
+SELECT is(
+    (SELECT enabled FROM feature_toggles WHERE key='feature.identity_transitions'),
+    false,'source management leaves transition admission off');
+
+SELECT * FROM finish();
+ROLLBACK;

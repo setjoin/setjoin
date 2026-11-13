@@ -1,0 +1,20 @@
+-- mailserver/sql/tests/drive_cross_space_move.pg — I-3 space containment
+BEGIN;
+SELECT plan(3);
+SELECT mk_account('dxm') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT drive_space_create(:u, 'S1', 'regular') AS s1 \gset
+SELECT drive_space_create(:u, 'S2', 'regular') AS s2 \gset
+SELECT drive_node_create(:u, :s1, NULL, 'folder', 'f1') AS n1 \gset
+SELECT drive_node_create(:u, :s2, NULL, 'folder', 'f2') AS n2 \gset
+SELECT throws_ok(format($$ SELECT drive_node_move(%s, %s, %s) $$, :u, :n1, :n2),
+  'BZ143', NULL, 'cross-space move → BZ143 (copy through the export gate is the only spill)');
+-- insert-arm containment (Task 3 triggers)
+SELECT drive_node_create(:u, :s1, :n1, 'file', 'x.bin') AS f1 \gset
+SELECT throws_ok(format($$ INSERT INTO drive_files (node_id, space_id) VALUES (%s, %s) $$, :n2, :s1),
+  'BZ141', NULL, 'drive_files space mismatch trigger fires');
+SELECT throws_ok(format($$ INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (%s, %s, repeat('e',64), 1, %s) $$, :f1, :s2, :u),
+  'BZ141', NULL, 'drive_file_versions space mismatch trigger fires');
+SELECT * FROM finish();
+ROLLBACK;

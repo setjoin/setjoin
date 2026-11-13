@@ -1,0 +1,39 @@
+{
+  "case": "operation-bad-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "by_someone": true,
+          "generation": 2,
+          "kind": "install",
+          "phase": "paused",
+          "progress": {},
+          "reason": "seed",
+          "request": {
+            "providerId": "collabora"
+          },
+          "state": "paused_recoverable"
+        }
+      ],
+      "before": [
+        {
+          "by_someone": true,
+          "generation": 2,
+          "kind": "install",
+          "phase": "paused",
+          "progress": {},
+          "reason": "seed",
+          "request": {
+            "providerId": "collabora"
+          },
+          "state": "paused_recoverable"
+        }
+      ],
+      "table": "office_app_operations"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/apps/{appId}/operations/{operationId}/recover"
+}

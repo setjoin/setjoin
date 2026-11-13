@@ -1,0 +1,299 @@
+{
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "route": "DELETE /auth/identity-links/{id}",
+  "case": "unlink-repeat-row-effects",
+  "effects": [
+    {
+      "table": "saml_projection",
+      "snapshot": {
+        "after": {
+          "actor": {
+            "elevations": [],
+            "events": [
+              {
+                "action": "auth_linked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml",
+                  "providerKey": "saml:34101"
+                },
+                "reason": "IDFED3 fixture"
+              },
+              {
+                "action": "auth_unlinked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml"
+                },
+                "reason": "IDFED3 unlink"
+              }
+            ],
+            "evictions": [],
+            "grants": [
+              {
+                "generation": 1,
+                "kind": "admin_role_group",
+                "provenance": "source",
+                "revoked": true,
+                "target": "person"
+              }
+            ],
+            "links": [
+              {
+                "detached_by_owner": true,
+                "detached_reason": "IDFED3 unlink",
+                "generation": 2,
+                "method": "operator",
+                "purposes": [
+                  "authenticate"
+                ],
+                "state": "detached",
+                "subject": "idfed3-actor-subject"
+              }
+            ],
+            "revocations": [
+              {
+                "created_by_owner": true,
+                "family": null,
+                "jti": null,
+                "reason": "identity_auth_unlink",
+                "scope": "all"
+              }
+            ],
+            "sessions": [
+              {
+                "hash_bound": true,
+                "id": "gofree-idfed3-retry",
+                "method": "totp"
+              }
+            ],
+            "tokens": [
+              {
+                "revoked": true,
+                "revoked_by_owner": true,
+                "type": "refresh"
+              }
+            ],
+            "user": {
+              "enabled": true,
+              "password_set": true,
+              "saml_idp_entity_id": null,
+              "saml_name_id": null
+            },
+            "ws": 0
+          },
+          "foreign": {
+            "elevations": [],
+            "events": [
+              {
+                "action": "auth_linked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml",
+                  "providerKey": "saml:34101"
+                },
+                "reason": "IDFED3 fixture"
+              }
+            ],
+            "evictions": [],
+            "grants": [
+              {
+                "generation": 1,
+                "kind": "admin_role_group",
+                "provenance": "source",
+                "revoked": false,
+                "target": "person"
+              }
+            ],
+            "links": [
+              {
+                "detached_by_owner": null,
+                "detached_reason": null,
+                "generation": 1,
+                "method": "operator",
+                "purposes": [
+                  "authenticate"
+                ],
+                "state": "active",
+                "subject": "idfed3-foreign-subject"
+              }
+            ],
+            "revocations": [],
+            "sessions": [
+              {
+                "hash_bound": true,
+                "id": "gofree-idfed3-session-b",
+                "method": "totp"
+              }
+            ],
+            "tokens": [
+              {
+                "revoked": false,
+                "revoked_by_owner": null,
+                "type": "refresh"
+              }
+            ],
+            "user": {
+              "enabled": true,
+              "password_set": true,
+              "saml_idp_entity_id": "idfed3",
+              "saml_name_id": "idfed3-foreign-subject"
+            },
+            "ws": 0
+          }
+        },
+        "before": {
+          "actor": {
+            "elevations": [],
+            "events": [
+              {
+                "action": "auth_linked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml",
+                  "providerKey": "saml:34101"
+                },
+                "reason": "IDFED3 fixture"
+              },
+              {
+                "action": "auth_unlinked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml"
+                },
+                "reason": "IDFED3 unlink"
+              }
+            ],
+            "evictions": [],
+            "grants": [
+              {
+                "generation": 1,
+                "kind": "admin_role_group",
+                "provenance": "source",
+                "revoked": true,
+                "target": "person"
+              }
+            ],
+            "links": [
+              {
+                "detached_by_owner": true,
+                "detached_reason": "IDFED3 unlink",
+                "generation": 2,
+                "method": "operator",
+                "purposes": [
+                  "authenticate"
+                ],
+                "state": "detached",
+                "subject": "idfed3-actor-subject"
+              }
+            ],
+            "revocations": [
+              {
+                "created_by_owner": true,
+                "family": null,
+                "jti": null,
+                "reason": "identity_auth_unlink",
+                "scope": "all"
+              }
+            ],
+            "sessions": [
+              {
+                "hash_bound": true,
+                "id": "gofree-idfed3-retry",
+                "method": "totp"
+              }
+            ],
+            "tokens": [
+              {
+                "revoked": true,
+                "revoked_by_owner": true,
+                "type": "refresh"
+              }
+            ],
+            "user": {
+              "enabled": true,
+              "password_set": true,
+              "saml_idp_entity_id": null,
+              "saml_name_id": null
+            },
+            "ws": 0
+          },
+          "foreign": {
+            "elevations": [],
+            "events": [
+              {
+                "action": "auth_linked",
+                "actor_is_owner": true,
+                "after_digest": true,
+                "before_digest": false,
+                "metadata": {
+                  "kind": "saml",
+                  "providerKey": "saml:34101"
+                },
+                "reason": "IDFED3 fixture"
+              }
+            ],
+            "evictions": [],
+            "grants": [
+              {
+                "generation": 1,
+                "kind": "admin_role_group",
+                "provenance": "source",
+                "revoked": false,
+                "target": "person"
+              }
+            ],
+            "links": [
+              {
+                "detached_by_owner": null,
+                "detached_reason": null,
+                "generation": 1,
+                "method": "operator",
+                "purposes": [
+                  "authenticate"
+                ],
+                "state": "active",
+                "subject": "idfed3-foreign-subject"
+              }
+            ],
+            "revocations": [],
+            "sessions": [
+              {
+                "hash_bound": true,
+                "id": "gofree-idfed3-session-b",
+                "method": "totp"
+              }
+            ],
+            "tokens": [
+              {
+                "revoked": false,
+                "revoked_by_owner": null,
+                "type": "refresh"
+              }
+            ],
+            "user": {
+              "enabled": true,
+              "password_set": true,
+              "saml_idp_entity_id": "idfed3",
+              "saml_name_id": "idfed3-foreign-subject"
+            },
+            "ws": 0
+          }
+        }
+      },
+      "identity": null,
+      "mapping": null
+    }
+  ]
+}

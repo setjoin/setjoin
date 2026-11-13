@@ -1,0 +1,84 @@
+BEGIN;
+SELECT plan(20);
+SET LOCAL app.capture_notify='on';
+
+SELECT mk_account('mle-actor') AS actor_mb \gset
+SELECT mk_account('mle-owner') AS owner_mb \gset
+SELECT mk_account('mle-delegate') AS delegate_mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:actor_mb \gset
+SELECT user_id AS owner FROM mailboxes WHERE id=:owner_mb \gset
+SELECT user_id AS delegate FROM mailboxes WHERE id=:delegate_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(:actor,1,:actor);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.mailbox_lifecycle_retention';
+
+SELECT gen_random_uuid() AS local_op \gset
+INSERT INTO mailbox_lifecycle_operations(operation_id,mailbox_id,action,actor_user_id,expected_generation,
+  request_digest,before_digest,after_digest,result)
+VALUES(:'local_op',:owner_mb,'suspend',:actor,1,repeat('1',64),repeat('2',64),repeat('3',64),'{}');
+INSERT INTO sessions(user_id,expires_at,auth_method) VALUES(:owner,now()+interval '1 day','password');
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by) VALUES(:owner_mb,:delegate,'full_access',:actor);
+INSERT INTO mailbox_lifecycle_effects(operation_id,mailbox_id,effect_kind) VALUES
+  (:'local_op',:owner_mb,'revoke_sessions'),(:'local_op',:owner_mb,'revoke_delegates'),(:'local_op',:owner_mb,'notify_clients');
+
+SELECT mailbox_lifecycle_effect_claim('effect-test',60) AS claim1 \gset
+SELECT is((:'claim1'::jsonb)->>'kind','revoke_sessions','claim orders the first pending effect');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_apply(%L,%s)',
+  'effect-test',(:'claim1'::jsonb)->>'effectId'),'session revocation applies under the active lease');
+SELECT is((SELECT count(*) FROM sessions WHERE user_id=:owner)::integer,0,'session effect removes live web sessions');
+SELECT ok(EXISTS(SELECT 1 FROM session_revocations WHERE user_id=:owner AND scope='all'),
+  'session effect creates the durable runtime denylist watermark');
+
+SELECT mailbox_lifecycle_effect_claim('effect-test',60) AS claim2 \gset
+SELECT is((:'claim2'::jsonb)->>'kind','revoke_delegates','delegate effect is independently leased');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_apply(%L,%s)',
+  'effect-test',(:'claim2'::jsonb)->>'effectId'),'delegate revocation applies through its reducer');
+SELECT is((SELECT count(*) FROM mailbox_delegates WHERE mailbox_id=:owner_mb)::integer,0,
+  'delegate effect removes every retained-mailbox grant');
+
+SELECT mailbox_lifecycle_effect_claim('effect-test',60) AS claim3 \gset
+SELECT is((:'claim3'::jsonb)->>'kind','notify_clients','client notification is a durable effect');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_apply(%L,%s)',
+  'effect-test',(:'claim3'::jsonb)->>'effectId'),'client notification completes through app_notify');
+SELECT ok(EXISTS(SELECT 1 FROM _test_notify_log WHERE channel='mailbox_lifecycle'),
+  'client notification emits on the fixed lifecycle channel');
+
+SELECT gen_random_uuid() AS media_op \gset
+INSERT INTO mailbox_lifecycle_operations(operation_id,mailbox_id,action,actor_user_id,expected_generation,
+  request_digest,before_digest,after_digest,result)
+VALUES(:'media_op',:owner_mb,'suspend',:actor,1,repeat('4',64),repeat('5',64),repeat('6',64),'{}');
+INSERT INTO mailbox_lifecycle_effects(operation_id,mailbox_id,effect_kind) VALUES(:'media_op',:owner_mb,'evict_media');
+INSERT INTO mailbox_lifecycle_effect_targets(operation_id,room_name,identity) VALUES(:'media_op','room-a','u:owner');
+SELECT mailbox_lifecycle_effect_claim('media-test',60) AS media_claim \gset
+SELECT is(jsonb_array_length((:'media_claim'::jsonb)->'targets'),1,'media claim snapshots exact durable targets');
+SELECT throws_ok(format('SELECT mailbox_lifecycle_effect_complete(%L,%s)',
+  'media-test',(:'media_claim'::jsonb)->>'effectId'),'55000',NULL,
+  'media effect cannot complete while a target remains');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_target_complete(%L,%s,%L,%L)',
+  'media-test',(:'media_claim'::jsonb)->>'effectId','room-a','u:owner'),'media target is acknowledged under the same lease');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_complete(%L,%s)',
+  'media-test',(:'media_claim'::jsonb)->>'effectId'),'media effect completes only after all targets');
+
+SELECT gen_random_uuid() AS hook_op \gset
+INSERT INTO mailbox_lifecycle_operations(operation_id,mailbox_id,action,actor_user_id,expected_generation,
+  request_digest,before_digest,after_digest,result)
+VALUES(:'hook_op',:owner_mb,'resume',:actor,1,repeat('7',64),repeat('8',64),repeat('9',64),'{}');
+INSERT INTO mailbox_lifecycle_effects(operation_id,mailbox_id,effect_kind) VALUES(:'hook_op',:owner_mb,'lifecycle_webhook');
+INSERT INTO mailbox_lifecycle_outbox(operation_id,event_kind,dedupe_key,payload)
+VALUES(:'hook_op','mailbox.resumed','mailbox-lifecycle:'||:'hook_op','{"mailboxId":"1"}');
+SELECT mailbox_lifecycle_effect_claim('hook-test',60) AS hook_claim \gset
+SELECT is(((:'hook_claim'::jsonb)->'event'->>'id'),:'hook_op','webhook uses the stable operation ID');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_fail(%L,%s,%L)',
+  'hook-test',(:'hook_claim'::jsonb)->>'effectId','temporary outage'),'failed webhook returns to bounded retry state');
+SELECT is((SELECT state FROM mailbox_lifecycle_outbox WHERE operation_id=:'hook_op'),'failed',
+  'webhook failure remains visible in the durable outbox');
+UPDATE mailbox_lifecycle_effects SET lease_until=statement_timestamp()-interval '1 second' WHERE operation_id=:'hook_op';
+UPDATE mailbox_lifecycle_outbox SET lease_until=statement_timestamp()-interval '1 second' WHERE operation_id=:'hook_op';
+SELECT mailbox_lifecycle_effect_claim('hook-retry',60) AS hook_retry \gset
+SELECT is(((:'hook_retry'::jsonb)->>'attempt')::integer,2,'expired failed effect is reclaimed with a monotonic attempt');
+SELECT lives_ok(format('SELECT mailbox_lifecycle_effect_complete(%L,%s)',
+  'hook-retry',(:'hook_retry'::jsonb)->>'effectId'),'reclaimed webhook completes under the new owner');
+SELECT is((SELECT state FROM mailbox_lifecycle_outbox WHERE operation_id=:'hook_op'),'completed',
+  'webhook completion closes the transaction-bound outbox row');
+
+SELECT * FROM finish();
+ROLLBACK;

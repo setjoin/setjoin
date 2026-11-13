@@ -1,0 +1,62 @@
+-- mailserver/sql/tests/drive_version_labels.pg — version labels (Task 7).
+BEGIN;
+SELECT plan(14);
+
+SELECT mk_account('dvla') AS mba \gset
+SELECT mk_account('dvlb') AS mbb \gset
+SELECT mk_account('dvlc') AS mbc \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS v FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS o FROM mailboxes WHERE id = :mbc \gset
+
+SELECT drive_space_create(:m, 'VL', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :v, 'viewer');
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'plan.docx') AS nid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 'test')->>'versionId')::bigint AS ver \gset
+
+-- set
+SELECT drive_version_label_set(:m, :ver, 'Approved v2');
+SELECT ok(EXISTS (SELECT 1 FROM drive_version_labels WHERE version_id=:ver AND label='Approved v2'), 'label row exists');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='label.set'), 'audited label.set');
+
+-- duplicate set: idempotent, no second audit row
+SELECT drive_version_label_set(:m, :ver, 'Approved v2');
+SELECT is((SELECT count(*) FROM drive_version_labels WHERE version_id=:ver AND label='Approved v2')::int, 1, 'duplicate set stays one row');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:sid AND action='label.set')::int, 1, 'duplicate set writes no second audit row');
+
+-- invalid label
+SELECT throws_ok(format($$ SELECT drive_version_label_set(%s, %s, '') $$, :m, :ver),
+  'BZ141', NULL, 'empty label → BZ141');
+SELECT throws_ok(format($$ SELECT drive_version_label_set(%s, %s, %L) $$, :m, :ver, repeat('x', 61)),
+  'BZ141', NULL, '>60 chars → BZ141');
+
+-- role/membership guards
+SELECT throws_ok(format($$ SELECT drive_version_label_set(%s, %s, 'x') $$, :v, :ver),
+  'BZ140', NULL, 'viewer set → BZ140');
+SELECT throws_ok(format($$ SELECT drive_version_label_set(%s, %s, 'x') $$, :o, :ver),
+  'BZ139', NULL, 'non-member set → BZ139');
+
+-- remove
+SELECT drive_version_label_remove(:m, :ver, 'Approved v2');
+SELECT ok(NOT EXISTS (SELECT 1 FROM drive_version_labels WHERE version_id=:ver AND label='Approved v2'), 'remove deletes the row');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='label.remove'), 'audited label.remove');
+SELECT throws_ok(format($$ SELECT drive_version_label_remove(%s, %s, 'Approved v2') $$, :m, :ver),
+  'BZ139', NULL, 'removing a nonexistent label → BZ139');
+
+-- RLS: member reads, outsider sees nothing (LR-11 join-through)
+SELECT drive_version_label_set(:m, :ver, 'Sent to client');
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :v::text, true);
+SELECT is((SELECT count(*) FROM drive_version_labels WHERE version_id=:ver)::int, 1, 'member (viewer) reads the label via RLS');
+SELECT set_config('app.current_user_id', :o::text, true);
+SELECT is((SELECT count(*) FROM drive_version_labels WHERE version_id=:ver)::int, 0, 'outsider: label invisible via RLS');
+RESET ROLE;
+
+-- non-vacuity
+SELECT ok((SELECT count(*) FROM drive_version_labels WHERE version_id=:ver) >= 1, 'non-vacuity: superuser sees the label');
+
+SELECT * FROM finish();
+ROLLBACK;

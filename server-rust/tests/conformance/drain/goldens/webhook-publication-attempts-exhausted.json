@@ -1,0 +1,30 @@
+{
+  "case": "webhook-publication-attempts-exhausted",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "publications": [
+      {
+        "attempts": 12,
+        "completed": true,
+        "event_id": "evt_pub_spent",
+        "last_error": "maximum attempts exhausted",
+        "leased": false,
+        "state": "exhausted"
+      }
+    ],
+    "requests": [],
+    "subscriptions": [
+      {
+        "key_id": "v1",
+        "label": "org",
+        "legacy_prev": false,
+        "legacy_secret": false,
+        "prev_key_id": null,
+        "sealed": true,
+        "sealed_prev": false
+      }
+    ]
+  }
+}

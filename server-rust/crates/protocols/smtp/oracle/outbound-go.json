@@ -1,0 +1,104 @@
+[
+  {
+    "case": {
+      "name": "all-delivered-repeat",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 2,
+            "delivered": 2
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA",
+          "RSET",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003ctwo@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K",
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,33 @@
+{
+  "case": "autoconfig-invalid",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/.well-known/autoconfig/mail/config-v1.1.xml"
+    },
+    "response": {
+      "body_length": 741,
+      "body_sha256": "61f297440528daeccd5a2fb28648e75f603ab71dc99759585992dc82fb7607ce",
+      "body_text": "&lt;?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<clientConfig version=\"1.1\">\n  <emailProvider id=\"<actor-domain>\">\n    <domain><actor-domain></domain>\n    <displayName><actor-domain></displayName>\n    <incomingServer type=\"imap\">\n      <hostname><actor-domain></hostname>\n      <port>993</port>\n      <socketType>SSL</socketType>\n      <username>%EMAILADDRESS%</username>\n      <authentication>password-cleartext</authentication>\n    </incomingServer>\n    <outgoingServer type=\"smtp\">\n      <hostname><actor-domain></hostname>\n      <port>587</port>\n      <socketType>STARTTLS</socketType>\n      <username>%EMAILADDRESS%</username>\n      <authentication>password-cleartext</authentication>\n    </outgoingServer>\n  </emailProvider>\n</clientConfig>\n",
+      "headers": {
+        "cache-control": "public, max-age=86400",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/xml",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-autoconfig_invalid"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /.well-known/autoconfig/mail/config-v1.1.xml"
+}

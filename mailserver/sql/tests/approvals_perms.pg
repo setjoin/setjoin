@@ -1,0 +1,33 @@
+-- pgTAP: V048 approvals perm seed + RLS upgrade assertions.
+BEGIN;
+SELECT plan(5);
+
+-- Perms exist in admin_permissions
+SELECT ok(
+  (SELECT COUNT(*) FROM admin_permissions WHERE permission_key = 'approvals.view') = 1,
+  'approvals.view seeded in admin_permissions'
+);
+SELECT ok(
+  (SELECT COUNT(*) FROM admin_permissions WHERE permission_key = 'approvals.manage') = 1,
+  'approvals.manage seeded in admin_permissions'
+);
+
+-- Super Admin role (id=1) has both in its permissions array
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_role_groups WHERE id = 1 AND 'approvals.view' = ANY(permissions)),
+  'Super Admin has approvals.view'
+);
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_role_groups WHERE id = 1 AND 'approvals.manage' = ANY(permissions)),
+  'Super Admin has approvals.manage'
+);
+
+-- approvals.manage is marked is_sensitive = true
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'approvals.manage'),
+  true,
+  'approvals.manage is_sensitive'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

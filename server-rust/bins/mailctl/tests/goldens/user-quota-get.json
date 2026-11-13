@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users/8/quota",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "map[quotaBytes:1024]\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,51 @@
+-- compute_thread_id.pg: inbound reply threading.
+-- Regression guard: messages.message_id is stored WITH angle brackets (raw
+-- Message-Id header, as the Go SMTP layer passes it), while In-Reply-To/References
+-- are trimmed before the parent lookup. compute_thread_id must trim the stored
+-- side too, else every reply starts its own thread (breaks conversation grouping
+-- + Mute). RED before the trim fix: the two asserts returned distinct thread_ids.
+BEGIN;
+SELECT plan(3);
+
+INSERT INTO domains (name, is_local) VALUES ('thread.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('t', (SELECT id FROM domains WHERE name = 'thread.example'), 't@thread.example', 'T');
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+  VALUES ((SELECT id FROM users WHERE email = 't@thread.example'),
+          (SELECT id FROM domains WHERE name = 'thread.example'),
+          't@thread.example', 'T', 'personal', TRUE);
+
+-- Root message.
+SELECT deliver('t1', '<thr-a>', 'bob@ext.com', 'Bob', 't@thread.example',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hi', NULL, NULL, 'b', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+
+-- 1. Reply via In-Reply-To (bracketed, exactly as the SMTP layer passes it).
+SELECT deliver('t2', '<thr-b>', 'bob@ext.com', 'Bob', 't@thread.example',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Re: Hi', '<thr-a>', '<thr-a>', 'b', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-b>'),
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-a>'),
+  'reply threads with its parent via In-Reply-To');
+
+-- 2. Reply via the References chain only (multi-id, space-separated, bracketed).
+SELECT deliver('t3', '<thr-c>', 'bob@ext.com', 'Bob', 't@thread.example',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Re: Hi', NULL, '<thr-a> <thr-b>', 'b', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-c>'),
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-a>'),
+  'reply threads via the References header chain');
+
+-- 3. An unrelated message (no refs) starts its own thread.
+SELECT deliver('t4', '<thr-z>', 'bob@ext.com', 'Bob', 't@thread.example',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Unrelated', NULL, NULL, 'b', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT isnt(
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-z>'),
+  (SELECT thread_id FROM messages WHERE message_id = '<thr-a>'),
+  'an unrelated message does NOT join the thread');
+
+SELECT * FROM finish();
+ROLLBACK;

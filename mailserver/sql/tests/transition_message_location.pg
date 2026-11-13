@@ -1,0 +1,250 @@
+-- pgTAP: transition_message_location.sql — atomic location swap + draft delete
+BEGIN;
+SELECT plan(24);
+
+-- ── Fixture ──
+INSERT INTO domains (name, is_local) VALUES ('xloc.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 107301 != mailbox 7301). transition_message_location
+-- / delete_draft_message take the MAILBOX id; message ids 7301/7302/7303 are a
+-- separate namespace (messages.id), unrelated to the mailbox/user ids.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (107301, 'xloc', (SELECT id FROM domains WHERE name = 'xloc.test'), 'x@xloc.test', 'X');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7301, 107301, (SELECT id FROM domains WHERE name = 'xloc.test'), 'x@xloc.test', 'X', 'personal', TRUE);
+
+-- Location tags (exclusive_group = 'location'). get_tag_id auto-creates;
+-- force the exclusive_group so the trigger + assertions behave.
+SELECT get_tag_id('Inbox', 7301);
+SELECT get_tag_id('Trash', 7301);
+SELECT get_tag_id('Sent',  7301);
+UPDATE tags SET exclusive_group = 'location'
+  WHERE mailbox_id = 7301 AND name IN ('Inbox','Trash','Sent');
+
+-- A message that starts in Inbox.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7301, 7301, get_tag_id('Inbox', 7301), '<m1@xloc.test>', 'Hi', 'f@ext.com', 100, 'thr-7301', 'raw-7301', now(), FALSE);
+SELECT tag_message(7301, (SELECT received_at FROM messages WHERE id = 7301), 'Inbox', 7301, 'deliver', TRUE);
+
+-- Capture pre-swap state for the bump assertion.
+CREATE TEMP TABLE _pre AS
+  SELECT jmap_email_state AS s FROM mailboxes WHERE id = 7301;
+
+-- ── Test 1: the reducer runs ──
+SELECT lives_ok(
+  $$ SELECT transition_message_location(7301, (SELECT received_at FROM messages WHERE id = 7301), 'Trash', 7301) $$,
+  'transition_message_location succeeds (Inbox -> Trash)'
+);
+
+-- ── Test 2: exactly ONE location tag remains, and it is Trash ──
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7301 AND t.exclusive_group = 'location'),
+  1,
+  'exactly one location tag after transition'
+);
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7301 AND t.exclusive_group = 'location'),
+  'Trash',
+  'the surviving location tag is the new one (Trash)'
+);
+
+-- ── Test 4: old Inbox location tag is gone ──
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7301 AND t.name = 'Inbox'),
+  0,
+  'old Inbox location tag removed'
+);
+
+-- ── Test 5: jmap_email_state bumped exactly once ──
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = 7301),
+  (SELECT s FROM _pre) + 1,
+  'jmap_email_state bumped exactly once'
+);
+
+
+-- ── Test 6: counters — Trash tag total_count includes this message ──
+SELECT cmp_ok(
+  (SELECT total_count::BIGINT FROM tags WHERE mailbox_id = 7301 AND name = 'Trash'),
+  '>=', 1::BIGINT,
+  'Trash tag total_count reflects the moved message'
+);
+
+-- ── Test 7: counters — Inbox tag total_count decremented back to 0 ──
+SELECT is(
+  (SELECT total_count::BIGINT FROM tags WHERE mailbox_id = 7301 AND name = 'Inbox'),
+  0::BIGINT,
+  'Inbox tag total_count decremented after the move'
+);
+
+-- ── Test 8: idempotent target — transitioning to the SAME location keeps one tag ──
+SELECT lives_ok(
+  $$ SELECT transition_message_location(7301, (SELECT received_at FROM messages WHERE id = 7301), 'Trash', 7301) $$,
+  'transition to the same location is a no-error no-op-ish'
+);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7301 AND t.exclusive_group = 'location'),
+  1,
+  'still exactly one location tag after same-target transition'
+);
+
+-- ── Test 10: unknown target tag raises BZ019 (tag_not_found, via tag_message) ──
+SELECT throws_ok(
+  $$ SELECT transition_message_location(7301, (SELECT received_at FROM messages WHERE id = 7301), 'Nope', 7301) $$,
+  'BZ019',
+  NULL,
+  'unknown target location tag raises BZ019'
+);
+
+-- ── Test 11: cross-mailbox isolation — wrong mailbox_id touches nothing ──
+SELECT throws_ok(
+  $$ SELECT transition_message_location(7301, (SELECT received_at FROM messages WHERE id = 7301), 'Trash', 999999) $$,
+  'BZ019',
+  NULL,
+  'transition with a foreign mailbox_id cannot resolve the tag (BZ019), no cross-tenant write'
+);
+
+-- ── delete_draft_message ──
+-- A draft sitting in Drafts (a location tag), with a non-location tag too.
+SELECT get_tag_id('Drafts', 7301);
+UPDATE tags SET exclusive_group = 'location' WHERE mailbox_id = 7301 AND name = 'Drafts';
+SELECT get_tag_id('Important', 7301);  -- non-location, must NOT block delete
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7302, 7301, get_tag_id('Drafts', 7301), '<d1@xloc.test>', 'Draft', 'x@xloc.test', 50, 'thr-7302', 'raw-7302', now(), TRUE);
+SELECT tag_message(7302, (SELECT received_at FROM messages WHERE id = 7302), 'Drafts',    7301, 'user', TRUE);
+SELECT tag_message(7302, (SELECT received_at FROM messages WHERE id = 7302), 'Important', 7301, 'user', FALSE);
+
+-- Test 12: the helper runs and deletes the draft.
+SELECT lives_ok(
+  $$ SELECT delete_draft_message(7302, (SELECT received_at FROM messages WHERE id = 7302), 7301) $$,
+  'delete_draft_message succeeds'
+);
+
+-- Test 13: the message row is gone.
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE id = 7302),
+  0,
+  'draft message row deleted'
+);
+
+-- Test 14: all its message_tags are gone (FK ON DELETE CASCADE on the message).
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags WHERE message_id = 7302),
+  0,
+  'all message_tags for the draft removed'
+);
+
+-- Test 15: another mailbox's draft is untouched (R3) — foreign mailbox is a no-op.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7303, 7301, get_tag_id('Drafts', 7301), '<d2@xloc.test>', 'Draft2', 'x@xloc.test', 50, 'thr-7303', 'raw-7303', now(), TRUE);
+SELECT delete_draft_message(7303, (SELECT received_at FROM messages WHERE id = 7303), 999999);
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE id = 7303),
+  1,
+  'delete_draft_message with a foreign mailbox_id deletes nothing (R3)'
+);
+
+-- ── p_added_by + p_notify (the load-bearing seam params) ──
+-- Seam adoption (part 2): the 6 former set_message_location sites now route
+-- through this seam. Two new knobs make that possible without behavior change:
+-- (a) p_added_by threads the message_tags.added_by provenance ('dlp'/'rule'/
+--     'recall'/…); (b) p_notify=FALSE suppresses the per-swap push for callers
+--     that already emit one push for the whole operation (batch loops, send(),
+--     recall). These tests pin both.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7304, 7301, get_tag_id('Inbox', 7301), '<m4@xloc.test>', 'Prov', 'f@ext.com', 100, 'thr-7304', 'raw-7304', now(), FALSE);
+SELECT tag_message(7304, (SELECT received_at FROM messages WHERE id = 7304), 'Inbox', 7301, 'deliver', TRUE);
+
+-- Test 16: p_added_by is recorded verbatim on the new location tag.
+SELECT transition_message_location(
+  7304, (SELECT received_at FROM messages WHERE id = 7304), 'Trash', 7301, 'recall', TRUE);
+SELECT is(
+  (SELECT mt.added_by FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7304 AND t.name = 'Trash'),
+  'recall',
+  'p_added_by provenance is stored on the swapped-in location tag'
+);
+
+-- Test 17: default p_added_by is still 'user' (back-compat with the 4-arg call).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7305, 7301, get_tag_id('Inbox', 7301), '<m5@xloc.test>', 'Def', 'f@ext.com', 100, 'thr-7305', 'raw-7305', now(), FALSE);
+SELECT tag_message(7305, (SELECT received_at FROM messages WHERE id = 7305), 'Inbox', 7301, 'deliver', TRUE);
+SELECT transition_message_location(
+  7305, (SELECT received_at FROM messages WHERE id = 7305), 'Trash', 7301);  -- 4-arg
+SELECT is(
+  (SELECT mt.added_by FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7305 AND t.name = 'Trash'),
+  'user',
+  'the 4-arg call defaults p_added_by to user'
+);
+
+-- Test 18: p_notify => FALSE suppresses the state bump (caller owns the push).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7306, 7301, get_tag_id('Inbox', 7301), '<m6@xloc.test>', 'Quiet', 'f@ext.com', 100, 'thr-7306', 'raw-7306', now(), FALSE);
+SELECT tag_message(7306, (SELECT received_at FROM messages WHERE id = 7306), 'Inbox', 7301, 'deliver', TRUE);
+CREATE TEMP TABLE _pre_quiet AS SELECT jmap_email_state AS s FROM mailboxes WHERE id = 7301;
+SELECT transition_message_location(
+  7306, (SELECT received_at FROM messages WHERE id = 7306), 'Trash', 7301, 'user', FALSE);
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = 7301),
+  (SELECT s FROM _pre_quiet),
+  'p_notify=FALSE does NOT bump jmap_email_state (no double-push at callers that already notify)'
+);
+-- but the swap itself still happened: exactly one location tag, and it is Trash.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7306 AND t.exclusive_group = 'location'),
+  1,
+  'p_notify=FALSE still performs the atomic swap (exactly one location tag)'
+);
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7306 AND t.exclusive_group = 'location'),
+  'Trash',
+  'p_notify=FALSE still lands the message in the requested location'
+);
+
+-- ── REAL push assertions (WAVE 4 Phase 3): capture the app_notify tee and prove
+-- the default (p_notify=TRUE) swap PUSHES on tag:{mailbox} exactly once, AND that
+-- the p_notify=FALSE swap is genuinely SILENT (the seam's suppression knob that
+-- prevents double-push at callers — send/recall/destroy — that already notify). ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7307, 7301, get_tag_id('Inbox', 7301), '<m7@xloc.test>', 'Push', 'f@ext.com', 100, 'thr-7307', 'raw-7307', now(), FALSE);
+SELECT tag_message(7307, (SELECT received_at FROM messages WHERE id = 7307), 'Inbox', 7301, 'deliver', TRUE);
+
+SET LOCAL app.capture_notify = 'on';
+
+-- state-bump ⇒ push guard: snapshot the mailbox's state tokens BEFORE the
+-- p_notify=TRUE swap below. That swap bumps jmap_email_state via
+-- notify_state_change and MUST push on tag:7301 in the same txn — the guard
+-- asserts the bump and the push come together (the silent-stale invariant),
+-- complementing the concrete notify_count assertions in this window.
+CREATE TEMP TABLE _guard AS SELECT notify_guard_snapshot(7301) AS s;
+
+-- default p_notify=TRUE → exactly one push on tag:7301 with state_change.
+SELECT transition_message_location(7307, (SELECT received_at FROM messages WHERE id = 7307), 'Trash', 7301);
+SELECT is(notify_count('tag:7301'), 1,
+  'default p_notify=TRUE pushes on tag:{mailbox} exactly once');
+SELECT is(last_notify_event('tag:7301'), 'state_change',
+  'the transition push carries the state_change event');
+
+-- the state bump from the p_notify=TRUE swap was accompanied by a push.
+SELECT ok(
+  reducer_pushed_if_bumped(7301, (SELECT s FROM _guard)),
+  'transition_message_location pushed on tag:{mailbox} for the state bump'
+);
+
+-- p_notify=FALSE → NO additional push (count stays 1): the suppression is real.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (7308, 7301, get_tag_id('Inbox', 7301), '<m8@xloc.test>', 'Quiet2', 'f@ext.com', 100, 'thr-7308', 'raw-7308', now(), FALSE);
+SELECT tag_message(7308, (SELECT received_at FROM messages WHERE id = 7308), 'Inbox', 7301, 'deliver', TRUE);
+SELECT transition_message_location(7308, (SELECT received_at FROM messages WHERE id = 7308), 'Trash', 7301, 'user', FALSE);
+SELECT is(notify_count('tag:7301'), 1,
+  'p_notify=FALSE emits NO push (count still 1) — caller owns the single push');
+
+SELECT * FROM finish();
+ROLLBACK;

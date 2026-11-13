@@ -1,0 +1,81 @@
+BEGIN;
+SELECT plan(29);
+
+SELECT mk_account('sender-control-a') AS mb_a \gset
+SELECT mk_account('sender-control-b') AS mb_b \gset
+SELECT user_id AS user_a,email AS email_a FROM mailboxes WHERE id=:mb_a \gset
+SELECT user_id AS user_b,email AS email_b FROM mailboxes WHERE id=:mb_b \gset
+
+SELECT deliver('sender-control-ref','<sender-control@example.test>','Sender@Example.Test','Sender',
+  :'email_a','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'Control test',NULL,NULL,'body',NULL,100,false,
+  statement_timestamp(),'pass','pass','pass',0.0,NULL,p_is_external=>true) AS msg_id \gset
+SELECT received_at AS msg_at FROM messages WHERE id=:msg_id AND mailbox_id=:mb_a \gset
+
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.sender_control_center'),false,'sender control defaults OFF');
+SELECT throws_ok(format($q$SELECT sender_control_action(%s,%s,%s,%L,%L,'vip',1,%L)$q$,
+  :user_a,:mb_a,:msg_id,:'msg_at',gen_random_uuid(),repeat('a',64)),'BZ300',NULL,'mutations fail closed while OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.sender_control_center';
+
+SELECT is(sender_control_read(:user_a,:mb_a,:msg_id,:'msg_at')->>'sender','sender@example.test','sender is derived and canonicalized server-side');
+SELECT is(sender_control_read(:user_a,:mb_a,:msg_id,:'msg_at')->>'generation','1','projection carries generation');
+
+SELECT gen_random_uuid() AS focus_op \gset
+SELECT is(sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'focus_op','never_focus',1,repeat('b',64))->>'neverFocus','true',
+  'never-focus updates the current message and future sender policy together');
+SELECT ok(EXISTS(SELECT 1 FROM focus_sender_overrides WHERE user_id=:user_a AND sender='sender@example.test' AND NOT focused),
+  'focus authority is the existing override table');
+SELECT is((sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'focus_op','never_focus',1,repeat('b',64))->>'replayed')::boolean,true,
+  'exact action replay returns one receipt');
+SELECT throws_ok(format($q$SELECT sender_control_action(%s,%s,%s,%L,%L,'vip',2,%L)$q$,
+  :user_a,:mb_a,:msg_id,:'msg_at',:'focus_op',repeat('c',64)),'BZ303',NULL,'operation UUID reuse with different content is rejected');
+
+SELECT gen_random_uuid() AS block_op \gset
+SELECT is(sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'block_op','block',2,repeat('d',64))->>'blocked','true',
+  'block changes future-admission policy');
+SELECT ok(EXISTS(SELECT 1 FROM messages WHERE id=:msg_id AND received_at=:'msg_at' AND mailbox_id=:mb_a),
+  'block retains the already accepted message');
+SELECT gen_random_uuid() AS never_block_op \gset
+SELECT is(sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'never_block_op','never_block',3,repeat('e',64))->>'safe','true',
+  'never-block atomically removes block and adds safe');
+SELECT ok(NOT EXISTS(SELECT 1 FROM user_sender_list WHERE user_id=:user_a AND sender='sender@example.test' AND list_type='blocked'),
+  'atomic never-block leaves no contradictory blocked row');
+
+SELECT gen_random_uuid() AS report_op \gset
+SELECT is(sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'report_op','report_spam',4,repeat('f',64))->>'action','report_spam',
+  'spam report commits through the reducer');
+SELECT is((SELECT count(*) FROM sender_feedback_outbox WHERE operation_id=:'report_op')::integer,1,'spam report emits one durable feedback item');
+SELECT sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'report_op','report_spam',4,repeat('f',64));
+SELECT is((SELECT count(*) FROM sender_feedback_outbox WHERE operation_id=:'report_op')::integer,1,'report replay cannot duplicate feedback');
+SELECT gen_random_uuid() AS undo_op \gset
+SELECT is(sender_control_action(:user_a,:mb_a,:msg_id,:'msg_at',:'undo_op','undo',5,repeat('1',64),:'report_op')->>'action','undo',
+  'pending report can be explicitly undone');
+SELECT is((SELECT state FROM sender_feedback_outbox WHERE operation_id=:'report_op'),'cancelled','undo cancels only undispatched feedback');
+
+SELECT throws_ok(format($q$SELECT sender_control_read(%s,%s,%s,%L)$q$,:user_b,:mb_a,:msg_id,:'msg_at'),
+  'BZ006',NULL,'foreign user cannot project sender controls for another mailbox');
+SELECT throws_ok(format($q$SELECT sender_control_action(%s,%s,%s,%L,%L,'vip',1,%L)$q$,
+  :user_b,:mb_a,:msg_id,:'msg_at',gen_random_uuid(),repeat('2',64)),'BZ006',NULL,'foreign user cannot mutate sender controls');
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log WHERE user_id=:user_a AND action='sender_control_report_spam' AND target_id=:msg_id),
+  'report records immutable audit evidence');
+SELECT is((SELECT generation FROM sender_control_state WHERE user_id=:user_a),6::bigint,'accepted actions and undo advance one generation each');
+
+SELECT gen_random_uuid() AS list_op \gset
+SELECT is(sender_list_replace(:user_a,:'list_op',6,repeat('3',64),
+  ARRAY['friend@example.test'],ARRAY['blocked@example.test'])->>'generation','7',
+  'full sender-list replacement advances the generation atomically');
+SELECT is(sender_list_read(:user_a)->'safe'->>0,'friend@example.test','sender-list read returns canonical safe entries');
+SELECT is(sender_list_read(:user_a)->'blocked'->>0,'blocked@example.test','sender-list read returns canonical blocked entries');
+SELECT is((sender_list_replace(:user_a,:'list_op',6,repeat('3',64),
+  ARRAY['friend@example.test'],ARRAY['blocked@example.test'])->>'replayed')::boolean,true,
+  'exact full-list replacement replay returns its receipt');
+SELECT throws_ok(format($q$SELECT sender_list_replace(%s,%L,7,%L,ARRAY['other@example.test'],ARRAY[]::text[])$q$,
+  :user_a,:'list_op',repeat('4',64)),'BZ303',NULL,'full-list operation UUID conflict is rejected');
+SELECT throws_ok(format($q$SELECT sender_list_replace(%s,%L,6,%L,ARRAY['x@example.test'],ARRAY[]::text[])$q$,
+  :user_a,gen_random_uuid(),repeat('5',64)),'BZ304',NULL,'stale list generation is rejected');
+SELECT throws_ok(format($q$SELECT sender_list_replace(%s,%L,7,%L,ARRAY['same@example.test'],ARRAY['same@example.test'])$q$,
+  :user_a,gen_random_uuid(),repeat('6',64)),'BZ301',NULL,'safe and blocked lists cannot overlap');
+SELECT is((SELECT generation FROM sender_control_state WHERE user_id=:user_a),7::bigint,
+  'failed and replayed list operations do not advance generation');
+
+SELECT * FROM finish();
+ROLLBACK;

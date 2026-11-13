@@ -1,0 +1,1 @@
+SELECT jsonb_build_object('inbox', (SELECT coalesce(jsonb_agg(peer_seq ORDER BY peer_seq),'[]') FROM federation_inbox WHERE peer_domain='gofree-fed2-reap.test'), 'outbox',(SELECT coalesce(jsonb_agg(peer_seq ORDER BY peer_seq),'[]') FROM federation_outbox WHERE peer_domain='gofree-fed2-reap.test'));

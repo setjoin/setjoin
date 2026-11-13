@@ -1,0 +1,110 @@
+[
+  {
+    "baseline": "goldens/approve-foreign.json",
+    "sha256": "d31c8ab34c1b42a49c3d352cba9dfba10a493c700b095bbffc97d38ca36b795c",
+    "expectation": "security/approve-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/approve-foreign-row-effects.json",
+    "sha256": "38bf10a6691684d2efa3c93bdccc703241dd944c40e06c2ba597b0244aa19043",
+    "expectation": "security/approve-foreign-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/deny-foreign.json",
+    "sha256": "702974f99d2795372df08b11b3ac9474247a82fcdefca89e4d0eeedabbb9ab46",
+    "expectation": "security/deny-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/deny-foreign-row-effects.json",
+    "sha256": "833c3077541f8898a26a0accf7a4da1eb27164637a256cd08f7a8a118aeaedff",
+    "expectation": "security/deny-foreign-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/pending-foreign.json",
+    "sha256": "3f016306746367a9ee359561f079ac4c43dd01569d19562f54e8980025cc2804",
+    "expectation": "security/pending-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/revoke-foreign.json",
+    "sha256": "f5c64e997c510a006336a07d2e946e040c64287b3f29844f4ae269c3748020ef",
+    "expectation": "security/revoke-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/revoke-foreign-row-effects.json",
+    "sha256": "f08fbc2c5967c6a7a65902c791b1e371144f8c821690142a1b93da434e5e6250",
+    "expectation": "security/revoke-foreign-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/wipe-foreign.json",
+    "sha256": "7ac1ed3a30ee58957addd1096c22730fe555d5f6ac9df59650ac662ffee6cb36",
+    "expectation": "security/wipe-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  },
+  {
+    "baseline": "goldens/wipe-foreign-row-effects.json",
+    "sha256": "c421f2f1fb60e52179201aa268b745b50117496b80950df672cf9455c12061cb",
+    "expectation": "security/wipe-foreign-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#440: offline device approve/deny/revoke/wipe and the pending queue are confined to devices of users inside the caller's mam.write/mam.read reach; a foreign device answers like a missing one and is not changed)",
+    "issue": "#440",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::offline_devices_are_confined_to_the_callers_reach",
+    "mutant": "offline-foreign-device"
+  }
+]

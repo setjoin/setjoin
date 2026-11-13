@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: identity transition retry requires one transition UUID\n",
+  "exit": 1
+}

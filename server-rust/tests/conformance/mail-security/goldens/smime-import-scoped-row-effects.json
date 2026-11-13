@@ -1,0 +1,49 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBuzCCAWGgAwIBAgIUTuQ6jw+e02xPBDwcnGc5XopjGA8wCgYIKoZIzj0EAwIw\nMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMMDnNtaW1lLW9yYWNs\nZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAyMRcwFQYDVQQK\nDA5TZXRqb2luIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3JhY2xlLWEwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAT4fb9JpjH/70fNGlaeSslfZg5BydIW3//gFoG9\n7OEhQVzzfH6fB0lwGfD8ZpGuWX5b4/yOp8PPxyQLccpRt1SFo1MwUTAdBgNVHQ4E\nFgQUv3XI97j9HVYFoydt5v60OR2uvCUwHwYDVR0jBBgwFoAUv3XI97j9HVYFoydt\n5v60OR2uvCUwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBcMpLY\nn4hbK6DHjwTz1cp9j9El+9rO1jRLYuOmXOI77QIhALOkvW3v6s6gLM1AxcB4aFcK\n0I+ESYDV4uxyYzlIVa0C\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "c3086e5fb1cb607600961b8e55493773f21644897a16ee4265c3f6d6186c6be4",
+            "label": "old-label",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          },
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBuzCCAWGgAwIBAgIUTuQ6jw+e02xPBDwcnGc5XopjGA8wCgYIKoZIzj0EAwIw\nMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMMDnNtaW1lLW9yYWNs\nZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAyMRcwFQYDVQQK\nDA5TZXRqb2luIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3JhY2xlLWEwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAT4fb9JpjH/70fNGlaeSslfZg5BydIW3//gFoG9\n7OEhQVzzfH6fB0lwGfD8ZpGuWX5b4/yOp8PPxyQLccpRt1SFo1MwUTAdBgNVHQ4E\nFgQUv3XI97j9HVYFoydt5v60OR2uvCUwHwYDVR0jBBgwFoAUv3XI97j9HVYFoydt\n5v60OR2uvCUwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBcMpLY\nn4hbK6DHjwTz1cp9j9El+9rO1jRLYuOmXOI77QIhALOkvW3v6s6gLM1AxcB4aFcK\n0I+ESYDV4uxyYzlIVa0C\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": "<domain-b>",
+            "fingerprint": "c3086e5fb1cb607600961b8e55493773f21644897a16ee4265c3f6d6186c6be4",
+            "label": "Corp CA",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          }
+        ]
+      },
+      "before": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBuzCCAWGgAwIBAgIUTuQ6jw+e02xPBDwcnGc5XopjGA8wCgYIKoZIzj0EAwIw\nMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMMDnNtaW1lLW9yYWNs\nZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAyMRcwFQYDVQQK\nDA5TZXRqb2luIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3JhY2xlLWEwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAT4fb9JpjH/70fNGlaeSslfZg5BydIW3//gFoG9\n7OEhQVzzfH6fB0lwGfD8ZpGuWX5b4/yOp8PPxyQLccpRt1SFo1MwUTAdBgNVHQ4E\nFgQUv3XI97j9HVYFoydt5v60OR2uvCUwHwYDVR0jBBgwFoAUv3XI97j9HVYFoydt\n5v60OR2uvCUwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiBcMpLY\nn4hbK6DHjwTz1cp9j9El+9rO1jRLYuOmXOI77QIhALOkvW3v6s6gLM1AxcB4aFcK\n0I+ESYDV4uxyYzlIVa0C\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "c3086e5fb1cb607600961b8e55493773f21644897a16ee4265c3f6d6186c6be4",
+            "label": "old-label",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          }
+        ]
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/smime/trust-anchors"
+}

@@ -1,0 +1,155 @@
+-- pgTAP: rls_task_lists.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE CORRECTNESS PROOF for the V112 task_lists/task_list_members latent RLS
+-- backstop (plan 2026-07-08-shared-team-task-lists.md). Mirrors
+-- rls_mailbox_delegates.pg (V090 shape): a REAL forcing migration ships
+-- ENABLE+FORCE persistently; this test first pins the force-state, then proves
+-- the policies as the constrained setjoin_app runtime role inside a
+-- BEGIN…ROLLBACK. INERT today (every reducer call rides workerPool/BYPASSRLS);
+-- this is the backstop for the day the setjoin_app DSN flip lands.
+--
+-- Policy contract (V112 migration header):
+--   · the list owner sees + mutates their own lists (and the roster of each),
+--   · a member sees the lists (and rosters) they belong to — read only,
+--   · a stranger sees nothing, mutates nothing,
+--   · no GUC → fail-closed (zero rows),
+--   · only the app.current_user_id GUC convention (these tables are
+--     user-keyed, not mailbox-keyed — no app.current_mailbox_id arm).
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(19);
+
+-- ── Force-state: V112 shipped ENABLE+FORCE persistently (not test-local). ───
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.task_lists'::regclass),
+  TRUE, 'V112: task_lists has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.task_lists'::regclass),
+  TRUE, 'V112: task_lists has ROW LEVEL SECURITY FORCED');
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.task_list_members'::regclass),
+  TRUE, 'V112: task_list_members has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.task_list_members'::regclass),
+  TRUE, 'V112: task_list_members has ROW LEVEL SECURITY FORCED');
+
+-- ── Fixtures: A = owner; B = member; C = stranger. ──────────────────────────
+SELECT mk_account('rtlA') AS mba \gset
+SELECT mk_account('rtlB') AS mbb \gset
+SELECT mk_account('rtlC') AS mbc \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS uc FROM mailboxes WHERE id = :mbc \gset
+
+-- As the superuser (BEFORE SET ROLE): a list owned by A with B as a member.
+INSERT INTO task_lists (id, owner_user_id, name) VALUES (990001, :ua, 'RLS probe list');
+INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES
+  (990001, :ua, 'owner', :ua),
+  (990001, :ub, 'member', :ua);
+
+-- Defensive re-grants (provision-roles.sql provisions these at load; BYPASSRLS
+-- bypasses policies, not GRANTs — setjoin_app has neither).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.task_lists TO setjoin_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.task_list_members TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- OWNER
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :ua::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM task_lists WHERE id = 990001)::INT, 1,
+  'owner / user GUC=A: sees their own list');
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = 990001)::INT, 2,
+  'owner / user GUC=A: sees the full roster (both member rows)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- MEMBER — the latent backstop is DELIBERATELY NARROWER than the app layer
+-- (task_list_get / task_list_get_roster, both BYPASSRLS): a genuine member↔
+-- owner bidirectional cross-table policy recurses infinitely (tried, reverted
+-- — see V112's header comment). Under RLS alone: a member cannot see the
+-- parent task_lists row (owner-only), but DOES see their own roster row.
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :ub::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM task_lists WHERE id = 990001)::INT, 0,
+  'member / user GUC=B: does NOT see the parent task_lists row under RLS alone (owner-only backstop; the app layer''s task_list_get still shows it via BYPASSRLS)');
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = 990001)::INT, 1,
+  'member / user GUC=B: sees exactly their own roster row');
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = 990001 AND user_id = :ua)::INT, 0,
+  'member / user GUC=B: the OWNER''s roster row is invisible to them (latent policy, narrower than the app layer)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- STRANGER + FAIL-CLOSED
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :uc::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM task_lists WHERE id = 990001)::INT, 0,
+  'stranger / user GUC=C: sees ZERO rows of A''s list');
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = 990001)::INT, 0,
+  'stranger / user GUC=C: sees ZERO roster rows');
+
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM task_lists WHERE id = 990001)::INT, 0,
+  'no GUC: fail-closed — ZERO rows visible (the un-wrapped-connection case)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- WRITE PATH — owner may mutate; member/stranger may not
+-- ════════════════════════════════════════════════════════════════════════════
+-- Member trying to insert a roster row (self-escalating someone else in) →
+-- WITH CHECK violation (member arm of task_list_members is read-only).
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT throws_ok(
+  format($$ INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id)
+            VALUES (%s, %s, 'member', %s) $$, 990001, :uc, :ub),
+  '42501', NULL,
+  'member INSERT into task_list_members is REJECTED (42501) — member arm is read-only');
+
+-- Member trying to rename A's list → zero rows matched (owner-only write policy).
+SELECT lives_ok(
+  format($$ UPDATE task_lists SET name = 'hijacked' WHERE id = %s $$, 990001),
+  'member UPDATE task_lists executes without error…');
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is(
+  (SELECT name FROM task_lists WHERE id = 990001), 'RLS probe list',
+  '…but changed NOTHING (member cannot rename the owner''s list)');
+
+-- Stranger trying to insert a task_lists row naming themselves as owner →
+-- succeeds (their own list — the owner-write policy's WITH CHECK is satisfied
+-- by their own ownership), proving the write policy is genuinely owner-scoped
+-- rather than universally closed.
+SELECT set_config('app.current_user_id', :uc::text, true);
+SELECT lives_ok(
+  format($$ INSERT INTO task_lists (owner_user_id, name) VALUES (%s, 'C''s own list') $$, :uc),
+  'stranger CAN create their OWN list (owner-write policy is scoped, not blanket-closed)');
+
+-- Owner rename succeeds (user GUC — the only convention these tables support).
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT lives_ok(
+  format($$ UPDATE task_lists SET name = 'Renamed by owner' WHERE id = %s $$, 990001),
+  'owner UPDATE (rename) SUCCEEDS under user GUC');
+SELECT is(
+  (SELECT name FROM task_lists WHERE id = 990001), 'Renamed by owner',
+  'the rename actually took effect');
+
+RESET ROLE;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- NON-VACUITY — the superuser control sees everything (policies did the work)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = 990001)::INT, 2,
+  'non-vacuity: superuser control sees both roster rows (RLS was load-bearing above)');
+
+SELECT * FROM finish();
+ROLLBACK;

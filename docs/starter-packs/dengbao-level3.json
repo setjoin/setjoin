@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "named_locations": [],
+  "auth_strengths": [
+    {
+      "slug": "phishing-resistant",
+      "name": "抗钓鱼强认证 (Phishing-Resistant MFA)",
+      "builtin": true,
+      "combinations": [["webauthn"], ["passkey"]]
+    }
+  ],
+  "policies": [
+    {
+      "name": "等保三级：双因子身份鉴别 (MFA for All)",
+      "description": "GB/T 22239-2019 §7.1.2.1 b) — 对重要操作实施双因子鉴别。先以 report_only 运行，确认用户已注册 MFA 后再提升为 on。",
+      "priority": 100,
+      "state": "report_only",
+      "scope": {"type": "global"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_acr", "acr": "aal2"}]}
+    },
+    {
+      "name": "等保三级：系统管理员强鉴别 (Admin Phishing-Resistant)",
+      "description": "三权分立 — 系统管理员 (sysadmin) 须使用抗钓鱼硬件密钥或通行密钥。GB/T 22239-2019 §7.1.2.2 d)。",
+      "priority": 150,
+      "state": "report_only",
+      "scope": {"type": "group", "target": "role:admin"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_strength", "strength_slug": "phishing-resistant"}]}
+    },
+    {
+      "name": "等保三级：安全管理员强鉴别与告警 (SecAdmin MFA + Notify)",
+      "description": "三权分立 — 安全管理员 (secadmin) 每次登录触发告警并要求抗钓鱼鉴别。GB/T 22239-2019 §7.1.2.5。",
+      "priority": 200,
+      "state": "report_only",
+      "scope": {"type": "group", "target": "role:secadmin"},
+      "conditions": {},
+      "actions": {
+        "grants": [
+          {"type": "require_strength", "strength_slug": "phishing-resistant"},
+          {"type": "notify"}
+        ]
+      }
+    },
+    {
+      "name": "等保三级：审计管理员双因子鉴别 (AuditAdmin MFA)",
+      "description": "三权分立 — 审计管理员 (auditadmin) 须使用 MFA。GB/T 22239-2019 §7.1.2.5。",
+      "priority": 250,
+      "state": "report_only",
+      "scope": {"type": "group", "target": "role:auditadmin"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_acr", "acr": "aal2"}]}
+    },
+    {
+      "name": "等保三级：非受管设备要求步进鉴别 (Unmanaged Device Step-Up)",
+      "description": "GB/T 22239-2019 §7.1.2.2 — 非受管设备访问时要求步进认证。",
+      "priority": 300,
+      "state": "report_only",
+      "scope": {"type": "global"},
+      "conditions": {"device_trust": "unmanaged"},
+      "actions": {"grants": [{"type": "step_up"}]}
+    },
+    {
+      "name": "等保三级：高风险地区阻断 (High-Risk Country Block)",
+      "description": "GB/T 22239-2019 §7.1.2.2 a) — 阻断来自高风险国家/地区的访问。",
+      "priority": 400,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"country_in": ["KP", "IR", "CU"]},
+      "actions": {"grants": [{"type": "block"}]}
+    },
+    {
+      "name": "等保三级：可疑 IP 告警 (Suspicious IP Alert)",
+      "description": "GB/T 22239-2019 §7.1.2.5 a) — 对可疑来源 IP 的访问生成安全告警，不阻断。",
+      "priority": 500,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"ip_reputation": "suspicious"},
+      "actions": {"grants": [{"type": "notify"}]}
+    }
+  ]
+}

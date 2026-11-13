@@ -1,0 +1,60 @@
+# setjoin-sfu (LiveKit) config — rendered by mailserver/deploy/scripts/lib-livekit.sh
+# (render_livekit_yaml, called from install.sh) into /etc/setjoin/livekit.yaml
+# (mode 0600). See retired-docs:superpowers/research/2026-07-12-B1-livekit-C0-spike.md
+# §2/§6 and retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 14.
+#
+# Placeholder syntax: double-curly NAME (required, no default — render fails
+# loud if unset) or double-curly NAME-pipe-default (falls back to the literal
+# default when NAME is unset in the installer's environment).
+# render_livekit_yaml asserts no placeholder survives the substitution — a
+# stale/renamed one here fails the install instead of shipping a broken config.
+
+port: 7880
+bind_addresses: ["127.0.0.1"]        # signal NEVER exposed publicly (spike §6.5) — the
+                                      # gateway reverse-proxies /rtc to this loopback port.
+
+rtc:
+  tcp_port: 7881
+  port_range_start: {{RTC_PORT_START|50000}}
+  port_range_end: {{RTC_PORT_END|60000}}
+  use_external_ip: {{USE_EXTERNAL_IP|true}}
+
+room:
+  auto_create: false                 # rooms are gateway-pre-created ONLY (spike §2) —
+                                      # LiveKit holds no authority; reducers do.
+
+keys:
+  # Key ID "setjoin" matches webhook.api_key below and LIVEKIT_API_KEY in
+  # config.env — install.sh writes the SAME LIVEKIT_API_SECRET value here
+  # AND into config.env in the same run (the one-secret, one-generation-step
+  # drift-killer — spike §2 finding 3).
+  setjoin: {{LIVEKIT_API_SECRET}}
+
+webhook:
+  api_key: setjoin
+  urls: ["https://{{HOSTNAME}}/api/meet/webhook"]
+  # A bare-IP loopback URL fails TLS verification on any cert without an IP
+  # SAN, so the substituted public hostname is the default (eng review #13).
+  # 127.0.0.1 remains a valid alternative for certs that DO carry an IP SAN.
+
+redis:
+  # Meet B2: the message bus LiveKit requires between server and Egress —
+  # config key is `redis:` (the protocol's name); the process is Valkey (D7).
+  # BLAST RADIUS, named honestly (spec §12.1): configuring this converts the
+  # SFU ITSELF to bus-backed — Valkey down degrades core meetings, not just
+  # recording. Ops posture: loopback unit, Restart=always, /health watches
+  # both (the `egress` probe round-trips SFU→bus→back).
+  address: 127.0.0.1:6390
+  password: {{VALKEY_PASSWORD}}
+
+turn:
+  enabled: {{TURN_ENABLED}}          # computed by install.sh from cert-pair presence
+                                      # below — NEVER hand-set: LiveKit refuses to start
+                                      # TURN/TLS without both PEMs existing on disk (eng
+                                      # BLOCKER #1). Missing cert => enabled: false + a
+                                      # loud installer note — no-TURN, never no-SFU.
+  domain: turn.{{HOSTNAME}}
+  tls_port: 5349
+  udp_port: 3478
+  cert_file: {{TURN_CERT|/etc/setjoin/certs/fullchain.pem}}
+  key_file: {{TURN_KEY|/etc/setjoin/certs/privkey.pem}}

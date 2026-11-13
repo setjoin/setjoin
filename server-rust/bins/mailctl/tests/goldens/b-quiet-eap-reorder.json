@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/email-address-policies/reorder",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"order\":[7,8]}"
+    }
+  ],
+  "stdout": "Email address policy order updated.\n",
+  "stderr": "",
+  "exit": 0
+}

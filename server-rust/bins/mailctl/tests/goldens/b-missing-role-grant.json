@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl role grant <email> --role <name> --reason <r> [--expires <RFC3339>]\n",
+  "exit": 1
+}

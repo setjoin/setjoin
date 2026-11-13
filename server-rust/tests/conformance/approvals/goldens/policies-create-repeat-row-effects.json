@@ -1,0 +1,96 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "approver_spec": {
+            "kind": "named",
+            "user_id": "<approver>"
+          },
+          "conditions": {},
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "enabled": true,
+          "id": "<policy>",
+          "name": "Policy <one>",
+          "priority": 1,
+          "requires_approval": true,
+          "updated_at": "<timestamp>"
+        },
+        {
+          "approver_spec": {
+            "kind": "named",
+            "user_id": "<approver>"
+          },
+          "conditions": {
+            "leave_type": "annual"
+          },
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "enabled": true,
+          "id": "<created-policy-1>",
+          "name": "Created <two>",
+          "priority": 2,
+          "requires_approval": true,
+          "updated_at": "<timestamp>"
+        },
+        {
+          "approver_spec": {
+            "kind": "named",
+            "user_id": "<approver>"
+          },
+          "conditions": {
+            "leave_type": "annual"
+          },
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "enabled": true,
+          "id": "<created-policy-2>",
+          "name": "Created <two>",
+          "priority": 3,
+          "requires_approval": true,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "before": [
+        {
+          "approver_spec": {
+            "kind": "named",
+            "user_id": "<approver>"
+          },
+          "conditions": {},
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "enabled": true,
+          "id": "<policy>",
+          "name": "Policy <one>",
+          "priority": 1,
+          "requires_approval": true,
+          "updated_at": "<timestamp>"
+        },
+        {
+          "approver_spec": {
+            "kind": "named",
+            "user_id": "<approver>"
+          },
+          "conditions": {
+            "leave_type": "annual"
+          },
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "enabled": true,
+          "id": "<created-policy-1>",
+          "name": "Created <two>",
+          "priority": 2,
+          "requires_approval": true,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "table": "approval_policies"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /admin/approval-policies"
+}

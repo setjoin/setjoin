@@ -1,0 +1,37 @@
+{
+  "case": "secevents-retention-default",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "rows": [
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "done-10d",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "done"
+      },
+      {
+        "attempts": "5",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "failed-200d",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "failed"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "pending-future",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      }
+    ]
+  }
+}

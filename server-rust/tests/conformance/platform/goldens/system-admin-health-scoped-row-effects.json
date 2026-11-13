@@ -1,0 +1,75 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "check_name": "big",
+          "details": "wide",
+          "status": "ok",
+          "value": 1.2345678901234567e19
+        },
+        {
+          "check_name": "db",
+          "details": "older",
+          "status": "ok",
+          "value": 12.5
+        },
+        {
+          "check_name": "db",
+          "details": "newer <&>",
+          "status": "warn",
+          "value": 13
+        },
+        {
+          "check_name": "disk",
+          "details": "",
+          "status": "ok",
+          "value": 0
+        },
+        {
+          "check_name": "queue",
+          "details": "idle",
+          "status": "ok",
+          "value": null
+        }
+      ],
+      "before": [
+        {
+          "check_name": "big",
+          "details": "wide",
+          "status": "ok",
+          "value": 1.2345678901234567e19
+        },
+        {
+          "check_name": "db",
+          "details": "older",
+          "status": "ok",
+          "value": 12.5
+        },
+        {
+          "check_name": "db",
+          "details": "newer <&>",
+          "status": "warn",
+          "value": 13
+        },
+        {
+          "check_name": "disk",
+          "details": "",
+          "status": "ok",
+          "value": 0
+        },
+        {
+          "check_name": "queue",
+          "details": "idle",
+          "status": "ok",
+          "value": null
+        }
+      ],
+      "table": "health_history"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/health"
+}

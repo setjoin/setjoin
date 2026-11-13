@@ -1,0 +1,24 @@
+BEGIN;
+SELECT plan(9);
+DO $$ BEGIN PERFORM set_config('app.encryption_key',repeat('22',32),true); END $$;
+INSERT INTO domains(name,is_local) VALUES('guests1-invite.test',true),('guests1-invite-other.test',true);
+INSERT INTO users(username,email,domain_id,display_name,enabled)
+ SELECT 'guests1-invite@guests1-invite.test','guests1-invite@guests1-invite.test',id,'Invite actor',true FROM domains WHERE name='guests1-invite.test';
+INSERT INTO admin_role_groups(name,permissions,domain_scope) SELECT 'guests1-invite',ARRAY['guests.manage','guests.view'],id FROM domains WHERE name='guests1-invite.test';
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+ SELECT u.id,r.id,u.id FROM users u CROSS JOIN admin_role_groups r WHERE u.email='guests1-invite@guests1-invite.test' AND r.name='guests1-invite';
+INSERT INTO system_config(key,value) VALUES('authserver.public_url','"https://auth.host.test"') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
+CREATE TEMP TABLE guests1_invite_fixture AS SELECT id actor FROM users WHERE email='guests1-invite@guests1-invite.test';
+CREATE TEMP TABLE guests1_invite_result AS SELECT rust_guest_invite(actor,'guests1-invited@outside.test','Invited',NULL,NULL,repeat('b',64)) value FROM guests1_invite_fixture;
+SELECT is((SELECT status FROM guest_accounts WHERE user_id=(value->>'guest')::bigint),'invited','provision and mint preserve the invited state') FROM guests1_invite_result;
+SELECT is((SELECT token_hash FROM guest_invites WHERE id=(value->>'invite')::bigint),repeat('b',64),'SQL stores only the supplied digest') FROM guests1_invite_result;
+SELECT is((SELECT count(*)::int FROM mailboxes WHERE user_id=(value->>'guest')::bigint),0,'guest provisioning creates no mailbox') FROM guests1_invite_result;
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='guest.invite_create' AND target_id=(value->>'invite')::bigint),1,'canonical mint audit commits with the invite') FROM guests1_invite_result;
+SELECT is((SELECT enabled FROM users WHERE id=(value->>'guest')::bigint),false,'an unaccepted invitation cannot sign in') FROM guests1_invite_result;
+SELECT is((value->>'expires')::timestamptz,(SELECT expires_at FROM guest_invites WHERE id=(value->>'invite')::bigint),'response metadata names the exact committed expiry') FROM guests1_invite_result;
+UPDATE admin_role_groups SET domain_scope=(SELECT id FROM domains WHERE name='guests1-invite-other.test') WHERE name='guests1-invite';
+SELECT throws_ok(format('SELECT rust_guest_reinvite(%s,%s,NULL,%L)',actor,(value->>'guest')::bigint,repeat('c',64)),'BZ170',NULL,'reinvite preserves the permission-bearing domain boundary') FROM guests1_invite_fixture CROSS JOIN guests1_invite_result;
+SELECT is(rust_guest_invite_revoke(actor,(value->>'guest')::bigint,(value->>'invite')::bigint),'forbidden','revoke retains Go UX scope denial before canonical mutation') FROM guests1_invite_fixture CROSS JOIN guests1_invite_result;
+SELECT is((SELECT used_at IS NULL FROM guest_invites WHERE id=(value->>'invite')::bigint),true,'foreign preflight cannot revoke an invitation') FROM guests1_invite_result;
+SELECT * FROM finish();
+ROLLBACK;

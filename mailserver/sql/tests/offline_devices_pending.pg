@@ -1,0 +1,16 @@
+-- pgTAP: offline_devices_pending.pg
+BEGIN;
+SELECT plan(2);
+CREATE TEMP TABLE _a AS SELECT mk_account('odp') AS mb, mk_account('odp2') AS mb2;
+SELECT mk_offline_device((SELECT mb FROM _a), 'pending');
+SELECT mk_offline_device((SELECT mb2 FROM _a), 'approved');
+-- Only the pending device is listed.
+SELECT ok(offline_devices_pending() @> jsonb_build_array(
+  jsonb_build_object('offline_approval','pending')) IS NOT FALSE,
+  'pending list non-empty');
+SELECT is(
+  (SELECT count(*) FROM jsonb_array_elements(offline_devices_pending()) e
+    WHERE e->>'offline_approval' <> 'pending'),
+  0::bigint, 'list contains only pending rows');
+SELECT finish();
+ROLLBACK;

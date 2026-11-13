@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown eap action: unsupported (try: list, create, update, delete, apply, reorder)\n",
+  "exit": 1
+}

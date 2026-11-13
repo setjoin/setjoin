@@ -1,0 +1,40 @@
+{
+  "case": "worker-unfurl-fetch",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "http": [
+      {
+        "method": "GET",
+        "uri": "/fetch/<actor>"
+      }
+    ],
+    "notify": [
+      {
+        "channelId": "<channel>",
+        "event": "message_edited",
+        "messageId": "<message>",
+        "seq": null
+      }
+    ],
+    "preview": {
+      "description": null,
+      "image": null,
+      "status": "ok",
+      "title": "Fetched title"
+    },
+    "row": {
+      "changeSeq": 1,
+      "payload": {
+        "preview": {
+          "appliedBy": "chat_message_unfurl_apply",
+          "description": null,
+          "imageSha256": null,
+          "title": "Fetched title",
+          "url": "<url>"
+        }
+      },
+      "seq": 1
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: --source must be a trimmed identity source key of at most 64 bytes\n",
+  "exit": 1,
+  "database_effects": {
+    "tokens": [],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

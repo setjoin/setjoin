@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/conflicts/00000000-0000-4000-8000-000000000001/decision",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"1\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"decision\":\"reject\",\"expectedGeneration\":\"1\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "Conflict 00000000-0000-4000-8000-000000000001 is rejected at generation 2.\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000002\n",
+  "exit": 0
+}

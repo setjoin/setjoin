@@ -1,0 +1,243 @@
+[
+  {
+    "name": "ml-same-sender-no-signal",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ml-same-sender-no-signal@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-cross-domain",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <someone@other.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ml-cross-domain@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-same-domain",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <someone@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ml-same-domain@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-forged-recipient",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: other@example.net\r\nMessage-ID: <ml-forged-recipient@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-bcc-only",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nMessage-ID: <ml-bcc-only@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-mixed-scripts",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ml-mixed-scripts@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\u041f\u0440\u0438\u0432\u0435\u0442\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-hidden-html",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ml-hidden-html@smtp6.test>\r\nSubject: Ordinary message\r\nContent-Type: text/html\r\n\r\n<p style=\"display:none;font-size:0;color:white\">hello</p>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ml-safe-clamps-score",
+    "mail_auth": {
+      "feature.spam_ml_detectors": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: other@example.net\r\nMessage-ID: <ml-safe-clamps-score@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "INSERT INTO user_sender_list(user_id,sender,list_type) VALUES(9348011,'visitor@external.test','safe')"
+  }
+]

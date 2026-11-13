@@ -1,0 +1,45 @@
+{
+  "case": "egress",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/health"
+    },
+    "response": {
+      "body_text": "{\"status\":\"error\"}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 503
+    },
+    "sidecars": [
+      {
+        "authenticated": true,
+        "body": "{}",
+        "component": "sfu",
+        "method": "POST",
+        "path": "/twirp/livekit.RoomService/ListRooms"
+      },
+      {
+        "authenticated": true,
+        "body": "{}",
+        "component": "egress",
+        "method": "POST",
+        "path": "/twirp/livekit.Egress/ListEgress"
+      },
+      {
+        "authenticated": true,
+        "body": "",
+        "component": "asr",
+        "method": "GET",
+        "path": "/status"
+      }
+    ]
+  },
+  "route": "GET /health"
+}

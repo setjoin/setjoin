@@ -1,0 +1,34 @@
+{
+  "case": "control-trailing-json",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [],
+      "quarantine": [],
+      "restore_jobs": []
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/preflight"
+    },
+    "response": {
+      "body": {
+        "detail": "invalid JSON body",
+        "instance": "",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /setup/preflight"
+}

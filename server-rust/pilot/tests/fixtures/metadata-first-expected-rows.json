@@ -1,0 +1,2480 @@
+{
+  "schema": "setjoin.p0.metadata-first-expected-setup-rows/v1",
+  "status": "HOLD_NOT_EXECUTION_EVIDENCE",
+  "scope": "post-setup committed synthetic rows only; no mark-read operation expectations",
+  "source_pins": {
+    "base_commit": "4399a2f5eacbfa50206bcbc84883f7b40a53bf6b",
+    "fixture_json": "a398c4501f8fd49b5d3645c4321cd3a3fd59ace6d3ea83533952efd07583d934",
+    "fixture_contract": "ca21c4123b119b7ff82a8a14f8a23bdbf1f52d42e99974f90245b647f70950b6",
+    "mapping": "73434dafa967a815add90f1af13a495eff60db2bc2fb18cadf7cb5817a104acf",
+    "inventory": "557b1a3090e8a79bd595a4a3657295108bed2044cdd2891d954aabec4b790eda",
+    "seed": "9ed7afe77591ee0fbf446e4c565c46f38398fcd48d8d011258e7a4799a25ec41",
+    "fts_contract": "bd6159b6534d5bbd56fdfe63af2b47f384eee427d179c7916e146394da4d5055",
+    "fts_inputs": "5cd6d832548d1d26ab12eda2336cd109ecb21263d3917266eecf3135c2bf57fb"
+  },
+  "bindings": {
+    "clock.transaction": {
+      "kind": "transaction_timestamp",
+      "type": "timestamptz",
+      "source": "independent transaction/statement clock witness"
+    },
+    "domain.tenant": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "domain",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "user.owner": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "user",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "user.other": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "user",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "mailbox.owner": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "mailbox",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "mailbox.other": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "mailbox",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "clock.user_insert.owner": {
+      "kind": "statement_timestamp",
+      "type": "timestamptz",
+      "source": "independent transaction/statement clock witness"
+    },
+    "clock.user_insert.other": {
+      "kind": "statement_timestamp",
+      "type": "timestamptz",
+      "source": "independent transaction/statement clock witness"
+    },
+    "folder.owner/Inbox": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Sent": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Drafts": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Trash": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Spam": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Archive": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.owner/Templates": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Inbox": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Sent": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Drafts": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Trash": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Spam": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Starred": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Snoozed": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Scheduled": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Important": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Muted": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.owner/Other": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Inbox": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Sent": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Drafts": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Trash": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Spam": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Archive": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "folder.other/Templates": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "folder",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Inbox": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Sent": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Drafts": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Trash": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Spam": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Starred": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Snoozed": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Scheduled": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Important": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Muted": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "tag.other/Other": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "tag",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "message.root": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "message",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "message.reply": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "message",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "attachment.reply-attachment": {
+      "kind": "sequence_id",
+      "type": "positive_int64",
+      "namespace": "attachment",
+      "source": "successful INSERT RETURNING or uniquely scoped trigger-created row; verified by independent observer"
+    },
+    "session.effective_timezone": {
+      "kind": "session_timezone",
+      "type": "postgresql_timezone_identifier",
+      "source": "independent effective TimeZone witness on the same setup connection and transaction",
+      "constraints": "missing, stale, wrong-connection, wrong-transaction or mismatched evidence causes HOLD; no ambient or default fallback"
+    }
+  },
+  "binding_constraints": [
+    "within each sequence namespace captured IDs are unique; unrelated namespaces may coincide",
+    "foreign-key references use named same-namespace bindings; message folder_id uses owner Inbox tag binding",
+    "clock.transaction is exact transaction timestamp; statement slots are independently witnessed per user insert",
+    "transaction_date_in_bound_session_timezone uses captured transaction timestamp and pinned timezone",
+    "postgres_epoch_bigint_cast uses PostgreSQL epoch extraction and bigint cast from transaction timestamp; no rounding assumption",
+    "no other generated values are normalized or accepted as wildcards",
+    "session.effective_timezone must be independently witnessed on the same setup connection and transaction and match the bound effective TimeZone; missing, stale or mismatched evidence HOLDs without fallback"
+  ],
+  "expected_row_counts": {
+    "domains": 1,
+    "users": 2,
+    "mailboxes": 2,
+    "sender_control_state": 2,
+    "mailbox_lifecycle": 2,
+    "mailbox_address_claims": 2,
+    "user_lifecycle_authorities": 2,
+    "folders": 14,
+    "tags": 22,
+    "blobs": 1,
+    "messages": 2,
+    "message_tags": 2,
+    "imap_membership_uid_ledger": 2,
+    "message_attachments": 1
+  },
+  "expected_rows": {
+    "domains": [
+      {
+        "selector": "tenant",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "domain.tenant"
+          },
+          "name": "t03-metadata.fixture.test",
+          "is_primary": false,
+          "is_local": true,
+          "catch_all_mailbox_id": null,
+          "dkim_selector": null,
+          "dkim_private_key_enc": null,
+          "dkim_key_expires_at": null,
+          "spf_record": null,
+          "dmarc_policy": "none",
+          "dmarc_rua": null,
+          "dmarc_ruf": null,
+          "dmarc_pct": 100,
+          "mta_sts_policy": "none",
+          "max_message_bytes": 52428800,
+          "quota_bytes": null,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          },
+          "sandbox_enabled": false,
+          "sandbox_action": "quarantine",
+          "sandbox_file_types": "*"
+        }
+      }
+    ],
+    "users": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "user.owner"
+          },
+          "username": "t03-owner",
+          "domain_id": {
+            "binding": "domain.tenant"
+          },
+          "email": "t03-owner@t03-metadata.fixture.test",
+          "display_name": "T03 Owner",
+          "first_name": null,
+          "last_name": null,
+          "job_title": null,
+          "phone": null,
+          "manager_id": null,
+          "department_id": null,
+          "avatar_sha256": null,
+          "password_hash": null,
+          "must_change_password": false,
+          "is_local_admin": false,
+          "ad_object_guid": null,
+          "ad_usn_changed": null,
+          "ad_sam_account": null,
+          "ad_upn": null,
+          "sync_source": "local",
+          "local_overrides": {},
+          "last_synced_at": null,
+          "krb5_principal": null,
+          "saml_name_id": null,
+          "saml_session_index": null,
+          "saml_idp_entity_id": null,
+          "oidc_subject": null,
+          "oidc_issuer": null,
+          "oidc_provider": null,
+          "webauthn_credentials": [],
+          "webauthn_user_handle": null,
+          "totp_secret_enc": null,
+          "totp_enabled": false,
+          "totp_enabled_at": null,
+          "last_totp_used_at": null,
+          "totp_failed_attempts": 0,
+          "totp_locked_until": null,
+          "mfa_exempt": false,
+          "enabled": true,
+          "is_admin": false,
+          "last_login_at": null,
+          "last_login_ip": null,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          },
+          "push_mfa_enabled": false,
+          "totp_backup_codes_enc": null,
+          "last_login_country": null,
+          "scim_external_id": null,
+          "view_prefs": null,
+          "external_sender_warning": true,
+          "address_policy_enabled": true,
+          "factor_generation": 0,
+          "possession_password_failed_attempts": 0,
+          "possession_password_locked_until": null,
+          "possession_webauthn_failed_attempts": 0,
+          "possession_webauthn_locked_until": null
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "user.other"
+          },
+          "username": "t03-other",
+          "domain_id": {
+            "binding": "domain.tenant"
+          },
+          "email": "t03-other@t03-metadata.fixture.test",
+          "display_name": "T03 Other",
+          "first_name": null,
+          "last_name": null,
+          "job_title": null,
+          "phone": null,
+          "manager_id": null,
+          "department_id": null,
+          "avatar_sha256": null,
+          "password_hash": null,
+          "must_change_password": false,
+          "is_local_admin": false,
+          "ad_object_guid": null,
+          "ad_usn_changed": null,
+          "ad_sam_account": null,
+          "ad_upn": null,
+          "sync_source": "local",
+          "local_overrides": {},
+          "last_synced_at": null,
+          "krb5_principal": null,
+          "saml_name_id": null,
+          "saml_session_index": null,
+          "saml_idp_entity_id": null,
+          "oidc_subject": null,
+          "oidc_issuer": null,
+          "oidc_provider": null,
+          "webauthn_credentials": [],
+          "webauthn_user_handle": null,
+          "totp_secret_enc": null,
+          "totp_enabled": false,
+          "totp_enabled_at": null,
+          "last_totp_used_at": null,
+          "totp_failed_attempts": 0,
+          "totp_locked_until": null,
+          "mfa_exempt": false,
+          "enabled": true,
+          "is_admin": false,
+          "last_login_at": null,
+          "last_login_ip": null,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          },
+          "push_mfa_enabled": false,
+          "totp_backup_codes_enc": null,
+          "last_login_country": null,
+          "scim_external_id": null,
+          "view_prefs": null,
+          "external_sender_warning": true,
+          "address_policy_enabled": true,
+          "factor_generation": 0,
+          "possession_password_failed_attempts": 0,
+          "possession_password_locked_until": null,
+          "possession_webauthn_failed_attempts": 0,
+          "possession_webauthn_locked_until": null
+        }
+      }
+    ],
+    "mailboxes": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "mailbox.owner"
+          },
+          "user_id": {
+            "binding": "user.owner"
+          },
+          "domain_id": {
+            "binding": "domain.tenant"
+          },
+          "email": "t03-owner@t03-metadata.fixture.test",
+          "type": "personal",
+          "display_name": "T03 Owner",
+          "is_primary": true,
+          "quota_bytes": 1048576,
+          "used_bytes": 0,
+          "sending_quota_day": 100,
+          "sending_sent_today": 0,
+          "sending_quota_reset_at": {
+            "derived": "transaction_date_in_bound_session_timezone",
+            "binding": "clock.transaction",
+            "timezone_binding": "session.effective_timezone"
+          },
+          "enabled": true,
+          "receive_enabled": true,
+          "hidden_from_gal": false,
+          "litigation_hold": false,
+          "hold_since": null,
+          "hold_reason": null,
+          "hold_set_by": null,
+          "deleted_purge_days": null,
+          "spam_purge_days": null,
+          "spam_folder_enabled": true,
+          "spam_sensitivity": "medium",
+          "resource_type": null,
+          "resource_capacity": null,
+          "auto_accept_meetings": false,
+          "max_meeting_hours": null,
+          "booking_window_days": 365,
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_thread_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          },
+          "jmap_tag_state": 0,
+          "quarantine_self_service": true,
+          "jmap_reminder_state": 0,
+          "jmap_mailwork_state": 0
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "mailbox.other"
+          },
+          "user_id": {
+            "binding": "user.other"
+          },
+          "domain_id": {
+            "binding": "domain.tenant"
+          },
+          "email": "t03-other@t03-metadata.fixture.test",
+          "type": "personal",
+          "display_name": "T03 Other",
+          "is_primary": true,
+          "quota_bytes": 1048576,
+          "used_bytes": 0,
+          "sending_quota_day": 100,
+          "sending_sent_today": 0,
+          "sending_quota_reset_at": {
+            "derived": "transaction_date_in_bound_session_timezone",
+            "binding": "clock.transaction",
+            "timezone_binding": "session.effective_timezone"
+          },
+          "enabled": true,
+          "receive_enabled": true,
+          "hidden_from_gal": false,
+          "litigation_hold": false,
+          "hold_since": null,
+          "hold_reason": null,
+          "hold_set_by": null,
+          "deleted_purge_days": null,
+          "spam_purge_days": null,
+          "spam_folder_enabled": true,
+          "spam_sensitivity": "medium",
+          "resource_type": null,
+          "resource_capacity": null,
+          "auto_accept_meetings": false,
+          "max_meeting_hours": null,
+          "booking_window_days": 365,
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_thread_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          },
+          "jmap_tag_state": 0,
+          "quarantine_self_service": true,
+          "jmap_reminder_state": 0,
+          "jmap_mailwork_state": 0
+        }
+      }
+    ],
+    "sender_control_state": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "user_id"
+        ],
+        "columns": {
+          "user_id": {
+            "binding": "user.owner"
+          },
+          "generation": 1,
+          "updated_at": {
+            "binding": "clock.user_insert.owner"
+          }
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "user_id"
+        ],
+        "columns": {
+          "user_id": {
+            "binding": "user.other"
+          },
+          "generation": 1,
+          "updated_at": {
+            "binding": "clock.user_insert.other"
+          }
+        }
+      }
+    ],
+    "mailbox_lifecycle": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "mailbox_id"
+        ],
+        "columns": {
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "access_state": "active",
+          "delivery_state": "accepting",
+          "binding_state": "bound",
+          "bound_user_id": {
+            "binding": "user.owner"
+          },
+          "was_primary": true,
+          "generation": 1,
+          "policy_generation": 1,
+          "retained_at": null,
+          "retention_until": null,
+          "redirect_address": null,
+          "reason": null,
+          "last_operation_id": null,
+          "updated_by": null,
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "mailbox_id"
+        ],
+        "columns": {
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "access_state": "active",
+          "delivery_state": "accepting",
+          "binding_state": "bound",
+          "bound_user_id": {
+            "binding": "user.other"
+          },
+          "was_primary": true,
+          "generation": 1,
+          "policy_generation": 1,
+          "retained_at": null,
+          "retention_until": null,
+          "redirect_address": null,
+          "reason": null,
+          "last_operation_id": null,
+          "updated_by": null,
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      }
+    ],
+    "mailbox_address_claims": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "normalized_address"
+        ],
+        "columns": {
+          "normalized_address": "t03-owner@t03-metadata.fixture.test",
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "address_kind": "primary",
+          "claim_state": "active",
+          "generation": 1,
+          "claimed_at": {
+            "binding": "clock.transaction"
+          },
+          "released_at": null
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "normalized_address"
+        ],
+        "columns": {
+          "normalized_address": "t03-other@t03-metadata.fixture.test",
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "address_kind": "primary",
+          "claim_state": "active",
+          "generation": 1,
+          "claimed_at": {
+            "binding": "clock.transaction"
+          },
+          "released_at": null
+        }
+      }
+    ],
+    "user_lifecycle_authorities": [
+      {
+        "selector": "owner",
+        "key_columns": [
+          "user_id"
+        ],
+        "columns": {
+          "user_id": {
+            "binding": "user.owner"
+          },
+          "authority_kind": "local",
+          "link_id": null,
+          "generation": 1,
+          "established_by": null,
+          "established_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other",
+        "key_columns": [
+          "user_id"
+        ],
+        "columns": {
+          "user_id": {
+            "binding": "user.other"
+          },
+          "authority_kind": "local",
+          "link_id": null,
+          "generation": 1,
+          "established_by": null,
+          "established_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      }
+    ],
+    "folders": [
+      {
+        "selector": "owner/Inbox",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Inbox"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Inbox",
+          "role": "inbox",
+          "path": "INBOX",
+          "sort_order": 0,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Sent",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Sent"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Sent",
+          "role": "sent",
+          "path": "INBOX/Sent",
+          "sort_order": 10,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Drafts",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Drafts"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Drafts",
+          "role": "drafts",
+          "path": "INBOX/Drafts",
+          "sort_order": 20,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Trash",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Trash"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Trash",
+          "role": "trash",
+          "path": "INBOX/Trash",
+          "sort_order": 30,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Spam",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Spam"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Spam",
+          "role": "spam",
+          "path": "INBOX/Spam",
+          "sort_order": 40,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Archive",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Archive"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Archive",
+          "role": "archive",
+          "path": "INBOX/Archive",
+          "sort_order": 50,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Templates",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.owner/Templates"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Templates",
+          "role": "templates",
+          "path": "INBOX/Templates",
+          "sort_order": 60,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Inbox",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Inbox"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Inbox",
+          "role": "inbox",
+          "path": "INBOX",
+          "sort_order": 0,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Sent",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Sent"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Sent",
+          "role": "sent",
+          "path": "INBOX/Sent",
+          "sort_order": 10,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Drafts",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Drafts"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Drafts",
+          "role": "drafts",
+          "path": "INBOX/Drafts",
+          "sort_order": 20,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Trash",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Trash"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Trash",
+          "role": "trash",
+          "path": "INBOX/Trash",
+          "sort_order": 30,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Spam",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Spam"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Spam",
+          "role": "spam",
+          "path": "INBOX/Spam",
+          "sort_order": 40,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Archive",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Archive"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Archive",
+          "role": "archive",
+          "path": "INBOX/Archive",
+          "sort_order": 50,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Templates",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "folder.other/Templates"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Templates",
+          "role": "templates",
+          "path": "INBOX/Templates",
+          "sort_order": 60,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "subscribed": true,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      }
+    ],
+    "tags": [
+      {
+        "selector": "owner/Inbox",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Inbox",
+          "color": "#7C8DB5",
+          "icon": "inbox",
+          "sort_order": 0,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": true,
+          "total_count": 2,
+          "unread_count": 2,
+          "size_bytes": 51,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 3,
+          "imap_modseq": 3,
+          "jmap_state": 2,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Sent",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Sent"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Sent",
+          "color": "#5CB85C",
+          "icon": "send",
+          "sort_order": 10,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Drafts",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Drafts"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Drafts",
+          "color": "#F0AD4E",
+          "icon": "edit",
+          "sort_order": 20,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Trash",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Trash"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Trash",
+          "color": "#D9534F",
+          "icon": "delete",
+          "sort_order": 30,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Trash",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Spam",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Spam"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Spam",
+          "color": "#D9534F",
+          "icon": "warning",
+          "sort_order": 40,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Spam",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Starred",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Starred"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Starred",
+          "color": "#F5A623",
+          "icon": "star",
+          "sort_order": 50,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Snoozed",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Snoozed"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Snoozed",
+          "color": "#9B59B6",
+          "icon": "clock",
+          "sort_order": 60,
+          "tag_type": "system",
+          "exclusive_group": "snooze",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Scheduled",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Scheduled"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Scheduled",
+          "color": "#3498DB",
+          "icon": "calendar",
+          "sort_order": 70,
+          "tag_type": "system",
+          "exclusive_group": "snooze",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Scheduled",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Important",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Important"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Important",
+          "color": "#E74C3C",
+          "icon": "priority",
+          "sort_order": 80,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Muted",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Muted"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Muted",
+          "color": "#888888",
+          "icon": "volume_off",
+          "sort_order": 90,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "owner/Other",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.owner/Other"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "parent_id": null,
+          "name": "Other",
+          "color": "#888888",
+          "icon": "inbox",
+          "sort_order": 100,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Inbox",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Inbox"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Inbox",
+          "color": "#7C8DB5",
+          "icon": "inbox",
+          "sort_order": 0,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": true,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Sent",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Sent"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Sent",
+          "color": "#5CB85C",
+          "icon": "send",
+          "sort_order": 10,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Drafts",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Drafts"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Drafts",
+          "color": "#F0AD4E",
+          "icon": "edit",
+          "sort_order": 20,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Trash",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Trash"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Trash",
+          "color": "#D9534F",
+          "icon": "delete",
+          "sort_order": 30,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Trash",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Spam",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Spam"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Spam",
+          "color": "#D9534F",
+          "icon": "warning",
+          "sort_order": 40,
+          "tag_type": "system",
+          "exclusive_group": "location",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Spam",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Starred",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Starred"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Starred",
+          "color": "#F5A623",
+          "icon": "star",
+          "sort_order": 50,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Snoozed",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Snoozed"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Snoozed",
+          "color": "#9B59B6",
+          "icon": "clock",
+          "sort_order": 60,
+          "tag_type": "system",
+          "exclusive_group": "snooze",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Scheduled",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Scheduled"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Scheduled",
+          "color": "#3498DB",
+          "icon": "calendar",
+          "sort_order": 70,
+          "tag_type": "system",
+          "exclusive_group": "snooze",
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": true,
+          "imap_name": "[Gmail]/Scheduled",
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Important",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Important"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Important",
+          "color": "#E74C3C",
+          "icon": "priority",
+          "sort_order": 80,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Muted",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Muted"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Muted",
+          "color": "#888888",
+          "icon": "volume_off",
+          "sort_order": 90,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      },
+      {
+        "selector": "other/Other",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "tag.other/Other"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.other"
+          },
+          "parent_id": null,
+          "name": "Other",
+          "color": "#888888",
+          "icon": "inbox",
+          "sort_order": 100,
+          "tag_type": "system",
+          "exclusive_group": null,
+          "is_default": false,
+          "total_count": 0,
+          "unread_count": 0,
+          "size_bytes": 0,
+          "imap_expose": false,
+          "imap_name": null,
+          "imap_uid_validity": {
+            "derived": "postgres_epoch_bigint_cast",
+            "binding": "clock.transaction"
+          },
+          "imap_uid_next": 1,
+          "imap_modseq": 1,
+          "jmap_state": 0,
+          "created_at": {
+            "binding": "clock.transaction"
+          },
+          "updated_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      }
+    ],
+    "blobs": [
+      {
+        "selector": "fixture-blob",
+        "key_columns": [
+          "sha256"
+        ],
+        "columns": {
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "minio_ref": "metadata-only/t03/fixture-blob",
+          "size_bytes": 51,
+          "content_type": "text/plain",
+          "ref_count": 1,
+          "created_at": {
+            "binding": "clock.transaction"
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "selector": "root",
+        "key_columns": [
+          "id",
+          "received_at"
+        ],
+        "columns": {
+          "id": {
+            "binding": "message.root"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "folder_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "message_id": "<t03-root@fixture.test>",
+          "subject": "T03 t03_metadata_20261027",
+          "from_addr": "fixture-sender@fixture.test",
+          "from_name": "T03 Root Sender",
+          "to_addrs": [],
+          "cc_addrs": [],
+          "bcc_addrs": [],
+          "reply_to": null,
+          "in_reply_to": null,
+          "references_hdr": null,
+          "body_text": "T03 t03_metadata_20261027 root body",
+          "body_html": null,
+          "body_tsv": {
+            "unresolved_golden": "root.body_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "subject_tsv": {
+            "unresolved_golden": "root.subject_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "from_tsv": {
+            "unresolved_golden": "root.from_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "size_bytes": 0,
+          "has_attachments": false,
+          "is_read": false,
+          "is_flagged": false,
+          "is_answered": false,
+          "is_draft": false,
+          "is_deleted": false,
+          "categories": [],
+          "thread_id": "t03-thread-001",
+          "imap_uid": null,
+          "imap_modseq": null,
+          "spam_score": null,
+          "spam_headers": null,
+          "spf_result": null,
+          "dkim_result": null,
+          "dmarc_result": null,
+          "raw_ref": "metadata-only/t03/root",
+          "held": false,
+          "sent_at": null,
+          "received_at": "2026-06-14T10:00:00Z",
+          "dkim_selector": null,
+          "dkim_domain": null,
+          "crypto_type": null,
+          "priority": 0,
+          "sensitivity": null,
+          "read_receipt_requested": false,
+          "delivery_receipt_requested": false,
+          "vote_options": null,
+          "scheduled_at": null,
+          "deleted_at": null,
+          "pinned_at": null,
+          "vote_response": null,
+          "is_external": false,
+          "sender_display_name": null,
+          "is_name_spoof": false,
+          "is_first_time": true,
+          "list_unsubscribe": null,
+          "list_id": null,
+          "flag_due_at": null,
+          "flag_reminder_at": null,
+          "smime_status": null,
+          "smime_signer_email": null,
+          "smime_signer_cn": null,
+          "smime_issuer_cn": null
+        }
+      },
+      {
+        "selector": "reply",
+        "key_columns": [
+          "id",
+          "received_at"
+        ],
+        "columns": {
+          "id": {
+            "binding": "message.reply"
+          },
+          "mailbox_id": {
+            "binding": "mailbox.owner"
+          },
+          "folder_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "message_id": "<t03-reply@fixture.test>",
+          "subject": "Re: T03 t03_metadata_20261027",
+          "from_addr": "fixture-sender@fixture.test",
+          "from_name": "T03 Reply Sender",
+          "to_addrs": [],
+          "cc_addrs": [],
+          "bcc_addrs": [],
+          "reply_to": null,
+          "in_reply_to": "<t03-root@fixture.test>",
+          "references_hdr": "<t03-root@fixture.test>",
+          "body_text": "T03 t03_metadata_20261027 reply body",
+          "body_html": null,
+          "body_tsv": {
+            "unresolved_golden": "reply.body_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "subject_tsv": {
+            "unresolved_golden": "reply.subject_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "from_tsv": {
+            "unresolved_golden": "reply.from_tsv",
+            "status": "NOT_GENERATED_NOT_VERIFIED",
+            "source": "independent FTS expectation inputs; exact tsvector::text UTF-8 required"
+          },
+          "size_bytes": 51,
+          "has_attachments": true,
+          "is_read": false,
+          "is_flagged": false,
+          "is_answered": false,
+          "is_draft": false,
+          "is_deleted": false,
+          "categories": [],
+          "thread_id": "t03-thread-001",
+          "imap_uid": null,
+          "imap_modseq": null,
+          "spam_score": null,
+          "spam_headers": null,
+          "spf_result": null,
+          "dkim_result": null,
+          "dmarc_result": null,
+          "raw_ref": "metadata-only/t03/reply",
+          "held": false,
+          "sent_at": null,
+          "received_at": "2026-06-14T11:00:00Z",
+          "dkim_selector": null,
+          "dkim_domain": null,
+          "crypto_type": null,
+          "priority": 0,
+          "sensitivity": null,
+          "read_receipt_requested": false,
+          "delivery_receipt_requested": false,
+          "vote_options": null,
+          "scheduled_at": null,
+          "deleted_at": null,
+          "pinned_at": null,
+          "vote_response": null,
+          "is_external": false,
+          "sender_display_name": null,
+          "is_name_spoof": false,
+          "is_first_time": true,
+          "list_unsubscribe": null,
+          "list_id": null,
+          "flag_due_at": null,
+          "flag_reminder_at": null,
+          "smime_status": null,
+          "smime_signer_email": null,
+          "smime_signer_cn": null,
+          "smime_issuer_cn": null
+        }
+      }
+    ],
+    "message_tags": [
+      {
+        "selector": "root",
+        "key_columns": [
+          "message_id",
+          "received_at",
+          "tag_id"
+        ],
+        "columns": {
+          "message_id": {
+            "binding": "message.root"
+          },
+          "received_at": "2026-06-14T10:00:00Z",
+          "tag_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "added_at": {
+            "binding": "clock.transaction"
+          },
+          "added_by": "fixture",
+          "snooze_until": null,
+          "scheduled_at": null,
+          "is_primary": true,
+          "imap_uid": 1,
+          "imap_modseq": 1
+        }
+      },
+      {
+        "selector": "reply",
+        "key_columns": [
+          "message_id",
+          "received_at",
+          "tag_id"
+        ],
+        "columns": {
+          "message_id": {
+            "binding": "message.reply"
+          },
+          "received_at": "2026-06-14T11:00:00Z",
+          "tag_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "added_at": {
+            "binding": "clock.transaction"
+          },
+          "added_by": "fixture",
+          "snooze_until": null,
+          "scheduled_at": null,
+          "is_primary": true,
+          "imap_uid": 2,
+          "imap_modseq": 1
+        }
+      }
+    ],
+    "imap_membership_uid_ledger": [
+      {
+        "selector": "root",
+        "key_columns": [
+          "tag_id",
+          "imap_uid"
+        ],
+        "columns": {
+          "tag_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "imap_uid": 1,
+          "message_id": {
+            "binding": "message.root"
+          },
+          "received_at": "2026-06-14T10:00:00Z",
+          "active": true,
+          "allocated_at": {
+            "binding": "clock.transaction"
+          },
+          "retired_at": null
+        }
+      },
+      {
+        "selector": "reply",
+        "key_columns": [
+          "tag_id",
+          "imap_uid"
+        ],
+        "columns": {
+          "tag_id": {
+            "binding": "tag.owner/Inbox"
+          },
+          "imap_uid": 2,
+          "message_id": {
+            "binding": "message.reply"
+          },
+          "received_at": "2026-06-14T11:00:00Z",
+          "active": true,
+          "allocated_at": {
+            "binding": "clock.transaction"
+          },
+          "retired_at": null
+        }
+      }
+    ],
+    "message_attachments": [
+      {
+        "selector": "reply-attachment",
+        "key_columns": [
+          "id"
+        ],
+        "columns": {
+          "id": {
+            "binding": "attachment.reply-attachment"
+          },
+          "message_id": {
+            "binding": "message.reply"
+          },
+          "received_at": "2026-06-14T11:00:00Z",
+          "blob_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "filename": "e2e-attachment.txt",
+          "content_id": null,
+          "content_type": "text/plain",
+          "disposition": "attachment",
+          "size_bytes": 51
+        }
+      }
+    ]
+  },
+  "bystanders": {
+    "definition": "complete independently captured pre-existing row sets for all reachable relations, including other tenants and pre-existing rows in each listed relation",
+    "expectation": "each prior keyed whole row remains exactly unchanged; compare full post-state to before-set union exact listed setup rows and permitted specified changes, reject extras, omissions, duplicates and altered fields",
+    "additional_scope": "all independently verified reachable relations and partition rows; sequence advancement separately inventoried; no role/trigger/schema/security mutation"
+  },
+  "holds": [
+    "all six FTS golden values NOT_GENERATED_NOT_VERIFIED, never wildcard",
+    "complete source/reducer/trigger closure review",
+    "independent observer effective visibility and snapshot consistency",
+    "target/role/transaction custody and commit proof",
+    "full bystander scope and independently witnessed generated bindings"
+  ],
+  "not_claimed": [
+    "SQL execution",
+    "test result",
+    "runtime authorization",
+    "object bytes or upload",
+    "mark-read audit/journal/result/event expectations"
+  ]
+}

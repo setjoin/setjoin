@@ -1,0 +1,46 @@
+/* setjoin spacing, radii, shadows, motion. 4px base grid. */
+:root {
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radii — sharp-leaning shape language */
+  --radius-xs: 3px;   /* checkboxes, tiny chips */
+  --radius-sm: 4px;   /* buttons, inputs, tags */
+  --radius-md: 6px;   /* cards, menus, list selection */
+  --radius-lg: 10px;  /* dialogs, large panels */
+  --radius-full: 999px; /* avatars, pills, dots */
+
+  /* Shadows — border-first design; shadows stay quiet */
+  --shadow-xs: 0 1px 2px rgb(20, 21, 29, 0.05);
+  --shadow-sm: 0 1px 3px rgb(20, 21, 29, 0.07), 0 1px 2px rgb(20, 21, 29, 0.04);
+  --shadow-md: 0 4px 12px rgb(20, 21, 29, 0.09), 0 1px 3px rgb(20, 21, 29, 0.05);
+  --shadow-lg: 0 12px 32px rgb(20, 21, 29, 0.14), 0 2px 6px rgb(20, 21, 29, 0.06);
+  --z-popover: 800;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --duration-fast: 120ms; /* @kind other */
+  --duration-base: 180ms; /* @kind other */
+  --duration-slow: 260ms; /* @kind other */
+
+  /* Layout constants */
+  --row-height: 36px;       /* list rows (mail, files, tables) */
+  --control-height: 32px;   /* default buttons, inputs */
+  --control-height-sm: 26px;
+  --control-height-lg: 40px;
+  --switch-track-width: 32px;
+  --switch-track-height: 18px;
+  --switch-thumb-size: 14px;
+  --switch-thumb-inset: 2px;
+  --sidebar-width: 232px;
+  --topbar-height: 52px;
+}

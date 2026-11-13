@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity transition authorize:\n  -idempotency-key string\n    \tstable challenge UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\nError: flag: help requested\n",
+  "exit": 1
+}

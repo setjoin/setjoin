@@ -1,0 +1,101 @@
+{
+  "case": "mixed-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit_rows": 0,
+        "config": [
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_contact_graph",
+            "value": 1
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_display_name",
+            "value": "true"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_exclusion_domains",
+            "value": null
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_exclusion_users",
+            "value": {
+              "a": 1
+            }
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_lookalike",
+            "value": "True"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_strict_mode",
+            "value": true
+          }
+        ],
+        "policies": [],
+        "violations": 0
+      },
+      "before": {
+        "audit_rows": 0,
+        "config": [
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_contact_graph",
+            "value": 1
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_display_name",
+            "value": "true"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_exclusion_domains",
+            "value": null
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_exclusion_users",
+            "value": {
+              "a": 1
+            }
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_lookalike",
+            "value": "True"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "antiphish_strict_mode",
+            "value": true
+          }
+        ],
+        "policies": [],
+        "violations": 0
+      },
+      "table": "dlp"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/anti-phish"
+}

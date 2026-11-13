@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: invalid JSON: unexpected end of JSON input\n",
+  "exit": 1
+}

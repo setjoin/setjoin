@@ -1,0 +1,157 @@
+{
+  "case": "bootstrap-confirm-proof-generation",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [
+      {
+        "row": {
+          "action": "mfa_reauth_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "bootstrap enrollment grant mismatch",
+          "owner": "actor",
+          "target_type": "user"
+        },
+        "table": "admin_audit_log"
+      }
+    ],
+    "effects": {
+      "active_secrets": [
+        {
+          "owner": "actor",
+          "secret": null
+        },
+        {
+          "owner": "foreign",
+          "secret": null
+        }
+      ],
+      "audit": [
+        {
+          "action": "mfa_reauth_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "bootstrap enrollment grant mismatch",
+          "owner": "actor",
+          "target_type": "user"
+        }
+      ],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "mfa_reauth_step_ups": [],
+      "token_stores": {
+        "auth_event_log": [],
+        "login_events": [],
+        "oauth_tokens": [],
+        "sessions": []
+      },
+      "totp_pending_enrollments": [
+        {
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "id": "<enrollment>",
+          "secret_enc": "<encrypted pending secret>",
+          "staged_by_jti": "idmfa1-actor",
+          "staged_via": "enroll_setup",
+          "user_id": "actor"
+        }
+      ],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": false,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": false,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": null,
+        "enabled_at": false
+      },
+      "foreign": {
+        "active_secret": null,
+        "enabled_at": false
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"code\":\"<TOTP code>\",\"enrollment_id\":\"<enrollment>\",\"mfa_token\":\"<mfa_token>\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/totp/enroll/confirm"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/reauth-required\",\"title\":\"Re-authentication required\",\"status\":403,\"detail\":\"prove possession at /auth/mfa/reauth (or the possession endpoints for C1 accounts) and retry with the issued reauth_token\",\"instance\":\"/auth/totp/enroll/confirm\",\"remediation\":\"reauth\",\"code\":\"reauth_required\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /auth/totp/enroll/confirm"
+}

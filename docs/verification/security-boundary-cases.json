@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "plan": "docs/superpowers/plans/2026-08-26-security-boundary-remediation.md",
+  "cases": [
+    { "lane": "bootstrap", "caseId": "SEC-G0-LOCAL-BOOTSTRAP", "reopenedOccurrenceIds": [] },
+    { "lane": "recovery", "caseId": "SEC-G0-SIGNED-RECOVERY", "reopenedOccurrenceIds": [] },
+    { "lane": "push", "caseId": "SEC-G1-DEVICE-BOUND-PUSH", "reopenedOccurrenceIds": [] },
+    { "lane": "migration", "caseId": "SEC-G2-APPROVED-EGRESS", "reopenedOccurrenceIds": [] },
+    { "lane": "ingress", "caseId": "SEC-G3-BOUNDED-INGRESS", "reopenedOccurrenceIds": [] },
+    { "lane": "audit", "caseId": "SEC-G4-AUDIT-CUTOVER", "reopenedOccurrenceIds": [] },
+    { "lane": "updates", "caseId": "SEC-G4-OFFLINE-UPDATES", "reopenedOccurrenceIds": [] },
+    { "lane": "contracts", "caseId": "SEC-ALL-CONTRACTS", "reopenedOccurrenceIds": [] }
+  ]
+}

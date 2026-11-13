@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "description": "Source-bound browser-complete phases. The evidence checker obtains the exact case/source/project inventory with Playwright --list using these immutable selectors.",
+  "phases": {
+    "main": {
+      "listArgs": ["test"],
+      "projects": ["setup", "teardown", "chromium", "admin-chromium"]
+    },
+    "ca": {
+      "listArgs": [
+        "test",
+        "e2e/cert-status.spec.ts",
+        "e2e/conditional-access-quickstart.spec.ts",
+        "e2e/device-lockdown.spec.ts",
+        "e2e/offline-storage.spec.ts",
+        "e2e/risk-remediation.spec.ts",
+        "e2e/signin-activity-enduser.spec.ts",
+        "e2e/terms-of-use.spec.ts",
+        "--project=chromium"
+      ],
+      "projects": ["setup", "teardown", "chromium"]
+    },
+    "meet": {
+      "listArgs": ["test", "e2e/meet-live-ui.spec.ts", "--project=chromium"],
+      "projects": ["setup", "teardown", "chromium"]
+    },
+    "onboarding": {
+      "listArgs": ["test", "--config", "playwright.onboarding.config.ts"],
+      "projects": ["onboarding-chromium"]
+    },
+    "csp": {
+      "listArgs": ["test", "--config", "playwright.csp.config.ts"],
+      "projects": ["chromium"]
+    }
+  },
+  "mainSkipRules": [
+    {
+      "file": "cert-status.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "CA/device live phase runs the real certificate journey"
+    },
+    {
+      "file": "cert-status.spec.ts",
+      "project": "admin-chromium",
+      "type": "not-applicable",
+      "reason": "The CA phase is deliberately single-run under the user project"
+    },
+    {
+      "file": "conditional-access-quickstart.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "CA quickstart mutates global policy state and runs in its dedicated phase"
+    },
+    {
+      "file": "conditional-access-quickstart.spec.ts",
+      "project": "admin-chromium",
+      "title": "§0 quickstart E2E — live-run status",
+      "type": "not-applicable",
+      "reason": "The CA quickstart is tagged for the user project"
+    },
+    {
+      "file": "device-lockdown.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "Device lockdown is a single-run live CA gate"
+    },
+    {
+      "file": "meet-live-ui.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "meet",
+      "reason": "The real SFU journey runs only in the LiveKit phase"
+    },
+    {
+      "file": "offline-mail.spec.ts",
+      "project": "*",
+      "title": "enable -> enroll -> provision -> offline body-search -> draft+send -> reconnect drain -> idle relock -> conflict inspect",
+      "type": "native",
+      "reason": "Requires the native bridge and remains a separate client/device gate"
+    },
+    {
+      "file": "offline-storage.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "The real storage card assertion runs in the CA/device phase"
+    },
+    {
+      "file": "offline-storage.spec.ts",
+      "project": "admin-chromium",
+      "type": "not-applicable",
+      "reason": "The CA phase is deliberately single-run under the user project"
+    },
+    {
+      "file": "onboarding.spec.ts",
+      "project": "*",
+      "type": "gate",
+      "gate": "onboarding",
+      "gateProject": "onboarding-chromium",
+      "reason": "First-boot tests require a fresh uninitialized database and their dedicated project"
+    },
+    {
+      "file": "risk-remediation.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "Risk remediation is enabled only in the dedicated CA phase"
+    },
+    {
+      "file": "signin-activity-enduser.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "End-user sign-in activity is enabled only in the dedicated CA phase"
+    },
+    {
+      "file": "signin-activity-enduser.spec.ts",
+      "project": "admin-chromium",
+      "type": "not-applicable",
+      "reason": "The CA phase is deliberately single-run under the user project"
+    },
+    {
+      "file": "terms-of-use.spec.ts",
+      "project": "chromium",
+      "type": "gate",
+      "gate": "ca",
+      "reason": "Terms remediation is enabled only in the dedicated CA phase"
+    }
+  ],
+  "externalGates": [
+    {
+      "id": "link-protect-http",
+      "command": "bash scripts/e2e.sh link-protect",
+      "requires": ["SAFEBROWSING_API_KEY", "TEST_ADMIN_TOKEN", "TEST_GATEWAY_URL"],
+      "includedIn": [],
+      "reason": "The full SMTP→gateway→Safe Browsing flow uses an external credential/service; only the in-process token contract is local."
+    }
+  ]
+}

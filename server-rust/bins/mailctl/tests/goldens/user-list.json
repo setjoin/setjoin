@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"email\": \"ada@example.test\",\n    \"id\": 8\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

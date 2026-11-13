@@ -1,0 +1,28 @@
+package federation
+
+import (
+ "context"
+ "encoding/json"
+ "io"
+ "log/slog"
+ "os"
+ "path/filepath"
+ "testing"
+ "github.com/jackc/pgx/v5/pgxpool"
+ "setjoin.com/shared/pgxutil"
+)
+
+func TestRecordResidueReap(t *testing.T) {
+ ctx := context.Background()
+ pool, err := pgxpool.New(ctx, os.Getenv("DB_DSN")); if err != nil { t.Fatal(err) }; defer pool.Close()
+ dir := os.Getenv("FED_ORACLE_DIR")
+ sql := func(name string) string { b,e:=os.ReadFile(filepath.Join(dir,name)); if e!=nil {t.Fatal(e)};return string(b) }
+ if _,err=pool.Exec(ctx,sql("reap-seed.sql")); err!=nil {t.Fatal(err)}
+ defer pool.Exec(ctx,sql("reap-cleanup.sql"))
+ observe := func() json.RawMessage {var b []byte;if e:=pool.QueryRow(ctx,sql("reap-observe.sql")).Scan(&b);e!=nil {t.Fatal(e)};return b}
+ before:=observe()
+ NewReapWorker(pgxutil.WorkerPool{Pool:pool},slog.New(slog.NewTextHandler(io.Discard,nil))).tick(ctx)
+ after:=observe()
+ b,err:=json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"before":before,"after":after},"","  ");if err!=nil {t.Fatal(err)}
+ f,err:=os.OpenFile(filepath.Join(dir,"reap-go.json"),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0644);if err!=nil {t.Fatal(err)};defer f.Close();if _,err=f.Write(append(b,'\n'));err!=nil {t.Fatal(err)}
+}

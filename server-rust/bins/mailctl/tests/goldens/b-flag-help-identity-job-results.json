@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity job results:\n  -after int\n    \texclusive result sequence cursor\n  -json\n    \tJSON output\n  -limit int\n    \tresult page size, 1..500 (default 100)\n  -quiet\n    \tSuppress output\nError: flag: help requested\n",
+  "exit": 1
+}

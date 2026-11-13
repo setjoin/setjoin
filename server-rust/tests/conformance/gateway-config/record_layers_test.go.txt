@@ -1,0 +1,23 @@
+package config
+
+import (
+ "encoding/json"
+ "os"
+ "path/filepath"
+ "strconv"
+ "testing"
+)
+func TestGWConfigRecord(t *testing.T) {
+ type Case struct { Name string `json:"name"`; YAML string `json:"yaml"`; Env map[string]string `json:"env"`; Expected map[string]string `json:"expected"` }
+ raw, err := os.ReadFile(os.Getenv("GWCONFIG_CASES")); if err != nil {t.Fatal(err)}
+ var cases []Case; if err=json.Unmarshal(raw,&cases); err!=nil {t.Fatal(err)}
+ for i:=range cases { c:= &cases[i]; t.Run(c.Name,func(t *testing.T){
+  for _, k := range []string{"NETWORK_MODE","WEBSITE_DIR","SCIM_ENABLED","AD_SYNC_ENABLED","LDAP_SYNC_ENABLED","IMAP_TLS_ADDR","AUTH_LOGIN_FIELD","AUTH_LOGIN_DOMAIN_HINT","CRYPTO_ALGORITHM_PROFILE","NETWORK__MODE","network_mode"} {os.Unsetenv(k)}
+  setRequiredTestEnv(t); setTestTLS(t)
+  for k,v:=range c.Env {t.Setenv(k,v)}
+  path:=""; if c.YAML!="" {path=filepath.Join(t.TempDir(),"config.yaml");if err:=os.WriteFile(path,[]byte(c.YAML),0600);err!=nil {t.Fatal(err)}}
+  cfg,err:=LoadWithKoanf(path);if err!=nil {t.Fatal(err)}
+  c.Expected=map[string]string{"network.mode":cfg.NetworkMode,"website.dir":cfg.WebsiteDir,"scim.enabled":strconv.FormatBool(cfg.SCIMEnabled),"ad.sync_enabled":strconv.FormatBool(cfg.ADSyncEnabled),"ldap.sync_enabled":strconv.FormatBool(cfg.LDAPSyncEnabled),"imap.tls_addr":cfg.IMAPTLSAddr,"auth.login_field":cfg.LoginField,"auth.login_domain_hint":cfg.LoginDomainHint,"crypto.algorithm_profile":string(cfg.CryptoProfile)}
+ }) }
+ out,err:=json.MarshalIndent(cases,"","  ");if err!=nil {t.Fatal(err)};if err=os.WriteFile(os.Getenv("GWCONFIG_OUTPUT"),append(out,'\n'),0600);err!=nil {t.Fatal(err)}
+}

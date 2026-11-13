@@ -1,0 +1,56 @@
+// Recording-only overlay (#409): runs frozen Go's real drive.Worker tick(s)
+// over the assigned database with a MinIO client and the real S3 retention
+// driver pointed at an owned fake S3. Not a tracked Go change.
+package drive
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"strconv"
+	"testing"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"setjoin.com/mailserver/internal/storage"
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeDriveMaintenanceTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	endpoint := os.Getenv("GOFREE_DRAIN_S3")
+	mc, err := minio.New(endpoint, &minio.Options{
+		Creds: credentials.NewStaticV4("test-access", "test-secret", ""), Secure: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewWorker(pgxutil.WorkerPool{Pool: pool}, MinioStore{Client: mc}, "mailblobs", slog.Default())
+	if os.Getenv("GOFREE_DRIVE_NO_RETENTION") != "1" {
+		secure := false
+		rd, err := storage.NewDriver(storage.DriverConfig{
+			Endpoint: endpoint, Bucket: "mailblobs",
+			AccessKey: "test-access", SecretKey: "test-secret", Secure: &secure,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ret, ok := storage.RetentionOf(rd)
+		if !ok {
+			t.Fatal("driver has no retention")
+		}
+		w.SetRetention(ret)
+	}
+	ticks := 1
+	if n, err := strconv.Atoi(os.Getenv("GOFREE_DRIVE_TICKS")); err == nil && n > 0 {
+		ticks = n
+	}
+	for i := 0; i < ticks; i++ {
+		w.tick(ctx)
+	}
+}

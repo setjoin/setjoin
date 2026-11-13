@@ -1,0 +1,23 @@
+{
+  "case": "discovery-success",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/.well-known/openid-configuration"
+    },
+    "response": {
+      "body": "{\"acr_values_supported\":[\"aal1\",\"aal2\"],\"authorization_endpoint\":\"https://auth.idfed1.test/authorize\",\"claims_supported\":[\"sub\",\"aud\",\"exp\",\"iat\",\"iss\",\"auth_time\",\"nonce\",\"acr\",\"amr\",\"c_hash\",\"at_hash\",\"act\",\"scopes\",\"client_id\",\"azp\",\"preferred_username\",\"name\",\"family_name\",\"given_name\",\"locale\",\"email\",\"email_verified\",\"phone_number\",\"phone_number_verified\"],\"code_challenge_methods_supported\":[\"S256\"],\"end_session_endpoint\":\"https://auth.idfed1.test/end_session\",\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],\"id_token_signing_alg_values_supported\":[\"RS256\"],\"introspection_endpoint\":\"https://auth.idfed1.test/oauth/introspect\",\"introspection_endpoint_auth_methods_supported\":[\"client_secret_basic\"],\"introspection_endpoint_auth_signing_alg_values_supported\":[\"RS256\"],\"issuer\":\"https://auth.idfed1.test\",\"jwks_uri\":\"https://auth.idfed1.test/keys\",\"request_uri_parameter_supported\":false,\"response_types_supported\":[\"code\"],\"revocation_endpoint\":\"https://auth.idfed1.test/revoke\",\"revocation_endpoint_auth_methods_supported\":[\"none\",\"client_secret_basic\",\"client_secret_post\"],\"revocation_endpoint_auth_signing_alg_values_supported\":[\"RS256\"],\"scopes_supported\":[\"openid\",\"profile\",\"email\",\"phone\",\"address\",\"offline_access\"],\"subject_types_supported\":[\"public\"],\"token_endpoint\":\"https://auth.idfed1.test/oauth/token\",\"token_endpoint_auth_methods_supported\":[\"none\",\"client_secret_basic\",\"client_secret_post\"],\"userinfo_endpoint\":\"https://auth.idfed1.test/userinfo\"}",
+      "headers": {
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /.well-known/"
+}

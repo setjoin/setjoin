@@ -1,0 +1,33 @@
+package testutil
+import (
+ "bytes"
+ "encoding/base64"
+ "encoding/json"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+ "setjoin.com/shared/release"
+)
+func TestREL1Edges(t *testing.T) {
+ type edge struct { Name string `json:"name"`; Input string `json:"input_base64"`; Accepted bool `json:"accepted"`; Canonical string `json:"canonical,omitempty"` }
+ now := time.Date(2026,11,5,0,0,0,0,time.UTC)
+ raw,_,err := SignedManifest(now,release.ChannelCommunity); if err != nil { t.Fatal(err) }
+ edges:=[]edge{}
+ add:=func(name string, data []byte) {
+  m,err:=release.ParseManifest(data)
+  c:="";if err==nil {canonical,e:=release.CanonicalManifest(m);if e!=nil {t.Fatal(e)};c=string(canonical)}
+  edges=append(edges,edge{Name:name,Input:base64.RawStdEncoding.EncodeToString(data),Accepted:err==nil,Canonical:c})
+ }
+ add("case-folded-field",bytes.Replace(raw,[]byte(`"release_id"`),[]byte(`"RELEASE_ID"`),1))
+ add("unicode-folded-field",bytes.Replace(raw,[]byte(`"signing"`),[]byte(`"ſigning"`),1))
+ add("null-value",bytes.Replace(raw,[]byte(`"downtime_minimum_seconds":0`),[]byte(`"downtime_minimum_seconds":null`),1))
+ add("case-distinct-last-wins",bytes.Replace(raw,[]byte(`"metadata_version":1`),[]byte(`"metadata_version":0,"METADATA_VERSION":1`),1))
+ add("duplicate-key",bytes.Replace(raw,[]byte(`"metadata_version":1`),[]byte(`"metadata_version":0,"metadata_version":1`),1))
+ add("unknown-field",bytes.Replace(raw,[]byte(`"metadata_version":1`),[]byte(`"metadata_version":1,"unknown":true`),1))
+ add("fractional-integer",bytes.Replace(raw,[]byte(`"metadata_version":1`),[]byte(`"metadata_version":1.0`),1))
+ // Go's fixed target map lookup returns an empty value for an unknown class.
+ add("unknown-class-empty-target",bytes.Replace(raw,[]byte(`"artifacts":[`),[]byte(`"artifacts":[{"id":"000-extension","class":"unknown","platform":"linux","architecture":"amd64","size":3,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","media_type":"x","cohort":"evidence","target":""},`),1))
+ data,err:=json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"edges":edges},"","  ");if err!=nil {t.Fatal(err)}
+ f,err:=os.OpenFile(filepath.Join(os.Getenv("REL1_RECORD_DIR"),"edge-cases.json"),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err!=nil {t.Fatal(err)};defer f.Close();if _,err=f.Write(data);err!=nil {t.Fatal(err)}
+}

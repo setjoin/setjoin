@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/users/8/quota",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"quotaBytes\":4096}"
+    }
+  ],
+  "stdout": "{\n  \"email\": \"ada@example.test\",\n  \"quotaBytes\": 4096\n}\n",
+  "stderr": "",
+  "exit": 0
+}

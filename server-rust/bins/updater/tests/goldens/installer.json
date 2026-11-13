@@ -1,0 +1,39 @@
+{
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observed": {
+    "states": [
+      "claimed",
+      "preflight",
+      "recovery_point",
+      "staged",
+      "maintenance",
+      "migrations",
+      "switched",
+      "readiness",
+      "committed",
+      "verified"
+    ],
+    "host": [
+      "is-enabled setjoin-gateway setjoin setjoin-auth",
+      "stop setjoin-gateway setjoin setjoin-auth",
+      "start setjoin-auth setjoin setjoin-gateway"
+    ],
+    "result": {
+      "verified": true
+    },
+    "files": [
+      "authserverd",
+      "installed.evidence.json",
+      "mailctl",
+      "mailserverd",
+      "manifest.digest",
+      "manifest.json",
+      "setjoin-gateway",
+      "share/docs/UPGRADE_RECOVERY.md",
+      "share/evidence/provenance.json",
+      "share/evidence/sbom.json",
+      "share/migrations/migration-rel2.sql",
+      "webmail/index.html"
+    ]
+  }
+}

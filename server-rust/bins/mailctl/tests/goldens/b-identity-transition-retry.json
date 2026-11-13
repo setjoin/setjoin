@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/effects/00000000-0000-4000-8000-000000000002/retry",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"2\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"expectedGeneration\":\"2\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "Effect 00000000-0000-4000-8000-000000000002 exact retry accepted; transition state=completed generation=2.\n",
+  "stderr": "",
+  "exit": 0
+}

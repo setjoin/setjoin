@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity transition authorize:\n  -idempotency-key string\n    \tstable challenge UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

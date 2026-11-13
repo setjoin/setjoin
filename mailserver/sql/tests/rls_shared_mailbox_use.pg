@@ -1,0 +1,83 @@
+-- pgTAP: rls_shared_mailbox_use.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- #13 shared-mailbox USE-surface proof: the V003/V004 messages policy admits
+-- the DELEGATE CONTEXT with NO policy change. After the Go method gate admits
+-- a delegated accountId, CallScoped sets app.current_mailbox_id = the SHARED
+-- mailbox id (GUC == $1 by construction), and messages_tenant_isolation
+-- admits exactly that mailbox's rows. Any FOREIGN GUC — including the
+-- delegate's OWN primary — is denied, and no GUC is fail-closed. This pins
+-- the eng-review decision: never add a per-row delegate EXISTS to the
+-- hottest table; scope rides the existing GUC policy.
+--
+-- Like rls_policies.pg / rls_mailbox_delegates.pg, the proof runs as the REAL
+-- constrained runtime role (SET LOCAL ROLE setjoin_app — the test connection
+-- `mail` is a superuser+owner and bypasses RLS even under FORCE), inside
+-- BEGIN…ROLLBACK so fixtures never persist.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(7);
+
+-- ── Force-state: V004 shipped ENABLE+FORCE on messages persistently. ────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.messages'::regclass),
+  TRUE, 'V004: messages has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.messages'::regclass),
+  TRUE, 'V004: messages has ROW LEVEL SECURITY FORCED');
+
+-- ── Fixtures: S = shared mailbox (user_id IS NULL); D = its delegate. ───────
+SELECT mk_shared_mailbox('smuS') AS mbs \gset
+SELECT mk_account('smuD') AS mbd \gset
+SELECT user_id AS ud FROM mailboxes WHERE id = :mbd \gset
+
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+VALUES (:mbs, :ud, 'read', :ud);
+
+-- One message in the SHARED mailbox, one in the delegate's OWN mailbox.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr,
+                      size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES
+  (86001, :mbs, get_tag_id('Inbox', :mbs), '<smu1@mk.test>', 'shared msg',
+   'x@ext.example', 100, 'thr-86001', 's3://raw-86001', now(), FALSE),
+  (86002, :mbd, get_tag_id('Inbox', :mbd), '<smu2@mk.test>', 'own msg',
+   'y@ext.example', 100, 'thr-86002', 's3://raw-86002', now(), FALSE);
+
+-- Defensive re-grant (provision-roles.sql provisions at load; GRANTs are not
+-- policies — setjoin_app needs both).
+GRANT SELECT ON public.messages TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- ── CallScoped(shared) convention: GUC = the SHARED mailbox id. ─────────────
+SELECT set_config('app.current_mailbox_id', :mbs::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 86001)::INT, 1,
+  'GUC=shared mailbox (the CallScoped shape after the gate admits): the shared message is VISIBLE');
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 86002)::INT, 0,
+  'GUC=shared mailbox: the delegate''s OWN message is NOT visible (scope is one mailbox, never a union)');
+
+-- ── Foreign GUC: the delegate''s own primary does NOT admit shared rows. ─────
+SELECT set_config('app.current_mailbox_id', :mbd::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 86001)::INT, 0,
+  'GUC=delegate''s own primary (a foreign GUC for the shared rows): shared message is DENIED');
+
+-- ── No GUC: fail-closed. ─────────────────────────────────────────────────────
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id IN (86001, 86002))::INT, 0,
+  'no GUC: fail-closed — zero rows (the un-wrapped-connection case)');
+
+RESET ROLE;
+
+-- ── Non-vacuity: the superuser control sees both (RLS was load-bearing). ────
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id IN (86001, 86002))::INT, 2,
+  'non-vacuity: superuser control sees both messages');
+
+SELECT * FROM finish();
+ROLLBACK;

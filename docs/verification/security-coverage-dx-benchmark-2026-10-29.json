@@ -1,0 +1,257 @@
+{
+  "absolutePathsExposed": false,
+  "architecture": "x64",
+  "command": "coverage benchmark --journey resume",
+  "developerIdentityExposed": false,
+  "discardedWarmups": 2,
+  "evidenceSha256": "fc1ce2651f0ef4ae41074fd4f5fe53107dd6f13e3b167464d2097b7505edebe4",
+  "findingBodiesExposed": false,
+  "generatedAt": "2026-10-29T04:41:08.582Z",
+  "hostClass": "local-unclassified",
+  "journey": "resume",
+  "networkStarts": 0,
+  "observed": {
+    "doctorStatusP95Ms": 4093.299,
+    "fullJourneyP95Ms": 8914.349
+  },
+  "platform": "linux",
+  "results": [
+    {
+      "action": "WAIT_FOR_DX",
+      "actionValidated": true,
+      "doctorStatusP95Ms": 2539.325,
+      "exitFamily": "HOLD",
+      "fullJourneyP95Ms": 3688.213,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": null,
+      "nextActionExitCode": null,
+      "resumeExitCode": 3,
+      "samples": 5,
+      "scannerStarts": 0,
+      "state": "fresh",
+      "stateBranch": "FRESH",
+      "targetVerdict": "SAFE_HOLD",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "No admitted attempt or shard authority exists, so no scanner may start"
+    },
+    {
+      "action": "REJOIN_EXISTING",
+      "actionValidated": true,
+      "attemptId": "attempt-fixture",
+      "doctorStatusP95Ms": 4093.299,
+      "exitFamily": "OK",
+      "fullJourneyP95Ms": 8914.349,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "coverage",
+          "attach",
+          "--attempt",
+          "attempt-fixture"
+        ]
+      },
+      "nextActionExitCode": 0,
+      "resumeExitCode": 0,
+      "samples": 5,
+      "scanId": "scan-fixture",
+      "scannerStarts": 0,
+      "shardId": "S01/P01",
+      "state": "active",
+      "stateBranch": "ACTIVE",
+      "targetVerdict": "SAFE_ATTACH",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "The journal binds the existing scan ID to the current revision, inventory, and shard generation"
+    },
+    {
+      "action": "REJOIN_EXISTING",
+      "actionValidated": true,
+      "attemptId": "attempt-fixture",
+      "doctorStatusP95Ms": 2134.4,
+      "exitFamily": "OK",
+      "fullJourneyP95Ms": 4084.423,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "coverage",
+          "attach",
+          "--attempt",
+          "attempt-fixture"
+        ]
+      },
+      "nextActionExitCode": 0,
+      "resumeExitCode": 0,
+      "samples": 5,
+      "scanId": "scan-fixture",
+      "scannerStarts": 0,
+      "shardId": "S01/P01",
+      "state": "detached",
+      "stateBranch": "DETACHED",
+      "targetVerdict": "SAFE_ATTACH",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "The detached journal entry retains one bound scan ID, so attach cannot create a replacement scan"
+    },
+    {
+      "action": "RECONCILE_START",
+      "actionValidated": true,
+      "doctorStatusP95Ms": 2412.367,
+      "exitFamily": "HOLD",
+      "fullJourneyP95Ms": 5241.545,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "coverage",
+          "reconcile-start",
+          "--attempt",
+          "attempt-fixture"
+        ]
+      },
+      "nextActionExitCode": 3,
+      "resumeExitCode": 3,
+      "samples": 5,
+      "scannerStarts": 0,
+      "state": "orphaned",
+      "stateBranch": "ORPHANED_START",
+      "targetVerdict": "SAFE_RECONCILE",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "The journal proves a start request but no scan ID; reconciliation cannot launch a replacement"
+    },
+    {
+      "action": "RECONCILE_COMPLETION",
+      "actionValidated": true,
+      "doctorStatusP95Ms": 1842.499,
+      "exitFamily": "HOLD",
+      "fullJourneyP95Ms": 3850.52,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "coverage",
+          "reconcile-completion",
+          "--attempt",
+          "attempt-fixture"
+        ]
+      },
+      "nextActionExitCode": 3,
+      "resumeExitCode": 3,
+      "samples": 5,
+      "scannerStarts": 0,
+      "state": "completion-unknown",
+      "stateBranch": "COMPLETION_UNKNOWN",
+      "targetVerdict": "SAFE_RECONCILE",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "The journal retains the existing scan ID while terminal evidence is unknown, so only reconciliation is allowed"
+    },
+    {
+      "action": "RESOLVE_PREREQUISITE",
+      "actionValidated": true,
+      "doctorStatusP95Ms": 2865.93,
+      "exitFamily": "BLOCKED",
+      "fullJourneyP95Ms": 5467.269,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "--doctor",
+          "--offline"
+        ]
+      },
+      "nextActionExitCode": 0,
+      "resumeExitCode": 4,
+      "samples": 5,
+      "scannerStarts": 0,
+      "state": "blocked",
+      "stateBranch": "BLOCKED",
+      "targetVerdict": "SAFE_BLOCKED",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "Persisted authority is readable but not eligible; the next command is read-only doctor"
+    },
+    {
+      "action": "START_DRY_RUN",
+      "actionValidated": true,
+      "doctorStatusP95Ms": 2145.164,
+      "exitFamily": "OK",
+      "fullJourneyP95Ms": 4653.25,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": {
+        "argv": [
+          "bash",
+          "scripts/verify-security-program.sh",
+          "coverage",
+          "start",
+          "--shard",
+          "S01/P01",
+          "--approval",
+          "approval-fixture",
+          "--dry-run"
+        ]
+      },
+      "nextActionExitCode": 0,
+      "resumeExitCode": 0,
+      "samples": 5,
+      "scannerStarts": 0,
+      "shardId": "S01/P01",
+      "state": "eligible",
+      "stateBranch": "ELIGIBLE",
+      "targetVerdict": "SAFE_DRY_RUN",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "Eligibility binds the approved shard to the current revision, inventory, and shard generation; dry-run starts nothing"
+    },
+    {
+      "action": "ALL_COVERAGE_RECONCILED",
+      "actionValidated": true,
+      "attemptId": "attempt-fixture",
+      "doctorStatusP95Ms": 2210.51,
+      "exitFamily": "OK",
+      "fullJourneyP95Ms": 3335.527,
+      "measurementClass": "warm-after-discarded-warmups",
+      "networkStarts": 0,
+      "next": null,
+      "nextActionExitCode": null,
+      "resumeExitCode": 0,
+      "samples": 5,
+      "scanId": "scan-fixture",
+      "scannerStarts": 0,
+      "shardId": "S01/P01",
+      "state": "complete",
+      "stateBranch": "COMPLETE",
+      "targetVerdict": "SAFE_TERMINAL",
+      "validationMode": "persisted-state-subprocess",
+      "whySafe": "The retained attempt reached verified admission and has no remaining transition"
+    }
+  ],
+  "runtime": {
+    "engine": "node",
+    "major": 26
+  },
+  "samples": 5,
+  "scanLaunch": "HOLD",
+  "scannerStarts": 0,
+  "schema": "setjoin.security-program.benchmark/v1",
+  "sourceBinding": {
+    "controlSourceSha256": "284d3068712ecd79425140fa1cd6b22d278ffb0a2528636a6d7f562d2ac8fab7",
+    "inventorySha256": "b48c312ddc01b7410463eeb1bc659da6a28b2ee2bff50a4d422bf95b5b7407af",
+    "revision": "727f40ad1274d950926369913a464bcc8f2e0236",
+    "shardGenerationId": "owners-as-shards/v1"
+  },
+  "status": "PASS",
+  "supportedReadPath": true,
+  "targets": {
+    "doctorStatusP95Ms": 120000,
+    "fullJourneyP95Ms": 300000
+  }
+}

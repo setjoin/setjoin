@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of office recover:\n  -generation int\n    \texpected operation generation\n  -operation string\n    \tpaused operation UUID\n  -reason string\n    \taudit reason\nError: usage: mailctl office recover --operation UUID --generation N --reason TEXT --yes\n",
+  "exit": 1
+}

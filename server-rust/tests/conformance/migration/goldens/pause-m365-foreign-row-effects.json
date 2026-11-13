@@ -1,0 +1,245 @@
+{
+  "case": "m365-foreign-row-effects",
+  "effects": [
+    {
+      "after": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "ews": {
+                "impersonateAs": "source@example.test"
+              },
+              "m365": {
+                "source_email": "source@example.test"
+              },
+              "self_service": false,
+              "source_type": "m365",
+              "use_global_auth": true
+            },
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "m365",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [],
+        "provider_effects": {
+          "checkpoints": [],
+          "consents": [],
+          "contacts": [],
+          "events": [],
+          "instances": [],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [],
+          "source_objects": [],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "before": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "ews": {
+                "impersonateAs": "source@example.test"
+              },
+              "m365": {
+                "source_email": "source@example.test"
+              },
+              "self_service": false,
+              "source_type": "m365",
+              "use_global_auth": true
+            },
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "m365",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [],
+        "provider_effects": {
+          "checkpoints": [],
+          "consents": [],
+          "contacts": [],
+          "events": [],
+          "instances": [],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [],
+          "source_objects": [],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "table": "migration_jobs+messages+tags+objects"
+    }
+  ],
+  "format": 1,
+  "go_source": "ad5c2e3480ddd3776062cbc03f9fac49814d968b",
+  "route": "POST /admin/migration/jobs/{id}/pause"
+}

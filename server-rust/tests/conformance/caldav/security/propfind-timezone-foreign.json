@@ -1,0 +1,209 @@
+{
+  "case": "propfind-timezone-foreign",
+  "format": 1,
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "calendars": [
+            {
+              "booking_policy": "auto-accept",
+              "capacity": null,
+              "color": null,
+              "description": null,
+              "ical_feed_url": null,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-a>",
+              "name": "CAL4 Owner",
+              "resource_type": "personal",
+              "timezone": "CAL4/Shared"
+            },
+            {
+              "booking_policy": "auto-accept",
+              "capacity": null,
+              "color": null,
+              "description": null,
+              "ical_feed_url": null,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-b>",
+              "name": "CAL4 Other",
+              "resource_type": "personal",
+              "timezone": "UTC"
+            }
+          ],
+          "events": [],
+          "journal": [
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994261,
+              "mailbox_id": "<mailbox-a>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            },
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994261,
+              "mailbox_id": "<mailbox-a>",
+              "op": "updated",
+              "resource_uid": null,
+              "state_seq": 2
+            },
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994262,
+              "mailbox_id": "<mailbox-b>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            }
+          ],
+          "queue": [],
+          "state": [
+            {
+              "datatype": "Calendar",
+              "mailbox": "<mailbox-a>",
+              "state": 2
+            },
+            {
+              "datatype": "Calendar",
+              "mailbox": "<mailbox-b>",
+              "state": 1
+            }
+          ]
+        },
+        "before": {
+          "calendars": [
+            {
+              "booking_policy": "auto-accept",
+              "capacity": null,
+              "color": null,
+              "description": null,
+              "ical_feed_url": null,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-a>",
+              "name": "CAL4 Owner",
+              "resource_type": "personal",
+              "timezone": "CAL4/Shared"
+            },
+            {
+              "booking_policy": "auto-accept",
+              "capacity": null,
+              "color": null,
+              "description": null,
+              "ical_feed_url": null,
+              "is_default": false,
+              "is_shared": false,
+              "jmap_state": 0,
+              "mailbox_id": "<mailbox-b>",
+              "name": "CAL4 Other",
+              "resource_type": "personal",
+              "timezone": "UTC"
+            }
+          ],
+          "events": [],
+          "journal": [
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994261,
+              "mailbox_id": "<mailbox-a>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            },
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994261,
+              "mailbox_id": "<mailbox-a>",
+              "op": "updated",
+              "resource_uid": null,
+              "state_seq": 2
+            },
+            {
+              "collection_id": null,
+              "datatype": "Calendar",
+              "entity_id": 994262,
+              "mailbox_id": "<mailbox-b>",
+              "op": "created",
+              "resource_uid": null,
+              "state_seq": 1
+            }
+          ],
+          "queue": [],
+          "state": [
+            {
+              "datatype": "Calendar",
+              "mailbox": "<mailbox-a>",
+              "state": 2
+            },
+            {
+              "datatype": "Calendar",
+              "mailbox": "<mailbox-b>",
+              "state": 1
+            }
+          ]
+        },
+        "table": "f17-caldav"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><c:calendar-timezone/></d:prop></d:propfind>",
+      "concrete_method": "PROPFIND",
+      "external_path": "/caldav/994261/",
+      "method": "*",
+      "path": "/caldav/"
+    },
+    "response": {
+      "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<multistatus xmlns=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\">\n  <response>\n    <href>/994261</href>\n    <propstat>\n      <prop>\n        <calendar-timezone xmlns=\"urn:ietf:params:xml:ns:caldav\"></calendar-timezone>\n      </prop>\n      <status>HTTP/1.1 404 Not Found</status>\n    </propstat>\n  </response>\n</multistatus>",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "362"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/xml; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-cal4-oracle"
+        ]
+      },
+      "status": 207
+    }
+  }
+}

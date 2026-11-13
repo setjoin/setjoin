@@ -1,0 +1,358 @@
+-- pgTAP: I3 authenticated linking, I4 source-scoped grants, I7 user cohorts.
+BEGIN;
+SELECT plan(47);
+SET LOCAL app.capture_notify='on';
+
+CREATE TEMP TABLE il_fixture(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT INTO il_fixture VALUES
+ ('mailbox_a',mk_account('identity-link-a')::text),
+ ('mailbox_b',mk_account('identity-link-b')::text);
+INSERT INTO il_fixture
+SELECT 'user_a',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='mailbox_a');
+INSERT INTO il_fixture
+SELECT 'user_b',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='mailbox_b');
+
+SELECT is(identity_auth_link(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_a'),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_a'),
+ 'oidc','https://link-a.example','subject-a','oidc:link-a',
+ 'fresh AAL2 federated callback')->>'linked','true',
+ 'authenticated callback links an exact issuer and subject');
+SELECT is((SELECT provider_key FROM identity_sources
+ WHERE provider_key='oidc:link-a'),'oidc:link-a',
+ 'provider configuration is bound to its immutable source');
+SELECT is((SELECT oidc_subject FROM users
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='user_a')),
+ 'subject-a','legacy pair is dual-written for rollback');
+SELECT is((SELECT count(*)::integer FROM user_identity_links
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_a')
+   AND state='active'),1,'one active normalized link is created');
+SELECT throws_ok(format(
+ $$SELECT identity_auth_link(%s,%s,'oidc','https://link-a.example',
+   'subject-a','oidc:link-a','collision attempt')$$,
+ (SELECT value FROM il_fixture WHERE key='user_b'),
+ (SELECT value FROM il_fixture WHERE key='user_b')
+),'BZ230','federated subject belongs to another retained identity',
+ 'the same subject cannot be attached to another person');
+SELECT is((SELECT count(*)::integer FROM _test_notify_log
+ WHERE channel='identity_link'),1,'link emits a subscriber notice');
+
+INSERT INTO il_fixture
+SELECT 'link_a',id::text FROM user_identity_links
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_a')
+   AND state='active';
+SELECT is(identity_auth_unlink(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_a'),
+ (SELECT value::bigint FROM il_fixture WHERE key='link_a'),
+ 'user removed linked provider')->>'unlinked','true',
+ 'fresh authenticated unlink succeeds with local recovery');
+SELECT is((SELECT state FROM user_identity_links
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='link_a')),
+ 'detached','unlink retains a detached tombstone');
+SELECT is((SELECT oidc_subject IS NULL FROM users
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='user_a')),
+ true,'unlink clears only the matching legacy projection');
+SELECT throws_ok(format(
+ $$SELECT identity_auth_link(%s,%s,'oidc','https://link-a.example',
+   'subject-a','oidc:link-a','silent tombstone reuse')$$,
+ (SELECT value FROM il_fixture WHERE key='user_a'),
+ (SELECT value FROM il_fixture WHERE key='user_a')
+),'BZ230','federated subject belongs to another retained identity',
+ 'detached subject cannot be silently reused');
+
+-- Two independent providers support the same effective grants.
+INSERT INTO il_fixture VALUES
+ ('mailbox_e',mk_account('identity-entitlement')::text),
+ ('group_mailbox',mk_shared_mailbox('identity-entitlement-group')::text);
+INSERT INTO il_fixture
+SELECT 'user_e',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='mailbox_e');
+WITH created AS (
+  INSERT INTO distribution_groups(mailbox_id)
+  VALUES((SELECT value::bigint FROM il_fixture WHERE key='group_mailbox'))
+  RETURNING id
+)
+INSERT INTO il_fixture SELECT 'group_id',id::text FROM created;
+
+SELECT lives_ok(format(
+ $$SELECT identity_auth_link(%s,%s,'oidc','https://ent-a.example',
+   'ent-sub-a','oidc:ent-a','provider A proof')$$,
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT value FROM il_fixture WHERE key='user_e')
+),'provider A authentication link is accepted');
+SELECT lives_ok(format(
+ $$SELECT identity_auth_link(%s,%s,'saml','https://ent-b.example',
+   'ent-sub-b','saml:42','provider B proof')$$,
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT value FROM il_fixture WHERE key='user_e')
+),'provider B authentication link is accepted');
+SELECT lives_ok(format(
+ $$SELECT identity_auth_link(%s,%s,'oidc','https://ent-c.example',
+   'ent-sub-c','oidc:ent-c','provider C proof')$$,
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT value FROM il_fixture WHERE key='user_e')
+),'a second OIDC provider is accepted by the normalized link model');
+SELECT is((SELECT oidc_subject FROM users
+ WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ 'ent-sub-a','the legacy scalar preserves its first rollback projection');
+SELECT is((SELECT count(*)::integer FROM user_identity_links
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND state='active' AND 'authenticate'=ANY(purposes)),3,
+ 'one person can hold several bounded authentication links');
+
+INSERT INTO distribution_group_members(group_id,mailbox_id,source)
+VALUES(
+ (SELECT value::bigint FROM il_fixture WHERE key='group_id'),
+ (SELECT value::bigint FROM il_fixture WHERE key='mailbox_e'),'sso'
+);
+INSERT INTO sso_distribution_group_provenance(provider_key,group_id,mailbox_id)
+SELECT p,
+ (SELECT value::bigint FROM il_fixture WHERE key='group_id'),
+ (SELECT value::bigint FROM il_fixture WHERE key='mailbox_e')
+FROM unnest(ARRAY['oidc:ent-a','saml:42']) p;
+CREATE TEMP TABLE il_role_assignment(id BIGINT);
+WITH created AS (
+  INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+  VALUES((SELECT value::bigint FROM il_fixture WHERE key='user_e'),8,NULL)
+  RETURNING id
+)
+INSERT INTO il_role_assignment SELECT id FROM created;
+INSERT INTO sso_admin_role_provenance(provider_key,assignment_id)
+SELECT p,(SELECT id::bigint FROM il_role_assignment)
+FROM unnest(ARRAY['oidc:ent-a','saml:42']) p;
+
+SELECT is(identity_entitlements_reconcile_sso(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),'oidc:ent-a'
+)->>'reconciled','true','provider A normalized grants reconcile');
+SELECT is(identity_entitlements_reconcile_sso(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),'saml:42'
+)->>'reconciled','true','provider B normalized grants reconcile');
+SELECT is((SELECT count(*)::integer FROM identity_entitlement_grants
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND provenance_kind='source' AND revoked_at IS NULL),4,
+ 'two providers retain independent group and role evidence');
+SELECT is((SELECT count(DISTINCT source_id)::integer
+ FROM identity_entitlement_grants
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND provenance_kind='source' AND revoked_at IS NULL),2,
+ 'normalized provenance is scoped to two exact sources');
+
+INSERT INTO identity_entitlement_grants(
+ user_id,target_kind,target_id,entitlement_kind,entitlement_id,
+ provenance_kind,granted_by
+) VALUES(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),'mailbox',
+ (SELECT value::bigint FROM il_fixture WHERE key='mailbox_e'),
+ 'distribution_group',(SELECT value::bigint FROM il_fixture WHERE key='group_id'),
+ 'manual',(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+);
+DELETE FROM sso_distribution_group_provenance WHERE provider_key='oidc:ent-a';
+DELETE FROM sso_admin_role_provenance WHERE provider_key='oidc:ent-a';
+SELECT lives_ok(format(
+ $$SELECT identity_entitlements_reconcile_sso(%s,'oidc:ent-a')$$,
+ (SELECT value FROM il_fixture WHERE key='user_e')
+),'provider A removal reconciles without touching other evidence');
+SELECT is((SELECT count(*)::integer FROM identity_entitlement_grants g
+ JOIN identity_sources s ON s.id=g.source_id
+ WHERE g.user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND s.provider_key='oidc:ent-a' AND g.revoked_at IS NULL),0,
+ 'removed provider has no live normalized grants');
+SELECT is((SELECT count(*)::integer FROM identity_entitlement_grants g
+ JOIN identity_sources s ON s.id=g.source_id
+ WHERE g.user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND s.provider_key='saml:42' AND g.revoked_at IS NULL),2,
+ 'other provider grants remain live');
+SELECT is((SELECT count(*)::integer FROM identity_entitlement_grants
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND provenance_kind='manual' AND revoked_at IS NULL),1,
+ 'manual evidence survives source reconciliation');
+
+-- A canary serves only listed users; unknown and non-cohort subjects fall back.
+INSERT INTO il_fixture
+SELECT 'source_b',id::text FROM identity_sources WHERE provider_key='saml:42';
+INSERT INTO il_fixture
+SELECT 'source_b_generation',generation::text FROM identity_sources
+ WHERE provider_key='saml:42';
+INSERT INTO user_lifecycle_authorities(user_id,authority_kind)
+VALUES(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),'local'
+)
+ON CONFLICT(user_id) DO UPDATE SET
+ authority_kind='local',link_id=NULL;
+SELECT is(identity_upgrade_shadow(
+ (SELECT source_key FROM identity_sources
+   WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='source_b'))
+)->>'eligible','false',
+ 'authentication shadow gate without observations fails closed');
+SELECT is(identity_auth_shadow_observe(
+ 'saml','https://ent-b.example','ent-sub-b',
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b'),
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b_generation'),
+ (SELECT id FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT generation FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e')
+)->>'matched','true',
+ 'real authentication shadow comparison records a subject-free match');
+SELECT is(identity_auth_shadow_observe(
+ 'saml','https://ent-b.example','ent-sub-b',
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b'),
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b_generation'),
+ (SELECT id FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT generation FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_b')
+)->>'matched','false',
+ 'a legacy versus normalized person mismatch is recorded');
+SELECT is((SELECT state FROM identity_shadow_divergences
+ WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+   AND divergence_class='person_mismatch'),'open',
+ 'an authentication person mismatch blocks the source gate');
+SELECT is(identity_auth_shadow_observe(
+ 'saml','https://ent-b.example','ent-sub-b',
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b'),
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b_generation'),
+ (SELECT id FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT generation FROM user_identity_links
+   WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+     AND user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e')
+)->>'matched','true',
+ 'a later matching comparison re-observes the exact link generation');
+SELECT is((SELECT state FROM identity_shadow_divergences
+ WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')
+   AND divergence_class='person_mismatch'),'resolved',
+ 'a later matching comparison resolves the authentication divergence');
+UPDATE identity_auth_shadow_hours
+   SET matched_count=7,
+       first_observed_at=statement_timestamp()-interval '25 hours',
+       bucket_start=date_trunc(
+         'hour',statement_timestamp()-interval '25 hours'
+       )
+ WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b');
+SELECT is(identity_upgrade_shadow(
+ (SELECT source_key FROM identity_sources
+   WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='source_b'))
+)->>'observationKind','authentication',
+ 'authentication sources use real auth comparisons rather than fake sync batches');
+SELECT throws_ok(format(
+ $$SELECT identity_upgrade_canary(%s,%L,%s,true,ARRAY[%s,%s],%L)$$,
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT source_key FROM identity_sources
+   WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')),
+ (SELECT value FROM il_fixture WHERE key='source_b_generation'),
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ 'duplicate cohort'),
+ 'BZ234','canary cohort must contain unique observed active linked users',
+ 'canary rejects duplicate users instead of overstating cohort size');
+SELECT is(identity_upgrade_canary(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ (SELECT source_key FROM identity_sources
+   WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')),
+ (SELECT value::bigint FROM il_fixture WHERE key='source_b_generation'),
+ true,ARRAY[(SELECT value::bigint FROM il_fixture WHERE key='user_e')],
+ 'bounded one-user canary')->>'cohortSize','1',
+ 'canary records an explicit one-user cohort');
+SELECT is((SELECT count(*)::integer FROM identity_read_cohort
+ WHERE source_id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')),
+ 1,'cohort membership is durable');
+SELECT ok((SELECT auth_link_id IS NOT NULL
+                  AND auth_link_generation IS NOT NULL
+                  AND lifecycle_generation IS NOT NULL
+             FROM identity_read_cohort
+            WHERE source_id=(SELECT value::bigint FROM il_fixture
+                              WHERE key='source_b')),
+ 'canary cohort pins exact auth-link and lifecycle generations');
+SELECT is(identity_auth_resolve('saml','https://ent-b.example','ent-sub-b')
+ ->>'serveNormalized','true','cohort member is served by normalized reads');
+UPDATE user_lifecycle_authorities
+   SET generation=generation+1
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e');
+SELECT is(identity_auth_resolve('saml','https://ent-b.example','ent-sub-b')
+ ->>'serveNormalized','false',
+ 'lifecycle generation drift immediately removes canary admission');
+UPDATE user_lifecycle_authorities
+   SET generation=generation-1
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e');
+SELECT is(identity_auth_resolve('saml','https://ent-b.example','ent-sub-b')
+ ->>'serveNormalized','true',
+ 'restoring the exact lifecycle generation restores bounded canary admission');
+SELECT is(identity_auth_resolve('saml','https://ent-b.example','unknown-subject')
+ ->>'serveNormalized','true',
+ 'unknown canary subject stays on the normalized miss path without soft fallback');
+SELECT throws_ok(format(
+ $$SELECT identity_upgrade_canary(%s,%L,%s,true,ARRAY[%s],%L)$$,
+ (SELECT value FROM il_fixture WHERE key='user_e'),
+ (SELECT source_key FROM identity_sources
+   WHERE id=(SELECT value::bigint FROM il_fixture WHERE key='source_b')),
+ (SELECT value FROM il_fixture WHERE key='source_b_generation'),
+ (SELECT value FROM il_fixture WHERE key='user_b'),
+ 'unlinked cohort'),
+ 'BZ229','identity source generation is stale',
+ 'source generation compare-and-set rejects stale cohort updates');
+INSERT INTO il_fixture
+SELECT 'rollback_sources_changed',count(*)::text
+  FROM identity_sources WHERE read_mode<>'shadow';
+INSERT INTO il_fixture
+SELECT 'rollback_cohorts_cleared',count(*)::text
+  FROM identity_read_cohort;
+SELECT is(identity_upgrade_rollback(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ 'bounded rollback drill')->>'rolledBack','true',
+ 'rollback disables normalized admission without deleting evidence');
+SELECT is((SELECT count(*)::integer FROM identity_link_events
+ WHERE actor_user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND source_id IS NULL
+   AND action='source_updated'
+   AND reason='bounded rollback drill'
+   AND metadata @> jsonb_build_object(
+     'operation','global_rollback',
+     'sourcesChanged',(SELECT value::integer FROM il_fixture
+                        WHERE key='rollback_sources_changed'),
+     'cohortMembersCleared',(SELECT value::integer FROM il_fixture
+                             WHERE key='rollback_cohorts_cleared')
+   )),1,
+ 'global rollback records the exact actor, reason, and affected counts');
+SELECT throws_ok(format(
+ $$UPDATE identity_link_events SET reason='tampered'
+    WHERE id=%s$$,
+ (SELECT id FROM identity_link_events
+   WHERE source_id IS NULL AND reason='bounded rollback drill'
+   ORDER BY id DESC LIMIT 1)
+ ),'55000','identity link events are append-only',
+ 'global rollback evidence rejects update tampering');
+SELECT is(identity_upgrade_rollback(
+ (SELECT value::bigint FROM il_fixture WHERE key='user_e'),
+ 'bounded rollback replay')->>'rolledBack','true',
+ 'global rollback is safe to replay after every source is already shadow');
+SELECT is((SELECT count(*)::integer FROM identity_link_events
+ WHERE actor_user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')
+   AND source_id IS NULL
+   AND action='source_updated'
+   AND reason IN ('bounded rollback drill','bounded rollback replay')),2,
+ 'a no-op-source rollback replay still leaves durable operator evidence');
+SELECT is((SELECT count(*)::integer FROM identity_read_cohort),0,
+ 'rollback clears every served canary cohort');
+SELECT is((SELECT enabled FROM feature_toggles
+ WHERE key='feature.identity_model_v2'),false,
+ 'rollback returns the identity master gate to off');
+SELECT is((SELECT count(*)::integer FROM user_identity_links
+ WHERE user_id=(SELECT value::bigint FROM il_fixture WHERE key='user_e')),3,
+ 'rollback preserves normalized link evidence');
+
+SELECT * FROM finish();
+ROLLBACK;

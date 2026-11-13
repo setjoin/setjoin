@@ -1,0 +1,54 @@
+-- mailserver/sql/tests/drive_personal_admin.pg — I-15: "IT administers, members
+-- read" — a drive.view admin sees a personal space's metadata + audit trail but
+-- NEVER its content (nodes/files/versions/manifest/chunks stay member-only).
+-- The live-API half of I-15 (admin content routes 404) is asserted in the Go
+-- handler test (Task 20, out of P1-core scope).
+BEGIN;
+SELECT plan(11);
+SELECT mk_account('dpaU') AS mbu \gset
+SELECT mk_account('dpaA') AS mba \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mbu \gset
+SELECT user_id AS a FROM mailboxes WHERE id = :mba \gset
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:a, 1, :a);
+
+-- (1) personal-space idempotency: same id twice, raw second INSERT collides
+SELECT drive_space_create(:u, 'me', 'regular', p_is_personal => true) AS ps1 \gset
+SELECT drive_space_create(:u, 'me-again', 'regular', p_is_personal => true) AS ps2 \gset
+SELECT is(:ps2, :ps1, 'second p_is_personal create returns the SAME space id');
+SELECT throws_ok(format($$ INSERT INTO drive_spaces (name, owner_user_id, is_personal) VALUES ('raw', %s, true) $$, :u),
+  '23505', NULL, 'raw second personal-space INSERT collides on the partial unique index');
+
+-- seed one version through the real reducer chain: register → put_version
+SELECT drive_node_create(:u, :ps1, NULL, 'file', 'me.bin') AS nid \gset
+SELECT drive_chunk_register(:u, :ps1, repeat('1',64), 10);
+SELECT drive_file_put_version(:u, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+
+-- Task 2's defensive-GRANT preamble genre (rls_mailbox_delegates.pg): BYPASSRLS
+-- bypasses policies, not GRANTs.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+-- (2) admin A (drive.view via role_group 1): sees the space row, sees NOTHING
+-- of its content.
+SELECT set_config('app.current_user_id', :a::text, true);
+SELECT is((SELECT count(*) FROM drive_spaces WHERE id=:ps1)::int, 1, 'I-15: admin sees the personal space row (metadata arm)');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE space_id=:ps1)::int, 0, 'I-15: admin cannot see personal-space nodes');
+SELECT is((SELECT count(*) FROM drive_files WHERE space_id=:ps1)::int, 0, 'I-15: admin cannot see personal-space files');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE space_id=:ps1)::int, 0, 'I-15: admin cannot see personal-space versions');
+SELECT is((SELECT count(*) FROM drive_version_chunks vc JOIN drive_file_versions v ON v.id=vc.version_id
+            WHERE v.space_id=:ps1)::int, 0, 'I-15: admin cannot see personal-space manifest rows');
+SELECT is((SELECT count(*) FROM drive_chunks WHERE sha256=repeat('1',64))::int, 0,
+  'I-15: admin cannot see the chunk row (I-4 anti-oracle doubles as personal-space privacy)');
+
+-- (4) the audit trail IS visible to a drive.view admin — deliberate, §9.3
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE space_id=:ps1) > 0, 'I-15: drive.view admin sees the audit chain');
+
+-- (3) non-vacuity: the owner sees their own content
+SELECT set_config('app.current_user_id', :u::text, true);
+SELECT is((SELECT count(*) FROM drive_nodes WHERE space_id=:ps1)::int, 1, 'non-vacuity: owner sees their own node');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE space_id=:ps1)::int, 1, 'non-vacuity: owner sees their own version');
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

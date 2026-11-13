@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>SetJoin</title>
+		<script>
+			// Pre-paint theme + density restore. Must stay inline and run before
+			// any stylesheet-dependent paint: dark mode is data-theme="dark" on
+			// <html> with no prefers-color-scheme CSS fallback.
+			(function () {
+				function apply() {
+					var mode = 'system';
+					try { mode = localStorage.getItem('sj-theme') || 'system'; } catch (e) { /* storage blocked */ }
+					var dark = mode === 'dark' ||
+						(mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+					if (dark) { document.documentElement.dataset.theme = 'dark'; }
+					else { delete document.documentElement.dataset.theme; }
+					var density = null;
+					try { density = localStorage.getItem('density'); } catch (e) { /* storage blocked */ }
+					if (density === 'compact') { document.documentElement.dataset.density = 'compact'; }
+					else { delete document.documentElement.dataset.density; }
+				}
+				apply();
+				window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+					var mode = 'system';
+					try { mode = localStorage.getItem('sj-theme') || 'system'; } catch (e) { /* storage blocked */ }
+					if (mode === 'system') { apply(); }
+				});
+			})();
+		</script>
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<meta name="theme-color" content="#4A50D0" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

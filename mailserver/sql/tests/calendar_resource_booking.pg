@@ -1,0 +1,93 @@
+-- pgTAP: calendar_freebusy.sql — bookable-resource list + booking contract.
+BEGIN;
+SELECT plan(7);
+
+INSERT INTO domains (name, is_local) VALUES ('room.test', TRUE);
+
+-- DIVERGENT IDS (regression guard): the booker's users.id (7201) differs from their
+-- mailbox id (9201), and the org-shared room mailboxes carry user_id IS NULL (the real
+-- production shape). An ownership predicate that mistook p_account_id (a mailbox id) for
+-- a users.id would now match zero room rows and fail every booking — which is the bug.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (7201, 'booker', (SELECT id FROM domains WHERE name = 'room.test'), 'booker@room.test', 'Booker');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary, resource_type) VALUES
+  (9201, 7201, (SELECT id FROM domains WHERE name = 'room.test'), 'booker@room.test', 'personal', 'Booker Mbox', TRUE, NULL),
+  (9202, NULL, (SELECT id FROM domains WHERE name = 'room.test'), 'roomA@room.test',  'personal', 'Room A',     FALSE, 'room'),
+  (9203, NULL, (SELECT id FROM domains WHERE name = 'room.test'), 'roomB@room.test',  'personal', 'Room B',     FALSE, 'room');
+
+-- Personal calendar + two room calendars (one auto-accept, one decline-conflict).
+INSERT INTO calendars (id, mailbox_id, name, is_default, resource_type, booking_policy, capacity) VALUES
+  (9201, 9201, 'Booker Calendar', TRUE,  'personal',        'auto-accept',      NULL),
+  (9202, 9202, 'Room A',          TRUE,  'room',            'auto-accept',      8),
+  (9203, 9203, 'Room B',          TRUE,  'room',            'decline-conflict', 12);
+
+-- The event to book, on the booker's personal calendar.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+VALUES (9201, 9201, 'book-evt-1', 'Workshop', '2026-06-15 10:00:00+00', '2026-06-15 11:00:00+00');
+
+-- An existing booking in Room B that overlaps the event (forces the decline-conflict).
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+VALUES (9202, 9203, 'roomB-existing', 'Held', '2026-06-15 10:30:00+00', '2026-06-15 11:30:00+00');
+
+-- ============================================================
+-- (1) jmap_calendar_resource_list returns both rooms with metadata, excludes personal.
+-- ============================================================
+SELECT is(
+  jsonb_array_length((jmap_calendar_resource_list(9201))->'list'),
+  2,
+  'resource_list returns exactly the two room calendars'
+);
+
+SELECT is(
+  (SELECT r->>'resourceType' FROM jsonb_array_elements(
+     (jmap_calendar_resource_list(9201))->'list') r WHERE r->>'id' = '9202'),
+  'room',
+  'resource_list projects resourceType'
+);
+
+SELECT is(
+  (SELECT r->>'capacity' FROM jsonb_array_elements(
+     (jmap_calendar_resource_list(9201))->'list') r WHERE r->>'id' = '9203'),
+  '12',
+  'resource_list projects capacity'
+);
+
+SELECT is(
+  (SELECT r->>'bookingPolicy' FROM jsonb_array_elements(
+     (jmap_calendar_resource_list(9201))->'list') r WHERE r->>'id' = '9203'),
+  'decline-conflict',
+  'resource_list projects bookingPolicy'
+);
+
+-- ============================================================
+-- (2) Booking the auto-accept room with no conflict → confirmed.
+-- ============================================================
+-- Args: (p_account_id = booker MAILBOX id 9201, p_resource_calendar_id, p_event_id,
+--        p_booked_by = booker USERS id 7201).
+SELECT is(
+  (calendar_book_resource(9201, 9202, 9201, 7201))->>'status',
+  'confirmed',
+  'auto-accept room booking with no conflict is confirmed'
+);
+
+-- ============================================================
+-- (3) Booking the decline-conflict room with an overlap → conflict, no booking row.
+-- ============================================================
+SELECT is(
+  (calendar_book_resource(9201, 9203, 9201, 7201))->>'type',
+  'conflict',
+  'decline-conflict room with overlap returns type=conflict'
+);
+
+-- ============================================================
+-- (4) Booking a personal calendar as a resource → forbidden.
+-- ============================================================
+SELECT is(
+  (calendar_book_resource(9201, 9201, 9201, 7201))->>'type',
+  'forbidden',
+  'booking a personal calendar as a resource is forbidden'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

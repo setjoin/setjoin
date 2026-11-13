@@ -1,0 +1,319 @@
+{
+  "format": 1,
+  "route": "POST /admin/content-search/delete",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": {
+        "content": {
+          "journal": [],
+          "mailbox_audit": [],
+          "mailbox_state": [
+            {
+              "email": 0,
+              "mailbox": 0,
+              "mailbox_id": "<mailbox-a>",
+              "tag": 0,
+              "thread": 0
+            },
+            {
+              "email": 0,
+              "mailbox": 0,
+              "mailbox_id": "<mailbox-b>",
+              "tag": 0,
+              "thread": 0
+            }
+          ],
+          "message_tags": [
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-a>",
+              "tag_id": "<inbox-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": false,
+              "message_id": "<message-a>",
+              "tag_id": "<label-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-b>",
+              "tag_id": "<inbox-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-c>",
+              "tag_id": "<inbox-b>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": false,
+              "message_id": "<message-c>",
+              "tag_id": "<label-b>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-d>",
+              "tag_id": "<inbox-b>"
+            }
+          ],
+          "messages": [
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox-a>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": true,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox-a>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-c>",
+              "mailbox_id": "<mailbox-b>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-d>",
+              "mailbox_id": "<mailbox-b>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            }
+          ],
+          "tag_counts": [
+            {
+              "jmap_state": 2,
+              "mailbox_id": "<mailbox-a>",
+              "size_bytes": 20,
+              "tag_id": "<inbox-a>",
+              "total_count": 2,
+              "unread_count": 2
+            },
+            {
+              "jmap_state": 1,
+              "mailbox_id": "<mailbox-a>",
+              "size_bytes": 10,
+              "tag_id": "<label-a>",
+              "total_count": 1,
+              "unread_count": 1
+            },
+            {
+              "jmap_state": 2,
+              "mailbox_id": "<mailbox-b>",
+              "size_bytes": 20,
+              "tag_id": "<inbox-b>",
+              "total_count": 2,
+              "unread_count": 2
+            },
+            {
+              "jmap_state": 1,
+              "mailbox_id": "<mailbox-b>",
+              "size_bytes": 10,
+              "tag_id": "<label-b>",
+              "total_count": 1,
+              "unread_count": 1
+            }
+          ]
+        },
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          }
+        ]
+      },
+      "before": {
+        "content": {
+          "journal": [],
+          "mailbox_audit": [],
+          "mailbox_state": [
+            {
+              "email": 0,
+              "mailbox": 0,
+              "mailbox_id": "<mailbox-a>",
+              "tag": 0,
+              "thread": 0
+            },
+            {
+              "email": 0,
+              "mailbox": 0,
+              "mailbox_id": "<mailbox-b>",
+              "tag": 0,
+              "thread": 0
+            }
+          ],
+          "message_tags": [
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-a>",
+              "tag_id": "<inbox-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": false,
+              "message_id": "<message-a>",
+              "tag_id": "<label-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-b>",
+              "tag_id": "<inbox-a>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-c>",
+              "tag_id": "<inbox-b>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": false,
+              "message_id": "<message-c>",
+              "tag_id": "<label-b>"
+            },
+            {
+              "added_by": "system",
+              "is_primary": true,
+              "message_id": "<message-d>",
+              "tag_id": "<inbox-b>"
+            }
+          ],
+          "messages": [
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox-a>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": true,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox-a>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-c>",
+              "mailbox_id": "<mailbox-b>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            },
+            {
+              "from_addr": "oracle@example.test",
+              "held": false,
+              "id": "<message-d>",
+              "mailbox_id": "<mailbox-b>",
+              "received_at": "<timestamp>",
+              "size_bytes": 10,
+              "subject": "oracle"
+            }
+          ],
+          "tag_counts": [
+            {
+              "jmap_state": 2,
+              "mailbox_id": "<mailbox-a>",
+              "size_bytes": 20,
+              "tag_id": "<inbox-a>",
+              "total_count": 2,
+              "unread_count": 2
+            },
+            {
+              "jmap_state": 1,
+              "mailbox_id": "<mailbox-a>",
+              "size_bytes": 10,
+              "tag_id": "<label-a>",
+              "total_count": 1,
+              "unread_count": 1
+            },
+            {
+              "jmap_state": 2,
+              "mailbox_id": "<mailbox-b>",
+              "size_bytes": 20,
+              "tag_id": "<inbox-b>",
+              "total_count": 2,
+              "unread_count": 2
+            },
+            {
+              "jmap_state": 1,
+              "mailbox_id": "<mailbox-b>",
+              "size_bytes": 10,
+              "tag_id": "<label-b>",
+              "total_count": 1,
+              "unread_count": 1
+            }
+          ]
+        },
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          }
+        ]
+      },
+      "table": "retention_policies"
+    }
+  ]
+}

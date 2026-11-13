@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <title>setjoin API reference</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <style>
+      body { margin: 0; padding: 0; }
+      /* IBM Plex Sans, vendored + served same-origin (gateway CSP is font-src
+         'self', so a CDN/Google-Fonts URL would be blocked and the page would
+         degrade to system-ui). The Redoc theme below already prefers this family;
+         once the face loads it is used. */
+      @font-face {
+        font-family: 'IBM Plex Sans';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url('/api/fonts/ibm-plex-sans-400.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'IBM Plex Sans';
+        font-style: normal;
+        font-weight: 500;
+        font-display: swap;
+        src: url('/api/fonts/ibm-plex-sans-500.woff2') format('woff2');
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Branded: indigo (#4A50D0) + IBM Plex Sans (degrades to system-ui if the
+         font isn't present); the logo comes from the spec's info.x-logo. Theme is
+         a JSON attribute on the element, so no inline script is needed. -->
+    <redoc spec-url="/api/openapi.yaml"
+           theme='{"colors":{"primary":{"main":"#4A50D0"}},"typography":{"fontFamily":"IBM Plex Sans, system-ui, -apple-system, sans-serif","headings":{"fontFamily":"IBM Plex Sans, system-ui, sans-serif"}},"logo":{"maxHeight":"40px","gutter":"16px"}}'></redoc>
+    <!-- Redoc (MIT), vendored + served same-origin so it passes the gateway CSP and works offline. -->
+    <script src="/api/redoc.standalone.js"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+BEGIN;
+SELECT plan(5);
+SELECT has_table('audit_policy');
+SELECT throws_ok($$INSERT INTO audit_policy (id, level) VALUES (2,'lean')$$, '23514', NULL, 'singleton id=1 enforced');
+-- Provide actor referenced by admin_audit_log.user_id FK.
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (97038, 'aw.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (1, 'aw_a', 97038, 'a@aw.test', 'A', TRUE) ON CONFLICT (id) DO NOTHING;
+-- lean: core always, routine suppressed
+UPDATE audit_policy SET level='lean' WHERE id=1;
+SELECT audit_write(1,'core_test',NULL,NULL,'{}','{}','10.0.0.1','x','core');
+SELECT audit_write(1,'routine_test',NULL,NULL,'{}','{}','10.0.0.1','x','routine');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='core_test'),    1, 'core writes at lean');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='routine_test'), 0, 'routine suppressed at lean');
+UPDATE audit_policy SET level='full' WHERE id=1;
+SELECT audit_write(1,'routine_test2',NULL,NULL,'{}','{}','10.0.0.1','x','routine');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='routine_test2'), 1, 'routine writes at full');
+SELECT * FROM finish();
+ROLLBACK;

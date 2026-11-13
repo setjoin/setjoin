@@ -1,0 +1,41 @@
+[Unit]
+Description=setjoin Valkey (LiveKit message bus — SFU + Egress)
+Documentation=https://github.com/setjoin/setjoin
+After=network.target
+# StartLimit* live in [Unit] (systemd ignores them under [Service]).
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+# Bus only — no persistence (valkey.conf: save "" / appendonly no), so no
+# writable state dir is needed and ProtectSystem=strict holds with no
+# ReadWritePaths at all. Deliberately no path token on the line below —
+# ExecStart hardcodes /etc/setjoin/valkey.conf, matching CONFIG_DIR's
+# default; unlike the SFU/egress genre this unit never rewrites its config
+# path (preserved from the pre-render sed era on purpose).
+ExecStart=/usr/bin/valkey-server /etc/setjoin/valkey.conf
+Restart=always
+RestartSec=5
+MemoryMax=256M
+TasksMax=256
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-valkey
+
+[Install]
+WantedBy=multi-user.target

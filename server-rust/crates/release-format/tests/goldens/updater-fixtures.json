@@ -1,0 +1,494 @@
+{
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "now": "2026-11-05T00:00:00Z",
+  "samples": [
+    {
+      "name": "community",
+      "manifest": {
+        "schema_version": 1,
+        "release_id": "fixture-2.1.0",
+        "version": "2.1.0",
+        "channel": "community",
+        "published_at": "2026-11-04T23:00:00Z",
+        "expires_at": "2026-11-06T00:00:00Z",
+        "metadata_version": 1,
+        "previous_version_floor": "2.0.0",
+        "platforms": [
+          "linux"
+        ],
+        "architectures": [
+          "amd64"
+        ],
+        "compatibility": {
+          "source_version_range": "\u003e=2.0.0 \u003c2.1.0",
+          "postgres_range": "\u003e=16.0.0 \u003c19.0.0"
+        },
+        "schema_from": 178,
+        "schema_to": 178,
+        "artifacts": [
+          {
+            "id": "attestation-provenance",
+            "class": "provenance",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_provenance"
+          },
+          {
+            "id": "attestation-sbom",
+            "class": "sbom",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_sbom"
+          },
+          {
+            "id": "authserverd",
+            "class": "authserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_authserverd"
+          },
+          {
+            "id": "mailctl",
+            "class": "mailctl",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailctl"
+          },
+          {
+            "id": "mailserverd",
+            "class": "mailserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailserverd"
+          },
+          {
+            "id": "recovery-guide",
+            "class": "recovery_guide",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "recovery_guide"
+          },
+          {
+            "id": "setjoin-gateway",
+            "class": "setjoin-gateway",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_setjoin_gateway"
+          },
+          {
+            "id": "webmail",
+            "class": "webmail",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_webmail"
+          }
+        ],
+        "migrations": null,
+        "health_gates": {
+          "preflight": [
+            "disk_space"
+          ],
+          "readiness": [
+            "gateway_ready"
+          ],
+          "data_contract": [
+            "mail_round_trip"
+          ],
+          "post_commit": [
+            "worker_round_trip"
+          ]
+        },
+        "recovery": {
+          "maximum_age_seconds": 86400,
+          "minimum_free_bytes": 1024
+        },
+        "notes": {
+          "summary": "Deterministic fixture release",
+          "downtime_minimum_seconds": 0,
+          "downtime_maximum_seconds": 30,
+          "support_channel": "community"
+        },
+        "signing": {
+          "threshold": 1
+        },
+        "signatures": [
+          {
+            "key_id": "setjoin-updater-fixture-v1",
+            "algorithm": "ed25519",
+            "value": "9Glj0IPlwLWHiOUKWqIL4UwmVvtpI2KKomhCvAjBg+6bDCvwc5RvdeTwLzgbQsdXSnPpnhJnzcYuaRWzN1GGAQ"
+          }
+        ]
+      },
+      "public_key": "A6Ed2aVJY9bfvo33x8UWQehk+gDJLXaV0ZQ7T2xfAZo",
+      "test_only": true,
+      "key_id": "setjoin-updater-fixture-v1",
+      "canonical": "{\"schema_version\":1,\"release_id\":\"fixture-2.1.0\",\"version\":\"2.1.0\",\"channel\":\"community\",\"published_at\":\"2026-11-04T23:00:00Z\",\"expires_at\":\"2026-11-06T00:00:00Z\",\"metadata_version\":1,\"previous_version_floor\":\"2.0.0\",\"platforms\":[\"linux\"],\"architectures\":[\"amd64\"],\"compatibility\":{\"source_version_range\":\"\\u003e=2.0.0 \\u003c2.1.0\",\"postgres_range\":\"\\u003e=16.0.0 \\u003c19.0.0\"},\"schema_from\":178,\"schema_to\":178,\"artifacts\":[{\"id\":\"attestation-provenance\",\"class\":\"provenance\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_provenance\"},{\"id\":\"attestation-sbom\",\"class\":\"sbom\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_sbom\"},{\"id\":\"authserverd\",\"class\":\"authserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_authserverd\"},{\"id\":\"mailctl\",\"class\":\"mailctl\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailctl\"},{\"id\":\"mailserverd\",\"class\":\"mailserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailserverd\"},{\"id\":\"recovery-guide\",\"class\":\"recovery_guide\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"recovery_guide\"},{\"id\":\"setjoin-gateway\",\"class\":\"setjoin-gateway\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_setjoin_gateway\"},{\"id\":\"webmail\",\"class\":\"webmail\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_webmail\"}],\"migrations\":null,\"health_gates\":{\"preflight\":[\"disk_space\"],\"readiness\":[\"gateway_ready\"],\"data_contract\":[\"mail_round_trip\"],\"post_commit\":[\"worker_round_trip\"]},\"recovery\":{\"maximum_age_seconds\":86400,\"minimum_free_bytes\":1024},\"notes\":{\"summary\":\"Deterministic fixture release\",\"downtime_minimum_seconds\":0,\"downtime_maximum_seconds\":30,\"support_channel\":\"community\"},\"signing\":{\"threshold\":1},\"signatures\":null}"
+    },
+    {
+      "name": "enterprise",
+      "manifest": {
+        "schema_version": 1,
+        "release_id": "fixture-2.1.0",
+        "version": "2.1.0",
+        "channel": "enterprise",
+        "published_at": "2026-11-04T23:00:00Z",
+        "expires_at": "2026-11-06T00:00:00Z",
+        "metadata_version": 1,
+        "previous_version_floor": "2.0.0",
+        "platforms": [
+          "linux"
+        ],
+        "architectures": [
+          "amd64"
+        ],
+        "compatibility": {
+          "source_version_range": "\u003e=2.0.0 \u003c2.1.0",
+          "postgres_range": "\u003e=16.0.0 \u003c19.0.0"
+        },
+        "schema_from": 178,
+        "schema_to": 178,
+        "artifacts": [
+          {
+            "id": "attestation-provenance",
+            "class": "provenance",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_provenance"
+          },
+          {
+            "id": "attestation-sbom",
+            "class": "sbom",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_sbom"
+          },
+          {
+            "id": "authserverd",
+            "class": "authserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_authserverd"
+          },
+          {
+            "id": "mailctl",
+            "class": "mailctl",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailctl"
+          },
+          {
+            "id": "mailserverd",
+            "class": "mailserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailserverd"
+          },
+          {
+            "id": "recovery-guide",
+            "class": "recovery_guide",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "recovery_guide"
+          },
+          {
+            "id": "setjoin-gateway",
+            "class": "setjoin-gateway",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_setjoin_gateway"
+          },
+          {
+            "id": "webmail",
+            "class": "webmail",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_webmail"
+          }
+        ],
+        "migrations": null,
+        "health_gates": {
+          "preflight": [
+            "disk_space"
+          ],
+          "readiness": [
+            "gateway_ready"
+          ],
+          "data_contract": [
+            "mail_round_trip"
+          ],
+          "post_commit": [
+            "worker_round_trip"
+          ]
+        },
+        "recovery": {
+          "maximum_age_seconds": 86400,
+          "minimum_free_bytes": 1024
+        },
+        "notes": {
+          "summary": "Deterministic fixture release",
+          "downtime_minimum_seconds": 0,
+          "downtime_maximum_seconds": 30,
+          "support_channel": "enterprise"
+        },
+        "signing": {
+          "threshold": 1
+        },
+        "signatures": [
+          {
+            "key_id": "setjoin-updater-fixture-v1",
+            "algorithm": "ed25519",
+            "value": "FQ6mhTGSt0qjH0ET7X/4zSHaYS9iRvuLKStLwhJiC/U9q/H3EV4aVvo4d5sgwy4FdKqliF8nawA2CYosmzf6Bg"
+          }
+        ]
+      },
+      "public_key": "A6Ed2aVJY9bfvo33x8UWQehk+gDJLXaV0ZQ7T2xfAZo",
+      "test_only": true,
+      "key_id": "setjoin-updater-fixture-v1",
+      "canonical": "{\"schema_version\":1,\"release_id\":\"fixture-2.1.0\",\"version\":\"2.1.0\",\"channel\":\"enterprise\",\"published_at\":\"2026-11-04T23:00:00Z\",\"expires_at\":\"2026-11-06T00:00:00Z\",\"metadata_version\":1,\"previous_version_floor\":\"2.0.0\",\"platforms\":[\"linux\"],\"architectures\":[\"amd64\"],\"compatibility\":{\"source_version_range\":\"\\u003e=2.0.0 \\u003c2.1.0\",\"postgres_range\":\"\\u003e=16.0.0 \\u003c19.0.0\"},\"schema_from\":178,\"schema_to\":178,\"artifacts\":[{\"id\":\"attestation-provenance\",\"class\":\"provenance\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_provenance\"},{\"id\":\"attestation-sbom\",\"class\":\"sbom\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_sbom\"},{\"id\":\"authserverd\",\"class\":\"authserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_authserverd\"},{\"id\":\"mailctl\",\"class\":\"mailctl\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailctl\"},{\"id\":\"mailserverd\",\"class\":\"mailserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailserverd\"},{\"id\":\"recovery-guide\",\"class\":\"recovery_guide\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"recovery_guide\"},{\"id\":\"setjoin-gateway\",\"class\":\"setjoin-gateway\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_setjoin_gateway\"},{\"id\":\"webmail\",\"class\":\"webmail\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_webmail\"}],\"migrations\":null,\"health_gates\":{\"preflight\":[\"disk_space\"],\"readiness\":[\"gateway_ready\"],\"data_contract\":[\"mail_round_trip\"],\"post_commit\":[\"worker_round_trip\"]},\"recovery\":{\"maximum_age_seconds\":86400,\"minimum_free_bytes\":1024},\"notes\":{\"summary\":\"Deterministic fixture release\",\"downtime_minimum_seconds\":0,\"downtime_maximum_seconds\":30,\"support_channel\":\"enterprise\"},\"signing\":{\"threshold\":1},\"signatures\":null}"
+    },
+    {
+      "name": "optional-multisig",
+      "manifest": {
+        "schema_version": 1,
+        "release_id": "fixture-2.1.0",
+        "version": "2.1.0",
+        "channel": "community",
+        "published_at": "2026-11-04T23:00:00Z",
+        "expires_at": "2026-11-06T00:00:00Z",
+        "metadata_version": 1,
+        "previous_version_floor": "2.0.0",
+        "platforms": [
+          "linux"
+        ],
+        "architectures": [
+          "amd64"
+        ],
+        "compatibility": {
+          "source_version_range": "\u003e=2.0.0 \u003c2.1.0",
+          "postgres_range": "\u003e=16.0.0 \u003c19.0.0",
+          "minimum_client": "1.0.0-rc.1"
+        },
+        "schema_from": 183,
+        "schema_to": 183,
+        "artifacts": [
+          {
+            "id": "attestation-provenance",
+            "class": "provenance",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_provenance"
+          },
+          {
+            "id": "attestation-sbom",
+            "class": "sbom",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "release_sbom"
+          },
+          {
+            "id": "authserverd",
+            "class": "authserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_authserverd"
+          },
+          {
+            "id": "mailctl",
+            "class": "mailctl",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailctl"
+          },
+          {
+            "id": "mailserverd",
+            "class": "mailserverd",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_mailserverd"
+          },
+          {
+            "id": "recovery-guide",
+            "class": "recovery_guide",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "evidence",
+            "target": "recovery_guide"
+          },
+          {
+            "id": "setjoin-gateway",
+            "class": "setjoin-gateway",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_setjoin_gateway"
+          },
+          {
+            "id": "webmail",
+            "class": "webmail",
+            "platform": "linux",
+            "architecture": "amd64",
+            "size": 3,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "media_type": "application/octet-stream",
+            "cohort": "core",
+            "target": "core_webmail",
+            "compatible_with_core": "\u003e=2.0.0 \u003c3.0.0",
+            "organization_repack": true
+          }
+        ],
+        "migrations": null,
+        "health_gates": {
+          "preflight": [
+            "disk_space"
+          ],
+          "readiness": [
+            "gateway_ready"
+          ],
+          "data_contract": [
+            "mail_round_trip"
+          ],
+          "post_commit": [
+            "worker_round_trip"
+          ]
+        },
+        "feature_registry": {
+          "catalog_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "compatible_modes": [
+            "enforce",
+            "observe"
+          ],
+          "compatible_rollback_digests": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        },
+        "recovery": {
+          "maximum_age_seconds": 86400,
+          "minimum_free_bytes": 1024
+        },
+        "notes": {
+          "summary": "\u003crelease\u003e\u0026\u2028\u2029 Unicode 雪",
+          "downtime_minimum_seconds": 0,
+          "downtime_maximum_seconds": 30,
+          "support_channel": "community",
+          "known_blockers": [
+            "\u003cnone\u003e",
+            "two"
+          ]
+        },
+        "signing": {
+          "threshold": 2,
+          "rotation_key_ids": [
+            "key-a",
+            "key-z"
+          ]
+        },
+        "signatures": [
+          {
+            "key_id": "key-a",
+            "algorithm": "ed25519",
+            "value": "M6K3JGj/WuZpZcBOqyh39UlSRYjpXz8iSurrfUW83PyN/4DXOI2TAsGzEo8F3WSKeQu2BhT8BI+c74dO9MnvCg"
+          },
+          {
+            "key_id": "key-z",
+            "algorithm": "ed25519",
+            "value": "M6K3JGj/WuZpZcBOqyh39UlSRYjpXz8iSurrfUW83PyN/4DXOI2TAsGzEo8F3WSKeQu2BhT8BI+c74dO9MnvCg"
+          }
+        ]
+      },
+      "public_key": "I7xUkSwebpLEqGglyGfif/3FVb/71CRPF6Jqv//ull0",
+      "test_only": false,
+      "key_id": "key-a",
+      "canonical": "{\"schema_version\":1,\"release_id\":\"fixture-2.1.0\",\"version\":\"2.1.0\",\"channel\":\"community\",\"published_at\":\"2026-11-04T23:00:00Z\",\"expires_at\":\"2026-11-06T00:00:00Z\",\"metadata_version\":1,\"previous_version_floor\":\"2.0.0\",\"platforms\":[\"linux\"],\"architectures\":[\"amd64\"],\"compatibility\":{\"source_version_range\":\"\\u003e=2.0.0 \\u003c2.1.0\",\"postgres_range\":\"\\u003e=16.0.0 \\u003c19.0.0\",\"minimum_client\":\"1.0.0-rc.1\"},\"schema_from\":183,\"schema_to\":183,\"artifacts\":[{\"id\":\"attestation-provenance\",\"class\":\"provenance\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_provenance\"},{\"id\":\"attestation-sbom\",\"class\":\"sbom\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"release_sbom\"},{\"id\":\"authserverd\",\"class\":\"authserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_authserverd\"},{\"id\":\"mailctl\",\"class\":\"mailctl\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailctl\"},{\"id\":\"mailserverd\",\"class\":\"mailserverd\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_mailserverd\"},{\"id\":\"recovery-guide\",\"class\":\"recovery_guide\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"evidence\",\"target\":\"recovery_guide\"},{\"id\":\"setjoin-gateway\",\"class\":\"setjoin-gateway\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_setjoin_gateway\"},{\"id\":\"webmail\",\"class\":\"webmail\",\"platform\":\"linux\",\"architecture\":\"amd64\",\"size\":3,\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"media_type\":\"application/octet-stream\",\"cohort\":\"core\",\"target\":\"core_webmail\",\"compatible_with_core\":\"\\u003e=2.0.0 \\u003c3.0.0\",\"organization_repack\":true}],\"migrations\":null,\"health_gates\":{\"preflight\":[\"disk_space\"],\"readiness\":[\"gateway_ready\"],\"data_contract\":[\"mail_round_trip\"],\"post_commit\":[\"worker_round_trip\"]},\"feature_registry\":{\"catalog_digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"compatible_modes\":[\"enforce\",\"observe\"],\"compatible_rollback_digests\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]},\"recovery\":{\"maximum_age_seconds\":86400,\"minimum_free_bytes\":1024},\"notes\":{\"summary\":\"\\u003crelease\\u003e\\u0026\\u2028\\u2029 Unicode 雪\",\"downtime_minimum_seconds\":0,\"downtime_maximum_seconds\":30,\"support_channel\":\"community\",\"known_blockers\":[\"\\u003cnone\\u003e\",\"two\"]},\"signing\":{\"threshold\":2,\"rotation_key_ids\":[\"key-a\",\"key-z\"]},\"signatures\":null}"
+    }
+  ]
+}

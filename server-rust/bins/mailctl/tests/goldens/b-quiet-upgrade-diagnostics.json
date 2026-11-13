@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/intents/7/diagnostics",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Sanitized diagnostics written to $HOME/diagnostics.json\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "diagnostics.json": {
+      "body": "{\n  \"state\": \"verified\"\n}\n",
+      "mode": 384
+    }
+  }
+}

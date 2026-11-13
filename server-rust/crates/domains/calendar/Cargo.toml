@@ -1,0 +1,17 @@
+[package]
+name = "setjoin-calendar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Test-only: restores the frozen-Go calendar defects (SETJOIN_SECFIX3_MUTANT).
+oracle-mutants = ["setjoin-contracts/oracle-mutants"]
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+sha2 = "=0.10.9"

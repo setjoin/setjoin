@@ -1,0 +1,19 @@
+-- pgTAP: V012__write_perms.pg — the two granular write permissions
+--
+-- NOTE: absolute permission-catalog counts and umbrella-removal assertions are
+-- owned by V016__drop_umbrella_perms.pg and V058__rbac_seed_data.pg; they are
+-- not duplicated here because pgTAP runs against the fully-migrated DB.
+BEGIN;
+SELECT plan(2);
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'identity.write'),
+  true, 'identity.write is sensitive');
+
+SELECT ok(
+  (SELECT permissions @> ARRAY['identity.write']
+   FROM admin_role_groups WHERE name = 'Super Admin'),
+  'Super Admin holds identity.write (added by V012; mail.write removed by V016)');
+
+SELECT * FROM finish();
+ROLLBACK;

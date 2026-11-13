@@ -1,0 +1,113 @@
+{
+  "case": "bad-utf8-status-row-effects",
+  "effects": [
+    {
+      "after": {
+        "delivery_attempts": 10,
+        "message_trace": 14,
+        "outbound_queue": [
+          [
+            "<out1@trace.test>",
+            "delivered",
+            2
+          ],
+          [
+            "<out2@trace.test>",
+            "pending",
+            2
+          ],
+          [
+            "<out3@trace.test>",
+            "delivered",
+            2
+          ],
+          [
+            "<out5@trace.test>",
+            "deferred",
+            2
+          ],
+          [
+            "<out6@trace.test>",
+            "bounced",
+            2
+          ],
+          [
+            "<out8@trace.test>",
+            "sending",
+            2
+          ],
+          [
+            "<dup@trace.test>",
+            "bounced",
+            2
+          ],
+          [
+            "<dup@trace.test>",
+            "pending",
+            2
+          ],
+          [
+            "<legacy@trace.test>",
+            "pending",
+            2
+          ]
+        ]
+      },
+      "before": {
+        "delivery_attempts": 10,
+        "message_trace": 14,
+        "outbound_queue": [
+          [
+            "<out1@trace.test>",
+            "delivered",
+            2
+          ],
+          [
+            "<out2@trace.test>",
+            "pending",
+            2
+          ],
+          [
+            "<out3@trace.test>",
+            "delivered",
+            2
+          ],
+          [
+            "<out5@trace.test>",
+            "deferred",
+            2
+          ],
+          [
+            "<out6@trace.test>",
+            "bounced",
+            2
+          ],
+          [
+            "<out8@trace.test>",
+            "sending",
+            2
+          ],
+          [
+            "<dup@trace.test>",
+            "bounced",
+            2
+          ],
+          [
+            "<dup@trace.test>",
+            "pending",
+            2
+          ],
+          [
+            "<legacy@trace.test>",
+            "pending",
+            2
+          ]
+        ]
+      },
+      "table": "trace"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/trace"
+}

@@ -1,0 +1,126 @@
+-- guest_drive_tiers.pg — Guest G4: membership permits rendition preview,
+-- while original-byte download is a separate fail-closed profile authority.
+BEGIN;
+SELECT plan(18);
+
+UPDATE feature_toggles SET enabled = true
+ WHERE key IN ('feature.guest_accounts', 'feature.drive', 'feature.chat', 'feature.meet');
+
+INSERT INTO domains (name, is_local) VALUES ('gdt-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT x.username, d.id, x.email, x.display_name, TRUE
+  FROM (VALUES
+    ('gdt-host', 'gdt-host@gdt-host.example', 'GDT Host'),
+    ('gdt-member', 'gdt-member@gdt-host.example', 'GDT Member')
+  ) AS x(username, email, display_name)
+  CROSS JOIN domains d WHERE d.name = 'gdt-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT x.email, d.id, x.email, x.display_name, TRUE
+  FROM (VALUES
+    ('gdt-view@external.example', 'GDT View External'),
+    ('gdt-null@external.example', 'GDT Null External')
+  ) AS x(email, display_name)
+  CROSS JOIN domains d WHERE d.name = 'guest.invalid';
+
+INSERT INTO guest_profiles (host_domain_id, name, allow_download, apps)
+SELECT d.id, 'gdt-view-only', false, ARRAY['chat','drive','meet']::text[]
+  FROM domains d WHERE d.name = 'gdt-host.example';
+
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id, profile_id, status, expires_at
+)
+SELECT u.id, u.email, 'gdt-host@gdt-host.example', hd.id, gp.id, 'active', now() + interval '1 day'
+  FROM users u
+  JOIN domains hd ON hd.name = 'gdt-host.example'
+  JOIN guest_profiles gp ON gp.host_domain_id = hd.id AND gp.name = 'gdt-view-only'
+ WHERE u.email = 'gdt-view@external.example';
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id, status, expires_at
+)
+SELECT u.id, u.email, 'gdt-host@gdt-host.example', hd.id, 'active', now() + interval '1 day'
+  FROM users u, domains hd
+ WHERE u.email = 'gdt-null@external.example' AND hd.name = 'gdt-host.example';
+
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+SELECT u.id, 'drive', true FROM users u WHERE u.email LIKE 'gdt-%@external.example';
+
+SELECT id AS host_id FROM users WHERE email = 'gdt-host@gdt-host.example' \gset
+SELECT id AS member_id FROM users WHERE email = 'gdt-member@gdt-host.example' \gset
+SELECT id AS view_id FROM users WHERE email = 'gdt-view@external.example' \gset
+SELECT id AS null_id FROM users WHERE email = 'gdt-null@external.example' \gset
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'gdt-chat', :host_id)
+RETURNING id AS channel_id \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES
+  (:channel_id, :member_id, 'admin'),
+  (:channel_id, :view_id, 'owner');
+INSERT INTO drive_spaces (name, owner_user_id, chat_channel_id)
+VALUES ('gdt-chat-space', :host_id, :channel_id)
+RETURNING id AS chat_space_id \gset
+
+INSERT INTO meetings (title, owner_user_id) VALUES ('gdt-meeting', :host_id)
+RETURNING id AS meeting_id \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+VALUES (:meeting_id, :view_id, 'u:' || :view_id::text, 'member', now());
+INSERT INTO drive_spaces (name, owner_user_id, meeting_id)
+VALUES ('gdt-meeting-space', :host_id, :meeting_id)
+RETURNING id AS meeting_space_id \gset
+
+SELECT is(drive_member_role(:chat_space_id, :member_id), 'manager',
+  'ordinary channel admin retains manager derivation');
+SELECT is(drive_member_role(:chat_space_id, :view_id), 'viewer',
+  'guest channel owner is capped at viewer');
+SELECT is(drive_member_role(:meeting_space_id, :view_id), 'viewer',
+  'view-only guest attendance still grants preview membership');
+UPDATE meeting_participants SET role = 'host'
+ WHERE meeting_id = :meeting_id AND user_id = :view_id;
+SELECT is(drive_member_role(:meeting_space_id, :view_id), 'manager',
+  'guest meeting host retains the locked meeting role mapping');
+SELECT throws_ok(format($$ SELECT drive_chunk_upload_require(%s, %s) $$, :view_id, :meeting_space_id),
+  'BZ140', NULL, 'guest meeting manager still gains no attachment mutation rail');
+UPDATE meeting_participants SET role = 'member'
+ WHERE meeting_id = :meeting_id AND user_id = :view_id;
+SELECT is(drive_chunk_upload_require(:member_id, :chat_space_id), 'g',
+  'ordinary channel admin retains chat attachment upload authority');
+SELECT throws_ok(format($$ SELECT drive_chunk_upload_require(%s, %s) $$, :view_id, :chat_space_id),
+  'BZ140', NULL, 'guest viewer is denied before chat attachment bytes reach storage');
+SELECT lives_ok(format($$ SELECT drive_content_download_require(%s) $$, :member_id),
+  'member original-byte access is unchanged');
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'BZ215', NULL, 'view-only guest raw bytes are denied');
+
+UPDATE guest_profiles SET allow_download = true WHERE name = 'gdt-view-only';
+SELECT ok(guest_profile_flag(:view_id, 'allow_download'),
+  'profile update enables the original-byte flag');
+SELECT lives_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'download-enabled active Drive-entitled guest receives raw bytes');
+
+UPDATE user_app_entitlements SET enabled = false WHERE user_id = :view_id AND app = 'drive';
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'BZ215', NULL, 'Drive entitlement deny overrides allow_download');
+UPDATE user_app_entitlements SET enabled = true WHERE user_id = :view_id AND app = 'drive';
+
+UPDATE guest_accounts SET status = 'disabled' WHERE user_id = :view_id;
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'BZ215', NULL, 'disabled guest has the same constant raw-byte denial');
+UPDATE guest_accounts SET status = 'active', expires_at = now() - interval '1 second' WHERE user_id = :view_id;
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'BZ215', NULL, 'expired guest has the same constant raw-byte denial');
+UPDATE guest_accounts SET expires_at = now() + interval '1 day' WHERE user_id = :view_id;
+
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :null_id),
+  'BZ215', NULL, 'missing profile is fail-closed for raw bytes');
+SELECT is(drive_member_role(:chat_space_id, :null_id), NULL,
+  'a guest without membership gains no Drive role');
+
+UPDATE meeting_participants SET banned_at = now()
+ WHERE meeting_id = :meeting_id AND user_id = :view_id;
+SELECT is(drive_member_role(:meeting_space_id, :view_id), NULL,
+  'banned meeting participant loses preview membership');
+
+UPDATE feature_toggles SET enabled = false WHERE key = 'feature.drive';
+SELECT throws_ok(format($$ SELECT drive_content_download_require(%s) $$, :view_id),
+  'BZ215', NULL, 'Drive feature toggle deny overrides allow_download');
+
+SELECT * FROM finish();
+ROLLBACK;

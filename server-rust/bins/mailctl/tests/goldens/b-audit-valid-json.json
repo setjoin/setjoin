@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/audit/verify?from_id=2",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"chain\": [\n    {\n      \"id\": 2,\n      \"valid\": true,\n      \"occurredAt\": \"\",\n      \"action\": \"\"\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: hostname label \" IN TXT x\" contains character ' ' outside the DNS name grammar (letters, digits, hyphen)\n",
+  "exit": 1
+}

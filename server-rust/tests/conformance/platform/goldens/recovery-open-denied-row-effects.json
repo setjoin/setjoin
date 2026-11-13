@@ -1,0 +1,18 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "mail_recovery_incidents"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "mail_recovery_incident_accounts"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/system/recovery/incidents"
+}

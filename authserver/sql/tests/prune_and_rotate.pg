@@ -1,0 +1,130 @@
+-- pgTAP test for prune_old_lockouts + detect_spray reducers.
+-- (rotate_audit_partitions was superseded by the catalog-derived
+-- create_monthly_partitions — see mailserver/sql/tests/create_monthly_partitions.pg.)
+BEGIN;
+SELECT plan(22);
+
+-- Insert an expired lockout — the only prunable row in this transaction.
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('ip:198.51.100.99', 10, now() - interval '1 hour', 2);
+
+SELECT is(prune_old_lockouts(), 1,
+    'prune_old_lockouts deletes expired lockouts');
+
+-- Insert an active lockout (locked_until in the future).
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('ip:198.51.100.100', 7, now() + interval '30 minutes', 3);
+
+SELECT is(prune_old_lockouts(), 0,
+    'prune_old_lockouts deletes nothing when only active lockouts exist');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.100'),
+    'prune_old_lockouts preserves active lockouts');
+
+-- 3 failures from one IP against the SAME username: spray must NOT fire
+-- (it counts DISTINCT usernames).
+INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, failure_reason, occurred_at)
+VALUES
+    ('203.0.113.77', 'victim@test.local', 'http', 'failure', 'bad_password', now() - interval '2 minutes'),
+    ('203.0.113.77', 'victim@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute'),
+    ('203.0.113.77', 'victim@test.local', 'http', 'failure', 'bad_password', now());
+
+SELECT ok(NOT detect_spray('203.0.113.77'::INET, 300, 3),
+    'detect_spray ignores repeated same-username failures');
+
+-- ── Retention coverage (D-AUTHSERVER-SQL-REDUCERS-002) ──────────────────────
+-- A fresh sub-threshold counter (an active attacker's building history — the
+-- unlocked sentinel locked_until=now() is already in the past) must survive
+-- EVERY prune cycle: erasing it each cycle would reset escalation and defeat
+-- the lockout. The old failed_count >= 5 predicate never pruned these rows at
+-- all (unbounded growth); the retention window is the middle path.
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('ip:198.51.100.51', 3, now() - interval '1 hour', 0);
+
+SELECT is(prune_old_lockouts(), 0,
+    'prune cycle deletes nothing while a sub-threshold counter is fresh');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.51'),
+    'recent sub-threshold failure history survives a prune cycle (no history-erasure)');
+SELECT is(prune_old_lockouts(), 0,
+    'a second consecutive prune cycle still preserves the fresh counter');
+
+-- Only when the counter is stale beyond the retention window (default 24h,
+-- long relative to the 8h maximum escalation window) is it removable.
+UPDATE auth_lockouts
+SET updated_at = now() - interval '25 hours'
+WHERE lockout_key = 'ip:198.51.100.51';
+SELECT is(prune_old_lockouts(), 1,
+    'sub-threshold counter stale beyond the retention window is pruned');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.51'),
+    'stale counter is gone after the retention window passes');
+
+-- Recovery semantics: a pre-existing far-future locked_until row (left by the
+-- pre-cap escalation overflow) is normalized to the saturating 8h maximum
+-- with failure accounting fully preserved — not deleted, not left at
+-- ~244,000 years out, where it would defeat every later prune.
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('ip:198.51.100.60', 17, now() + interval '100 years', 40);
+
+SELECT is(prune_old_lockouts(), 0,
+    'the recovery pass normalizes without deleting — far-future row stays accounted');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.60'),
+    'far-future locked_until row is preserved for recovery');
+SELECT is(
+    (SELECT failed_count FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.60'), 17,
+    'normalization preserves failure accounting');
+SELECT is(
+    (SELECT escalation_level FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.60'), 40,
+    'normalization preserves the escalation level');
+SELECT is(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT
+     FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.60'), 28800::BIGINT,
+    'far-future locked_until is normalized to the saturating 8h maximum');
+
+-- ── Escalate/prune threshold agreement (Astra wave89 med-shard2-007) ────────
+-- The prune's expired-threshold arm (failed_count >= threshold AND
+-- locked_until < now()) must only ever match rows whose lock has EXPIRED:
+-- lockout_escalate arms the lock on the very attempt the post-increment count
+-- reaches the threshold, so a row that just crossed the threshold is locked
+-- and survives every intervening prune cycle. now() is frozen for this whole
+-- transaction; the "aged sentinel" update emulates the separate-transaction
+-- timestamps a real attempt/prune interleaving produces.
+SELECT lockout_escalate('ip:198.51.100.72', 5);
+SELECT lockout_escalate('ip:198.51.100.72', 5);
+SELECT lockout_escalate('ip:198.51.100.72', 5);
+SELECT lockout_escalate('ip:198.51.100.72', 5);
+SELECT is(
+    (SELECT failed_count FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.72'), 4,
+    'escalate-produced counter sits just below the threshold');
+
+UPDATE auth_lockouts SET locked_until = now() - interval '1 minute'
+WHERE lockout_key = 'ip:198.51.100.72';
+SELECT is(prune_old_lockouts(), 0,
+    'intervening prune spares the fresh sub-threshold history (aged sentinel included)');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.72'),
+    'the building escalation history survives the intervening prune');
+
+SELECT is(lockout_escalate('ip:198.51.100.72', 5), 1,
+    'the threshold-th attempt escalates and arms the lock');
+SELECT is(prune_old_lockouts(), 0,
+    'prune does not delete the freshly crossed-threshold history');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.72'
+            AND locked_until > now()),
+    'the crossed-threshold row is locked and present after the prune');
+
+-- Once the lock has EXPIRED, the threshold row is fully prunable — the
+-- agreement protects pre-escalation history, never expired locks.
+UPDATE auth_lockouts SET locked_until = now() - interval '1 minute'
+WHERE lockout_key = 'ip:198.51.100.72';
+SELECT is(prune_old_lockouts(), 1,
+    'expired threshold lock produced by lockout_escalate is fully prunable');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.72'),
+    'expired escalate-produced threshold lock is gone');
+
+SELECT * FROM finish();
+ROLLBACK;

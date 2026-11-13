@@ -1,0 +1,118 @@
+-- pgTAP: admin_actor_reach.pg
+--
+-- P0 security: the admin privilege-REACH primitives that gate every OU-scoped
+-- admin's blast radius.
+--
+--   admin_actor_reach_users(actor) → every user id the actor's 'ou'/'set' grants
+--                                    cover (the per-user containment object-axis).
+--   admin_actor_contains_ou(actor, path) → does the actor's STRUCTURAL OU reach
+--                                    contain the OU at `path` (path + its subtree).
+--
+-- A scope-bypass here lets an OU-scoped admin reach FOREIGN users — so this pins:
+--   * reach INCLUDES users directly under the granted OU X and under a NESTED
+--     child OU of X (the growing-subtree property), and is EXACTLY that set;
+--   * reach EXCLUDES a sibling-OU (Y) user and a PREFIX-SIBLING-OU user (/orgxtra,
+--     which naive starts_with(path, X) without the '/' boundary would leak);
+--   * contains_ou is TRUE for X and its descendant path, FALSE for Y and the
+--     prefix-sibling path.
+--
+-- Fixture ids namespaced to 96320x (domain/dept/role group) and 7320x (users) to
+-- avoid collision with other admin-OU tests (e.g. admin_ou_regression's 957xx).
+
+BEGIN;
+SELECT plan(9);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+--   X        = /orgx          (granted OU)
+--   X child  = /orgx/teamz    (nested descendant of X)
+--   Y        = /orgy          (sibling — out of reach)
+--   prefix   = /orgxtra       (shares the '/orgx' prefix WITHOUT the '/' boundary)
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (96320, 'OrgX',       '/orgx',        'ou=OrgX,dc=aru,dc=test'),
+  (96321, 'TeamZ',      '/orgx/teamz',  'ou=TeamZ,ou=OrgX,dc=aru,dc=test'),
+  (96322, 'OrgY',       '/orgy',        'ou=OrgY,dc=aru,dc=test'),
+  (96323, 'OrgXtra',    '/orgxtra',     'ou=OrgXtra,dc=aru,dc=test');
+
+-- ── Domain ───────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (96320, 'aru.test', TRUE);
+
+-- ── Users ─────────────────────────────────────────────────────────────────────
+--   73200 granter      (granted_by anchor; no dept)
+--   73201 admin actor  OU-confined to X (/orgx); no dept of its own
+--   73202 x_direct     dept /orgx          → MUST be reachable
+--   73203 x_nested     dept /orgx/teamz    → MUST be reachable (subtree)
+--   73204 y_user       dept /orgy          → MUST NOT be reachable (sibling)
+--   73205 xtra_user    dept /orgxtra       → MUST NOT be reachable (prefix boundary)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (73200, 'aru_granter', 96320, NULL,  'granter@aru.test', 'GR', TRUE),
+  (73201, 'aru_actor',   96320, NULL,  'actor@aru.test',   'AC', TRUE),
+  (73202, 'aru_xdirect', 96320, 96320, 'xdirect@aru.test', 'XD', TRUE),
+  (73203, 'aru_xnested', 96320, 96321, 'xnested@aru.test', 'XN', TRUE),
+  (73204, 'aru_yuser',   96320, 96322, 'yuser@aru.test',   'YU', TRUE),
+  (73205, 'aru_xtra',    96320, 96323, 'xtra@aru.test',    'XT', TRUE);
+
+-- ── Role group ───────────────────────────────────────────────────────────────
+-- Perms are irrelevant to the reach primitives (they read scope only) — a valid
+-- role_group_id just satisfies the NOT NULL/FK on the assignment.
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (96320, 'aru-low', ARRAY['users.read'], NULL);
+
+-- ── Assignment: actor 73201 OU-confined to X (96320) ─────────────────────────
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (73201, 96320, 'ou', 96320, 73200);
+
+-- ── admin_actor_reach_users: object-axis blast radius ────────────────────────
+
+-- 1. INCLUDES the user directly under the granted OU X.
+SELECT ok(
+  73202 IN (SELECT u FROM admin_actor_reach_users(73201) AS u),
+  'reach INCLUDES /orgx direct user');
+
+-- 2. INCLUDES the user under the NESTED child OU of X (growing subtree).
+SELECT ok(
+  73203 IN (SELECT u FROM admin_actor_reach_users(73201) AS u),
+  'reach INCLUDES /orgx/teamz nested-child user');
+
+-- 3. EXCLUDES the sibling-OU (Y) user — the foreign-reach bypass this guards.
+SELECT ok(
+  73204 NOT IN (SELECT u FROM admin_actor_reach_users(73201) AS u),
+  'reach EXCLUDES /orgy sibling-OU user');
+
+-- 4. EXCLUDES the prefix-sibling user (/orgxtra) — path boundary, not raw prefix.
+SELECT ok(
+  73205 NOT IN (SELECT u FROM admin_actor_reach_users(73201) AS u),
+  'reach EXCLUDES /orgxtra prefix-boundary user');
+
+-- 5. reach is EXACTLY {x_direct, x_nested} — no over-reach beyond the subtree.
+SELECT is(
+  (SELECT count(*)::int FROM admin_actor_reach_users(73201)),
+  2,
+  'reach cardinality is exactly the two X-subtree users');
+
+-- ── admin_actor_contains_ou: structural OU containment ───────────────────────
+
+-- 6. TRUE for the granted OU X itself.
+SELECT ok(
+  admin_actor_contains_ou(73201, '/orgx'),
+  'contains_ou TRUE for granted OU /orgx');
+
+-- 7. TRUE for a descendant path of X.
+SELECT ok(
+  admin_actor_contains_ou(73201, '/orgx/teamz'),
+  'contains_ou TRUE for descendant /orgx/teamz');
+
+-- 8. FALSE for the sibling OU Y.
+SELECT ok(
+  NOT admin_actor_contains_ou(73201, '/orgy'),
+  'contains_ou FALSE for sibling OU /orgy');
+
+-- 9. FALSE for the prefix-sibling path (boundary, not raw prefix).
+SELECT ok(
+  NOT admin_actor_contains_ou(73201, '/orgxtra'),
+  'contains_ou FALSE for prefix-boundary /orgxtra');
+
+SELECT * FROM finish();
+ROLLBACK;

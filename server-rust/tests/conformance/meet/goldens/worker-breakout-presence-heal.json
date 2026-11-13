@@ -1,0 +1,113 @@
+{
+  "case": "worker-breakout-presence-heal",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [
+        {
+          "closed_at": null,
+          "idx": 1,
+          "room": "<breakout-room-1>",
+          "state": "open",
+          "title": null
+        }
+      ],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": null,
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {},
+          "state": "live",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "guest_display_name": null,
+          "identity": "u:<owner>",
+          "joined_at": "<timestamp>",
+          "left_at": null,
+          "role": "host"
+        },
+        {
+          "banned_at": null,
+          "breakout_id": "<breakout-1>",
+          "guest_display_name": null,
+          "identity": "u:<member>",
+          "joined_at": "<timestamp>",
+          "left_at": null,
+          "role": "member"
+        }
+      ],
+      "recordings": [],
+      "requests": [],
+      "semantic": []
+    },
+    "notify": [],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        },
+        {
+          "body": {
+            "room": "<room-1>"
+          },
+          "grant": {
+            "room": "<room-1>",
+            "roomAdmin": true
+          },
+          "method": "ListParticipants"
+        },
+        {
+          "body": {
+            "room": "<breakout-room-1>"
+          },
+          "grant": {
+            "room": "<breakout-room-1>",
+            "roomAdmin": true
+          },
+          "method": "ListParticipants"
+        },
+        {
+          "body": {
+            "identity": "u:<member>",
+            "room": "<room-1>"
+          },
+          "grant": {
+            "room": "<room-1>",
+            "roomAdmin": true
+          },
+          "method": "RemoveParticipant"
+        }
+      ],
+      "objects": [],
+      "stored": []
+    }
+  },
+  "worker": "meet-reconcile"
+}

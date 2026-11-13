@@ -1,0 +1,86 @@
+-- mailserver/sql/tests/drive_alarm_crud.pg — Task 6: alarm CRUD + action
+-- catalog reducers, authz on the reducer rail (drive_has_admin_perm gate,
+-- same BZ140/BZ141/BZ139 convention as every other drive reducer).
+BEGIN;
+SELECT plan(19);
+
+SELECT mk_account('dacM') AS mbm \gset
+SELECT mk_account('dacE') AS mbe \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e FROM mailboxes WHERE id = :mbe \gset
+
+-- :m holds drive.manage+drive.view (role_group_id 1, Super Admin, V114 §E).
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:m, 1, :m);
+
+-- 1) drive_audit_actions() returns the authoritative 61-action catalog and
+-- drive_access_audit's own validation reads it (single source, not a copy).
+-- 58 base + the three V269 MEET Drive-History lifecycle actions
+-- (drive_meet_history_emit.sql appends through THIS catalog).
+SELECT is(jsonb_array_length(drive_audit_actions()), 61, 'drive_audit_actions() returns 61 actions');
+SELECT ok(drive_audit_actions() @> '["export.deny"]'::jsonb, 'catalog includes export.deny');
+SELECT ok(drive_audit_actions() @> '["meet.recording.stopped","meet.annotation.committed","meet.presentation.pinned"]'::jsonb,
+  'catalog includes the three MEET Drive-History lifecycle actions');
+
+-- 2) create: happy path, exact action
+SELECT drive_alarm_create(:m, NULL, 'export.deny', 5, 10) AS aid \gset
+SELECT ok(:aid > 0, 'create returns a new id');
+SELECT is(threshold, 5, 'created row has the given threshold')
+  FROM drive_audit_alarms WHERE id = :aid;
+
+-- 3) create: happy path, prefix.* glob against the catalog
+SELECT drive_alarm_create(:m, NULL, 'lock.*', 3, 15) AS aid2 \gset
+SELECT ok(:aid2 > 0, 'create accepts a valid prefix.* pattern');
+
+-- 4) create: BZ141 on a bogus action pattern (neither exact nor a matching prefix)
+SELECT throws_ok(format($$ SELECT drive_alarm_create(%s, NULL, 'not.a.real.action', 5, 10) $$, :m),
+  'BZ141', NULL, 'bogus action pattern -> BZ141');
+SELECT throws_ok(format($$ SELECT drive_alarm_create(%s, NULL, 'zzz.*', 5, 10) $$, :m),
+  'BZ141', NULL, 'prefix.* with no matching catalog prefix -> BZ141');
+
+-- 5) create: BZ140 denial for a non-drive.manage user
+SELECT throws_ok(format($$ SELECT drive_alarm_create(%s, NULL, 'export.deny', 5, 10) $$, :e),
+  'BZ140', NULL, 'non-drive.manage user -> BZ140 on create');
+
+-- 6) update: mutates threshold/window/action_pattern/enabled via jsonb patch
+SELECT drive_alarm_update(:m, :aid, jsonb_build_object('threshold', 9, 'enabled', false));
+SELECT is(threshold, 9, 'update mutates threshold') FROM drive_audit_alarms WHERE id = :aid;
+SELECT is(enabled, false, 'update mutates enabled') FROM drive_audit_alarms WHERE id = :aid;
+
+-- 7) update: re-validates action_pattern when the patch changes it -> BZ141
+SELECT throws_ok(format($$ SELECT drive_alarm_update(%s, %s, jsonb_build_object('actionPattern', 'nope.nope')) $$, :m, :aid),
+  'BZ141', NULL, 'update with a bogus action pattern -> BZ141');
+
+-- 7b) update: malformed patch type (non-numeric threshold) -> BZ141, not a
+-- raw 22P02 invalid_text_representation from the ::int cast.
+SELECT throws_ok(format($$ SELECT drive_alarm_update(%s, %s, jsonb_build_object('threshold', 'abc')) $$, :m, :aid),
+  'BZ141', NULL, 'malformed threshold type -> BZ141, not 22P02');
+
+-- 8) update: BZ140 denial for a non-drive.manage user
+SELECT throws_ok(format($$ SELECT drive_alarm_update(%s, %s, jsonb_build_object('threshold', 1)) $$, :e, :aid),
+  'BZ140', NULL, 'non-drive.manage user -> BZ140 on update');
+
+-- 9) update: not-found on a missing id -> BZ139
+SELECT throws_ok(format($$ SELECT drive_alarm_update(%s, 999999999, jsonb_build_object('threshold', 1)) $$, :m),
+  'BZ139', NULL, 'update of a missing alarm id -> BZ139');
+
+-- 10) delete: BZ140 denial, then not-found, then happy path
+SELECT throws_ok(format($$ SELECT drive_alarm_delete(%s, %s) $$, :e, :aid2),
+  'BZ140', NULL, 'non-drive.manage user -> BZ140 on delete');
+SELECT drive_alarm_delete(:m, :aid2);
+SELECT is((SELECT count(*) FROM drive_audit_alarms WHERE id = :aid2)::int, 0, 'delete removes the row');
+SELECT throws_ok(format($$ SELECT drive_alarm_delete(%s, %s) $$, :m, :aid2),
+  'BZ139', NULL, 'delete of an already-deleted alarm id -> BZ139');
+
+-- 11) RLS backstop (Important finding): every denial leg above runs as the
+-- default owner role, which never engages FORCE RLS, so V117's
+-- drive_audit_alarms_admin policy is never exercised. Re-run one denial
+-- under the actual setjoin_app role + app.current_user_id GUC (rls_drive.pg
+-- genre) so the backstop layer is in scope too, belt-and-suspenders.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :e::text, true);
+SELECT throws_ok(format($$ SELECT drive_alarm_create(%s, NULL, 'export.deny', 5, 10) $$, :e),
+  'BZ140', NULL, 'setjoin_app + non-drive.manage GUC -> BZ140 (RLS backstop path engaged)');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

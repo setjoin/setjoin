@@ -1,0 +1,38 @@
+{
+  "failed-rebind-retains-principal": {
+    "step": 2,
+    "responses": [
+      "300c02010165070a013204000400"
+    ],
+    "reason": "Frozen Go retains the previous authenticated principal after a failed Bind; subsequent Search leaks that principal's directory. Rust clears authentication before every Bind.",
+    "review": "owner-approved security fix 2026-11-05",
+    "go_source": "mailserver/internal/ldap/server.go:189-284",
+    "mutant": "oracle-mutants restores omitted unbind; scripts/test-authrt-ldap-mutants.py requires the recorded listener test to reject it"
+  },
+  "ldap-user-policy": {
+    "step": 0,
+    "responses": [
+      "300c02010161070a013104000400"
+    ],
+    "reason": "Frozen Go LDAP never performs EvaluatePostAuth after password proof. A user-scoped conditional-access block therefore does not restrict LDAP Bind. Rust applies the shared user policy after recording the verified credential result.",
+    "review": "owner-approved security fix 2026-11-05",
+    "go_source": "mailserver/internal/ldap/server.go:269-285",
+    "mutant": "oracle-mutants omits the post-auth pass; the recorded Bind test must reject the restored bypass"
+  },
+  "abandon-admission": {
+    "responses": [
+      "300c02010161070a013004000400"
+    ],
+    "reason": "Frozen Go leaks a connection permit for each Abandon; sixteen unauthenticated packets permanently stop further operations on that connection. Rust releases the no-op permit.",
+    "review": "owner-approved security fix 2026-11-05",
+    "go_source": "mailserver/internal/ldap/listener_oracle_record_test.go:TestRecordLDAPAbandonAdmission; ldapserver admission callback",
+    "mutant": "oracle-mutants restores permit.forget; secure socket replay must reject the restored stall"
+  },
+  "interleaved-valid-failed-binds": {
+    "reason": "Concurrent Bind futures in the previous Rust port allowed a delayed successful Bind to overwrite a later failed Bind. Rust now serializes Binds with all operations on that connection and clears the principal before admission, including a Busy response.",
+    "review": "owner-approved security fix 2026-11-05; review fix requested 2026-11-06",
+    "rust_source": "server-rust/crates/protocols/ldap/src/lib.rs:session",
+    "test": "interleaved_valid_then_failed_binds_leave_connection_anonymous",
+    "mutant": "oracle-mutants restores concurrent dispatch; scripts/test-authrt-ldap-mutants.py requires the TLS socket test to reject it"
+  }
+}

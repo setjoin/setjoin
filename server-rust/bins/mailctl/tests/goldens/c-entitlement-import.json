@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"entitlementId\": \"ent-1\",\n  \"installationId\": \"install-1\",\n  \"customerId\": \"customer-1\",\n  \"channels\": [\n    \"enterprise\"\n  ],\n  \"versionRanges\": [\n    \"\\u003e=2.0.0 \\u003c3.0.0\"\n  ],\n  \"validUntil\": \"2099-01-01T00:00:00Z\",\n  \"graceUntil\": \"2099-02-01T00:00:00Z\",\n  \"state\": \"valid\",\n  \"digest\": \"57d3fc1c5d61c81e50d726f348a0684583115460ed54d675aacc7d63261a9b53\"\n}\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "entitlement.json": {
+      "body": "{\"schema_version\": 1, \"entitlement_id\": \"ent-1\", \"installation_id\": \"install-1\", \"customer_id\": \"customer-1\", \"channels\": [\"enterprise\"], \"version_ranges\": [\">=2.0.0 <3.0.0\"], \"issued_at\": \"2026-01-01T00:00:00Z\", \"valid_from\": \"2026-01-01T00:00:00Z\", \"valid_until\": \"2099-01-01T00:00:00Z\", \"grace_until\": \"2099-02-01T00:00:00Z\", \"non_production_rights\": [\"dr\"], \"key_id\": \"fixture-production\", \"signatures\": [{\"key_id\": \"fixture-production\", \"algorithm\": \"ed25519\", \"value\": \"ZfTbadZBZLyaCOpgiZwPVFm5XE7tlLwKsdHDnZlZJ8cPqaliDYhj9KhY8LEJDxf4jekvWvlUvtHiQn3yh2T7DA\"}]}",
+      "mode": 384
+    }
+  }
+}

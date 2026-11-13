@@ -1,0 +1,32 @@
+-- pgTAP: rust_ca_policy.sql (#313) -- frozen Go's policy create/update + session_control.
+BEGIN;
+SELECT plan(8);
+SELECT is(
+  (SELECT (rust_ca_policy_save(NULL, NULL, NULL,
+     '{"name":"pgtap-a","state":"off","conditions":{},"actions":{"action":"allow"}}'::jsonb,
+     '{"action":"allow"}'::jsonb, NULL))->>'name'),
+  'pgtap-a', 'create without session_control returns the row');
+SELECT is((SELECT session_control FROM conditional_access_policies WHERE name = 'pgtap-a'),
+  '{}'::jsonb, 'omitted session_control leaves the default');
+SELECT is(
+  (SELECT (rust_ca_policy_save(NULL, NULL, NULL,
+     '{"name":"pgtap-b","state":"off","conditions":{},"actions":{"action":"allow"}}'::jsonb,
+     '{"action":"allow"}'::jsonb, '{"cae":"enabled"}'::jsonb))->>'name'),
+  'pgtap-b', 'create with session_control returns the row');
+SELECT is((SELECT session_control FROM conditional_access_policies WHERE name = 'pgtap-b'),
+  '{"cae":"enabled"}'::jsonb, 'session_control is stored via set_session_control');
+SELECT throws_ok($$SELECT rust_ca_policy_save(NULL, NULL, NULL,
+     '{"name":"pgtap-c","state":"off","conditions":{},"actions":{"action":"allow"}}'::jsonb,
+     '{"action":"allow"}'::jsonb, '{"bogus":1}'::jsonb)$$, 'BZ098', NULL,
+  'a bad session_control key is BZ098');
+SELECT is((SELECT count(*)::int FROM conditional_access_policies WHERE name = 'pgtap-c'), 0,
+  'a statement that raised BZ098 leaves no policy behind');
+SELECT throws_ok($$SELECT rust_ca_policy_save(NULL, NULL, 999999999,
+     '{"name":"x","state":"off"}'::jsonb, '{"action":"allow"}'::jsonb, NULL)$$, 'BZ081', NULL,
+  'update of a missing policy is BZ081');
+SELECT is(
+  (SELECT (rust_ca_policy_save(NULL, NULL, (SELECT id FROM conditional_access_policies WHERE name='pgtap-a'),
+     '{"name":"pgtap-a2","state":"off"}'::jsonb, '{"action":"allow"}'::jsonb, '{"cae":"disabled"}'::jsonb))->>'name'),
+  'pgtap-a2', 'update with session_control returns the row');
+SELECT * FROM finish();
+ROLLBACK;

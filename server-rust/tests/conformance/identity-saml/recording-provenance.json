@@ -1,0 +1,25 @@
+{
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "go_version": "go1.26.6 linux/amd64",
+  "binary_sha256": "4d96bad68eecac0af782ad1acd8474389508edf1bef76c8ccfa3ba90745a1db4",
+  "covered_packages": [
+    "setjoin.com/authserver/internal/handlers",
+    "setjoin.com/authserver/cmd/authserverd"
+  ],
+  "overlay": false,
+  "inputs": {
+    "authserver/internal/federation/saml_sp.go": "48229f807b92e536aa13d74b610eadc549f61e60933ce3e9b88c82d42b6cac3f",
+    "authserver/internal/handlers/auth.go": "0250e9b37d2436ab766dafc0238d79da1539b627840bc0d74eeebdec6f54ff1f",
+    "authserver/internal/handlers/identity_links.go": "34827c8f44f72ea0c38777560a6824074f7f6568ba074e62e89d32612e65f222",
+    "authserver/cmd/authserverd/main.go": "efa8529fef61e7b2b84f683c3bef167e48b834e074f862c4d4d0e1d1e627ae9b",
+    "authserver/cmd/authserverd/security_runtime.go": "f668836d2828c9f8c8f285aab4507ea98751804e5ceec69551ce9b54d1b75451",
+    "server-rust/tests/conformance/identity-saml/sp-cert.pem": "2a6463cccbe8d42e322b18fe8889969eb556a6dd2afc5b3d79b48e268e6fca40",
+    "server-rust/tests/conformance/identity-saml/sp-key.pem": "a3aef3d0f580957fce5296d45669d3e81adaf65f94d230ecbfc5245afdc84e7d",
+    "server-rust/tests/conformance/identity-saml/legacy-sp-cert.pem": "4d75b2ded7bbc58128c2ea28dc62b0aa54ea577ab115cc2e03b96ca415f9d6e4",
+    "server-rust/tests/conformance/identity-saml/legacy-sp-key.pem": "92aea3148218df1416839ab19d08e5c66983c834069c4fde84330e6c314bbf06",
+    "server-rust/tests/conformance/identity-saml/legacy-sp-public.der": "e971078f81c9a225f4621450d29523f4ad0d01cef8a32be7d8c5958575fcc707",
+    "server-rust/tests/conformance/identity-saml/legacy-session.jwt": "94bb348af43d9b0f6b65439d94b3ce6ee71ae709b56561c67a521834743d38ed",
+    "server-rust/tests/conformance/identity-login/keys.json": "f01cae094038c25ab89aa2a0902fc008fec087d211f65612fb063aaf304de29b"
+  },
+  "command": "GOMAXPROCS=2 go build -p 2 -cover -coverpkg=setjoin.com/authserver/internal/handlers,setjoin.com/authserver/cmd/authserverd -o /record/gofree-idfed3-authserverd ./cmd/authserverd"
+}

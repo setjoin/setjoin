@@ -1,0 +1,163 @@
+-- pgTAP: rls_mailbox_delegates.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE CORRECTNESS PROOF for the V090 mailbox_delegates RLS policies (native-RLS
+-- backstop W7 follow-up; the V089 deferral closed). V090 is a REAL forcing
+-- migration (V004 genre): ENABLE+FORCE ship in the migration, so this test
+-- first asserts the persistent force-state, then proves the policies as the
+-- REAL constrained runtime role inside a BEGIN…ROLLBACK (fixtures rolled back).
+--
+-- WHY SET LOCAL ROLE setjoin_app: the test connection (`mail`) is a SUPERUSER
+-- and the table owner — both bypass RLS even under FORCE. setjoin_app is the
+-- runtime role the flip targets (NOSUPERUSER + NOBYPASSRLS).
+--
+-- Policy contract (spec 2026-06-27-sharing-delegation-design.md §4):
+--   · owner sees + mutates the delegate rows of their own mailboxes,
+--   · a delegate sees rows NAMING them (viewer-scoped, not owner-scoped),
+--   · a third party sees nothing, mutates nothing (INSERT → 42501; DELETE
+--     matches zero rows),
+--   · no GUC → fail-closed (zero rows),
+--   · both GUC conventions admit (app.current_user_id for RunUserScoped paths;
+--     app.current_mailbox_id for jmap CallScoped reducer paths).
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(18);
+
+-- ── Force-state: V090 shipped ENABLE+FORCE persistently (not test-local). ───
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.mailbox_delegates'::regclass),
+  TRUE, 'V090: mailbox_delegates has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.mailbox_delegates'::regclass),
+  TRUE, 'V090: mailbox_delegates has ROW LEVEL SECURITY FORCED');
+
+-- ── Fixtures: A = owner; D + E = delegates of A; T = third party. ───────────
+SELECT mk_account('mdrlsA') AS mba \gset
+SELECT mk_account('mdrlsD') AS mbd \gset
+SELECT mk_account('mdrlsE') AS mbe \gset
+SELECT mk_account('mdrlsT') AS mbt \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ud FROM mailboxes WHERE id = :mbd \gset
+SELECT user_id AS ue FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS ut FROM mailboxes WHERE id = :mbt \gset
+
+-- Delegate rows on A's mailbox (as the superuser, BEFORE SET ROLE).
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by) VALUES
+  (:mba, :ud, 'send_as', :ua),
+  (:mba, :ue, 'read',    :ua);
+
+-- Defensive re-grants (provision-roles.sql provisions these at load; BYPASSRLS
+-- bypasses policies, not GRANTs — setjoin_app has neither). The policy's owner
+-- arm probes mailboxes, so SELECT there is load-bearing too.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.mailbox_delegates TO setjoin_app;
+GRANT SELECT ON public.mailboxes TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- OWNER — both GUC conventions
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 2,
+  'owner / user GUC=A: sees both delegate rows of their mailbox');
+
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 2,
+  'owner / mailbox GUC=A''s mailbox (CallScoped convention): sees both rows');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- DELEGATE — sees rows NAMING them, not the sibling delegate's row
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT set_config('app.current_user_id', :ud::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 1,
+  'delegate / user GUC=D: sees exactly the row naming them');
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates WHERE user_id = :ue)::INT, 0,
+  'delegate / user GUC=D: the sibling delegate''s row is invisible');
+
+SELECT set_config('app.current_user_id', '', true);
+SELECT set_config('app.current_mailbox_id', :mbd::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 1,
+  'delegate / mailbox GUC=D''s own mailbox: mailbox→user translation admits the row naming D');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- THIRD PARTY + FAIL-CLOSED
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', '', true);
+SELECT set_config('app.current_user_id', :ut::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 0,
+  'third party / user GUC=T: sees ZERO delegate rows');
+
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 0,
+  'no GUC: fail-closed — ZERO rows visible (the un-wrapped-connection case)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- WRITE PATH — owner may grant/revoke; delegate and third party may not
+-- ════════════════════════════════════════════════════════════════════════════
+-- Third party forging a grant on A's mailbox → WITH CHECK violation.
+SELECT set_config('app.current_user_id', :ut::text, true);
+SELECT throws_ok(
+  format($$ INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+            VALUES (%s, %s, 'full_access', %s) $$, :mba, :ut, :ut),
+  '42501', NULL,
+  'third party INSERT on A''s mailbox is REJECTED (42501)');
+
+-- Third party DELETE: rows invisible under the write policy's USING → no-op.
+SELECT lives_ok(
+  format($$ DELETE FROM mailbox_delegates WHERE mailbox_id = %s $$, :mba),
+  'third party DELETE executes without error…');
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 2,
+  '…but removed NOTHING (both rows survive, owner-visible)');
+
+-- Delegate escalating their own grant → WITH CHECK violation (read ≠ write).
+SELECT set_config('app.current_user_id', :ud::text, true);
+SELECT throws_ok(
+  format($$ INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+            VALUES (%s, %s, 'full_access', %s) $$, :mba, :ud, :ud),
+  '42501', NULL,
+  'delegate self-escalation INSERT is REJECTED (42501) — delegate arm is read-only');
+SELECT lives_ok(
+  format($$ DELETE FROM mailbox_delegates WHERE mailbox_id = %s AND user_id = %s $$, :mba, :ue),
+  'delegate DELETE of the sibling row executes without error…');
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates)::INT, 2,
+  '…but removed NOTHING (delegate cannot revoke)');
+
+-- Owner grant + revoke succeed (user GUC — the RunUserScoped convention).
+SELECT lives_ok(
+  format($$ INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+            VALUES (%s, %s, 'read', %s) $$, :mba, :ut, :ua),
+  'owner INSERT (grant) SUCCEEDS under user GUC');
+SELECT lives_ok(
+  format($$ DELETE FROM mailbox_delegates WHERE mailbox_id = %s AND user_id = %s $$, :mba, :ut),
+  'owner DELETE (revoke) SUCCEEDS under user GUC');
+
+RESET ROLE;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- NON-VACUITY — the superuser control sees everything (policies did the work)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT is(
+  (SELECT count(*) FROM mailbox_delegates WHERE mailbox_id = :mba)::INT, 2,
+  'non-vacuity: superuser control sees both rows (RLS was load-bearing above)');
+
+SELECT * FROM finish();
+ROLLBACK;

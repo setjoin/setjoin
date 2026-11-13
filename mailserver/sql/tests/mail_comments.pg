@@ -1,0 +1,79 @@
+BEGIN;
+SELECT plan(20);
+
+SELECT mk_shared_mailbox('comment-shared') AS shared_mb \gset
+SELECT mk_account('comment-full') AS full_mb \gset
+SELECT mk_account('comment-send') AS send_mb \gset
+SELECT mk_account('comment-read') AS read_mb \gset
+SELECT mk_account('comment-foreign') AS foreign_mb \gset
+SELECT user_id AS full_user FROM mailboxes WHERE id=:full_mb \gset
+SELECT user_id AS send_user FROM mailboxes WHERE id=:send_mb \gset
+SELECT user_id AS read_user FROM mailboxes WHERE id=:read_mb \gset
+SELECT user_id AS foreign_user FROM mailboxes WHERE id=:foreign_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by) VALUES
+  (:shared_mb,:full_user,'full_access',:full_user),
+  (:shared_mb,:send_user,'send_as',:full_user),
+  (:shared_mb,:read_user,'read',:full_user);
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,body_text,size_bytes,
+  thread_id,raw_ref,received_at,is_read)
+VALUES(898101,:shared_mb,get_tag_id('Inbox',:shared_mb),'<comment-1@mk.test>',
+  'Comment item','sender@example.test','public MIME body',100,'comment-thread-1','s3://comment-1',statement_timestamp(),false);
+
+SELECT throws_ok(format($q$SELECT mail_comment_get(%s,%s,'comment-thread-1',NULL,100)$q$,:shared_mb,:read_user),
+  'BZ300',NULL,'private comments fail closed while OFF');
+UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.shared_mail_work','feature.shared_mail_comments');
+
+SELECT gen_random_uuid() AS comment_op \gset
+SELECT mail_comment_set(:shared_mb,:send_user,'comment-thread-1',:'comment_op',0,
+  'Private note',ARRAY[:read_user]::bigint[],NULL,NULL,repeat('a',64)) AS comment_result \gset
+SELECT is(:'comment_result'::jsonb->>'generation','1','first private comment creates generation one');
+SELECT is((SELECT body FROM mail_thread_comments WHERE id=(:'comment_result'::jsonb->>'commentId')::uuid),
+  'Private note','comment body is stored in the private authority');
+SELECT is((SELECT capability FROM mail_thread_comment_mentions
+  WHERE comment_id=(:'comment_result'::jsonb->>'commentId')::uuid AND user_id=:read_user),
+  'view_only','read-only mention capability is recorded exactly');
+SELECT is((SELECT count(*) FROM mail_work_outbox WHERE event_id=(:'comment_result'::jsonb->>'eventId')::uuid)::integer,
+  2,'comment emits only push and digest intents');
+SELECT is(mail_comment_get(:shared_mb,:read_user,'comment-thread-1',NULL,100)->'list'->1->>'body',
+  'Private note','authorized reader sees the ordered private activity stream');
+SELECT is((SELECT body_text FROM messages WHERE id=898101 AND mailbox_id=:shared_mb),
+  'public MIME body','private comment never mutates MIME-visible body content');
+SELECT ok(NOT EXISTS(SELECT 1 FROM messages WHERE mailbox_id=:shared_mb
+  AND (body_text LIKE '%Private note%' OR raw_ref LIKE '%Private note%')),
+  'private comment is absent from message/export substrate');
+
+SELECT is((mail_comment_set(:shared_mb,:send_user,'comment-thread-1',:'comment_op',0,
+  'Private note',ARRAY[:read_user]::bigint[],NULL,NULL,repeat('a',64))->>'replayed')::boolean,true,
+  'exact comment replay returns its receipt');
+SELECT is((SELECT count(*) FROM mail_thread_comments WHERE operation_id=:'comment_op'::uuid)::integer,
+  1,'comment replay cannot duplicate private content');
+SELECT throws_ok(format($q$SELECT mail_comment_set(%s,%s,'comment-thread-1',%L,1,'Different',ARRAY[]::bigint[],NULL,NULL,%L)$q$,
+  :shared_mb,:send_user,:'comment_op',repeat('b',64)),'BZ303',NULL,'comment operation UUID conflict is rejected');
+SELECT throws_ok(format($q$SELECT mail_comment_set(%s,%s,'comment-thread-1',%L,1,'No',ARRAY[]::bigint[],NULL,NULL,%L)$q$,
+  :shared_mb,:read_user,gen_random_uuid(),repeat('c',64)),'BZ005',NULL,'read-only delegate cannot comment');
+SELECT throws_ok(format($q$SELECT mail_comment_set(%s,%s,'comment-thread-1',%L,1,'Bad mention',ARRAY[%s]::bigint[],NULL,NULL,%L)$q$,
+  :shared_mb,:send_user,gen_random_uuid(),:foreign_user,repeat('d',64)),'BZ005',NULL,'foreign mentions fail closed');
+
+SELECT gen_random_uuid() AS handoff_op \gset
+SELECT mail_comment_set(:shared_mb,:full_user,'comment-thread-1',:'handoff_op',1,
+  'Handing this to the sender delegate',ARRAY[:send_user]::bigint[],NULL,:send_user,repeat('e',64)) AS handoff_result \gset
+SELECT is(:'handoff_result'::jsonb->>'generation','2','atomic comment and handoff advances one generation');
+SELECT is((SELECT assignee_user_id FROM mail_thread_work WHERE mailbox_id=:shared_mb AND thread_id='comment-thread-1'),
+  :send_user::bigint,'handoff and comment commit to one authority state');
+SELECT is((SELECT count(*) FROM mail_thread_comments WHERE operation_id=:'handoff_op'::uuid)::integer,
+  1,'atomic handoff retains exactly one comment');
+SELECT is((SELECT count(*) FROM mail_thread_work_events WHERE mailbox_id=:shared_mb AND event_type='handed_off')::integer,
+  1,'atomic handoff emits one immutable handoff event');
+
+SELECT gen_random_uuid() AS edit_op \gset
+SELECT mail_comment_set(:shared_mb,:send_user,'comment-thread-1',:'edit_op',2,
+  'Private note corrected',ARRAY[]::bigint[],(:'comment_result'::jsonb->>'commentId')::uuid,NULL,repeat('f',64));
+SELECT ok((SELECT tombstoned_at IS NOT NULL FROM mail_thread_comments
+  WHERE id=(:'comment_result'::jsonb->>'commentId')::uuid),'editing tombstones the prior comment evidence');
+SELECT is((SELECT count(*) FROM mail_thread_comments WHERE replaces_comment_id=(:'comment_result'::jsonb->>'commentId')::uuid)::integer,
+  1,'edit appends one replacement instead of rewriting evidence');
+SELECT is((SELECT generation FROM mail_thread_work WHERE mailbox_id=:shared_mb AND thread_id='comment-thread-1'),
+  3::bigint,'comment, handoff and edit each advance exactly once');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,66 @@
+-- pgTAP: F3 shared read interface (get_queue_summary / list_queue / normalized view)
+BEGIN;
+SELECT plan(10);
+
+-- Seed journal_queue rows (Phase-1 statuses): one dead, one deferred (active),
+-- plus one failed and a second dead with distinct queued_at to exercise the
+-- 'attention' filter + dead-before-failed/oldest-first ordering (D1/D6).
+DO $$
+DECLARE v_dom BIGINT; v_usr BIGINT; v_mb BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('qread.example', TRUE) RETURNING id INTO v_dom;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+    VALUES ('qr', 'qr@qread.example', 'QR', '$2a$10$abcdefghijklmnopqrstuv', v_dom, TRUE) RETURNING id INTO v_usr;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+    VALUES (v_usr, v_dom, 'qr@qread.example', 'QR', TRUE) RETURNING id INTO v_mb;
+  -- Newest dead row.
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, attempt_count, last_error, queued_at)
+    VALUES ('<qr-dead@test>', 'a@x', 'b@y', 'ref/1', v_mb, 'dead', 5, 'boom', now() - interval '1 minute');
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, attempt_count, next_attempt_at)
+    VALUES ('<qr-deferred@test>', 'a@x', 'b@y', 'ref/2', v_mb, 'deferred', 2, now());
+  -- Oldest dead row (should sort FIRST in attention view: dead, oldest queued_at).
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, attempt_count, last_error, queued_at)
+    VALUES ('<qr-dead-old@test>', 'a@x', 'b@y', 'ref/4', v_mb, 'dead', 9, 'older', now() - interval '10 minutes');
+  -- A failed row (should sort AFTER all dead rows in attention view).
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, attempt_count, last_error, queued_at)
+    VALUES ('<qr-failed@test>', 'a@x', 'b@y', 'ref/5', v_mb, 'failed', 3, 'failboat', now() - interval '20 minutes');
+END $$;
+
+-- Summary: journal queue has 2 dead, 1 active (deferred maps to active), 1 failed.
+SELECT is((SELECT dead FROM get_queue_summary('journal')), 2, 'journal summary dead=2');
+SELECT is((SELECT active FROM get_queue_summary('journal')), 1, 'journal summary active=1 (deferred)');
+SELECT is((SELECT total FROM get_queue_summary('journal')), 4, 'journal summary total=4');
+
+-- list_queue dead filter returns exactly the dead rows, with last_error surfaced.
+SELECT is((SELECT count(*)::INT FROM list_queue('journal','dead',50,0)), 2, 'list_queue journal/dead returns 2 rows');
+SELECT is(
+  (SELECT (item->>'lastError') FROM list_queue('journal','dead',50,0) ORDER BY (item->>'queuedAt') DESC LIMIT 1),
+  'boom', 'list_queue surfaces last_error');
+
+-- Normalized view maps outbound 'bounced' -> 'failed' and journal 'dead' -> 'dead'.
+INSERT INTO outbound_queue (message_id, from_addr, rcpt_addrs, raw_ref, status, attempt_count)
+  VALUES ('<qr-bounce@test>', 'a@x', ARRAY['b@y'], 'ref/3', 'bounced', 3);
+SELECT is(
+  (SELECT normalized FROM queue_status_normalized WHERE queue='outbound' AND status='bounced' LIMIT 1),
+  'failed', 'outbound bounced normalizes to failed');
+SELECT is(
+  (SELECT normalized FROM queue_status_normalized WHERE queue='journal' AND status='dead' LIMIT 1),
+  'dead', 'journal dead normalizes to dead');
+
+-- D1: p_status='attention' = normalized IN ('failed','dead') (suppress healthy noise).
+SELECT is((SELECT count(*)::INT FROM list_queue('journal','attention',50,0)), 3, 'attention returns only failed+dead (2 dead + 1 failed)');
+SELECT ok(
+  (SELECT bool_and(item->>'normalized' IN ('failed','dead')) FROM list_queue('journal','attention',50,0)),
+  'attention rows are all failed or dead');
+
+-- D6: attention ordering — dead before failed, then oldest queued_at first within each.
+-- Expected message_id order: dead-old, dead (newer), then failed.
+SELECT is(
+  (SELECT array_agg(item->>'label') FROM (
+     SELECT item FROM list_queue('journal','attention',50,0)
+   ) t),
+  ARRAY['<qr-dead-old@test>','<qr-dead@test>','<qr-failed@test>'],
+  'attention orders dead-before-failed then oldest-first');
+
+SELECT * FROM finish();
+ROLLBACK;

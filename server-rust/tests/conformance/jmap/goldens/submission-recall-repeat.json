@@ -1,0 +1,776 @@
+{
+  "case": "submission-recall-repeat",
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "request and response IDs (mailbox, user, tags, messages): fixture names; messages created by the request: <new-message-N> in ID order",
+    "response sessionState: retain state counters; replace final user timestamp",
+    "response date: timestamp; content-length: normalized body byte length",
+    "every timestamp in a body, row or audit: <timestamp>",
+    "message_id, thread_id and raw_ref of fixture messages: fixed per fixture name before the request",
+    "audit id and occurred_at: generated ID and timestamp; mailbox and actor: fixture IDs",
+    "audit details.operation: generated 32-digit hexadecimal operation ID"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "email_state": 0,
+        "journal": [],
+        "messages": [
+          {
+            "id": "<inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 0,
+            "unread": 0
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 2,
+            "unread": 2
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 0,
+            "unread": 0
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 0,
+            "unread": 0
+          }
+        }
+      },
+      "before": {
+        "email_state": 0,
+        "journal": [],
+        "messages": [
+          {
+            "id": "<inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 0,
+            "unread": 0
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 2,
+            "unread": 2
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 0,
+            "unread": 0
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 0,
+            "unread": 0
+          }
+        }
+      }
+    },
+    "first_response": {
+      "body": "{\"recalled\":true,\"status\":\"success\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "37"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-t2-golden"
+        ]
+      },
+      "status": 200
+    },
+    "foreign_effects": {
+      "after": {
+        "email_state": 2,
+        "journal": [
+          {
+            "datatype": "email",
+            "entity_id": "<foreign-inbox-only>",
+            "op": "updated",
+            "state_seq": 1
+          },
+          {
+            "datatype": "email",
+            "entity_id": "<foreign-new-message-1>",
+            "op": "created",
+            "state_seq": 1
+          },
+          {
+            "datatype": "email",
+            "entity_id": "<foreign-inbox-only>",
+            "op": "updated",
+            "state_seq": 2
+          },
+          {
+            "datatype": "email",
+            "entity_id": "<foreign-new-message-2>",
+            "op": "created",
+            "state_seq": 2
+          }
+        ],
+        "messages": [
+          {
+            "id": "<foreign-inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<foreign-new-message-1>",
+            "is_read": true
+          },
+          {
+            "id": "<foreign-new-message-2>",
+            "is_read": true
+          },
+          {
+            "id": "<foreign-two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 0,
+            "unread": 0
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 5,
+            "unread": 1
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 0,
+            "unread": 0
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 3,
+            "unread": 1
+          }
+        }
+      },
+      "audit": [],
+      "before": {
+        "email_state": 0,
+        "journal": [],
+        "messages": [
+          {
+            "id": "<foreign-inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<foreign-two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 0,
+            "unread": 0
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 2,
+            "unread": 2
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 0,
+            "unread": 0
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 0,
+            "unread": 0
+          }
+        }
+      },
+      "notify": [
+        {
+          "channel": "tag:<foreign-mailbox>",
+          "payload": "{\"event\" : \"recalled\", \"message_id\" : \"<foreign-inbox-only>\", \"stub_id\" : \"<foreign-new-message-1>\", \"origin_message_id\" : \"<inbox-only@oracle.test>\", \"state\" : 1}"
+        },
+        {
+          "channel": "tag:<foreign-mailbox>",
+          "payload": "{\"event\" : \"recalled\", \"message_id\" : \"<foreign-inbox-only>\", \"stub_id\" : \"<foreign-new-message-2>\", \"origin_message_id\" : \"<inbox-only@oracle.test>\", \"state\" : 2}"
+        }
+      ],
+      "rows": [
+        {
+          "after": {
+            "collection_id": null,
+            "created_at": "<timestamp>",
+            "datatype": "email",
+            "entity_id": "<foreign-inbox-only>",
+            "mailbox_id": "<foreign-mailbox>",
+            "op": "updated",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          "change": "insert",
+          "row": "email:1:<foreign-inbox-only>",
+          "table": "jmap_changes_journal"
+        },
+        {
+          "after": {
+            "collection_id": null,
+            "created_at": "<timestamp>",
+            "datatype": "email",
+            "entity_id": "<foreign-new-message-1>",
+            "mailbox_id": "<foreign-mailbox>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          "change": "insert",
+          "row": "email:1:<foreign-new-message-1>",
+          "table": "jmap_changes_journal"
+        },
+        {
+          "after": {
+            "collection_id": null,
+            "created_at": "<timestamp>",
+            "datatype": "email",
+            "entity_id": "<foreign-inbox-only>",
+            "mailbox_id": "<foreign-mailbox>",
+            "op": "updated",
+            "resource_uid": null,
+            "state_seq": 2
+          },
+          "change": "insert",
+          "row": "email:2:<foreign-inbox-only>",
+          "table": "jmap_changes_journal"
+        },
+        {
+          "after": {
+            "collection_id": null,
+            "created_at": "<timestamp>",
+            "datatype": "email",
+            "entity_id": "<foreign-new-message-2>",
+            "mailbox_id": "<foreign-mailbox>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 2
+          },
+          "change": "insert",
+          "row": "email:2:<foreign-new-message-2>",
+          "table": "jmap_changes_journal"
+        },
+        {
+          "change": "update",
+          "columns": {
+            "jmap_email_state": {
+              "after": 2,
+              "before": 0
+            }
+          },
+          "row": "<mailbox>",
+          "table": "mailboxes"
+        },
+        {
+          "before": {
+            "added_at": "<timestamp>",
+            "added_by": "system",
+            "imap_modseq": 1,
+            "imap_uid": 2,
+            "is_primary": true,
+            "message_id": "<foreign-inbox-only>",
+            "received_at": "<timestamp>",
+            "scheduled_at": null,
+            "snooze_until": null,
+            "tag_id": "<foreign-tag:Inbox>"
+          },
+          "change": "delete",
+          "row": "<foreign-inbox-only>:<foreign-tag:Inbox>",
+          "table": "message_tags"
+        },
+        {
+          "after": {
+            "added_at": "<timestamp>",
+            "added_by": "recall",
+            "imap_modseq": 1,
+            "imap_uid": 2,
+            "is_primary": true,
+            "message_id": "<foreign-inbox-only>",
+            "received_at": "<timestamp>",
+            "scheduled_at": null,
+            "snooze_until": null,
+            "tag_id": "<foreign-tag:Trash>"
+          },
+          "change": "insert",
+          "row": "<foreign-inbox-only>:<foreign-tag:Trash>",
+          "table": "message_tags"
+        },
+        {
+          "after": {
+            "added_at": "<timestamp>",
+            "added_by": "recall",
+            "imap_modseq": 1,
+            "imap_uid": 3,
+            "is_primary": true,
+            "message_id": "<foreign-new-message-1>",
+            "received_at": "<timestamp>",
+            "scheduled_at": null,
+            "snooze_until": null,
+            "tag_id": "<foreign-tag:Inbox>"
+          },
+          "change": "insert",
+          "row": "<foreign-new-message-1>:<foreign-tag:Inbox>",
+          "table": "message_tags"
+        },
+        {
+          "after": {
+            "added_at": "<timestamp>",
+            "added_by": "recall",
+            "imap_modseq": 1,
+            "imap_uid": 4,
+            "is_primary": true,
+            "message_id": "<foreign-new-message-2>",
+            "received_at": "<timestamp>",
+            "scheduled_at": null,
+            "snooze_until": null,
+            "tag_id": "<foreign-tag:Inbox>"
+          },
+          "change": "insert",
+          "row": "<foreign-new-message-2>:<foreign-tag:Inbox>",
+          "table": "message_tags"
+        },
+        {
+          "change": "update",
+          "columns": {
+            "folder_id": {
+              "after": "<foreign-tag:Trash>",
+              "before": "<foreign-tag:Inbox>"
+            }
+          },
+          "row": "<foreign-inbox-only>",
+          "table": "messages"
+        },
+        {
+          "after": {
+            "bcc_addrs": [],
+            "body_html": "<p>The sender recalled the message <strong>oracle</strong> sent on 2026-01-02 03:04.</p>",
+            "body_text": "The sender recalled the message \"oracle\" sent on 2026-01-02 03:04.",
+            "body_tsv": "'-01':10 '-02':11 '03':12 '04':13 '2026':9 'message':5 'on':8 'oracle':6 'recalled':3 'sender':2 'sent':7 'the':1,4",
+            "categories": [],
+            "cc_addrs": [],
+            "crypto_type": null,
+            "deleted_at": null,
+            "delivery_receipt_requested": false,
+            "dkim_domain": null,
+            "dkim_result": null,
+            "dkim_selector": null,
+            "dmarc_result": null,
+            "flag_due_at": null,
+            "flag_reminder_at": null,
+            "folder_id": "<foreign-tag:Inbox>",
+            "from_addr": "x@test",
+            "from_name": null,
+            "from_tsv": "'test':2 'x':1",
+            "has_attachments": false,
+            "held": false,
+            "id": "<foreign-new-message-1>",
+            "imap_modseq": null,
+            "imap_uid": null,
+            "in_reply_to": null,
+            "is_answered": false,
+            "is_deleted": false,
+            "is_draft": false,
+            "is_external": false,
+            "is_first_time": true,
+            "is_flagged": false,
+            "is_name_spoof": false,
+            "is_read": true,
+            "list_id": null,
+            "list_unsubscribe": null,
+            "mailbox_id": "<foreign-mailbox>",
+            "message_id": "recall-<inbox-only@oracle.test>",
+            "pinned_at": null,
+            "priority": 0,
+            "raw_ref": "recall-stub",
+            "read_receipt_requested": false,
+            "received_at": "<timestamp>",
+            "references_hdr": null,
+            "reply_to": null,
+            "scheduled_at": null,
+            "sender_display_name": null,
+            "sensitivity": null,
+            "sent_at": "<timestamp>",
+            "size_bytes": 0,
+            "smime_issuer_cn": null,
+            "smime_signer_cn": null,
+            "smime_signer_email": null,
+            "smime_status": null,
+            "spam_headers": null,
+            "spam_score": null,
+            "spf_result": null,
+            "subject": "Message recalled: oracle",
+            "subject_tsv": "'message':1 'oracle':3 'recalled':2",
+            "thread_id": "thr-foreign-inbox-only",
+            "to_addrs": [],
+            "vote_options": null,
+            "vote_response": null
+          },
+          "change": "insert",
+          "row": "<foreign-new-message-1>",
+          "table": "messages"
+        },
+        {
+          "after": {
+            "bcc_addrs": [],
+            "body_html": "<p>The sender recalled the message <strong>oracle</strong> sent on 2026-01-02 03:04.</p>",
+            "body_text": "The sender recalled the message \"oracle\" sent on 2026-01-02 03:04.",
+            "body_tsv": "'-01':10 '-02':11 '03':12 '04':13 '2026':9 'message':5 'on':8 'oracle':6 'recalled':3 'sender':2 'sent':7 'the':1,4",
+            "categories": [],
+            "cc_addrs": [],
+            "crypto_type": null,
+            "deleted_at": null,
+            "delivery_receipt_requested": false,
+            "dkim_domain": null,
+            "dkim_result": null,
+            "dkim_selector": null,
+            "dmarc_result": null,
+            "flag_due_at": null,
+            "flag_reminder_at": null,
+            "folder_id": "<foreign-tag:Inbox>",
+            "from_addr": "x@test",
+            "from_name": null,
+            "from_tsv": "'test':2 'x':1",
+            "has_attachments": false,
+            "held": false,
+            "id": "<foreign-new-message-2>",
+            "imap_modseq": null,
+            "imap_uid": null,
+            "in_reply_to": null,
+            "is_answered": false,
+            "is_deleted": false,
+            "is_draft": false,
+            "is_external": false,
+            "is_first_time": true,
+            "is_flagged": false,
+            "is_name_spoof": false,
+            "is_read": true,
+            "list_id": null,
+            "list_unsubscribe": null,
+            "mailbox_id": "<foreign-mailbox>",
+            "message_id": "recall-<inbox-only@oracle.test>",
+            "pinned_at": null,
+            "priority": 0,
+            "raw_ref": "recall-stub",
+            "read_receipt_requested": false,
+            "received_at": "<timestamp>",
+            "references_hdr": null,
+            "reply_to": null,
+            "scheduled_at": null,
+            "sender_display_name": null,
+            "sensitivity": null,
+            "sent_at": "<timestamp>",
+            "size_bytes": 0,
+            "smime_issuer_cn": null,
+            "smime_signer_cn": null,
+            "smime_signer_email": null,
+            "smime_status": null,
+            "spam_headers": null,
+            "spam_score": null,
+            "spf_result": null,
+            "subject": "Message recalled: oracle",
+            "subject_tsv": "'message':1 'oracle':3 'recalled':2",
+            "thread_id": "thr-foreign-inbox-only",
+            "to_addrs": [],
+            "vote_options": null,
+            "vote_response": null
+          },
+          "change": "insert",
+          "row": "<foreign-new-message-2>",
+          "table": "messages"
+        },
+        {
+          "change": "update",
+          "columns": {
+            "imap_modseq": {
+              "after": 5,
+              "before": 3
+            },
+            "imap_uid_next": {
+              "after": 5,
+              "before": 3
+            },
+            "jmap_state": {
+              "after": 5,
+              "before": 2
+            },
+            "size_bytes": {
+              "after": 10,
+              "before": 20
+            },
+            "total_count": {
+              "after": 3,
+              "before": 2
+            },
+            "unread_count": {
+              "after": 1,
+              "before": 2
+            },
+            "updated_at": {
+              "after": "<timestamp>",
+              "before": "<timestamp>"
+            }
+          },
+          "row": "Inbox",
+          "table": "tags"
+        },
+        {
+          "change": "update",
+          "columns": {
+            "imap_modseq": {
+              "after": 3,
+              "before": 1
+            },
+            "imap_uid_next": {
+              "after": 3,
+              "before": 1
+            },
+            "jmap_state": {
+              "after": 3,
+              "before": 0
+            },
+            "size_bytes": {
+              "after": 10,
+              "before": 0
+            },
+            "total_count": {
+              "after": 1,
+              "before": 0
+            },
+            "unread_count": {
+              "after": 1,
+              "before": 0
+            },
+            "updated_at": {
+              "after": "<timestamp>",
+              "before": "<timestamp>"
+            }
+          },
+          "row": "Trash",
+          "table": "tags"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": null,
+      "headers": {
+        "authorization": "Bearer <fixture-token>",
+        "content-type": "application/json",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-request-id": "gofree-t2-golden"
+      },
+      "method": "POST",
+      "path": "/messages/{id}/recall",
+      "path_values": {
+        "id": "<inbox-only>"
+      }
+    },
+    "response": {
+      "body": "{\"recalled\":true,\"status\":\"success\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "37"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-t2-golden"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /messages/{id}/recall"
+}

@@ -1,0 +1,145 @@
+[package]
+name = "setjoin-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "setjoin_gateway"
+path = "src/lib.rs"
+
+[[bin]]
+name = "setjoin-gateway"
+path = "src/main.rs"
+
+# Exact pins (#220): the front door is protocol plumbing only, so every direct
+# dependency is fixed and reviewed together with Cargo.lock.
+[features]
+# Test-only: restores the frozen-Go S/MIME listener defects (SETJOIN_MAILSEC_MUTANT).
+oracle-mutants = ["setjoin-mail-security/oracle-mutants", "setjoin-contracts/oracle-mutants", "setjoin-authz/oracle-mutants", "setjoin-rules/oracle-mutants", "setjoin-devices/oracle-mutants", "setjoin-calendar/oracle-mutants", "setjoin-compliance/oracle-mutants", "setjoin-imap/oracle-mutants", "setjoin-platform/oracle-mutants"]
+
+[dependencies]
+percent-encoding = "=2.3.2"
+humantime = "=2.3.0"
+setjoin-calendar-format = { path = "../../crates/calendar-format" }
+setjoin-spam = { path = "../../crates/spam" }
+negotiate-auth = "=0.4.0"
+setjoin-threat = { path = "../../crates/threat" }
+setjoin-boot = { path = "../../crates/boot" }
+setjoin-tls = { path = "../../crates/tls" }
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }
+setjoin-mime = { path = "../../crates/mime" }
+scraper = { version = "=0.29.0", default-features = false, features = ["deterministic"] }
+html-escape = "=0.3.0"
+regex = "=1.13.1"
+quoted_printable = "=0.5.2"
+setjoin-identity = { path = "../../crates/domains/identity" }
+setjoin-smtp = { path = "../../crates/protocols/smtp" }
+setjoin-rules = { path = "../../crates/domains/rules" }
+setjoin-federation = { path = "../../crates/protocols/federation" }
+tokio-util = { version = "=0.7.20", default-features = false }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+async_zip = { version = "=0.0.19", default-features = false, features = ["tokio", "deflate"] }
+futures-lite = "=2.6.1"
+httpdate = "=1.0.3"
+setjoin-compliance = { path = "../../crates/domains/compliance" }
+zeroize = "=1.9.1"
+html5gum = "=0.9.0"
+setjoin-guests = { path = "../../crates/domains/guests" }
+setjoin-calendar = { path = "../../crates/domains/calendar" }
+url = "=2.5.8"
+tz-rs = "=0.7.3"
+setjoin-admin-identity = { path = "../../crates/domains/admin-identity" }
+setjoin-user-settings = { path = "../../crates/domains/user-settings" }
+setjoin-mailboxes = { path = "../../crates/domains/mailboxes" }
+setjoin-devices = { path = "../../crates/domains/devices" }
+setjoin-mail-security = { path = "../../crates/domains/mail-security" }
+setjoin-conditional-access = { path = "../../crates/domains/conditional-access" }
+setjoin-platform = { path = "../../crates/domains/platform" }
+setjoin-schema = { path = "../../crates/schema" }
+setjoin-config-secret = { path = "../../crates/config-secret" }
+setjoin-directory-sync = { path = "../../crates/domains/directory-sync" }
+flate2 = "=1.1.9"
+rustls-native-certs = "=0.8.5"
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+ipnet = "=2.12.2"
+setjoin-office = { path = "../../crates/domains/office" }
+setjoin-backup = { path = "../../crates/backup" }
+# ACME http-01 renewal worker and :80 challenge responder (#305).
+setjoin-acme = { path = "../../crates/acme" }
+
+setjoin-approvals = { path = "../../crates/domains/approvals" }
+setjoin-drive = { path = "../../crates/domains/drive" }
+setjoin-meet = { path = "../../crates/domains/meet" }
+setjoin-chat = { path = "../../crates/domains/chat" }
+setjoin-static = { path = "../../crates/domains/static" }
+futures-util = "=0.3.34"
+setjoin-authz = { path = "../../crates/authz" }
+setjoin-blobs = { path = "../../crates/domains/blobs" }
+# Mark-read route (#215): the Rust command and its scoped executor. The driver
+# is reached only through setjoin-pg; the gateway links none directly.
+setjoin-contracts = { path = "../../crates/contracts" }
+setjoin-db = { path = "../../crates/db" }
+setjoin-jmap = { path = "../../crates/domains/jmap" }
+setjoin-pg = { path = "../../crates/pg" }
+# Whole-listener IMAP swap (#345): runs in this process behind systemd sockets.
+setjoin-imap = { path = "../../crates/protocols/imap" }
+# Push-intent drain (#408): provider transports shared with mailctl.
+setjoin-push = { path = "../../crates/push" }
+# JMAP body/response JSON. Exact pins, reviewed with Cargo.lock.
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+base64 = "=0.22.1"
+x509-parser = "=0.18.1"
+getrandom = "=0.2.17"
+rand = "=0.10.3"
+sha2 = "=0.10.9"
+bytes = "=1.12.1"
+libc = "=0.2.191"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "=0.1.21", features = ["client-legacy", "http1", "http2", "server", "server-auto", "tokio"] }
+tokio = { version = "=1.54.1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+rust-s3 = { version = "=0.38.0", default-features = false, features = ["with-tokio"] }
+quick-xml = { version = "=0.41.0", features = ["serialize"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "gzip"] }
+
+ring = "=0.17.14"
+# LiveKit's empty RemoveParticipant protobuf reply still needs wire validation.
+prost = "=0.14.4"
+# SCIM bearer tokens are verified with bcrypt, as frozen Go does.
+bcrypt = "=0.17.1"
+# The user import route reads a multipart form as Go's ParseMultipartForm does.
+multer = "=3.1.0"
+
+# Meet LiveKit access tokens and webhook signatures (#286).
+hmac = "=0.12.1"
+hickory-resolver = { version = "=0.26.3", default-features = false, features = ["system-config", "tokio"] }
+mailparse = "=0.16.1"
+encoding_rs = "=0.8.35"
+dav-server = { version = "=0.11.0", default-features = false, features = ["caldav"] }
+
+[dev-dependencies]
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+# Independent consumer of Exchange's Go-recorded SM4 artifact envelope.
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["alloc", "zeroize"] }
+sm4 = { version = "=0.5.1", default-features = false, features = ["zeroize"] }
+# Loopback peers for the push-drain oracle (never enabled in normal builds).
+setjoin-push = { path = "../../crates/push", features = ["oracle-loopback"] }
+setjoin-config-secret = { path = "../../crates/config-secret" }
+base64 = "=0.22.1"
+# Channel bodies let the tests stream request/response bodies chunk by chunk.
+http-body-util = { version = "=0.1.5", features = ["channel"] }
+# DB-backed route tests reuse the conformance gate and fixtures (test-only).
+setjoin-conformance = { path = "../../tests/conformance" }
+tokio-postgres = "0.7.18"
+# WebSocket client/server for the /rtc signal-proxy oracle (test-only).
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "handshake"] }
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "std"] }
+# Advance the real hourly worker clock without sleeping for an hour.
+tokio = { version = "=1.54.1", features = ["test-util"] }
+# Independent SSH peer for the deploy wizard's wire oracle.
+russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["rsa"] }

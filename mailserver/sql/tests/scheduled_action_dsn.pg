@@ -1,0 +1,135 @@
+-- scheduled_action_dsn.pg: the `dsn` handler — the bounce Delivery Status
+-- Notification relocated (WAVE 9) out of the synchronous AFTER UPDATE trigger on
+-- outbound_queue into the async/retried/idempotent A6 dispatcher.
+--
+-- There was ZERO pgTAP for the DSN path before this file. It pins:
+--   * the trigger now ONLY enqueues — a bounced status creates exactly one pending
+--     `dsn` action (no inline deliver()).
+--   * the handler builds + delivers the DSN to the ORIGINAL SENDER's mailbox.
+--   * idempotency on reclaim: a second handler run is a no-op (no double-bounce).
+--   * an ALIAS / UPN sender still gets their bounce (resolve_identity seam, ADR-004).
+--   * a deliver() failure surfaces as `retry`, NOT a status rollback (the dispatcher
+--     records retry; the bounce status was already committed independently).
+--   * a non-local / unresolvable sender → `permanent_fail` (was a silent swallow).
+-- Divergent ids (user_id != mailbox_id) via mk_account per the ADR-003 invariant.
+BEGIN;
+SELECT plan(15);
+
+-- ── Fixtures: a local sender mailbox (divergent ids) + an external recipient ──
+SELECT mk_account('dsnsender') AS sender_mb \gset
+-- Resolve the sender's primary email + the user id for the alias/UPN cases.
+SELECT email AS sender_email FROM mailboxes WHERE id = :sender_mb \gset
+SELECT user_id AS sender_uid FROM mailboxes WHERE id = :sender_mb \gset
+
+-- A bounced outbound_queue row authored BY the sender (from_addr = the sender's
+-- primary email). The status_guard forbids a direct INSERT already-bounced, so we
+-- insert 'sending' then UPDATE → 'bounced' (which is exactly the Go egress worker's
+-- markFailed path, and the only thing that fires trg_outbound_queue_dsn).
+INSERT INTO outbound_queue (id, message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id, last_error)
+VALUES (770001, '<orig-770001@mk.test>', :'sender_email', ARRAY['nobody@ext.invalid'],
+        'raw/770001', 'sending', :sender_mb, '550 5.1.1 user unknown');
+
+-- ── 1. The trigger now ONLY enqueues (no inline deliver) ──
+UPDATE outbound_queue SET status = 'bounced' WHERE id = 770001;
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind = 'dsn'
+     AND payload @> jsonb_build_object('queue_id', 770001)),
+  1::BIGINT, 'a bounced status enqueues exactly one pending dsn action');
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE action_kind = 'dsn'
+     AND payload @> jsonb_build_object('queue_id', 770001)),
+  'pending', 'the dsn action is pending (the trigger did not deliver in-txn)');
+SELECT is(
+  (SELECT dedup_key FROM scheduled_actions WHERE action_kind = 'dsn'
+     AND payload @> jsonb_build_object('queue_id', 770001)),
+  'dsn:770001', 'dedup_key = dsn:||queue_id (reclaim idempotency)');
+-- The bounce email has NOT been delivered yet (it's deferred to the dispatcher).
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :sender_mb
+     AND message_id = '<dsn-770001@mailserver.local>'),
+  0::BIGINT, 'no DSN delivered synchronously — only enqueued');
+
+-- ── 2. The handler delivers the DSN to the original sender's mailbox ──
+SELECT is(
+  (SELECT scheduled_action_dsn(sa)->>'status' FROM scheduled_actions sa
+     WHERE action_kind = 'dsn' AND payload @> jsonb_build_object('queue_id', 770001)),
+  'ok', 'dsn handler reports ok');
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :sender_mb
+     AND message_id = '<dsn-770001@mailserver.local>'),
+  1::BIGINT, 'the DSN bounce landed in the original sender''s mailbox');
+SELECT is(
+  (SELECT from_addr FROM messages WHERE mailbox_id = :sender_mb
+     AND message_id = '<dsn-770001@mailserver.local>'),
+  'mailer-daemon@mailserver.local', 'DSN is from the mailer-daemon');
+
+-- ── 3. Idempotency on reclaim: a second run is a no-op (no double-bounce) ──
+SELECT is(
+  (SELECT scheduled_action_dsn(sa)->>'status' FROM scheduled_actions sa
+     WHERE action_kind = 'dsn' AND payload @> jsonb_build_object('queue_id', 770001)),
+  'ok', 'a reclaim re-run reports ok (dedup)');
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :sender_mb
+     AND message_id = '<dsn-770001@mailserver.local>'),
+  1::BIGINT, 'reclaim did NOT deliver a second DSN (idempotent)');
+
+-- ── 4. An ALIAS / UPN sender still gets their bounce (resolve_identity seam) ──
+-- Author a bounce FROM an address that is NOT the sender's primary email but IS one
+-- of their addresses: a UPN on the user row. resolve_identity must map it back to
+-- the same person → their primary mailbox.
+UPDATE users SET ad_upn = 'dsnsender@corp.upn' WHERE id = :sender_uid;
+INSERT INTO outbound_queue (id, message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id, last_error)
+VALUES (770002, '<orig-770002@mk.test>', 'dsnsender@corp.upn', ARRAY['nobody@ext.invalid'],
+        'raw/770002', 'sending', NULL, '550 5.1.1 user unknown');
+UPDATE outbound_queue SET status = 'bounced' WHERE id = 770002;
+SELECT is(
+  (SELECT scheduled_action_dsn(sa)->>'status' FROM scheduled_actions sa
+     WHERE action_kind = 'dsn' AND payload @> jsonb_build_object('queue_id', 770002)),
+  'ok', 'a UPN/alias sender resolves via resolve_identity → bounce delivered');
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :sender_mb
+     AND message_id = '<dsn-770002@mailserver.local>'),
+  1::BIGINT, 'the aliased/UPN sender''s bounce reached their primary mailbox');
+
+-- ── 5. A non-local / unresolvable sender → permanent_fail (was a silent swallow) ──
+-- A bounce authored by an EXTERNAL from_addr: resolve_identity returns zero rows, so
+-- there is nobody local to deliver the DSN to. The handler must terminate, not churn.
+INSERT INTO outbound_queue (id, message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id, last_error)
+VALUES (770003, '<orig-770003@ext.invalid>', 'stranger@ext.invalid', ARRAY['nobody@ext.invalid'],
+        'raw/770003', 'sending', NULL, '550 5.1.1 user unknown');
+UPDATE outbound_queue SET status = 'bounced' WHERE id = 770003;
+SELECT is(
+  (SELECT scheduled_action_dsn(sa)->>'status' FROM scheduled_actions sa
+     WHERE action_kind = 'dsn' AND payload @> jsonb_build_object('queue_id', 770003)),
+  'permanent_fail', 'a non-local sender → permanent_fail (terminal, not a churn)');
+
+-- ── 6. A deliver() failure → retry, NOT a rollback of the bounce status ──
+-- The sender RESOLVES (enabled) but their mailbox cannot RECEIVE (receive_enabled
+-- = FALSE), so deliver() raises no_mailbox. Run it THROUGH the dispatcher: the
+-- dispatcher catches the raise and records 'retry' — and the bounced queue row's
+-- status is untouched (the bounce status write is independent of the DSN email).
+UPDATE mailboxes SET receive_enabled = FALSE WHERE id = :sender_mb;
+INSERT INTO outbound_queue (id, message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id, last_error)
+VALUES (770004, '<orig-770004@mk.test>', :'sender_email', ARRAY['nobody@ext.invalid'],
+        'raw/770004', 'sending', :sender_mb, '550 5.1.1 user unknown');
+UPDATE outbound_queue SET status = 'bounced' WHERE id = 770004;
+-- Force the action due and dispatch a batch; the failing handler → retry.
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute'
+  WHERE action_kind = 'dsn' AND payload @> jsonb_build_object('queue_id', 770004);
+SELECT dispatch_scheduled_actions('test-dsn', 100);
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE action_kind = 'dsn'
+     AND payload @> jsonb_build_object('queue_id', 770004)),
+  'pending', 'a deliver() failure re-queues the action (retry), not failed');
+SELECT is(
+  (SELECT outcome FROM scheduled_action_log WHERE action_id =
+     (SELECT id FROM scheduled_actions WHERE action_kind = 'dsn'
+        AND payload @> jsonb_build_object('queue_id', 770004))
+   ORDER BY at DESC LIMIT 1),
+  'retry', 'the dispatcher logged a retry (the raise did not become a failure)');
+SELECT is(
+  (SELECT status FROM outbound_queue WHERE id = 770004),
+  'bounced', 'the bounce STATUS stays bounced — the DSN failure did NOT roll it back');
+
+SELECT * FROM finish();
+ROLLBACK;

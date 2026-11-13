@@ -1,0 +1,33 @@
+{
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observed": {
+    "states": [
+      "claimed",
+      "preflight",
+      "recovery_point",
+      "staged",
+      "maintenance",
+      "rolling_back",
+      "recovery_required"
+    ],
+    "host": [
+      "is-enabled setjoin-gateway setjoin setjoin-auth",
+      "stop setjoin-gateway setjoin setjoin-auth",
+      "start setjoin-auth setjoin setjoin-gateway"
+    ],
+    "result": {
+      "category": "rollback_failed",
+      "failed_step": "apply_migrations",
+      "upgrade_error": "migration \"migration-rel2\": migration SQL is unsafe: statement \"commit\" is updater-owned or nontransactional",
+      "rollback_error": "feature registry release contract differs: target manifest is unavailable during rollback\nstep evidence is empty, invalid, or exceeds 64 KiB"
+    },
+    "files": [
+      "adoption.json",
+      "authserverd",
+      "mailctl",
+      "mailserverd",
+      "setjoin-gateway",
+      "webmail/index.html"
+    ]
+  }
+}

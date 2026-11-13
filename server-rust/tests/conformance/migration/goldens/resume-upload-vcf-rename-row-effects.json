@@ -1,0 +1,347 @@
+{
+  "case": "upload-vcf-rename-row-effects",
+  "effects": [
+    {
+      "after": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": true,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-pending>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "vcf": {
+                "imported": 1,
+                "skipped": 0
+              }
+            },
+            "source": "vcf",
+            "started": true,
+            "status": "completed",
+            "strategy": "rename",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [
+          "migration/upload/<job-pending>/vcf"
+        ],
+        "provider_effects": {
+          "checkpoints": [],
+          "consents": [],
+          "contacts": [
+            {
+              "addresses": [],
+              "anniversary": null,
+              "avatar_sha256": null,
+              "birthday": null,
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display_name": "Existing contact",
+              "emails": [],
+              "first_name": null,
+              "instant_msgs": [],
+              "job_title": null,
+              "last_name": null,
+              "mailbox": "<mailbox-b>",
+              "notes": null,
+              "phones": [],
+              "urls": [],
+              "vcard_uid": "m7-contact"
+            },
+            {
+              "addresses": [],
+              "anniversary": null,
+              "avatar_sha256": null,
+              "birthday": null,
+              "categories": [],
+              "company": "",
+              "department": null,
+              "display_name": "Provider contact",
+              "emails": [
+                {
+                  "address": "person@example.test",
+                  "type": "other"
+                }
+              ],
+              "first_name": "Provider",
+              "instant_msgs": [],
+              "job_title": "",
+              "last_name": "Contact",
+              "mailbox": "<mailbox-b>",
+              "notes": "",
+              "phones": [],
+              "urls": [],
+              "vcard_uid": "m7-contact-migrated"
+            }
+          ],
+          "events": [],
+          "instances": [],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [],
+          "source_objects": [],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [
+          {
+            "method": "GET",
+            "path": "/mailblobs/migration/upload/<job-pending>/vcf"
+          }
+        ],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "before": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "imap": {
+                "credentials": {
+                  "password": "pw",
+                  "username": "alice"
+                },
+                "host": "gofree-mbox6-imap.test",
+                "port": "<port>",
+                "tls_mode": "none"
+              },
+              "self_service": false,
+              "source_type": "imap",
+              "use_global_auth": true
+            },
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-pending>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "vcf",
+            "started": false,
+            "status": "pending",
+            "strategy": "rename",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [
+          "migration/upload/<job-pending>/vcf"
+        ],
+        "provider_effects": {
+          "checkpoints": [],
+          "consents": [],
+          "contacts": [
+            {
+              "addresses": [],
+              "anniversary": null,
+              "avatar_sha256": null,
+              "birthday": null,
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display_name": "Existing contact",
+              "emails": [],
+              "first_name": null,
+              "instant_msgs": [],
+              "job_title": null,
+              "last_name": null,
+              "mailbox": "<mailbox-b>",
+              "notes": null,
+              "phones": [],
+              "urls": [],
+              "vcard_uid": "m7-contact"
+            }
+          ],
+          "events": [],
+          "instances": [],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [],
+          "source_objects": [],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "table": "migration_jobs+messages+tags+objects"
+    }
+  ],
+  "format": 1,
+  "go_source": "ad5c2e3480ddd3776062cbc03f9fac49814d968b",
+  "route": "POST /admin/migration/jobs/{id}/resume"
+}

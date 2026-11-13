@@ -1,0 +1,11 @@
+{
+  "case": "storage-dr-start-scoped-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "storage_dr_scans"
+    }
+  ],
+  "format": 1
+}

@@ -1,0 +1,327 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "guest.enable",
+        "after_state": {
+          "expiresAt": "2099-11-01T12:00:00+00:00",
+          "liveEvictionTargets": 0,
+          "sessionRevocationId": null,
+          "status": "active",
+          "system": false
+        },
+        "before_state": {
+          "expiresAt": "2099-11-01T12:00:00+00:00",
+          "status": "disabled"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<guest>",
+        "target_type": "user",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "expires_at": "2099-11-01T12:00:00+00:00",
+            "host_domain_id": "<domain>",
+            "invited_by": "<admin>",
+            "invited_by_email": "guests1-admin@host.test",
+            "invited_email": "guest@outside.test",
+            "profile_id": null,
+            "sponsor_user_id": "<admin>",
+            "status": "active",
+            "updated_at": "<timestamp>",
+            "user_id": "<guest>"
+          }
+        ],
+        "before": [
+          {
+            "created_at": "2026-10-01T12:00:00+00:00",
+            "expires_at": "2099-11-01T12:00:00+00:00",
+            "host_domain_id": "<domain>",
+            "invited_by": "<admin>",
+            "invited_by_email": "guests1-admin@host.test",
+            "invited_email": "guest@outside.test",
+            "profile_id": null,
+            "sponsor_user_id": "<admin>",
+            "status": "disabled",
+            "updated_at": "2026-10-01T12:00:00+00:00",
+            "user_id": "<guest>"
+          }
+        ],
+        "table": "guest_accounts"
+      },
+      {
+        "after": [
+          {
+            "ad_object_guid": null,
+            "ad_sam_account": null,
+            "ad_upn": null,
+            "ad_usn_changed": null,
+            "address_policy_enabled": true,
+            "avatar_sha256": null,
+            "created_at": "<timestamp>",
+            "department_id": null,
+            "display_name": "Guest <one>",
+            "domain_id": "<guest-domain>",
+            "email": "guest@outside.test",
+            "enabled": true,
+            "external_sender_warning": true,
+            "factor_generation": 0,
+            "first_name": null,
+            "id": "<guest>",
+            "is_admin": false,
+            "is_local_admin": false,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_login_at": null,
+            "last_login_country": null,
+            "last_login_ip": null,
+            "last_name": null,
+            "last_synced_at": null,
+            "last_totp_used_at": null,
+            "local_overrides": {},
+            "manager_id": null,
+            "mfa_exempt": false,
+            "must_change_password": false,
+            "oidc_issuer": null,
+            "oidc_provider": null,
+            "oidc_subject": null,
+            "password_hash": null,
+            "phone": null,
+            "possession_password_failed_attempts": 0,
+            "possession_password_locked_until": null,
+            "possession_webauthn_failed_attempts": 0,
+            "possession_webauthn_locked_until": null,
+            "push_mfa_enabled": false,
+            "saml_idp_entity_id": null,
+            "saml_name_id": null,
+            "saml_session_index": null,
+            "scim_external_id": null,
+            "sync_source": "local",
+            "totp_backup_codes_enc": null,
+            "totp_enabled": false,
+            "totp_enabled_at": null,
+            "totp_failed_attempts": 0,
+            "totp_locked_until": null,
+            "totp_secret_enc": null,
+            "updated_at": "<timestamp>",
+            "username": "guest@outside.test",
+            "view_prefs": null,
+            "webauthn_credentials": [],
+            "webauthn_user_handle": null
+          }
+        ],
+        "before": [
+          {
+            "ad_object_guid": null,
+            "ad_sam_account": null,
+            "ad_upn": null,
+            "ad_usn_changed": null,
+            "address_policy_enabled": true,
+            "avatar_sha256": null,
+            "created_at": "<timestamp>",
+            "department_id": null,
+            "display_name": "Guest <one>",
+            "domain_id": "<guest-domain>",
+            "email": "guest@outside.test",
+            "enabled": false,
+            "external_sender_warning": true,
+            "factor_generation": 0,
+            "first_name": null,
+            "id": "<guest>",
+            "is_admin": false,
+            "is_local_admin": false,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_login_at": null,
+            "last_login_country": null,
+            "last_login_ip": null,
+            "last_name": null,
+            "last_synced_at": null,
+            "last_totp_used_at": null,
+            "local_overrides": {},
+            "manager_id": null,
+            "mfa_exempt": false,
+            "must_change_password": false,
+            "oidc_issuer": null,
+            "oidc_provider": null,
+            "oidc_subject": null,
+            "password_hash": null,
+            "phone": null,
+            "possession_password_failed_attempts": 0,
+            "possession_password_locked_until": null,
+            "possession_webauthn_failed_attempts": 0,
+            "possession_webauthn_locked_until": null,
+            "push_mfa_enabled": false,
+            "saml_idp_entity_id": null,
+            "saml_name_id": null,
+            "saml_session_index": null,
+            "scim_external_id": null,
+            "sync_source": "local",
+            "totp_backup_codes_enc": null,
+            "totp_enabled": false,
+            "totp_enabled_at": null,
+            "totp_failed_attempts": 0,
+            "totp_locked_until": null,
+            "totp_secret_enc": null,
+            "updated_at": "<timestamp>",
+            "username": "guest@outside.test",
+            "view_prefs": null,
+            "webauthn_credentials": [],
+            "webauthn_user_handle": null
+          }
+        ],
+        "table": "users"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "guest_invites"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "user_app_entitlements"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "identity_auth_link_elevations"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "oauth_tokens"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "oidc_tokens"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "ws_subscriptions"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "sessions"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "mfa_reauth_step_ups"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "webauthn_ceremonies"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "session_revocations"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "guest_live_eviction_intents"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "chat_channel_members"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "meeting_participants"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "meeting_join_requests"
+      },
+      {
+        "after": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "tags": 0
+          }
+        ],
+        "before": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "tags": 0
+          }
+        ],
+        "table": "mailbox_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "external_path": "/api/admin/guests/{id}/enable",
+      "method": "POST",
+      "path": "/admin/guests/{id}/enable"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-guests1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "POST /admin/guests/{id}/enable"
+}

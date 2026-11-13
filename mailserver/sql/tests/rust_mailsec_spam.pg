@@ -1,0 +1,17 @@
+-- pgTAP: rust_mailsec_spam.sql (F06 slice spam) -- sender-list replacement, never-block, report.
+BEGIN;
+SELECT plan(9);
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (92001, 'msp.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES (9201, 'msp_u', 92001, 'u@msp.test', 'U', TRUE);
+SELECT lives_ok($$SELECT rust_mailsec_sender_list_replace(9201, ARRAY['a@x.test','b@x.test'], ARRAY['c@x.test'])$$, 'replace writes both lists');
+SELECT is((SELECT count(*)::int FROM user_sender_list WHERE user_id = 9201), 3, 'three rows after replace');
+SELECT lives_ok($$SELECT rust_mailsec_sender_list_replace(9201, ARRAY['z@x.test'], NULL)$$, 'a second replace drops the old rows');
+SELECT is((SELECT count(*)::int FROM user_sender_list WHERE user_id = 9201), 1, 'only the new entry remains');
+SELECT throws_ok($$SELECT rust_mailsec_sender_list_replace(9201, ARRAY['d@x.test','d@x.test'], NULL)$$, '23505', NULL, 'a duplicate entry fails the whole replacement');
+SELECT is((SELECT count(*)::int FROM user_sender_list WHERE user_id = 9201), 1, 'the failed replacement left the list intact');
+INSERT INTO user_sender_list (user_id, sender, list_type) VALUES (9201, 'bad@x.test', 'blocked');
+SELECT lives_ok($$SELECT rust_mailsec_sender_never_block(9201, 'bad@x.test')$$, 'never-block runs');
+SELECT is((SELECT list_type FROM user_sender_list WHERE user_id = 9201 AND sender = 'bad@x.test'), 'safe', 'the sender moved to safe');
+SELECT is(rust_mailsec_report(9201, 999999999, 'spam', 'n'), false, 'an unknown message reports nothing');
+SELECT * FROM finish();
+ROLLBACK;

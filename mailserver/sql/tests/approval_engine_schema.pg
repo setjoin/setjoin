@@ -1,0 +1,18 @@
+-- pgTAP: V045 approval engine schema assertions (Task 1).
+-- Tests: tables exist, PK, composite unique, CHECK constraint, RLS forced, toggles, config.
+BEGIN;
+SELECT plan(9);
+SELECT has_table('approval_policies');
+SELECT has_table('approval_requests');
+SELECT has_table('held_inbound_messages');
+SELECT col_is_pk('approval_policies', 'id');
+-- unique priority per consumer
+SELECT col_is_unique('approval_policies', ARRAY['consumer_type','priority']);
+-- consumer_type CHECK rejects junk
+SELECT throws_ok($$ INSERT INTO approval_requests(consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at) VALUES ('bogus.type', 1, 's', '{}'::jsonb, 'user', 1, now()) $$, '23514');
+-- RLS forced
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE relname='approval_requests'), true, 'requests RLS forced');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='approval.rbac'), false, 'rbac toggle default off');
+SELECT ok((SELECT count(*) FROM system_config WHERE key IN ('approval.default_approver_user_id','approval.request_ttl_minutes')) = 2, 'config defaults seeded');
+SELECT * FROM finish();
+ROLLBACK;

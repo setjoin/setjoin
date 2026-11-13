@@ -1,0 +1,117 @@
+-- audit_chain_v2.pg — the real, full-field admin audit hash-chain (V037),
+-- plus the V3 HMAC keying (V087).
+-- Proves: clean chain verifies, a tampered NON-prev-covered field (user_id) is
+-- caught, a ranged verify seeds v_prev from the row BEFORE p_from_id (no false
+-- tamper on the first row of a page), and a mid-chain deletion breaks a later row.
+-- V3 (V087): with app.audit_hmac_key set, new rows get a 'v3:'-prefixed HMAC
+-- checksum; a mixed V2+V3 chain verifies; tamper/wrong-key/missing-key on V3
+-- rows is caught; a keyless session falls back to unkeyed V2 (upgrade-safe).
+BEGIN;
+SELECT plan(19);
+
+SELECT has_column('admin_audit_log', 'checksum');
+
+-- admin_audit_log.user_id FK-references users; provide the actors we reference (1, 999).
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (97037, 'ach2.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (1,   'ach_a', 97037, 'a@ach2.test', 'A', TRUE),
+  (999, 'ach_b', 97037, 'b@ach2.test', 'B', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Seed a 3-row chain. The v2 INSERT trigger assigns id + fills checksum.
+INSERT INTO admin_audit_log (user_id, ip, action, target_type, target_id, before_state, after_state, notes)
+  VALUES (1,'10.0.0.1','role_assign','user',2,'{}','{"r":1}','first'),
+         (1,'10.0.0.2','role_revoke','user',3,'{"r":1}','{}','second'),
+         (1,'10.0.0.3','sod_mode_enable',NULL,NULL,'{}','{}','third');
+
+-- Every row carries a stored checksum.
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log WHERE checksum IS NOT NULL), 3,
+  'every seeded row got a checksum');
+
+SELECT ok((SELECT bool_and(valid) FROM verify_audit_chain(NULL,NULL)),
+  'clean chain → all valid');
+
+-- Append-only ENFORCEMENT: while the trigger is enabled, UPDATE and DELETE are
+-- rejected (BZ017). The chain checks below DISABLE the trigger to simulate
+-- tampering, so without these two assertions a dropped/broken append-only
+-- trigger would ship green (the immutability was untested — only the chain was).
+SELECT throws_ok(
+  $$UPDATE admin_audit_log SET notes = 'tampered' WHERE action = 'role_revoke'$$,
+  'BZ017', NULL, 'admin_audit_log UPDATE is blocked by the append-only trigger');
+SELECT throws_ok(
+  $$DELETE FROM admin_audit_log WHERE action = 'role_revoke'$$,
+  'BZ017', NULL, 'admin_audit_log DELETE is blocked by the append-only trigger');
+
+-- The append-only trigger blocks UPDATE; disable it to simulate an attacker's
+-- in-place edit. (DISABLE TRIGGER takes the TRIGGER name, admin_audit_append_only,
+-- not the function name trg_audit_append_only.)
+SELECT lives_ok($$ALTER TABLE admin_audit_log DISABLE TRIGGER admin_audit_append_only$$,
+  'can disable append-only trigger for tamper simulation');
+
+-- Tamper a field the OLD formula never hashed: user_id. v2 must catch it.
+UPDATE admin_audit_log SET user_id = 999 WHERE action='role_revoke';
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='role_revoke'),
+  'tampered user_id → invalid');
+
+-- Restore the tamper, then ranged-verify the middle range. This proves v_prev is
+-- seeded from the row BEFORE p_from_id (else the first row of the page is false-tamper).
+UPDATE admin_audit_log SET user_id = 1 WHERE action='role_revoke';
+SELECT ok((SELECT bool_and(valid) FROM verify_audit_chain(
+            (SELECT min(id)+1 FROM admin_audit_log), NULL)),
+  'ranged verify seeds prev → valid');
+
+-- ── V3 (HMAC-keyed, V087) ────────────────────────────────────────────────
+-- With app.audit_hmac_key set, the trigger writes a 'v3:'-prefixed HMAC
+-- checksum; unkeyed V2 rows stay verifiable in the same chain.
+SELECT set_config('app.audit_hmac_key', 'pgtap-hmac-key-1', false);
+INSERT INTO admin_audit_log (user_id, ip, action, target_type, target_id, before_state, after_state, notes)
+  VALUES (1,'10.0.0.4','v3_first','user',4,'{}','{"v":3}','v3 first'),
+         (1,'10.0.0.5','v3_second','user',5,'{"v":3}','{}','v3 second');
+
+SELECT ok((SELECT checksum LIKE 'v3:%' FROM admin_audit_log WHERE action='v3_first'),
+  'keyed insert writes a v3-prefixed HMAC checksum');
+SELECT ok((SELECT bool_and(valid) FROM verify_audit_chain(NULL,NULL)),
+  'mixed V2+V3 chain verifies under the key');
+
+-- Tamper a V3 row (trigger still disabled) → caught under the key.
+UPDATE admin_audit_log SET notes = 'tampered v3' WHERE action='v3_second';
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='v3_second'),
+  'tampered V3 row → invalid');
+UPDATE admin_audit_log SET notes = 'v3 second' WHERE action='v3_second';
+
+-- Wrong key: V3 rows fail, V2 rows (keyless sha256) still verify.
+SELECT set_config('app.audit_hmac_key', 'wrong-key', false);
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='v3_first'),
+  'wrong key → V3 row invalid');
+SELECT ok((SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='role_assign'),
+  'wrong key → V2 row still verifies by sha256');
+SELECT set_config('app.audit_hmac_key', 'pgtap-hmac-key-1', false);
+
+-- Delete a middle row → the chain (verified over the remaining rows by their stored
+-- checksums) no longer reproduces: the row that chained off the deleted one is invalid.
+DELETE FROM admin_audit_log WHERE action='role_revoke';
+SELECT ok(NOT (SELECT bool_and(valid) FROM verify_audit_chain(NULL,NULL)),
+  'deletion breaks the chain');
+
+SELECT lives_ok($$ALTER TABLE admin_audit_log ENABLE TRIGGER admin_audit_append_only$$,
+  'can re-enable append-only trigger');
+
+-- ── Missing-key session (the on-prem upgrade fallback) ──────────────────
+-- No key: V3 rows report invalid (unverifiable without the secret — not an
+-- error), V2 rows still verify, and NEW rows fall back to the unkeyed V2 form.
+SELECT set_config('app.audit_hmac_key', '', false);
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='v3_first'),
+  'missing key → V3 row reports invalid, not an error');
+SELECT ok((SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='role_assign'),
+  'missing key → V2 row still verifies by sha256');
+
+INSERT INTO admin_audit_log (user_id, ip, action, target_type, target_id, before_state, after_state, notes)
+  VALUES (1,'10.0.0.6','v2_fallback','user',6,'{}','{}','keyless insert');
+SELECT ok((SELECT checksum NOT LIKE 'v3:%' FROM admin_audit_log WHERE action='v2_fallback'),
+  'keyless insert falls back to the unkeyed V2 sha256 form');
+SELECT ok((SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='v2_fallback'),
+  'the V2-fallback row verifies (chained off a v3 prev)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,127 @@
+{
+  "case": "wrong-perm-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [],
+        "consent": [],
+        "jobs": [
+          {
+            "completed": true,
+            "error_log": [],
+            "has_config": false,
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {
+              "imported": 3,
+              "phase": "done"
+            },
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": true,
+            "error_log": [
+              "boom <x> & y",
+              "second"
+            ],
+            "has_config": false,
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "n": 1.5,
+              "phase": "fetching",
+              "tags": [
+                "<a>",
+                "b&c"
+              ]
+            },
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<other>"
+          },
+          {
+            "completed": false,
+            "error_log": [],
+            "has_config": false,
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": false,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<other>"
+          }
+        ]
+      },
+      "before": {
+        "config": [],
+        "consent": [],
+        "jobs": [
+          {
+            "completed": true,
+            "error_log": [],
+            "has_config": false,
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {
+              "imported": 3,
+              "phase": "done"
+            },
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": true,
+            "error_log": [
+              "boom <x> & y",
+              "second"
+            ],
+            "has_config": false,
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "n": 1.5,
+              "phase": "fetching",
+              "tags": [
+                "<a>",
+                "b&c"
+              ]
+            },
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<other>"
+          },
+          {
+            "completed": false,
+            "error_log": [],
+            "has_config": false,
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": false,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<other>"
+          }
+        ]
+      },
+      "table": "migration_jobs+system_config+m365_consent_states"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/migration/jobs/{id}"
+}

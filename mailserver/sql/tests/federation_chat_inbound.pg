@@ -1,0 +1,365 @@
+-- federation_chat_inbound.pg — Pillar C1 Task 4: federation_apply_chat, the
+-- inbound chat<->federation bridge and its poison-proof trust contract.
+-- Requires: V139 (chat_channels/chat_messages federation columns),
+-- federation_apply_chat.sql (this task), chat_message.sql's
+-- chat_messages_since (ordinary read-path proof), chat_ediscovery_search.sql
+-- + chat_ediscovery_read.sql (this task's federatedSenderAddr projection).
+-- Genre: federation_ordering.pg (exactly-once/gap fixture shape),
+-- federation_chat_outbound.pg (real-users fixture, federated-channel shape).
+--
+-- §7 (Task 4B) extends this file with the quarantine-on-apply cases: the
+-- spam verdict is computed Go-side (receiver.go/spam.go, not exercised
+-- here — that's spam_test.go's job) and handed to federation_apply_chat as
+-- p_spam_quarantined/p_spam_reason. This file proves only the reducer's
+-- half of the contract: the two extra args land on the row untouched, and
+-- quarantine NEVER changes the seq/cursor/ack outcome — the exact same
+-- 'applied' verdict, same cursor advance, as every other §1/§5 case above.
+BEGIN;
+SELECT plan(52);
+
+-- ── fixture: one local org (alpha.test), one local user (alice) with an
+-- enabled, receive-enabled primary mailbox. federation_apply_chat resolves
+-- toAddr via mailboxes/users — NEVER via chat_channel_members, since the
+-- applier itself is what CREATES that membership row on first contact.
+INSERT INTO domains (id, name, is_local) VALUES (83000, 'alpha.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, enabled)
+  VALUES (83001, 'alice', 83000, 'alice@alpha.test', 'Alice', 'x', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+-- ARCH-003: mailbox id DIVERGENT from user_id (83101 != 83001) — a
+-- coincident id/user_id fixture masks the account-scope bug class the
+-- check-account-scope guard exists to catch.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, enabled, receive_enabled)
+  VALUES (83101, 83001, 83000, 'alice@alpha.test', 'Alice', TRUE, TRUE, TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 a valid inbound stanza: lazily creates the mirror channel + one
+--    readable chat_messages row (author_id NULL, federated_sender_addr set)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_chat('bravo.test', 1, 's1', jsonb_build_object(
+    'fromAddr', 'bob@bravo.test', 'toAddr', 'alice@alpha.test',
+    'body', 'hi alice', 'sentAt', now(), 'clientMsgId', 'wire-1')),
+  'applied', 'a valid inbound stanza returns applied'
+);
+SELECT is(
+  (SELECT count(*)::int FROM chat_channels WHERE federated_peer_domain = 'bravo.test'),
+  1, 'exactly one mirror channel was lazily created for bravo.test'
+);
+SELECT id AS ch1 FROM chat_channels WHERE federated_peer_domain = 'bravo.test' \gset
+
+SELECT is((SELECT kind FROM chat_channels WHERE id = :ch1), 'dm', 'the mirror channel kind is dm');
+SELECT is((SELECT federated_remote_id FROM chat_channels WHERE id = :ch1), 'bob@bravo.test',
+  'federated_remote_id carries the raw (un-lowered) fromAddr');
+SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :ch1), 1,
+  'the mirror channel has exactly ONE local member');
+SELECT is((SELECT user_id FROM chat_channel_members WHERE channel_id = :ch1), 83001::bigint,
+  'the sole member is the LOCAL recipient (toAddr''s user) — the remote party is never a member row');
+
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 1,
+  'exactly one chat_messages row landed');
+SELECT id AS msg1 FROM chat_messages WHERE channel_id = :ch1 ORDER BY id LIMIT 1 \gset
+SELECT is((SELECT author_id FROM chat_messages WHERE id = :msg1), NULL::bigint,
+  'the inbound row has NO local author (author_id NULL)');
+SELECT is((SELECT federated_sender_addr FROM chat_messages WHERE id = :msg1), 'bob@bravo.test',
+  'federated_sender_addr carries the remote fromAddr');
+SELECT is((SELECT body FROM chat_messages WHERE id = :msg1), 'hi alice', 'the body landed verbatim');
+-- Task 1 review fold: assert the VALUE, not just presence — federated_origin_domain
+-- must equal the lowered stream-authenticated peer domain (the C2 Task 1 dedup fix column).
+SELECT is((SELECT federated_origin_domain FROM chat_messages WHERE id = :msg1), 'bravo.test',
+  'federated_origin_domain equals the lowered peer domain (bravo.test)');
+
+-- readable by the local user via the ORDINARY chat read path — proves
+-- membership/RLS transparently admits it (the applier created the member
+-- row itself; nothing special-cased in chat_messages_since for a federated
+-- channel).
+SELECT is(
+  (SELECT (m ->> 'messageId')::bigint FROM jsonb_array_elements(chat_messages_since(83001, :ch1, 0)) m
+    WHERE (m ->> 'messageId')::bigint = :msg1),
+  :msg1::bigint, 'alice can read the inbound message via the ordinary chat_messages_since path'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 a re-delivered (peer,seq): idempotent dup, seq unchanged, no 2nd row
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_chat('bravo.test', 1, 's1', jsonb_build_object(
+    'fromAddr', 'bob@bravo.test', 'toAddr', 'alice@alpha.test',
+    'body', 'hi alice', 'sentAt', now(), 'clientMsgId', 'wire-1')),
+  'dup', 're-delivering the SAME (peer,seq) returns dup — caller still acks'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo.test'),
+  1::bigint, 'a dup does not move the cursor'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 1,
+  'a dup does not create a second chat_messages row');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 a sequence gap: BZ202, never a poison verdict, never silently skipped
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  $$ SELECT federation_apply_chat('bravo.test', 5, 's5', '{}'::jsonb) $$,
+  'BZ202', NULL, 'a sequence gap raises BZ202 (the receiver pauses + replay_req — never a poison verdict)'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo.test'),
+  1::bigint, 'the gap-rejected call left the cursor untouched (the RAISE unwound the whole call)'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 poison edges — EACH returns 'poison' (never raises), the seq is
+--    STILL consumed (cursor advances), and NO chat_messages row lands.
+--    Each on its own fresh peer_domain so the exactly-once cursor state
+--    from §1-§3 above can't interfere.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) spoofed fromAddr — domain does not match the stream-authenticated peer.
+SELECT is(
+  federation_apply_chat('charlie.test', 1, 'p1', jsonb_build_object(
+    'fromAddr', 'mallory@othersystem.test', 'toAddr', 'alice@alpha.test',
+    'body', 'spoofed', 'sentAt', now(), 'clientMsgId', 'spoof-1')),
+  'poison', 'a fromAddr whose domain does not match the stream-authenticated peer is poisoned'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'charlie.test'),
+  1::bigint, 'poison still consumes the seq (cursor advances) — never a livelock'
+);
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE federated_peer_domain = 'charlie.test'), 0,
+  'poison creates no mirror channel');
+
+-- (b) unresolvable toAddr — no real, enabled local mailbox at that address.
+SELECT is(
+  federation_apply_chat('delta.test', 1, 'p1', jsonb_build_object(
+    'fromAddr', 'bob@delta.test', 'toAddr', 'nobody@alpha.test',
+    'body', 'nobody here', 'sentAt', now(), 'clientMsgId', 'unresolved-1')),
+  'poison', 'a toAddr with no real enabled local mailbox is poisoned'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'delta.test'),
+  1::bigint, 'poison still consumes the seq (cursor advances)'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'bob@delta.test'), 0,
+  'poison creates no chat_messages row');
+
+-- (c) oversized body — over the 64KiB cap mirrored from the outbound side.
+SELECT is(
+  federation_apply_chat('echo.test', 1, 'p1', jsonb_build_object(
+    'fromAddr', 'bob@echo.test', 'toAddr', 'alice@alpha.test',
+    'body', repeat('x', 65537), 'sentAt', now(), 'clientMsgId', 'oversized-1')),
+  'poison', 'a body over 64KiB is poisoned (mirrors chat_message_send''s BZ206 cap)'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'echo.test'),
+  1::bigint, 'poison still consumes the seq (cursor advances)'
+);
+
+-- (d) malformed payload — required keys (toAddr/body/clientMsgId) missing.
+SELECT is(
+  federation_apply_chat('foxtrot.test', 1, 'p1', jsonb_build_object('fromAddr', 'bob@foxtrot.test')),
+  'poison', 'a payload missing required keys is poisoned'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'foxtrot.test'),
+  1::bigint, 'poison still consumes the seq (cursor advances)'
+);
+
+-- (e) review-fold F1: an oversized clientMsgId (over the btree index
+--     ceiling) on an otherwise fully valid frame must poison BEFORE it
+--     ever reaches the chat_messages INSERT — unguarded, this would blow
+--     past chat_messages_fed_stanza_uk's partial-index row-size ceiling
+--     (SQLSTATE 54000, not poison-shaped) AFTER the seq/cursor already
+--     advanced: a permanent stream livelock.
+SELECT is(
+  federation_apply_chat('hotel.test', 1, 'h1', jsonb_build_object(
+    'fromAddr', 'bob@hotel.test', 'toAddr', 'alice@alpha.test',
+    'body', 'oversized clientMsgId', 'sentAt', now(), 'clientMsgId', repeat('x', 2800))),
+  'poison', 'an oversized clientMsgId (over the btree index ceiling) is poisoned, never a raise'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'hotel.test'),
+  1::bigint, 'the oversized-clientMsgId frame still consumed its seq'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'bob@hotel.test'), 0,
+  'the oversized-clientMsgId frame landed no row');
+-- stream survives: the very next in-order frame still lands cleanly.
+SELECT is(
+  federation_apply_chat('hotel.test', 2, 'h2', jsonb_build_object(
+    'fromAddr', 'bob@hotel.test', 'toAddr', 'alice@alpha.test',
+    'body', 'alive after oversized cmid', 'sentAt', now(), 'clientMsgId', 'hotel-1')),
+  'applied', 'the stream survives the oversized-clientMsgId poison edge'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 a second valid message, then a clientMsgId dup under a NEW (peer,seq)
+--    — advances the cursor, creates NO duplicate row, NEVER raises (the
+--    ON CONFLICT (channel_id, federated_stanza_id) DO NOTHING invariant).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_chat('bravo.test', 2, 's2', jsonb_build_object(
+    'fromAddr', 'bob@bravo.test', 'toAddr', 'alice@alpha.test',
+    'body', 'second message', 'sentAt', now(), 'clientMsgId', 'wire-2')),
+  'applied', 'a second in-order valid message is applied'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 2,
+  'two distinct messages now exist in the mirror channel');
+
+-- a resend of wire-1's content, arriving under a BRAND NEW peer_seq (the
+-- sender's own retry/reconnect logic — not a protocol violation, since the
+-- (peer,seq) pair itself is genuinely new).
+SELECT is(
+  federation_apply_chat('bravo.test', 3, 's3', jsonb_build_object(
+    'fromAddr', 'bob@bravo.test', 'toAddr', 'alice@alpha.test',
+    'body', 'hi alice (resend)', 'sentAt', now(), 'clientMsgId', 'wire-1')),
+  'applied', 'a clientMsgId dup under a brand-new peer_seq still returns applied — never poison, never a raise'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo.test'),
+  3::bigint, 'the clientMsgId-dup call still advanced the cursor to the new seq'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 2,
+  'the clientMsgId dup created NO third chat_messages row (ON CONFLICT DO NOTHING, never a raise/livelock)'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 eDiscovery attribution: the federated inbound message surfaces in
+--    chat_ediscovery_search / chat_ediscovery_read with federated_sender_addr
+--    as the author — author_id NULL does not crash or drop the hit.
+-- ══════════════════════════════════════════════════════════════════════
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+INSERT INTO ediscovery_cases (id, name, status, created_by)
+  VALUES (83900, 'fed-inbound-case', 'active', 83001)
+  ON CONFLICT (id) DO NOTHING;
+
+SELECT chat_ediscovery_search(83001, 83900, jsonb_build_object('terms', 'alice')) AS search_result \gset
+
+SELECT is(
+  (SELECT h ->> 'federatedSenderAddr' FROM jsonb_array_elements(:'search_result'::jsonb -> 'hits') h
+    WHERE (h ->> 'messageId')::bigint = :msg1),
+  'bob@bravo.test',
+  'chat_ediscovery_search attributes the federated inbound message to the REMOTE ADDRESS'
+);
+SELECT is(
+  (SELECT h -> 'authorId' FROM jsonb_array_elements(:'search_result'::jsonb -> 'hits') h
+    WHERE (h ->> 'messageId')::bigint = :msg1),
+  'null'::jsonb,
+  'chat_ediscovery_search projects authorId as JSON null for the federated row — no fabricated local custodian'
+);
+
+SELECT chat_ediscovery_read(83001, 83900, :ch1) AS read_result \gset
+
+SELECT is(
+  (SELECT m ->> 'federatedSenderAddr' FROM jsonb_array_elements(:'read_result'::jsonb -> 'messages') m
+    WHERE (m ->> 'messageId')::bigint = :msg1),
+  'bob@bravo.test',
+  'chat_ediscovery_read attributes the federated inbound message to the REMOTE ADDRESS'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 (Task 4B) quarantine-on-apply: p_spam_quarantined/p_spam_reason land
+--    on the row exactly as passed, and NEVER change the applied verdict or
+--    the exactly-once cursor advance — quarantine is orthogonal to
+--    ordering/dedup, never a skip and never a poison.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) a flagged body: still 'applied' (never 'poison', never skipped), the
+--     seq is consumed exactly like any other valid message, and the row
+--     carries the quarantine flag + reason verbatim.
+SELECT is(
+  federation_apply_chat('golf.test', 1, 'g1', jsonb_build_object(
+    'fromAddr', 'bob@golf.test', 'toAddr', 'alice@alpha.test',
+    'body', 'urgent click now', 'sentAt', now(), 'clientMsgId', 'golf-1'),
+    TRUE, 'mixed-charset'),
+  'applied', 'a spam-flagged inbound message still returns applied — quarantine is orthogonal to the apply/poison verdict'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'golf.test'),
+  1::bigint, 'quarantine never changes the ordering outcome — the seq is consumed exactly like any other applied message'
+);
+SELECT id AS ch_golf FROM chat_channels WHERE federated_peer_domain = 'golf.test' \gset
+SELECT is(
+  (SELECT spam_quarantined FROM chat_messages WHERE channel_id = :ch_golf AND federated_stanza_id = 'golf-1'),
+  TRUE, 'the quarantined row lands with spam_quarantined=true'
+);
+SELECT is(
+  (SELECT spam_reason FROM chat_messages WHERE channel_id = :ch_golf AND federated_stanza_id = 'golf-1'),
+  'mixed-charset', 'the quarantined row carries the reason verbatim'
+);
+
+-- (b) a clean body under the SAME peer (a new in-order seq): lands
+--     spam_quarantined=false, and the cursor keeps advancing normally —
+--     quarantine on one message never taints the next.
+SELECT is(
+  federation_apply_chat('golf.test', 2, 'g2', jsonb_build_object(
+    'fromAddr', 'bob@golf.test', 'toAddr', 'alice@alpha.test',
+    'body', 'see you at noon', 'sentAt', now(), 'clientMsgId', 'golf-2'),
+    FALSE, NULL),
+  'applied', 'a clean inbound message following a quarantined one still applies normally'
+);
+SELECT is(
+  (SELECT spam_quarantined FROM chat_messages WHERE channel_id = :ch_golf AND federated_stanza_id = 'golf-2'),
+  FALSE, 'a clean body lands with spam_quarantined=false'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 (Task 8 Step 2) the cursor-regression guard: once federation_reap
+--    deletes an old, applied federation_inbox row, a replay of that reaped
+--    seq must STILL dup (the cursor, not row presence, is the arbiter) —
+--    never fall through as fresh and never move the cursor backward.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT federation_apply_chat('india.test', 1, 'i1', jsonb_build_object(
+  'fromAddr', 'bob@india.test', 'toAddr', 'alice@alpha.test',
+  'body', 'first', 'sentAt', now(), 'clientMsgId', 'india-1'));
+SELECT federation_apply_chat('india.test', 2, 'i2', jsonb_build_object(
+  'fromAddr', 'bob@india.test', 'toAddr', 'alice@alpha.test',
+  'body', 'second', 'sentAt', now(), 'clientMsgId', 'india-2'));
+SELECT id AS ch_india FROM chat_channels WHERE federated_peer_domain = 'india.test' \gset
+
+-- simulate federation_reap having already deleted seq 1's inbox row (its
+-- applied_at is long past the retention window) — seq 2's row is left
+-- alone, so the two replay shapes (row gone vs. row present) are both
+-- exercised in the same fixture.
+DELETE FROM federation_inbox WHERE peer_domain = 'india.test' AND peer_seq = 1;
+
+SELECT is(
+  federation_apply_chat('india.test', 1, 'i1', jsonb_build_object(
+    'fromAddr', 'bob@india.test', 'toAddr', 'alice@alpha.test',
+    'body', 'first (replayed post-reap)', 'sentAt', now(), 'clientMsgId', 'india-1')),
+  'dup', 'a reaped-then-replayed seq returns dup even though its federation_inbox row no longer exists'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india.test'),
+  2::bigint, 'the post-reap replay does not move the cursor backward'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_india), 2,
+  'the post-reap replay creates no chat_messages row (real content never re-applies)');
+
+-- the EXISTING dup path (seq 2, whose inbox row is still present) is
+-- unchanged by the new guard.
+SELECT is(
+  federation_apply_chat('india.test', 2, 'i2', jsonb_build_object(
+    'fromAddr', 'bob@india.test', 'toAddr', 'alice@alpha.test',
+    'body', 'second (replayed, row present)', 'sentAt', now(), 'clientMsgId', 'india-2')),
+  'dup', 'a replay of a seq whose inbox row STILL EXISTS still returns dup (the pre-existing path, untouched)'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india.test'),
+  2::bigint, 'the ordinary dup path still leaves the cursor untouched'
+);
+
+-- a genuinely fresh seq after both replays still lands normally — the guard
+-- only rejects at-or-below-cursor seqs, never a legitimate next seq.
+SELECT is(
+  federation_apply_chat('india.test', 3, 'i3', jsonb_build_object(
+    'fromAddr', 'bob@india.test', 'toAddr', 'alice@alpha.test',
+    'body', 'third', 'sentAt', now(), 'clientMsgId', 'india-3')),
+  'applied', 'a genuinely fresh seq after the replay attempts still applies normally'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india.test'),
+  3::bigint, 'the fresh seq advances the cursor'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

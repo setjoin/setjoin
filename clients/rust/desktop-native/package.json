@@ -1,0 +1,19 @@
+{
+  "name": "desktop-native",
+  "version": "0.1.0",
+  "description": "N-API bindings wrapping guard-core + offline-core for the Electron main process.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "private": true,
+  "napi": {
+    "binaryName": "desktop_native"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:loadable-local": "CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --offline && cp -f ../../target/release/libdesktop_native.dylib ./desktop_native.darwin-arm64.node && codesign --force --sign - ./desktop_native.darwin-arm64.node",
+    "test": "node scripts/check-exports.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.8.6"
+  }
+}

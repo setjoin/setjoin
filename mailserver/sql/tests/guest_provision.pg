@@ -1,0 +1,126 @@
+-- guest_provision.pg — Guest G0 Task 3: the provision_account guest arm
+-- (no mailbox, no vivify, no autojoin, guest-domain landing, host_domain_id
+-- from the inviter, username = full lowercased email, guest→guest re-arm)
+-- + BOTH BZ221 collision arms (spec P1, codex C-1) — the member-mode arm
+-- proven through scim_upsert_user's funnel too — + the V143 mailboxes floor
+-- trigger (round-3 C-2: a direct mailbox INSERT for a guest, the
+-- admin_mailboxes.go / authserver-JIT shape, raises BZ221 at the table).
+BEGIN;
+SELECT plan(16);
+
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='provision_account(text,text,text,text,boolean,boolean,text,text,text,text,text,bigint,bigint,uuid,bigint,text,text,text,text[],boolean,bigint,timestamp with time zone,boolean,bigint)'::regprocedure))
+  < position('v_email := lower' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='provision_account(text,text,text,text,boolean,boolean,text,text,text,text,text,bigint,bigint,uuid,bigint,text,text,text,text[],boolean,bigint,timestamp with time zone,boolean,bigint)'::regprocedure)),
+  'provision_account loaded definition takes the authority fence before account work');
+
+INSERT INTO domains (name, is_local) VALUES ('gp-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gp-inviter', d.id, 'inviter@gp-host.example', 'Inviter', TRUE
+  FROM domains d WHERE d.name = 'gp-host.example';
+INSERT INTO admin_role_groups (name, permissions, domain_scope)
+SELECT 'gp-guest-managers', ARRAY['guests.manage'], d.id
+  FROM domains d WHERE d.name = 'gp-host.example';
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT u.id, rg.id, u.id, FALSE
+  FROM users u CROSS JOIN admin_role_groups rg
+ WHERE u.email = 'inviter@gp-host.example' AND rg.name = 'gp-guest-managers';
+-- An org-default channel so the no-autojoin assertion is meaningful.
+WITH c AS (
+  INSERT INTO chat_channels (kind, name, visibility, created_by)
+  SELECT 'channel', 'gp-org-default', 'public', id FROM users WHERE email = 'inviter@gp-host.example'
+  RETURNING id)
+INSERT INTO org_default_channels (channel_id) SELECT id FROM c;
+
+-- Guest provision: shape of the result.
+SELECT is(
+  (SELECT (provision_account(
+      p_email => 'Pat@Partner.example', p_display_name => 'Pat Partner',
+      p_password_hash => 'x-hash', p_guest => TRUE,
+      p_invited_by => (SELECT id FROM users WHERE email = 'inviter@gp-host.example')
+   )) ->> 'username'),
+  'pat@partner.example',
+  'guest arm: username = full lowercased external email');
+
+SELECT is( (SELECT u.domain_id FROM users u WHERE u.email = 'pat@partner.example'),
+  (SELECT id FROM domains WHERE name = 'guest.invalid'),
+  'guest arm: lands in the system guest domain (never vivifies partner.example)');
+SELECT is( (SELECT count(*) FROM domains WHERE name = 'partner.example')::int, 0,
+  'guest arm: external domain NOT vivified');
+SELECT is( (SELECT count(*) FROM mailboxes mb JOIN users u ON u.id = mb.user_id
+             WHERE u.email = 'pat@partner.example')::int, 0,
+  'guest arm: NO mailbox created');
+-- C-2 floor: even a DIRECT table INSERT (the admin_mailboxes.go /
+-- authserver-JIT seam shape, bypassing every reducer) cannot mint a guest a
+-- mailbox — the V143 trigger refuses at the table itself.
+SELECT throws_ok(
+  $$ INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+     SELECT u.id, u.domain_id, u.email, 'Hybrid', 'personal', TRUE
+       FROM users u WHERE u.email = 'pat@partner.example' $$,
+  'BZ221', NULL,
+  'C-2 floor trigger: direct mailbox INSERT for a guest raises BZ221 (mailbox-less by ENFORCEMENT)');
+SELECT is( (SELECT count(*) FROM chat_channel_members m JOIN users u ON u.id = m.user_id
+             WHERE u.email = 'pat@partner.example')::int, 0,
+  'guest arm: NO org-default autojoin');
+SELECT is( (SELECT g.host_domain_id FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'pat@partner.example'),
+  (SELECT id FROM domains WHERE name = 'gp-host.example'),
+  'guest arm: host_domain_id resolved from the INVITER (ownership axis)');
+SELECT is( (SELECT g.status FROM guest_accounts g JOIN users u ON u.id = g.user_id
+             WHERE u.email = 'pat@partner.example'), 'active',
+  'guest arm: password provided => active (G0 admin-credential path)');
+
+-- Guest→guest re-arm (P9): same identity, no second user row.
+SELECT lives_ok(
+  $$ SELECT provision_account(p_email => 'pat@partner.example', p_guest => TRUE,
+       p_invited_by => (SELECT id FROM users WHERE email = 'inviter@gp-host.example'),
+       p_guest_expires_at => now() + interval '30 days') $$,
+  're-arm: guest-mode upsert of an existing guest succeeds');
+SELECT is( (SELECT count(*) FROM users WHERE lower(email) = 'pat@partner.example')::int, 1,
+  're-arm: never a second identity for the same person');
+
+-- C-7 sync on re-arm: a no-password re-provision of a DISABLED guest must not
+-- resurrect users.enabled while the satellite stays 'disabled'.
+DO $$ BEGIN
+  PERFORM guest_set_status(
+    (SELECT id FROM users WHERE email = 'inviter@gp-host.example'),
+    (SELECT id FROM users WHERE email = 'pat@partner.example'), 'disable');
+END $$;
+SELECT lives_ok(
+  $$ SELECT provision_account(p_email => 'pat@partner.example', p_guest => TRUE,
+       p_invited_by => (SELECT id FROM users WHERE email = 'inviter@gp-host.example')) $$,
+  're-arm C-7: no-password re-provision of a disabled guest succeeds');
+SELECT is( (SELECT u.enabled FROM users u WHERE u.email = 'pat@partner.example'), FALSE,
+  're-arm C-7: enabled stays FALSE — tracks resulting satellite status, never unconditional TRUE');
+DO $$ BEGIN
+  PERFORM guest_set_status(
+    (SELECT id FROM users WHERE email = 'inviter@gp-host.example'),
+    (SELECT id FROM users WHERE email = 'pat@partner.example'), 'enable');
+END $$;
+
+-- BZ221 arm 1: guest-mode vs member row.
+SELECT throws_ok(
+  $$ SELECT provision_account(p_email => 'inviter@gp-host.example', p_guest => TRUE,
+       p_invited_by => (SELECT id FROM users WHERE email = 'inviter@gp-host.example')) $$,
+  'BZ221', NULL, 'BZ221 arm 1: guest-mode provisioning refuses a member-row collision');
+
+-- BZ221 arm 2: member-mode vs guest row (direct).
+SELECT throws_ok(
+  $$ SELECT provision_account(p_email => 'pat@partner.example', p_display_name => 'Sneaky Convert') $$,
+  'BZ221', NULL, 'BZ221 arm 2: non-guest provisioning refuses a guest-row collision');
+
+-- BZ221 arm 2 through the scim_upsert_user funnel (spec §7). scim_upsert_user
+-- hardcodes p_sync_source => 'scim', which requires the domain to ALREADY be
+-- local (no directory-sync vivify) — pre-seed it so the call reaches the
+-- locate/collision check instead of tripping the unrelated BZ056 domain gate
+-- first (real signature: p_external_id, p_email, p_display_name, p_first_name,
+-- p_last_name, p_job_title, p_phone, p_department, p_manager_external_id,
+-- p_active, p_is_admin — verified against scim_upsert_user.sql, not the
+-- brief's placeholder call).
+INSERT INTO domains (name, is_local) VALUES ('partner.example', TRUE);
+SELECT throws_ok(
+  $$ SELECT scim_upsert_user('scim-ext-1', 'pat@partner.example', 'Pat', NULL, NULL, NULL, NULL, NULL, NULL, TRUE, FALSE) $$,
+  'BZ221', NULL, 'BZ221 arm 2: the SCIM funnel hits the same choke');
+
+SELECT * FROM finish();
+ROLLBACK;

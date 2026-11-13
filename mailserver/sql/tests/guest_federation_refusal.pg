@@ -1,0 +1,93 @@
+-- guest_federation_refusal.pg — Guest G0 Task 8 (spec P12, the C2 standing
+-- NON-NEGOTIABLE): BZ216 both arms, FOR UPDATE on the channel row. A guest's
+-- content relayed to a federation peer would leave the tenant and break the
+-- §4A residency promise.
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (name, is_local) VALUES ('gfr-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled, is_local_admin)
+SELECT 'gfr-owner', d.id, 'gfr-owner@gfr-host.example', 'Owner', TRUE, TRUE
+  FROM domains d WHERE d.name = 'gfr-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gfr-guest@ext.example', d.id, 'gfr-guest@ext.example', 'Guest', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'gfr-owner@gfr-host.example', h.id, 'active'
+  FROM users u, domains h WHERE u.email = 'gfr-guest@ext.example' AND h.name = 'gfr-host.example';
+
+-- Channel A: federation-BOUND (room binding stamped directly — the reducer
+-- path needs allow-list infrastructure this test doesn't). Fixture reducer
+-- calls ride DO/PERFORM so no stray result rows corrupt TAP output.
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+                              'gfr-bound', NULL, 'private');
+END $$;
+UPDATE chat_channels SET federated_room_id = 'room-x@gfr-host.example'
+ WHERE name = 'gfr-bound';
+
+-- Arm 1: adding a guest to a bound channel refuses.
+SELECT throws_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gfr-bound'),
+    (SELECT id FROM users WHERE email = 'gfr-guest@ext.example')) $$,
+  'BZ216', NULL, 'arm 1: guest into a room-bound channel => BZ216');
+
+-- Arm 1 covers the DM-binding kind too.
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+                              'gfr-dmbound', NULL, 'private');
+END $$;
+UPDATE chat_channels SET federated_peer_domain = 'peer.example', federated_local_key = 'k1'
+ WHERE name = 'gfr-dmbound';
+SELECT throws_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gfr-dmbound'),
+    (SELECT id FROM users WHERE email = 'gfr-guest@ext.example')) $$,
+  'BZ216', NULL, 'arm 1: guest into a DM-bound channel => BZ216');
+
+-- Channel B: contains a guest; binding it refuses (arm 2).
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+                              'gfr-hasguest', NULL, 'private');
+  PERFORM chat_member_add((SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+                          (SELECT id FROM chat_channels WHERE name = 'gfr-hasguest'),
+                          (SELECT id FROM users WHERE email = 'gfr-guest@ext.example'));
+END $$;
+SELECT throws_ok($$ SELECT federation_room_create(
+    (SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gfr-hasguest'),
+    'gfr-host.example') $$,
+  'BZ216', NULL, 'arm 2: binding a guest-containing channel => BZ216');
+
+-- A guest-free channel still binds (the arm is precise, not a blanket).
+DO $$
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+                              'gfr-clean', NULL, 'private');
+END $$;
+SELECT lives_ok($$ SELECT federation_room_create(
+    (SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gfr-clean'),
+    'gfr-host.example') $$,
+  'arm 2 precision: a guest-free channel binds fine');
+
+-- Federated-DM caller refusal: a guest may never open a federated DM.
+SELECT throws_ok($$ SELECT federation_dm_ensure(
+    (SELECT id FROM users WHERE email = 'gfr-guest@ext.example'),
+    'someone@peer.example') $$,
+  'BZ216', NULL, 'federated DM: guest caller => BZ216');
+
+-- Member-add into the JUST-bound clean channel now refuses guests (both
+-- directions live simultaneously — no window).
+SELECT throws_ok($$ SELECT chat_member_add(
+    (SELECT id FROM users WHERE email = 'gfr-owner@gfr-host.example'),
+    (SELECT id FROM chat_channels WHERE name = 'gfr-clean'),
+    (SELECT id FROM users WHERE email = 'gfr-guest@ext.example')) $$,
+  'BZ216', NULL, 'post-bind: the freshly bound channel refuses guest adds');
+
+SELECT * FROM finish();
+ROLLBACK;

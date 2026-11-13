@@ -1,0 +1,69 @@
+-- pgTAP test for V051 external_sender_config
+
+BEGIN;
+SELECT plan(13);
+
+-- 1. Table exists
+SELECT has_table('external_sender_config');
+
+-- 2. Columns exist on external_sender_config
+SELECT has_column('external_sender_config', 'domain_id');
+SELECT has_column('external_sender_config', 'enabled');
+SELECT has_column('external_sender_config', 'warn_text');
+SELECT has_column('external_sender_config', 'warn_color');
+
+-- 3. column on users
+SELECT has_column('users', 'external_sender_warning');
+
+-- 4. external_sender_warning defaults to TRUE
+SELECT col_default_is('users', 'external_sender_warning', 'true');
+
+-- 5. Org feature toggle exists, remains default-on, and names both directions.
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.external_sender_warn'),
+  TRUE,
+  'external identity labels are enabled by default'
+);
+
+SELECT is(
+  (SELECT description FROM feature_toggles WHERE key = 'feature.external_sender_warn'),
+  'Show External labels and warnings for senders and recipients outside the organization',
+  'external identity toggle description covers senders and recipients'
+);
+
+SELECT is(
+  (SELECT col_description('users'::regclass, attnum)
+     FROM pg_attribute
+    WHERE attrelid='users'::regclass
+      AND attname='external_sender_warning'),
+  'Per-user toggle for External labels and warnings on outside senders and recipients. TRUE by default.',
+  'per-user toggle schema comment covers senders and recipients'
+);
+
+-- 6. System config entries exist
+SELECT results_eq(
+  $$SELECT COUNT(*) >= 3 FROM system_config WHERE key LIKE 'external_sender.%'$$,
+  $$SELECT TRUE$$,
+  'system_config has external_sender entries'
+);
+
+-- 7. Insert a domain + config
+INSERT INTO domains (name, is_local) VALUES ('test-external-config.local', TRUE);
+INSERT INTO external_sender_config (domain_id, enabled, warn_text, warn_color)
+  SELECT id, TRUE, 'Custom warning', '#FF0000' FROM domains WHERE name = 'test-external-config.local';
+
+SELECT results_eq(
+  $$SELECT warn_text FROM external_sender_config WHERE domain_id = (SELECT id FROM domains WHERE name = 'test-external-config.local')$$,
+  $$SELECT 'Custom warning'::TEXT$$,
+  'external_sender_config allows per-domain override'
+);
+
+-- 8. Cascade delete: deleting a domain removes its config
+DELETE FROM domains WHERE name = 'test-external-config.local';
+SELECT is_empty(
+  $$SELECT 1 FROM external_sender_config WHERE warn_text = 'Custom warning'$$,
+  'external_sender_config rows cascade-deleted with domain'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

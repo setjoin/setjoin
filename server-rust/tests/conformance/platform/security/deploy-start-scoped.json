@@ -1,0 +1,98 @@
+{
+  "case": "deploy-start-scoped",
+  "format": 1,
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "system.upgrade (organization-wide grant required)",
+          "target": "/admin/deploy/start"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/deploy/start",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "deployment_steps"
+      },
+      {
+        "after": {
+          "log": null,
+          "nodes": [],
+          "profile": 0,
+          "started_at": "<zero-time>",
+          "status": "",
+          "steps": null
+        },
+        "before": {
+          "log": null,
+          "nodes": [],
+          "profile": 0,
+          "started_at": "<zero-time>",
+          "status": "",
+          "steps": null
+        },
+        "table": "deploy_process_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"nodes\":[{\"host\":\"{{ssh-node-1}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"primary\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"},{\"host\":\"{{ssh-node-2}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"standby\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"},{\"host\":\"{{ssh-node-3}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"standby\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"}]}",
+      "external_path": "/api/admin/deploy/start",
+      "method": "POST",
+      "path": "/admin/deploy/start"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 403
+    },
+    "ssh": []
+  }
+}

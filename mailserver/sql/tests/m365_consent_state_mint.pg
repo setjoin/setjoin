@@ -1,0 +1,97 @@
+-- pgTAP: m365_consent_state_mint — reducer-authoritative mint/prune of the
+-- server-side single-use M365 consent authorization (med-shard2-023, V234).
+-- Requires: m365_consent_states, m365_consent_state_mint(), users, _fixtures.mk_account.
+--
+-- NOTE: ok()/is() may re-evaluate a volatile argument more than once (pgTAP
+-- references the parameter in several internal statements), so every mutating
+-- reducer call is materialized FIRST via psql \gset (executed exactly once);
+-- throws_ok()/lives_ok() EXECUTE their SQL exactly once and are safe.
+BEGIN;
+SELECT plan(17);
+
+-- ── Fixture actor ────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _mk AS SELECT mk_account('m365mint') AS mb_id;
+-- Materialize the fixture actor id BEFORE switching roles: temp tables created
+-- by the provisioning role are not readable as setjoin_app.
+SELECT user_id AS actor_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk) \gset
+
+SELECT has_function('m365_consent_state_mint');
+
+-- ── Happy path: one row, DB-clock expiry exactly p_ttl_seconds out ──────────
+SELECT m365_consent_state_mint(:'actor_id'::bigint, 'tap-mint-token-1', 'china', 600)
+    AS minted \gset
+SELECT ok(
+  :'minted'::timestamptz BETWEEN now() + interval '590 seconds' AND now() + interval '601 seconds',
+  'mint returns expires_at ~ now() + ttl from the database clock');
+
+SELECT is(
+  (SELECT extract(epoch FROM (expires_at - issued_at))::int
+     FROM m365_consent_states WHERE state_token = 'tap-mint-token-1'),
+  600, 'minted row expires exactly p_ttl_seconds after issuance');
+SELECT is(
+  (SELECT cloud FROM m365_consent_states WHERE state_token = 'tap-mint-token-1'),
+  'china', 'minted row carries the requested cloud');
+SELECT is(
+  (SELECT actor_user_id FROM m365_consent_states WHERE state_token = 'tap-mint-token-1'),
+  :'actor_id'::bigint, 'minted row is bound to p_actor (R1: ownership from the caller''s identity)');
+SELECT is(
+  (SELECT consumed_at IS NULL FROM m365_consent_states WHERE state_token = 'tap-mint-token-1'),
+  TRUE, 'freshly minted row is unconsumed');
+
+-- ── Prune: the SAME actor's spent/expired rows are dropped by the next mint,
+--    while that actor's live rows survive ────────────────────────────────────
+INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, issued_at, expires_at, consumed_at)
+VALUES ('tap-mint-spent', :'actor_id', 'global', now() - interval '20 minutes', now() - interval '10 minutes', now());
+INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, issued_at, expires_at)
+VALUES ('tap-mint-expired', :'actor_id', 'global', now() - interval '20 minutes', now() - interval '10 minutes');
+INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, issued_at, expires_at)
+VALUES ('tap-mint-live', :'actor_id', 'global', now() - interval '1 minute', now() + interval '9 minutes');
+
+SELECT m365_consent_state_mint(:'actor_id'::bigint, 'tap-mint-token-2', 'global', 600)
+    AS minted2 \gset
+SELECT ok(:'minted2'::timestamptz IS NOT NULL,
+  'second mint succeeds alongside spent/expired siblings');
+
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states
+     WHERE actor_user_id = :'actor_id' AND state_token IN ('tap-mint-spent', 'tap-mint-expired')),
+  0, 'mint prunes the SAME actor''s spent and expired rows');
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-mint-live'),
+  1, 'mint never prunes the actor''s LIVE rows');
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE actor_user_id = :'actor_id'),
+  3, 'exactly the live rows + freshly minted row remain for the actor (token-1, tap-mint-live, token-2)');
+
+-- ── Argument guards (BZ040 invalidArguments) ─────────────────────────────────
+SELECT throws_ok(
+  format('SELECT m365_consent_state_mint(%s, ''tap-mint-bad-cloud'', ''usgov'', 600)', :'actor_id'),
+  'BZ040', NULL, 'unknown cloud is refused');
+SELECT throws_ok(
+  format('SELECT m365_consent_state_mint(%s, ''tap-mint-zero-ttl'', ''global'', 0)', :'actor_id'),
+  'BZ040', NULL, 'non-positive ttl is refused');
+SELECT throws_ok(
+  format('SELECT m365_consent_state_mint(%s, '''', ''global'', 600)', :'actor_id'),
+  'BZ040', NULL, 'empty token is refused');
+SELECT throws_ok(
+  'SELECT m365_consent_state_mint(NULL, ''tap-mint-null-actor'', ''global'', 600)',
+  'BZ040', NULL, 'NULL actor is refused');
+
+-- ── Production RLS seam: the reducer works under the FORCE-RLS actor GUC and
+--    the policy WITH CHECK refuses a mint for a foreign actor ────────────────
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :'actor_id', true);
+SELECT lives_ok(
+  format('SELECT m365_consent_state_mint(%s, ''tap-mint-scoped'', ''global'', 600)', :'actor_id'),
+  'setjoin_app mints under its own actor GUC (the production RunUserScoped seam)');
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-mint-scoped'),
+  1, 'the GUC-scoped mint is visible to its actor');
+SELECT set_config('app.current_user_id', '999999', true);
+SELECT throws_ok(
+  format('SELECT m365_consent_state_mint(%s, ''tap-mint-foreign'', ''global'', 600)', :'actor_id'),
+  '42501', NULL, 'RLS WITH CHECK refuses minting another actor''s authorization');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

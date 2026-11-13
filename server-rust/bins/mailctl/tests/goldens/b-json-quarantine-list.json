@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/quarantine?limit=4&offset=2&q=a+%26+b&status=active",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"id\": 7,\n    \"messageId\": 0,\n    \"mailboxId\": 0,\n    \"subject\": \"Subject\",\n    \"fromAddr\": \"sender@example.test\",\n    \"originalTag\": \"\",\n    \"reason\": \"\",\n    \"reasonType\": \"spam\",\n    \"previewToken\": \"\",\n    \"quarantinedAt\": \"now\",\n    \"sizeBytes\": 0,\n    \"recipient\": \"\"\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

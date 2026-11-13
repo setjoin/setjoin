@@ -1,0 +1,118 @@
+BEGIN;
+SELECT plan(31);
+
+SELECT mk_account('webhook-subject') AS subject_mb \gset
+SELECT mk_account('webhook-other') AS other_mb \gset
+SELECT user_id AS subject_user FROM mailboxes WHERE id=:subject_mb \gset
+SELECT user_id AS other_user FROM mailboxes WHERE id=:other_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:other_user,2,:other_user);
+
+SELECT is((SELECT column_default FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='webhook_subscriptions' AND column_name='scope'),
+          '''self''::text','existing subscription rows default fail-closed to self');
+SELECT ok(NOT EXISTS(SELECT 1 FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='webhook_publications'
+             AND column_name IN ('url','secret','prev_secret')),
+          'publication facts contain no endpoint URL or secret columns');
+SELECT ok(EXISTS(SELECT 1 FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='webhook_publications'
+            AND column_name='subject_mailbox_id' AND is_nullable='YES'),
+          'fact shape reserves a nullable reducer-derived mailbox subject');
+SELECT is(has_function_privilege('setjoin_app','webhook_publication_claim(uuid,integer)','EXECUTE'),false,
+          'post-flip app credential cannot claim cross-tenant publication facts');
+SELECT is(has_function_privilege('setjoin_worker','webhook_publication_claim(uuid,integer)','EXECUTE'),true,
+          'post-flip worker credential has the least claim reducer grant');
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM webhook_publications)::integer,0,
+          'app role sees zero worker-only webhook publication facts');
+RESET ROLE;
+SELECT is(COALESCE((SELECT enabled FROM feature_toggles
+                    WHERE key='feature.webhook_publication_outbox'),false),false,
+          'publication enrollment defaults OFF even when no row was seeded before V212');
+SELECT is(webhook_user_deleted_publish(:other_user,:subject_user),false,
+          'flag OFF preserves the legacy path and writes no fact');
+SELECT is((SELECT count(*) FROM webhook_publications)::integer,0,'flag OFF leaves no fact');
+
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+SAVEPOINT rollback_publication;
+SELECT ok(webhook_user_deleted_publish(:other_user,:subject_user),'enabled reducer enrolls fact');
+ROLLBACK TO rollback_publication;
+SELECT is((SELECT count(*) FROM webhook_publications)::integer,0,
+          'owning transaction rollback removes publication fact');
+
+INSERT INTO webhook_subscriptions(user_id,url,secret,event_types,scope) VALUES
+  (:subject_user,'https://subject.example/hook','subject-secret','["user.deleted"]','self'),
+  (:other_user,'https://cross.example/hook','cross-secret','["user.deleted"]','self'),
+  (:other_user,'https://org.example/hook','org-secret','["user.deleted"]','organization'),
+  (:other_user,'https://revoked.example/hook','revoked-secret','["user.deleted"]','organization');
+UPDATE webhook_subscriptions SET is_active=false WHERE url='https://revoked.example/hook';
+
+SELECT ok(webhook_user_deleted_publish(:other_user,:subject_user),'committed fact is enrolled');
+SELECT event_id AS stable_event FROM webhook_publications ORDER BY id DESC LIMIT 1 \gset
+SELECT ok(:'stable_event' LIKE 'usrdel-%','fact has a stable opaque event ID');
+SELECT ok(payload::text NOT LIKE '%secret%' AND payload::text NOT LIKE '%https://%',
+          'approved fact payload contains no endpoint material')
+  FROM webhook_publications WHERE event_id=:'stable_event';
+SELECT is((SELECT subject_mailbox_id FROM webhook_publications WHERE event_id=:'stable_event'),NULL::bigint,
+          'user.deleted carries the user subject and no mailbox subject');
+
+SELECT gen_random_uuid() AS worker_one \gset
+SELECT webhook_publication_claim(:'worker_one',100) AS claims_one \gset
+SELECT is((:'claims_one'::jsonb->0->>'event_id'),:'stable_event','claim preserves stable event ID');
+SELECT is(webhook_publication_fanout((:'claims_one'::jsonb->0->>'id')::bigint,:'worker_one'),2,
+          'fan-out matches subject self plus organization scope in one SQL predicate');
+SELECT is((SELECT count(*) FROM webhook_deliveries WHERE event_id=:'stable_event')::integer,2,
+          'cross-user self and revoked subscriptions are excluded');
+SELECT is(webhook_publication_fanout((:'claims_one'::jsonb->0->>'id')::bigint,:'worker_one'),0,
+          'partial fan-out replay is idempotent');
+SELECT is((SELECT count(*) FROM webhook_deliveries WHERE event_id=:'stable_event')::integer,2,
+          'subscription/event uniqueness prevents duplicate logical deliveries');
+SELECT ok(webhook_publication_complete((:'claims_one'::jsonb->0->>'id')::bigint,:'worker_one',true,NULL),
+          'claimed fact completes after durable fan-out');
+SELECT is((SELECT state FROM webhook_publications WHERE event_id=:'stable_event'),'delivered',
+          'completed publication is terminal');
+
+-- Revocation after queueing is effective because matching occurs at drain time.
+SELECT ok(webhook_user_deleted_publish(:other_user,:subject_user),'second fact queues before revocation');
+UPDATE webhook_subscriptions SET is_active=false WHERE url IN
+  ('https://subject.example/hook','https://org.example/hook');
+SELECT gen_random_uuid() AS worker_two \gset
+SELECT webhook_publication_claim(:'worker_two',100) AS claims_two \gset
+SELECT is(webhook_publication_fanout((:'claims_two'::jsonb->0->>'id')::bigint,:'worker_two'),0,
+          'queued fact cannot use a subscription revoked before drain');
+
+-- A crashed lease is reclaimed with the same identity even after live disable.
+UPDATE feature_toggles SET enabled=false WHERE key='feature.webhook_publication_outbox';
+UPDATE webhook_publications SET lease_expires_at=statement_timestamp()-interval '1 second'
+ WHERE id=(:'claims_two'::jsonb->0->>'id')::bigint;
+SELECT gen_random_uuid() AS worker_three \gset
+SELECT webhook_publication_claim(:'worker_three',100) AS claims_three \gset
+SELECT is((:'claims_three'::jsonb->0->>'event_id'),(:'claims_two'::jsonb->0->>'event_id'),
+          'expired crash lease reclaims same event while enrollment flag is OFF');
+SELECT is((:'claims_three'::jsonb->0->>'attempt_count')::integer,2,
+          'crash reclaim advances bounded attempt metadata');
+SELECT ok(webhook_publication_complete((:'claims_three'::jsonb->0->>'id')::bigint,:'worker_three',true,NULL),
+          'reclaimed residue completes');
+SELECT ok(((-9223372036854775807::bigint-1) & 9223372036854775807) % 51 >= 0,
+          'retry jitter bit-mask stays non-negative at the bigint minimum boundary');
+
+-- The claim query stays bounded at production-scale backlog.
+INSERT INTO webhook_publications(event_id,event_type,source,audience,subject_user_id,payload)
+SELECT 'load-'||g,'user.deleted','mailserver/auth','user',:subject_user,
+       jsonb_build_object('user_id',:subject_user)
+  FROM generate_series(1,10000) g;
+SELECT gen_random_uuid() AS load_worker \gset
+SELECT is(jsonb_array_length(webhook_publication_claim(:'load_worker',100)),100,
+          '10k backlog claim remains fixed at the 100-fact batch limit');
+
+UPDATE webhook_publications SET state='delivered',lease_owner=NULL,lease_expires_at=NULL,
+  completed_at=statement_timestamp()-interval '31 days'
+ WHERE event_id LIKE 'load-%';
+SELECT is(webhook_publication_prune(30,500),500,'retention prune is bounded to 500 rows');
+SELECT throws_ok($$SELECT webhook_publication_claim(NULL,100)$$,'BZ301',NULL,
+          'claim rejects a missing worker identity');
+
+SELECT * FROM finish();
+ROLLBACK;

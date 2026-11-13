@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown config action: bogus (try: get, list)\n",
+  "exit": 1
+}

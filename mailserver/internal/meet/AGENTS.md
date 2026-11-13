@@ -1,0 +1,31 @@
+# mailserver/internal/meet — Meet Pillars B1 + B2 + B3 (DOX child)
+
+Owns Meet handlers/controllers/workers; reducers own admission, grants, consent and lifecycle. SFU/Egress/ASR are peripherals; webhooks report facts. Revocation evicts live sessions, not only tokens. Preserve user transaction scope and the no-caller-GUC webhook/lobby posture. Recording drains stay outside Meet/configured gating subject to runtime dependencies; breakout/captions healers retain their documented drain gates. Recording state/consent precedes capture; preserve guest exclusion, staged Drive commit and ephemeral captions. Presentation-session verbs are reducer-owned (participant + verb-specific authority + generation + lifecycle fences); new-intent routes are flag-gated, drain verbs (end/revoke/checkpoint/annotation-read/semantic-read) never are; the M0 `presentation` package is the only envelope encoder, and durable annotation commits have exactly ONE admitting writer — the V267 reducer's admitted-shape gate (BZ277 admitted-path semantics; un-admitted annotation shapes still fail closed). Media changes require DES-011; queries DATABASE_SECURITY; RLS helpers ARCH-018. Read the affected grants, recording, guests, breakouts/captions, presentation-session and honesty-ledger sections. Semantic replay implementation remains governed by its held plan. Nightly-16 contracts: the Drive-History emitter is a worker-plane leg (bounded 16/tick, three lifecycle points only — recording.stopped via the ready export node, annotation.committed, presentation.pinned — through the Drive-side SECURITY DEFINER ingest into the V269 receipt ledger + V114 audit chain; meet code never writes Drive tables), the lobby admitted-mint window is durably fenced reducer-side (V270 tombstone rows, first-mint-wins, BZ329; the in-process fence is the second layer), and the M6 document-mode fidelity contract rides the meet-pages-v1 manifest (docmode.go; capability-without-warning and unadvertised formats fail closed).
+
+## DOX sections
+
+- [Purpose](DOX.md#purpose)
+- [Ownership](DOX.md#ownership)
+- [Architecture — the three spike laws, enforced not narrated](DOX.md#architecture--the-three-spike-laws-enforced-not-narrated)
+- [Gate-ratified postures (user 2026-07-12)](DOX.md#gate-ratified-postures-user-2026-07-12)
+- [Grant spec — reducers COMPOSE, Go only TRANSLATES](DOX.md#grant-spec--reducers-compose-go-only-translates)
+- [Authenticated guest accounts (Guest G3)](DOX.md#authenticated-guest-accounts-guest-g3)
+- [Guest-poll envelope: passthrough + deny-list](DOX.md#guest-poll-envelope-passthrough--deny-list)
+- [BZ185–BZ190 (`errors.go`'s `bzSlug`/`writeMeetProblem`)](DOX.md#bz185bz190-errorsgos-bzslugwritemeetproblem)
+- [Push (`meet:{uid}` self-channel, members only — guests poll)](DOX.md#push-meetuid-self-channel-members-only--guests-poll)
+- [The SFU test seam](DOX.md#the-sfu-test-seam)
+- [Huddle chat-bridge membership (V131)](DOX.md#huddle-chat-bridge-membership-v131)
+- [Recording (B2) — state machine, DES-011 extended to Egress](DOX.md#recording-b2--state-machine-des-011-extended-to-egress)
+- [Breakouts (B3a)](DOX.md#breakouts-b3a)
+- [Captions (B3b)](DOX.md#captions-b3b)
+- [Presentation contracts (M0/M1, MEET plan)](DOX.md#presentation-contracts-m0m1-meet-plan)
+- [Presentation session (M2, MEET plan)](DOX.md#presentation-session-m2-meet-plan)
+- [Semantic recording (M4 slice 1, MEET plan)](DOX.md#semantic-recording-m4-slice-1-meet-plan)
+- [Annotation admission + semantic read routes (M4 completion gates, MEET plan)](DOX.md#annotation-admission--semantic-read-routes-m4-completion-gates-meet-plan)
+- [Local capture lease + truthful registration (M5 slice 2, MEET plan)](DOX.md#local-capture-lease--truthful-registration-m5-slice-2-meet-plan)
+- [Document-mode fidelity contract (M6 slice 1, MEET plan)](DOX.md#document-mode-fidelity-contract-m6-slice-1-meet-plan)
+- [Honesty ledger — flip status](DOX.md#honesty-ledger--flip-status)
+  - [B1 (`feature.meet`)](DOX.md#b1-featuremeet)
+  - [B2 (`feature.meet_recording`)](DOX.md#b2-featuremeet_recording)
+  - [B3 (`feature.meet_breakouts` / `feature.meet_captions`)](DOX.md#b3-featuremeet_breakouts--featuremeet_captions)
+- [Deferrals (owners, not vague "later")](DOX.md#deferrals-owners-not-vague-later)

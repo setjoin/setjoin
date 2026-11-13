@@ -1,0 +1,171 @@
+{
+  "case": "submission-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<inbox-only>",
+        "mailbox_id": "<mailbox>",
+        "op": "updated",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<inbox-only>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<inbox-only>",
+        "mailbox_id": "<mailbox>",
+        "op": "updated",
+        "resource_uid": null,
+        "state_seq": 2
+      },
+      "change": "insert",
+      "row": "email:2:<inbox-only>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 2,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "added_by": "schedule",
+        "imap_modseq": 1,
+        "imap_uid": 1,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Scheduled>"
+      },
+      "change": "insert",
+      "row": "<inbox-only>:<tag:Scheduled>",
+      "table": "message_tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "folder_id": {
+          "after": "<tag:Scheduled>",
+          "before": "<tag:Inbox>"
+        }
+      },
+      "row": "<inbox-only>",
+      "table": "messages"
+    },
+    {
+      "after": {
+        "action_kind": "send",
+        "attempts": 0,
+        "created_at": "<timestamp>",
+        "dedup_key": "<scheduled-action-1>",
+        "fire_at": "<timestamp>",
+        "id": "<scheduled-action-1>",
+        "last_error": null,
+        "locked_by": null,
+        "locked_until": null,
+        "mailbox_id": "<mailbox>",
+        "payload": {
+          "actor_user_id": "<user>",
+          "message_id": "<inbox-only>",
+          "received_at": "<timestamp>",
+          "undo": false,
+          "webhook_envelope_from": "oracle@example.test",
+          "webhook_envelope_rcpts": []
+        },
+        "status": "pending",
+        "updated_at": "<timestamp>"
+      },
+      "change": "insert",
+      "row": "action-1",
+      "table": "scheduled_actions"
+    },
+    {
+      "after": {
+        "action_kind": "send",
+        "attempts": 0,
+        "created_at": "<timestamp>",
+        "dedup_key": "<scheduled-action-2>",
+        "fire_at": "<timestamp>",
+        "id": "<scheduled-action-2>",
+        "last_error": null,
+        "locked_by": null,
+        "locked_until": null,
+        "mailbox_id": "<mailbox>",
+        "payload": {
+          "actor_user_id": "<user>",
+          "message_id": "<inbox-only>",
+          "received_at": "<timestamp>",
+          "undo": false,
+          "webhook_envelope_from": "oracle@example.test",
+          "webhook_envelope_rcpts": []
+        },
+        "status": "pending",
+        "updated_at": "<timestamp>"
+      },
+      "change": "insert",
+      "row": "action-2",
+      "table": "scheduled_actions"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "imap_modseq": {
+          "after": 3,
+          "before": 1
+        },
+        "imap_uid_next": {
+          "after": 3,
+          "before": 1
+        },
+        "jmap_state": {
+          "after": 1,
+          "before": 0
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 0
+        },
+        "total_count": {
+          "after": 1,
+          "before": 0
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "Scheduled",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap EmailSubmission/set"
+}

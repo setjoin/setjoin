@@ -1,0 +1,85 @@
+{
+  "case": "overflow-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "config_json": {},
+          "enabled": true,
+          "name": "JWT Bearer Token",
+          "priority": 10,
+          "slug": "jwt_bearer"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "Kerberos / SPNEGO",
+          "priority": 20,
+          "slug": "kerberos"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "SAML 2.0",
+          "priority": 30,
+          "slug": "saml"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "OpenID Connect",
+          "priority": 40,
+          "slug": "oidc"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "WebAuthn / FIDO2",
+          "priority": 50,
+          "slug": "webauthn"
+        }
+      ],
+      "before": [
+        {
+          "config_json": {},
+          "enabled": true,
+          "name": "JWT Bearer Token",
+          "priority": 10,
+          "slug": "jwt_bearer"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "Kerberos / SPNEGO",
+          "priority": 20,
+          "slug": "kerberos"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "SAML 2.0",
+          "priority": 30,
+          "slug": "saml"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "OpenID Connect",
+          "priority": 40,
+          "slug": "oidc"
+        },
+        {
+          "config_json": {},
+          "enabled": false,
+          "name": "WebAuthn / FIDO2",
+          "priority": 50,
+          "slug": "webauthn"
+        }
+      ],
+      "table": "auth_methods"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/auth/methods/{slug}"
+}

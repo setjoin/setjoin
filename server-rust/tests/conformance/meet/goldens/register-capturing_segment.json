@@ -1,0 +1,180 @@
+{
+  "case": "register-capturing_segment",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "fixture identities",
+    "generated ids, lease and recording numbers, epoch milliseconds, descriptor digests and timestamps; chat and core audit chains verified"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {
+      "chat_audit_log": [],
+      "chat_channel_members": [
+        {
+          "can_post": null,
+          "channel_id": "<channel-owner-1>",
+          "history_floor_seq": null,
+          "joined_at": "<timestamp>",
+          "last_read_seq": 0,
+          "notif_level": "all",
+          "role": "owner",
+          "user_id": "<owner>"
+        }
+      ],
+      "chat_channels": [
+        {
+          "broadcast_permission": "admins",
+          "change_seq": 0,
+          "classification": "regular",
+          "created_at": "<timestamp>",
+          "created_by": "<owner>",
+          "federated_local_key": null,
+          "federated_peer_domain": null,
+          "federated_remote_id": null,
+          "federated_room_id": null,
+          "federated_room_removed_at": null,
+          "id": "<channel-owner-1>",
+          "is_archived": false,
+          "kind": "channel",
+          "last_purged_seq": 0,
+          "legal_hold": false,
+          "legal_hold_reason": null,
+          "member_key": null,
+          "name": "Meet4 seed owner",
+          "post_permission": "all",
+          "retention_days": null,
+          "topic": null,
+          "visibility": "private",
+          "worm_mode": null
+        }
+      ],
+      "guest_notification_intents": [],
+      "meeting_local_capture_leases": [
+        {
+          "created_at": "<timestamp>",
+          "device_id": "meet4-device",
+          "expires_at": "<timestamp>",
+          "generation": 1,
+          "heartbeat_seconds": 10,
+          "id": "<row-id>",
+          "last_disk_free_bytes": null,
+          "last_seen_at": null,
+          "last_seq": null,
+          "lease_state": "stopped",
+          "meeting_id": "<meeting-owner-1>",
+          "producer": {
+            "captureApiVersion": "1",
+            "platform": "electron",
+            "platformVersion": "33"
+          },
+          "recording_id": "<semantic-1>",
+          "started_at": "<timestamp>",
+          "started_by": "<owner>",
+          "stop_reason": "user_stop",
+          "stopped_at": "<timestamp>",
+          "surfaces": [
+            "microphone"
+          ],
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "meeting_participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "created_at": "<timestamp>",
+          "guest_display_name": null,
+          "id": "<participant-<meeting-owner-1>-<owner>>",
+          "identity": "u:<owner>",
+          "joined_at": null,
+          "left_at": null,
+          "meeting_id": "<meeting-owner-1>",
+          "role": "host",
+          "user_id": "<owner>"
+        }
+      ],
+      "meeting_recordings": [],
+      "meeting_semantic_recordings": [
+        {
+          "capture_mode": "local_registered",
+          "codec": "",
+          "container": "",
+          "created_at": "<timestamp>",
+          "deletion_generation": 0,
+          "holds": 0,
+          "id": "<semantic-1>",
+          "local_descriptor_digest": null,
+          "local_only": true,
+          "manifest_digest": null,
+          "meeting_id": "<meeting-owner-1>",
+          "package_state": "ACTIVE",
+          "policy_mode": "server_only",
+          "producer_id": "electron",
+          "producer_version": "1",
+          "profile_class": "evidence_pending",
+          "profile_evidence": "",
+          "rec_state": "stopped",
+          "registered_at": null,
+          "started_at": "<timestamp>",
+          "started_by": "<owner>",
+          "stopped_at": "<timestamp>",
+          "timeline_records": null,
+          "timeline_sha256": null,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "meeting_semantic_segments": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_id": "<channel-owner-1>",
+          "chat_channel_provisioned": true,
+          "created_at": "<timestamp>",
+          "ended_at": null,
+          "id": "<meeting-owner-1>",
+          "locked": false,
+          "owner_user_id": "<owner>",
+          "room_name": "<room-owner-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {
+            "guestAllowed": false
+          },
+          "slug": "<slug-owner-1>",
+          "state": "live",
+          "title": "Meet4 seed owner"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/meet/{id}/local/{rid}/register"
+    },
+    "response": {
+      "body": {
+        "code": "local-package-not-admitted",
+        "detail": "sealed descriptor segment 2 carries state capturing",
+        "instance": "/meet/{id}/local/{rid}/register",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "https://setjoin.com/problems/meet/local-package-not-admitted"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "meet4-oracle"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /meet/{id}/local/{rid}/register"
+}

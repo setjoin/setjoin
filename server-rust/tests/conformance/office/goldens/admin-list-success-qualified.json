@@ -1,0 +1,92 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture qualification UUID and timestamps"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/admin/office"
+    },
+    "response": {
+      "body": {
+        "features": {
+          "driveHistory": true,
+          "officeEditing": true,
+          "officeLocalOpen": true,
+          "officeManagedDelivery": true
+        },
+        "health": [
+          {
+            "capacityState": "available",
+            "expiresAt": "<timestamp>",
+            "facts": {},
+            "observedAt": "<timestamp>",
+            "providerGeneration": 2,
+            "providerId": "office1",
+            "state": "healthy"
+          }
+        ],
+        "operations": [],
+        "providers": [
+          {
+            "activeQualificationId": "<qualification>",
+            "allowedClassifications": [
+              "regular"
+            ],
+            "allowedFileFamilies": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowedPlatforms": [
+              "web",
+              "electron"
+            ],
+            "buildId": "test-1",
+            "configSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "draining": false,
+            "editorUrl": "https://editor.test/launch",
+            "enabled": true,
+            "entitlementRef": null,
+            "entitlementState": "valid",
+            "generation": 2,
+            "proofDiscoveryUrl": null,
+            "providerId": "office1",
+            "removedAt": null,
+            "routeState": "active_for_scope",
+            "updatedAt": "<timestamp>",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          }
+        ],
+        "qualifications": [
+          {
+            "buildDigest": null,
+            "checks": {
+              "discovery": "pass",
+              "editor": "pass",
+              "proof": "pass",
+              "wopiSave": "pass"
+            },
+            "configSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "createdAt": "<timestamp>",
+            "expiresAt": "<timestamp>",
+            "profile": "existing-provider",
+            "providerGeneration": 1,
+            "providerId": "office1",
+            "qualificationId": "<qualification>",
+            "routeRevision": 1,
+            "status": "passed"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/office"
+}

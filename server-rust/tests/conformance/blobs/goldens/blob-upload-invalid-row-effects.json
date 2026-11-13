@@ -1,0 +1,7 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "e144c714a9a94d73a8032e2467181e927efbbc72",
+  "route": "PUT /blobs/{sha256}"
+}

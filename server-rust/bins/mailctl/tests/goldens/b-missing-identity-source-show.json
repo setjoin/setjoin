@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity source show SOURCE_KEY [--json|--quiet]\n",
+  "exit": 1
+}

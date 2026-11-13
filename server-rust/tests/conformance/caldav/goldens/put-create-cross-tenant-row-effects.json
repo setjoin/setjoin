@@ -1,0 +1,145 @@
+{
+  "case": "cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": {
+        "attendees": [],
+        "calendars": [
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL4 Owner",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          },
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL4 Other",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          }
+        ],
+        "events": [],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994261,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994262,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "queue": [],
+        "state": [
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-a>",
+            "state": 1
+          },
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-b>",
+            "state": 1
+          }
+        ]
+      },
+      "before": {
+        "attendees": [],
+        "calendars": [
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL4 Owner",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          },
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL4 Other",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          }
+        ],
+        "events": [],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994261,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994262,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "queue": [],
+        "state": [
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-a>",
+            "state": 1
+          },
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-b>",
+            "state": 1
+          }
+        ]
+      },
+      "table": "f17-caldav"
+    }
+  ],
+  "format": 1,
+  "go_source": "8ba0d3736239af47d80d20e7f40dccc77bc4b992",
+  "route": "* /caldav/ put"
+}

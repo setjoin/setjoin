@@ -1,0 +1,72 @@
+{
+  "case": "dns-error",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "client_ip": "127.0.0.1",
+            "created_recent": true,
+            "mailbox": "<mailbox-actor>",
+            "message_resolved": false,
+            "scanner": "spamhaus",
+            "url_hash": "c8089db8079787ec78c6a9ac3f4bd92dfd35f3ce343fb65e36c9e268564a234f",
+            "verdict": "unknown"
+          }
+        ],
+        "before": [],
+        "table": "link_protect_audit"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/link-protect",
+      "method": "GET",
+      "path": "/link-protect",
+      "query": "?token=<token>"
+    },
+    "response": {
+      "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Warning — Unverified Link</title>\n<style>\n  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }\n  body {\n    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n    display: flex; align-items: center; justify-content: center;\n    min-height: 100vh; background: #000; color: #f5f5f7;\n  }\n  .glass-pane {\n    background: rgba(255,255,255,0.06); backdrop-filter: blur(40px);\n    border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;\n    padding: 48px; max-width: 520px; text-align: center;\n  }\n  .icon { font-size: 48px; margin-bottom: 20px; }\n  h1 { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #FF9F0A; }\n  p { font-size: 14px; line-height: 1.6; color: #98989d; margin-bottom: 24px; }\n  .url-box {\n    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);\n    border-radius: 10px; padding: 12px 16px; font-size: 12px;\n    word-break: break-all; color: #6e6e73; margin-bottom: 24px;\n    font-family: 'JetBrains Mono', 'SF Mono', monospace;\n  }\n  .btn-continue {\n    display: inline-block; background: #FF9F0A; color: #000;\n    border: none; border-radius: 10px; padding: 12px 32px;\n    font-size: 14px; font-weight: 600; cursor: pointer;\n    text-decoration: none; transition: opacity 0.2s;\n    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\n  }\n  .btn-continue:hover { opacity: 0.85; }\n</style>\n</head>\n<body>\n<div class=\"glass-pane\">\n  <div class=\"icon\">&#x26A0;&#xFE0F;</div>\n  <h1>Unverified Link</h1>\n  <p>Our security systems could not verify the safety of this destination. It may be safe, or it may be a phishing or malware site. Proceed with caution.</p>\n  <div class=\"url-box\">https://servfail.example/x</div>\n  <a class=\"btn-continue\" href=\"/link-protect?token=<token>&confirm=1\">Continue</a>\n</div>\n</body>\n</html>",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/html; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /link-protect"
+}

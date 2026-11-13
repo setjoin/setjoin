@@ -1,0 +1,176 @@
+{
+  "case": "policy-public-cidr",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [],
+          "consent": [],
+          "jobs": [
+            {
+              "completed": true,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {
+                "imported": 3,
+                "phase": "done"
+              },
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": true,
+              "error_log": [
+                "boom <x> & y",
+                "second"
+              ],
+              "has_config": false,
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {
+                "n": 1.5,
+                "phase": "fetching",
+                "tags": [
+                  "<a>",
+                  "b&c"
+                ]
+              },
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<other>"
+            },
+            {
+              "completed": false,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": false,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<other>"
+            }
+          ]
+        },
+        "before": {
+          "config": [],
+          "consent": [],
+          "jobs": [
+            {
+              "completed": true,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {
+                "imported": 3,
+                "phase": "done"
+              },
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": true,
+              "error_log": [
+                "boom <x> & y",
+                "second"
+              ],
+              "has_config": false,
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {
+                "n": 1.5,
+                "phase": "fetching",
+                "tags": [
+                  "<a>",
+                  "b&c"
+                ]
+              },
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<other>"
+            },
+            {
+              "completed": false,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": false,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<other>"
+            }
+          ]
+        },
+        "table": "migration_jobs+system_config+m365_consent_states"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"host\":\"imap.example.com\",\"private_hosts\":[\"h\"],\"private_cidrs\":[\"8.8.8.0/24\"]}",
+      "external_path": "/api/admin/migration/source/imap",
+      "method": "PUT",
+      "path": "/admin/migration/source/imap"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"invalid private-network policy: invalid private-policy CIDR \\\"8.8.8.0/24\\\"\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "158"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox2-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "PUT /admin/migration/source/imap"
+}

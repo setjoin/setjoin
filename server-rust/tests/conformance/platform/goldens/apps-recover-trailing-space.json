@@ -1,0 +1,117 @@
+{
+  "case": "trailing-space",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "office.app.operation.recovery_requested",
+        "after_state": {
+          "generation": 3,
+          "operationId": "<uuid>",
+          "recoveredState": "paused_recoverable"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "recover it",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "office_app_operation",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "by_someone": true,
+            "generation": 3,
+            "kind": "install",
+            "phase": "recovery_requested",
+            "progress": {
+              "recoveryRequestedAt": "<timestamp>"
+            },
+            "reason": "seed",
+            "request": {
+              "providerId": "collabora"
+            },
+            "state": "paused_recoverable"
+          }
+        ],
+        "before": [
+          {
+            "by_someone": true,
+            "generation": 2,
+            "kind": "install",
+            "phase": "paused",
+            "progress": {},
+            "reason": "seed",
+            "request": {
+              "providerId": "collabora"
+            },
+            "state": "paused_recoverable"
+          }
+        ],
+        "table": "office_app_operations"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "office_app_operation_changed",
+        "payload": {
+          "generation": 3,
+          "operation_id": "<uuid>",
+          "state": "paused_recoverable"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"expectedGeneration\":2}  \n",
+      "external_path": "/api/admin/apps/collabora-code/operations/11111111-2222-4333-8444-555555555555/recover",
+      "method": "POST",
+      "path": "/admin/apps/{appId}/operations/{operationId}/recover"
+    },
+    "response": {
+      "body": "{\"phase\": \"recovery_requested\", \"state\": \"paused_recoverable\", \"operationId\": \"<uuid>\", \"stateGeneration\": 3, \"recoveryRequested\": true}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "136"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 202
+    }
+  },
+  "route": "POST /admin/apps/{appId}/operations/{operationId}/recover"
+}

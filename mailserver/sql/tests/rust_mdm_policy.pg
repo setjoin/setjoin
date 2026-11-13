@@ -1,0 +1,20 @@
+-- Public seam for the MDM policy transactions (#310): last-global refusal, missing
+-- policy, delete, and Go's per-id reorder order (first id highest, repeats rewrite).
+BEGIN;
+SELECT plan(8);
+DELETE FROM mdm_policies;
+INSERT INTO mdm_policies(id,name,priority,scope_type) VALUES
+ (970001,'mdm-g1',1,'global'),(970002,'mdm-g2',2,'global'),(970003,'mdm-u1',3,'user');
+SELECT is(rust_mdm_policy_delete(99999999)->>'status','404','a missing policy is 404');
+SELECT is(rust_mdm_policy_delete(970003)->>'status','200','a non-global policy is deleted');
+SELECT is(rust_mdm_policy_delete(970001)->>'status','200','a global policy is deleted while another is enabled');
+SELECT is(rust_mdm_policy_delete(970002)->>'status','409','the last enabled global policy is refused');
+SELECT is((SELECT count(*) FROM mdm_policies),1::bigint,'the refused delete removed nothing');
+INSERT INTO mdm_policies(id,name,priority,scope_type) VALUES (970004,'mdm-a',0,'user'),(970005,'mdm-b',0,'user');
+SELECT rust_mdm_policy_reorder(ARRAY[970005,970004,970002]::bigint[]);
+SELECT is((SELECT array_agg(priority ORDER BY id) FROM mdm_policies WHERE id IN (970002,970004,970005)),ARRAY[1,2,3],'the first id takes the highest priority');
+SELECT rust_mdm_policy_reorder(ARRAY[970004,970004,0]::bigint[]);
+SELECT is((SELECT priority FROM mdm_policies WHERE id=970004),2,'a repeated id keeps its later position');
+SELECT is(rust_mdm_policy_reorder('{}')->>'status','200','an empty list is a no-op');
+SELECT * FROM finish();
+ROLLBACK;

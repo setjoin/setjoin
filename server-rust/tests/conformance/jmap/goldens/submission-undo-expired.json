@@ -1,0 +1,215 @@
+{
+  "case": "submission-undo-expired",
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "request and response IDs (mailbox, user, tags, messages): fixture names; messages created by the request: <new-message-N> in ID order",
+    "response sessionState: retain state counters; replace final user timestamp",
+    "response date: timestamp; content-length: normalized body byte length",
+    "every timestamp in a body, row or audit: <timestamp>",
+    "message_id, thread_id and raw_ref of fixture messages: fixed per fixture name before the request",
+    "audit id and occurred_at: generated ID and timestamp; mailbox and actor: fixture IDs",
+    "audit details.operation: generated 32-digit hexadecimal operation ID"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "email_state": 1,
+        "journal": [
+          {
+            "datatype": "email",
+            "entity_id": "<inbox-only>",
+            "op": "updated",
+            "state_seq": 1
+          }
+        ],
+        "messages": [
+          {
+            "id": "<inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 1,
+            "unread": 1
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 3,
+            "unread": 1
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 2,
+            "unread": 0
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 0,
+            "unread": 0
+          }
+        }
+      },
+      "before": {
+        "email_state": 0,
+        "journal": [],
+        "messages": [
+          {
+            "id": "<inbox-only>",
+            "is_read": false
+          },
+          {
+            "id": "<two-labels>",
+            "is_read": false
+          }
+        ],
+        "tags": {
+          "Drafts": {
+            "state": 0,
+            "unread": 0
+          },
+          "Important": {
+            "state": 0,
+            "unread": 0
+          },
+          "Inbox": {
+            "state": 3,
+            "unread": 1
+          },
+          "Muted": {
+            "state": 0,
+            "unread": 0
+          },
+          "Oracle Label": {
+            "state": 1,
+            "unread": 1
+          },
+          "Other": {
+            "state": 0,
+            "unread": 0
+          },
+          "Scheduled": {
+            "state": 0,
+            "unread": 0
+          },
+          "Sent": {
+            "state": 1,
+            "unread": 1
+          },
+          "Snoozed": {
+            "state": 0,
+            "unread": 0
+          },
+          "Spam": {
+            "state": 0,
+            "unread": 0
+          },
+          "Starred": {
+            "state": 0,
+            "unread": 0
+          },
+          "Trash": {
+            "state": 0,
+            "unread": 0
+          }
+        }
+      }
+    },
+    "notify": [
+      {
+        "channel": "tag:<mailbox>",
+        "payload": "{\"event\" : \"state_change\", \"tag_id\" : null, \"state\" : 1}"
+      }
+    ],
+    "request": {
+      "body": null,
+      "headers": {
+        "authorization": "Bearer <fixture-token>",
+        "content-type": "application/json",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-request-id": "gofree-t2-golden"
+      },
+      "method": "POST",
+      "path": "/messages/{id}/undo",
+      "path_values": {
+        "id": "<inbox-only>"
+      }
+    },
+    "response": {
+      "body": "{\"undone\":true,\"messageId\":\"<inbox-only>\",\"queueItemsCleared\":1}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "65"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-t2-golden"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /messages/{id}/undo"
+}

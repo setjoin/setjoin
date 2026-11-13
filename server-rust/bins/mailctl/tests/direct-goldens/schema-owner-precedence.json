@@ -1,0 +1,9 @@
+{
+  "stdout": "{\"current\":275,\"expected\":275,\"pending\":[],\"up_to_date\":true}\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

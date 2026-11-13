@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/features",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"source\": \"admin feature registry\",\n  \"endpoint\": \"/admin/features\",\n  \"status\": \"partial\",\n  \"flags\": [\n    {\n      \"key\": \"feature.office_editing\",\n      \"label\": \"Office online editing\",\n      \"present\": false,\n      \"state\": \"missing\",\n      \"enabled\": false,\n      \"defaultEnabled\": false,\n      \"configured\": false,\n      \"gatewayEffective\": false,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ]\n    },\n    {\n      \"key\": \"feature.office_local_open\",\n      \"label\": \"Office local open\",\n      \"present\": false,\n      \"state\": \"missing\",\n      \"enabled\": false,\n      \"defaultEnabled\": false,\n      \"configured\": false,\n      \"gatewayEffective\": false,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ]\n    },\n    {\n      \"key\": \"feature.drive_history\",\n      \"label\": \"Drive History\",\n      \"present\": false,\n      \"state\": \"missing\",\n      \"enabled\": false,\n      \"defaultEnabled\": false,\n      \"configured\": false,\n      \"gatewayEffective\": false,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ]\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

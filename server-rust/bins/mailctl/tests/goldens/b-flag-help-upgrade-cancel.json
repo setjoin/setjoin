@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of upgrade cancel:\n  -generation string\n    \texpected decimal state generation\n  -reason string\n    \taudited cancellation reason\nError: invalid cancel arguments\n",
+  "exit": 1
+}

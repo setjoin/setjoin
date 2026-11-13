@@ -1,0 +1,44 @@
+# Gitleaks findings accepted in the public tree. One shell glob per line, matched
+# against the tree-relative path (`*` also matches `/`). Every entry is test key
+# material, a recorded oracle/golden vector, a vendored upstream reference, doc
+# example text, or a reviewed literal (the 2026-11-13 scan, gitleaks 8.30.1, found no
+# real secret). Read a new finding before adding its path; keep entries narrow.
+
+# Rust conformance goldens, oracle recordings, test fixtures
+server-rust/tests/conformance/*
+server-rust/crates/protocols/smtp/oracle/*
+server-rust/crates/protocols/federation/oracle/*
+server-rust/bins/*/tests/*
+server-rust/crates/*/tests/*
+server-rust/crates/config-secret/src/tests.rs
+# PEM header string matches in parsing code (no key material)
+server-rust/bins/gateway/src/jmap/recovery.rs
+server-rust/bins/gateway/src/recovery_begin.rs
+# Go and SQL tests
+*_test.go
+mailserver/sql/tests/*.pg
+mailserver/webmail/e2e/*.spec.ts
+# Test and rehearsal scripts with fixed throwaway credentials
+scripts/*.test.sh
+scripts/*.test.mjs
+scripts/test-scim.sh
+scripts/test-secfix3-mutants.py
+scripts/e6-gateway-fixture.sh
+scripts/ga-fresh-install-smoke.sh
+scripts/unified-deployment-d2.sh
+mailserver/deploy/scripts/test-livekit-render.sh
+# Model sha256 pins, not secrets
+mailserver/deploy/scripts/lib-livekit.sh
+# Code literals flagged by generic-api-key (key type, field names)
+mailserver/internal/acme/dns01.go
+mailserver/internal/user/migration.go
+# Vendored upstream references and RFC text
+clients/harmonyos/refs/openharmony-docs/*
+clients/rust/refs/ios-security-framework/*
+docs/ref/rfc/*
+docs/ref/rfcs/*
+# Documentation examples
+docs/design/security/archive/env-security.md
+docs/guides/INTEGRATION_EXAMPLES.md
+docs/guides/acme-dns01.md
+mailserver/internal/DOX.md

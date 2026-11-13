@@ -1,0 +1,860 @@
+-- pgTAP: authoritative I5 transition protocol, protected approval, retry, and rollback.
+BEGIN;
+SELECT plan(59);
+
+SELECT ok(
+  NOT (SELECT enabled FROM feature_toggles WHERE key='feature.identity_model_v2')
+  AND NOT (SELECT enabled FROM feature_toggles WHERE key='feature.identity_normalized_reads')
+  AND NOT (SELECT enabled FROM feature_toggles WHERE key='feature.identity_transitions'),
+  'identity rollout flags remain seeded off'
+);
+
+SELECT set_eq(
+  $matrix$
+    WITH states(state) AS (VALUES
+      ('draft'),('previewed'),('awaiting_approval'),('authorized'),
+      ('executing'),('authority_committed'),('effects_pending'),
+      ('completed'),('failed_precommit'),('failed_recoverable'),
+      ('rollback_previewed'),('rolling_back'),('rolled_back'),
+      ('cancelled'),('expired')
+    )
+    SELECT f.state||'>'||t.state
+      FROM states f CROSS JOIN states t
+     WHERE identity_transition_state_allowed(f.state,t.state)
+  $matrix$,
+  $expected$
+    VALUES
+      ('draft>previewed'),('draft>cancelled'),('draft>expired'),
+      ('previewed>awaiting_approval'),('previewed>authorized'),
+      ('previewed>cancelled'),('previewed>expired'),
+      ('awaiting_approval>authorized'),('awaiting_approval>previewed'),
+      ('awaiting_approval>cancelled'),('awaiting_approval>expired'),
+      ('authorized>executing'),('authorized>previewed'),
+      ('authorized>cancelled'),('authorized>expired'),
+      ('executing>authority_committed'),('executing>failed_precommit'),
+      ('authority_committed>effects_pending'),
+      ('authority_committed>completed'),
+      ('effects_pending>completed'),('effects_pending>failed_recoverable'),
+      ('failed_precommit>previewed'),('failed_precommit>cancelled'),
+      ('failed_recoverable>effects_pending'),
+      ('failed_recoverable>rollback_previewed'),
+      ('failed_recoverable>rolling_back'),
+      ('rollback_previewed>rolling_back'),
+      ('rollback_previewed>failed_recoverable'),
+      ('rollback_previewed>expired'),
+      ('rolling_back>rolled_back'),('rolling_back>failed_recoverable')
+  $expected$,
+  'the 15-state transition graph exposes only the 31 legal directed edges'
+);
+
+SELECT ok((
+  SELECT bool_and(NOT identity_transition_state_allowed(terminal,next_state))
+    FROM unnest(ARRAY['completed','rolled_back','cancelled','expired']) terminal,
+         unnest(ARRAY[
+           'draft','previewed','awaiting_approval','authorized','executing',
+           'authority_committed','effects_pending','completed',
+           'failed_precommit','failed_recoverable','rollback_previewed',
+           'rolling_back','rolled_back','cancelled','expired'
+         ]) next_state
+), 'all four terminal states reject every outgoing edge');
+
+SELECT has_index(
+  'public','identity_link_events','identity_link_events_metrics_action_idx',
+  'identity metrics action counts use the bounded partial action index'
+);
+
+UPDATE feature_toggles SET enabled=true
+ WHERE key IN (
+   'feature.identity_model_v2','feature.identity_transitions',
+   'feature.cae_runtime'
+ );
+INSERT INTO domains(name,is_local) VALUES('transition-protocol.test',true)
+ON CONFLICT(name) DO UPDATE SET is_local=true;
+
+CREATE TEMP TABLE itp(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE FUNCTION pg_temp.identity_transition_test_elevation(
+  p_actor BIGINT,p_transition UUID,p_digest TEXT,
+  p_session_digest BYTEA,p_factor_digest BYTEA,
+  p_amr TEXT[],p_acr TEXT,p_key UUID
+) RETURNS JSONB LANGUAGE plpgsql AS $$
+DECLARE v_challenge JSONB;
+BEGIN
+  v_challenge := identity_transition_challenge_issue(
+    p_actor,p_transition,p_digest,gen_random_uuid()
+  );
+  RETURN identity_transition_challenge_complete(
+    p_actor,p_transition,(v_challenge->>'challengeId')::uuid,p_digest,
+    p_session_digest,p_factor_digest,
+    ARRAY['pwd','otp','mfa']::text[],'aal2',p_key
+  );
+END;
+$$;
+INSERT INTO itp SELECT 'actor_mailbox',mk_account('itp-actor')::text;
+INSERT INTO itp SELECT 'actor',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM itp WHERE key='actor_mailbox');
+INSERT INTO itp SELECT 'approver_mailbox',mk_account('itp-approver')::text;
+INSERT INTO itp SELECT 'approver',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM itp WHERE key='approver_mailbox');
+INSERT INTO itp SELECT 'outsider_mailbox',mk_account('itp-outsider')::text;
+INSERT INTO itp SELECT 'outsider',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM itp WHERE key='outsider_mailbox');
+
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES
+  ((SELECT value::bigint FROM itp WHERE key='actor'),1,
+   (SELECT value::bigint FROM itp WHERE key='actor')),
+  ((SELECT value::bigint FROM itp WHERE key='approver'),1,
+   (SELECT value::bigint FROM itp WHERE key='actor'));
+UPDATE system_config
+   SET value=jsonb_build_array(
+       (SELECT value::bigint FROM itp WHERE key='approver')
+   )
+ WHERE key='ca_break_glass_user_ids';
+UPDATE approval_policies
+   SET enabled=true,
+       conditions='{"protected":true}'::jsonb,
+       approver_spec=jsonb_build_object(
+         'kind','named',
+         'user_id',(SELECT value::bigint FROM itp WHERE key='approver')
+       )
+ WHERE consumer_type='identity.transition';
+
+INSERT INTO itp SELECT 'source',id::text
+  FROM identity_sources WHERE source_key='legacy:scim';
+INSERT INTO itp SELECT 'source_generation',generation::text
+  FROM identity_sources WHERE id=(SELECT value::bigint FROM itp WHERE key='source');
+INSERT INTO itp
+SELECT 'target_result',identity_source_scim_apply(
+  (SELECT value::bigint FROM itp WHERE key='source'),
+  (SELECT value::bigint FROM itp WHERE key='source_generation'),
+  gen_random_uuid(),'itp-protected-subject',
+  '{"operation":"upsert","email":"itp-protected@transition-protocol.test","displayName":"Protected target","enabled":true}'::jsonb
+)::text;
+INSERT INTO itp SELECT 'target',value::jsonb->>'userId'
+  FROM itp WHERE key='target_result';
+UPDATE users SET password_hash='local-recovery-proof'
+ WHERE id=(SELECT value::bigint FROM itp WHERE key='target');
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(
+  (SELECT value::bigint FROM itp WHERE key='target'),1,
+  (SELECT value::bigint FROM itp WHERE key='actor')
+);
+
+INSERT INTO itp
+SELECT 'preview',identity_transition_preview(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT value::bigint FROM itp WHERE key='target'),
+  'convert protected directory authority to local',
+  gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'protected' FROM itp WHERE key='preview'),
+  'true','sensitive-role holder produces a protected transition preview');
+SELECT ok((
+  SELECT preview_expires_at>statement_timestamp()
+     AND preview_expires_at<=created_at+interval '15 minutes'
+    FROM identity_transitions
+   WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+               FROM itp WHERE key='preview')
+), 'transition preview uses a database-time 15-minute validity window');
+
+INSERT INTO itp VALUES('cancel_transition',gen_random_uuid()::text);
+INSERT INTO identity_transitions(
+  id,user_id,kind,state,source_id,link_id,source_generation,
+  link_generation,lifecycle_generation,preview_digest,preview_snapshot,
+  preview_expires_at,actor_user_id,reason,idempotency_key,request_digest
+)
+SELECT (SELECT value::uuid FROM itp WHERE key='cancel_transition'),
+       t.user_id,t.kind,'previewed',t.source_id,t.link_id,t.source_generation,
+       t.link_generation,t.lifecycle_generation,
+       digest('itp-cancel-preview','sha256'),
+       jsonb_build_object('fixture','cancel-generation-fence'),
+       statement_timestamp()+interval '15 minutes',t.actor_user_id,
+       'cancel generation fence fixture',gen_random_uuid(),
+       digest('itp-cancel-request','sha256')
+  FROM identity_transitions t
+ WHERE t.id=(SELECT (value::jsonb->>'transitionId')::uuid
+              FROM itp WHERE key='preview');
+SELECT throws_ok($$
+  SELECT identity_transition_cancel(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT value::uuid FROM itp WHERE key='cancel_transition'),
+    (
+      SELECT transition_generation+1 FROM identity_transitions
+       WHERE id=(SELECT value::uuid FROM itp WHERE key='cancel_transition')
+    ),
+    'reject stale cancel',gen_random_uuid()
+  )
+$$,'BZ235','identity transition generation is stale',
+  'cancel rejects a stale caller generation fence');
+SELECT is(identity_transition_cancel(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT value::uuid FROM itp WHERE key='cancel_transition'),
+  (SELECT transition_generation FROM identity_transitions
+    WHERE id=(SELECT value::uuid FROM itp WHERE key='cancel_transition')),
+  'cancel exact generation fixture',gen_random_uuid()
+)->>'state','cancelled',
+  'cancel accepts the exact current generation fence');
+
+INSERT INTO itp VALUES('request_challenge_key',gen_random_uuid()::text);
+INSERT INTO itp
+SELECT 'request_challenge',identity_transition_challenge_issue(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  (SELECT value::uuid FROM itp WHERE key='request_challenge_key')
+)::text;
+SELECT ok((
+  SELECT value::jsonb->>'handoffMethod'='browser'
+     AND value::jsonb->>'displayCode' ~ '^[0-9A-F]{8}$'
+     AND value::jsonb->>'displayCode'=
+         upper(substr(replace(value::jsonb->>'challengeId','-',''),1,8))
+    FROM itp WHERE key='request_challenge'
+), 'challenge returns browser handoff and a non-secret display code derived from its id');
+SELECT is(
+  identity_transition_challenge_issue(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    (SELECT value::uuid FROM itp WHERE key='request_challenge_key')
+  )->>'challengeId',
+  (SELECT value::jsonb->>'challengeId' FROM itp WHERE key='request_challenge'),
+  'identical challenge issuance replays the same durable challenge'
+);
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='approver'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',gen_random_uuid()
+  )
+$$,'BZ236','identity transition challenge is not authorized',
+  'another administrator cannot complete the requester challenge');
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    repeat('0',64),
+    digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',gen_random_uuid()
+  )
+$$,'BZ235','identity transition challenge digest is stale',
+  'challenge completion rejects a stale preview digest');
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+    ARRAY['pwd']::text[],'aal1',gen_random_uuid()
+  )
+$$,'BZ236','fresh AAL2 transition step-up is required',
+  'ordinary non-AAL2 session proof cannot complete a challenge');
+INSERT INTO itp VALUES('request_elevation_key',gen_random_uuid()::text);
+INSERT INTO itp
+SELECT 'request_elevation',identity_transition_challenge_complete(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'challengeId')::uuid
+     FROM itp WHERE key='request_challenge'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+  ARRAY['pwd','otp','mfa']::text[],'aal2',
+  (SELECT value::uuid FROM itp WHERE key='request_elevation_key')
+)::text;
+SELECT ok((
+  SELECT e.actor_user_id=(SELECT value::bigint FROM itp WHERE key='actor')
+     AND e.transition_id=(
+         SELECT (value::jsonb->>'transitionId')::uuid
+           FROM itp WHERE key='preview'
+     )
+     AND e.challenge_id=(
+         SELECT (value::jsonb->>'challengeId')::uuid
+           FROM itp WHERE key='request_challenge'
+     )
+     AND e.preview_digest=decode(
+         (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+         'hex'
+     )
+     AND e.transition_generation=c.transition_generation
+     AND e.expires_at<=e.issued_at+interval '5 minutes'
+    FROM identity_transition_elevations e
+    JOIN identity_transition_challenges c ON c.elevation_id=e.id
+   WHERE e.id=(SELECT (value::jsonb->>'elevationId')::uuid
+                 FROM itp WHERE key='request_elevation')
+), 'challenge completion creates an exact actor/transition/digest/generation-bound elevation');
+SELECT is(
+  identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+    ARRAY['mfa','otp','pwd']::text[],'aal2',
+    (SELECT value::uuid FROM itp WHERE key='request_elevation_key')
+  )->>'elevationId',
+  (SELECT value::jsonb->>'elevationId' FROM itp WHERE key='request_elevation'),
+  'exact challenge completion replay returns the original elevation'
+);
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-request-session','sha256'),digest('changed-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',
+    (SELECT value::uuid FROM itp WHERE key='request_elevation_key')
+  )
+$$,'BZ240','identity transition idempotency key was reused with different input',
+  'challenge completion idempotency rejects changed verified factor evidence');
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='request_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-request-session','sha256'),digest('itp-request-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',gen_random_uuid()
+  )
+$$,'BZ236','identity transition challenge is expired, invalidated, or already completed',
+  'completed challenge cannot mint a second elevation under a new key');
+
+INSERT INTO itp
+SELECT 'stale_challenge',identity_transition_challenge_issue(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  gen_random_uuid()
+)::text;
+UPDATE identity_transition_challenges
+   SET transition_generation=transition_generation-1
+ WHERE id=(SELECT (value::jsonb->>'challengeId')::uuid
+             FROM itp WHERE key='stale_challenge');
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='stale_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-stale-session','sha256'),digest('itp-stale-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',gen_random_uuid()
+  )
+$$,'BZ235','identity transition challenge is stale',
+  'challenge completion rejects transition-generation drift');
+INSERT INTO itp
+SELECT 'expired_challenge',identity_transition_challenge_issue(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  gen_random_uuid()
+)::text;
+UPDATE identity_transition_challenges
+   SET issued_at=statement_timestamp()-interval '6 minutes',
+       expires_at=statement_timestamp()-interval '1 minute'
+ WHERE id=(SELECT (value::jsonb->>'challengeId')::uuid
+             FROM itp WHERE key='expired_challenge');
+SELECT throws_ok($$
+  SELECT identity_transition_challenge_complete(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT (value::jsonb->>'challengeId')::uuid
+       FROM itp WHERE key='expired_challenge'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    digest('itp-expired-session','sha256'),digest('itp-expired-factor','sha256'),
+    ARRAY['pwd','otp','mfa']::text[],'aal2',gen_random_uuid()
+  )
+$$,'BZ236','identity transition challenge is expired, invalidated, or already completed',
+  'expired challenge cannot mint an elevation');
+
+INSERT INTO itp
+SELECT 'request',identity_transition_request(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='request_elevation'),
+  'convert protected directory authority to local',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='request'),
+  'awaiting_approval','protected request enters awaiting_approval');
+SELECT ok((
+  SELECT payload->>'transitionId'=t.id::text
+     AND payload->>'previewDigest'=encode(t.preview_digest,'hex')
+     AND payload->>'transitionGeneration'=t.requested_generation::text
+     AND payload->>'requesterElevationId'=
+         (SELECT value::jsonb->>'elevationId'
+            FROM itp WHERE key='request_elevation')
+    FROM identity_transitions t
+    JOIN approval_requests ar ON ar.id=t.approval_request_id
+   WHERE t.id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')
+), 'approval request binds transition, preview digest, generation, and requester elevation');
+SELECT throws_ok($$
+  SELECT identity_transition_approve(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+    gen_random_uuid(),'self approval attempt',gen_random_uuid()
+  )
+$$,'BZ236','independent approval is invalid',
+  'requester cannot approve their own protected transition');
+
+INSERT INTO itp
+SELECT 'approver_elevation',pg_temp.identity_transition_test_elevation(
+  (SELECT value::bigint FROM itp WHERE key='approver'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  digest('itp-approval-session','sha256'),digest('itp-approval-factor','sha256'),
+  ARRAY['pwd','webauthn']::text[],'urn:setjoin:acr:phishing-resistant',
+  gen_random_uuid()
+)::text;
+INSERT INTO itp
+SELECT 'approval',identity_transition_approve(
+  (SELECT value::bigint FROM itp WHERE key='approver'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='approver_elevation'),
+  'independent break-glass approval',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='approval'),
+  'authorized','independent break-glass approval authorizes the transition');
+SELECT is((SELECT value::jsonb->>'approvedBy' FROM itp WHERE key='approval'),
+  (SELECT value FROM itp WHERE key='approver'),
+  'authorized transition records the exact independent approver');
+
+INSERT INTO itp
+SELECT 'execute_elevation',pg_temp.identity_transition_test_elevation(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  digest('itp-execute-session','sha256'),digest('itp-execute-factor','sha256'),
+  ARRAY['pwd','totp']::text[],'urn:setjoin:acr:mfa',gen_random_uuid()
+)::text;
+INSERT INTO itp
+SELECT 'execute',identity_transition_execute(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb->>'previewDigest' FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='execute_elevation'),
+  (SELECT approval_request_id FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')),
+  'convert protected directory authority to local',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='execute'),
+  'effects_pending','protected execution commits authority before external effects');
+SELECT is(
+  identity_transition_admission_allowed(
+    (SELECT value::bigint FROM itp WHERE key='target')
+  ),
+  false,
+  'committed transition fences token and Meet admission while mandatory SFU eviction is pending'
+);
+SELECT is(
+  identity_transition_admission_allowed(
+    (SELECT value::bigint FROM itp WHERE key='outsider')
+  ),
+  true,
+  'transition admission fence is scoped to the exact target person'
+);
+INSERT INTO itp
+SELECT 'fenced_meeting',meeting_create(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  'identity transition admission fence fixture'
+)::text;
+SELECT throws_ok($$
+  SELECT meeting_join(
+    (SELECT value::bigint FROM itp WHERE key='target'),
+    (SELECT (value::jsonb->>'meetingId')::bigint
+       FROM itp WHERE key='fenced_meeting')
+  )
+$$,'BZ234','identity transition security effects are pending',
+  'Meet grant composition refuses a person behind an unfinished transition fence');
+INSERT INTO itp
+SELECT 'fenced_knock',meeting_join_request_create(
+  (SELECT value::jsonb->>'slug' FROM itp WHERE key='fenced_meeting'),
+  'Fenced target',
+  (SELECT value::bigint FROM itp WHERE key='target')
+)::text;
+SELECT meeting_admit(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'requestId')::bigint
+     FROM itp WHERE key='fenced_knock')
+);
+SELECT throws_ok($$
+  SELECT meeting_join_request_poll(
+    (SELECT value::jsonb->>'slug' FROM itp WHERE key='fenced_meeting'),
+    (SELECT (value::jsonb->>'requestId')::bigint
+       FROM itp WHERE key='fenced_knock'),
+    (SELECT value::jsonb->>'secret' FROM itp WHERE key='fenced_knock')
+  )
+$$,'BZ234','identity transition security effects are pending',
+  'secret-bound member poll cannot bypass an unfinished transition fence');
+SELECT throws_ok($$
+  SELECT identity_transition_read(
+    (SELECT value::bigint FROM itp WHERE key='outsider'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview')
+  )
+$$,'BZ234','identity transition not found',
+  'read reducer hides transitions outside the actor domain reach');
+
+INSERT INTO itp
+SELECT 'forward_claim',identity_transition_effect_claim(
+  'itp-forward-worker',120
+)::text;
+SELECT is((SELECT value::jsonb->>'kind' FROM itp WHERE key='forward_claim'),
+  'livekit_sessions','worker claims only the next exact pending forward effect');
+INSERT INTO itp
+SELECT 'concurrent_notice_claim',identity_transition_effect_claim(
+  'itp-concurrent-notice-worker',120
+)::text;
+SELECT is((SELECT value::jsonb->>'kind'
+             FROM itp WHERE key='concurrent_notice_claim'),
+  'subscriber_notice','a concurrent worker may hold a sibling forward effect');
+INSERT INTO itp
+SELECT 'forward_fail',identity_transition_effect_fail(
+  'itp-forward-worker',
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'effectId')::uuid FROM itp WHERE key='forward_claim'),
+  'itp_livekit','simulated terminal worker failure'
+)::text;
+SELECT is((SELECT value::jsonb->>'transitionState' FROM itp WHERE key='forward_fail'),
+  'failed_recoverable','worker failure immediately enters failed_recoverable');
+INSERT INTO itp
+SELECT 'concurrent_notice_fail',identity_transition_effect_fail(
+  'itp-concurrent-notice-worker',
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'effectId')::uuid
+     FROM itp WHERE key='concurrent_notice_claim'),
+  'itp_notice','concurrent subscriber notice failure'
+)::text;
+SELECT is((SELECT value::jsonb->>'transitionState'
+             FROM itp WHERE key='concurrent_notice_fail'),
+  'failed_recoverable',
+  'already-claimed sibling may fail without bypassing exact failed recovery');
+SELECT is(identity_transition_effect_claim('itp-other-worker',120),NULL::jsonb,
+  'failed effects are never auto-claimed or implicitly retried');
+SELECT throws_ok($$
+  SELECT identity_transition_retry(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT transition_generation FROM identity_transitions
+      WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview')),
+    gen_random_uuid(),'retry an unrelated effect',gen_random_uuid()
+  )
+$$,'BZ238','named identity transition effect is not retryable',
+  'retry rejects every effect except the exact failed effect id');
+SELECT throws_ok($$
+  SELECT identity_transition_retry(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT transition_generation-1 FROM identity_transitions
+      WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                  FROM itp WHERE key='preview')),
+    (SELECT (value::jsonb->>'effectId')::uuid
+       FROM itp WHERE key='forward_claim'),
+    'stale retry generation',gen_random_uuid()
+  )
+$$,'BZ235','identity transition generation is stale',
+  'retry rejects a stale transition generation before changing the effect');
+INSERT INTO itp
+SELECT 'retry',identity_transition_retry(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT transition_generation FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview')),
+  (SELECT effect_id
+     FROM identity_transition_effects
+    WHERE transition_id=(
+            SELECT (value::jsonb->>'transitionId')::uuid
+              FROM itp WHERE key='preview'
+          )
+      AND effect_kind='livekit_sessions'),
+  'retry exact failed livekit effect',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='retry'),
+  'effects_pending',
+  'mandatory exact retry resumes even while an optional notice warning remains failed');
+INSERT INTO itp
+SELECT 'notice_retry',identity_transition_retry(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT transition_generation FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview')),
+  (SELECT (value::jsonb->>'effectId')::uuid
+     FROM itp WHERE key='concurrent_notice_claim'),
+  'retry exact failed subscriber notice',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='notice_retry'),
+  'effects_pending',
+  'last exact failed-effect retry resumes the forward worker phase');
+INSERT INTO itp
+SELECT 'forward_reclaim',identity_transition_effect_claim(
+  'itp-forward-worker-2',120
+)::text;
+SELECT is((SELECT value::jsonb->>'effectId' FROM itp WHERE key='forward_reclaim'),
+  (SELECT value::jsonb->>'effectId' FROM itp WHERE key='forward_claim'),
+  'exact retry makes only the named failed effect claimable again');
+UPDATE identity_transition_effects
+   SET lease_expires_at=statement_timestamp()-interval '1 second'
+ WHERE effect_id=(SELECT (value::jsonb->>'effectId')::uuid
+                    FROM itp WHERE key='forward_reclaim');
+INSERT INTO itp
+SELECT 'forward_takeover',identity_transition_effect_claim(
+  'itp-forward-takeover',120
+)::text;
+SELECT is((SELECT value::jsonb->>'effectId' FROM itp WHERE key='forward_takeover'),
+  (SELECT value::jsonb->>'effectId' FROM itp WHERE key='forward_reclaim'),
+  'expired running lease is reclaimed without exposing failed effects');
+INSERT INTO itp
+SELECT 'forward_fail_again',identity_transition_effect_fail(
+  'itp-forward-takeover',
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'effectId')::uuid FROM itp WHERE key='forward_takeover'),
+  'itp_livekit_again','second terminal livekit failure'
+)::text;
+SELECT is((SELECT value::jsonb->>'transitionState'
+             FROM itp WHERE key='forward_fail_again'),
+  'failed_recoverable','retried exact effect may fail recoverably again');
+SELECT throws_ok($$
+  SELECT identity_transition_rollback_preview(
+    (SELECT value::bigint FROM itp WHERE key='actor'),
+    (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+    (SELECT transition_generation-1 FROM identity_transitions
+      WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                  FROM itp WHERE key='preview')),
+    'restore protected directory authority',gen_random_uuid()
+  )
+$$,'BZ235','identity transition generation is stale',
+  'rollback preview rejects a stale caller generation fence');
+INSERT INTO itp
+SELECT 'rollback_preview',identity_transition_rollback_preview(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT transition_generation FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')),
+  'restore protected directory authority',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='rollback_preview'),
+  'rollback_previewed','recoverable failure can enter rollback_previewed');
+SELECT is((SELECT value::jsonb#>>'{rollback,boundary}'
+             FROM itp WHERE key='rollback_preview'),
+  'reversible','rollback preview records the still-open reversible boundary');
+
+INSERT INTO itp
+SELECT 'rollback_request_elevation',pg_temp.identity_transition_test_elevation(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  digest('itp-rollback-request-session','sha256'),
+  digest('itp-rollback-request-factor','sha256'),
+  ARRAY['pwd','totp']::text[],'urn:setjoin:acr:mfa',gen_random_uuid()
+)::text;
+INSERT INTO itp
+SELECT 'rollback_request',identity_transition_request(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='rollback_request_elevation'),
+  'restore protected directory authority',gen_random_uuid()
+)::text;
+SELECT ok((
+  SELECT ar.status='pending'
+     AND ar.payload->>'operation'='rollback'
+     AND ar.payload->>'previewDigest'=encode(t.rollback_preview_digest,'hex')
+    FROM identity_transitions t
+    JOIN approval_requests ar ON ar.id=t.rollback_approval_request_id
+   WHERE t.id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')
+), 'rollback request is bound to a new pending independent approval');
+
+INSERT INTO itp
+SELECT 'rollback_approver_elevation',pg_temp.identity_transition_test_elevation(
+  (SELECT value::bigint FROM itp WHERE key='approver'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  digest('itp-rollback-approval-session','sha256'),
+  digest('itp-rollback-approval-factor','sha256'),
+  ARRAY['pwd','webauthn']::text[],'urn:setjoin:acr:phishing-resistant',
+  gen_random_uuid()
+)::text;
+INSERT INTO itp
+SELECT 'rollback_approval',identity_transition_approve(
+  (SELECT value::bigint FROM itp WHERE key='approver'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='rollback_approver_elevation'),
+  'approve protected authority rollback',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb#>>'{rollback,approvedBy}'
+             FROM itp WHERE key='rollback_approval'),
+  (SELECT value FROM itp WHERE key='approver'),
+  'rollback records the exact independent break-glass approver');
+
+INSERT INTO itp
+SELECT 'rollback_execute_elevation',pg_temp.identity_transition_test_elevation(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  digest('itp-rollback-execute-session','sha256'),
+  digest('itp-rollback-execute-factor','sha256'),
+  ARRAY['pwd','totp']::text[],'urn:setjoin:acr:mfa',gen_random_uuid()
+)::text;
+UPDATE identity_sources
+   SET mapping_version=mapping_version+1
+ WHERE id=(
+   SELECT source_id FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')
+ );
+SELECT throws_ok(
+  format(
+    $sql$SELECT identity_transition_rollback(
+      %s,%L::uuid,%L,%L::uuid,%s,%L,%L::uuid
+    )$sql$,
+    (SELECT value FROM itp WHERE key='actor'),
+    (SELECT value::jsonb->>'transitionId' FROM itp WHERE key='preview'),
+    (SELECT value::jsonb#>>'{rollback,previewDigest}'
+       FROM itp WHERE key='rollback_preview'),
+    (SELECT value::jsonb->>'elevationId'
+       FROM itp WHERE key='rollback_execute_elevation'),
+    (SELECT rollback_approval_request_id FROM identity_transitions
+      WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                  FROM itp WHERE key='preview')),
+    'restore protected directory authority',
+    gen_random_uuid()
+  ),
+  'BZ235','identity rollback source changed after preview',
+  'rollback rejects source mapping posture drift before consuming elevation'
+);
+UPDATE identity_sources
+   SET mapping_version=mapping_version-1
+ WHERE id=(
+   SELECT source_id FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')
+ );
+INSERT INTO itp
+SELECT 'rollback_execute',identity_transition_rollback(
+  (SELECT value::bigint FROM itp WHERE key='actor'),
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT value::jsonb#>>'{rollback,previewDigest}'
+     FROM itp WHERE key='rollback_preview'),
+  (SELECT (value::jsonb->>'elevationId')::uuid
+     FROM itp WHERE key='rollback_execute_elevation'),
+  (SELECT rollback_approval_request_id FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')),
+  'restore protected directory authority',gen_random_uuid()
+)::text;
+SELECT is((SELECT value::jsonb->>'state' FROM itp WHERE key='rollback_execute'),
+  'rolling_back','rollback commits authority before its external effects converge');
+SELECT throws_ok(
+  format(
+    $sql$SELECT identity_transition_retry(
+      %s,%L::uuid,%s,%L::uuid,%L,%L::uuid
+    )$sql$,
+    (SELECT value FROM itp WHERE key='actor'),
+    (SELECT value::jsonb->>'transitionId' FROM itp WHERE key='preview'),
+    (SELECT transition_generation FROM identity_transitions
+      WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                  FROM itp WHERE key='preview')),
+    (SELECT effect_id FROM identity_transition_effects
+      WHERE transition_id=(SELECT (value::jsonb->>'transitionId')::uuid
+                              FROM itp WHERE key='preview')
+        AND effect_kind='livekit_sessions'),
+    'must not resume forward phase after rollback',
+    gen_random_uuid()
+  ),
+  'BZ238','forward effect cannot be retried after rollback authority committed',
+  'rollback authority commit permanently fences the opposite forward phase'
+);
+SELECT is((SELECT authority_kind FROM user_lifecycle_authorities
+            WHERE user_id=(SELECT value::bigint FROM itp WHERE key='target')),
+  'source','rollback restores source lifecycle authority');
+SELECT is((SELECT state FROM user_identity_links
+            WHERE id=(SELECT value::jsonb->>'linkId' FROM itp
+                       WHERE key='target_result')::bigint),
+  'active','rollback reactivates the original immutable-subject link');
+SELECT is((SELECT count(*)::integer FROM identity_transition_effects
+            WHERE transition_id=(
+              SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview'
+            ) AND effect_kind LIKE 'rollback_%'),
+  3,'rollback creates the three exact durable convergence effects');
+INSERT INTO itp
+SELECT 'rollback_livekit_claim',identity_transition_effect_claim(
+  'itp-rollback-worker',120
+)::text;
+SELECT is((SELECT value::jsonb->>'kind'
+             FROM itp WHERE key='rollback_livekit_claim'),
+  'rollback_livekit_sessions',
+  'rolling_back claims only rollback effects');
+INSERT INTO itp
+SELECT 'rollback_livekit_complete',identity_transition_effect_complete(
+  'itp-rollback-worker',
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'effectId')::uuid
+     FROM itp WHERE key='rollback_livekit_claim'),
+  digest('itp-rollback-livekit-complete','sha256')
+)::text;
+SELECT is(
+  (SELECT state FROM identity_transitions
+    WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                FROM itp WHERE key='preview')),
+  'rolled_back',
+  'mandatory rollback effects terminalize while optional notice remains pending'
+);
+SELECT is(
+  identity_transition_admission_allowed(
+    (SELECT value::bigint FROM itp WHERE key='target')
+  ),
+  true,
+  'mandatory rollback convergence releases admission before optional notice delivery'
+);
+INSERT INTO itp
+SELECT 'rollback_notice_claim',identity_transition_effect_claim(
+  'itp-rollback-worker',120
+)::text;
+SELECT is((SELECT value::jsonb->>'kind'
+             FROM itp WHERE key='rollback_notice_claim'),
+  'rollback_subscriber_notice',
+  'rollback worker claims the remaining exact rollback effect');
+INSERT INTO itp
+SELECT 'rollback_terminal',identity_transition_effect_complete(
+  'itp-rollback-worker',
+  (SELECT (value::jsonb->>'transitionId')::uuid FROM itp WHERE key='preview'),
+  (SELECT (value::jsonb->>'effectId')::uuid
+     FROM itp WHERE key='rollback_notice_claim'),
+  digest('itp-rollback-notice-complete','sha256')
+)::text;
+SELECT is((SELECT value::jsonb->>'transitionState' FROM itp WHERE key='rollback_terminal'),
+  'rolled_back','optional notice completion preserves the already terminal rolled_back state');
+SELECT is((SELECT rollback_boundary FROM identity_transitions
+            WHERE id=(SELECT (value::jsonb->>'transitionId')::uuid
+                        FROM itp WHERE key='preview')),
+  'rolled_back','rollback completion closes the durable rollback boundary');
+
+SELECT * FROM finish();
+ROLLBACK;

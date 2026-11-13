@@ -1,0 +1,50 @@
+[
+  {
+    "baseline": "qualified/verify-revoked-challenge.json",
+    "sha256": "a847e5fb946b67730f4265cc3eea4664984a7a530344b76073a018a411b13fcf",
+    "expectation": "security/verify-revoked-challenge.json",
+    "reason": "owner-approved security fix 2026-11-05: pending MFA cannot mint after durable revocation; the independently committed TOTP cycle stays spent.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/verify-revoked-challenge-rows.json",
+    "sha256": "5a9e750aba75ac5af5b4c52172076e06b2ad6d869bebcd36b9222e77ea3d758b",
+    "expectation": "security/verify-revoked-challenge-rows.json",
+    "reason": "owner-approved security fix 2026-11-05: pending MFA cannot mint after durable revocation; the independently committed TOTP cycle stays spent.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/verify-elapsed-code-replay.json",
+    "sha256": "4f28348a51406df5468948d707f55537f976aceffb2b6ccf25ea5ebf1ec9310c",
+    "expectation": "security/verify-elapsed-code-replay.json",
+    "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/verify-elapsed-code-replay-rows.json",
+    "sha256": "6b454f788dae993d8a425bb2212a39f7eeb990ac43667ac6b6cf0aca27dd8c83",
+    "expectation": "security/verify-elapsed-code-replay-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/verify-rolling-replay.json",
+    "sha256": "2083437aa7c4a76a5cac01d16177cf3a9c80b7e235e95c18defacab3ec9f33d8",
+    "expectation": "security/verify-rolling-replay.json",
+    "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/verify-rolling-replay-rows.json",
+    "sha256": "177f5ca338bbc9a16d4d3abc9ea1315d9c84f65cb0e3b711773aa0d6a6452ca0",
+    "expectation": "security/verify-rolling-replay-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  }
+]

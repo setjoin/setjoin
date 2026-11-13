@@ -1,0 +1,13 @@
+-- pgTAP: rust_mailsec_tls.sql (F06 slice tls) -- outbound policy and tls_* config writes.
+BEGIN;
+SELECT plan(8);
+SELECT is(rust_mailsec_tls_policy_set('["a.test"]'::jsonb, '[]'::jsonb, '"enforce"'::jsonb), true, 'policy write runs');
+SELECT is((SELECT value::text FROM system_config WHERE key = 'outbound_tls_enforce_domains'), '["a.test"]', 'enforce list stored');
+SELECT is((SELECT value::text FROM system_config WHERE key = 'outbound_tls_global_mode'), '"enforce"', 'mode stored');
+SELECT lives_ok($$SELECT rust_mailsec_tls_policy_set('[]'::jsonb, '["b.test"]'::jsonb, '"opportunistic"'::jsonb)$$, 'a second write replaces the first');
+SELECT is((SELECT value::text FROM system_config WHERE key = 'outbound_tls_skip_domains'), '["b.test"]', 'skip list replaced');
+SELECT is(rust_mailsec_tls_config_set(ARRAY['tls_x_test'], ARRAY['"v"'], ARRAY[false], NULL, '', '{"keys":["tls_x_test"]}'::jsonb, 'tls_x_test'), true, 'config write runs');
+SELECT is((SELECT value::text FROM system_config WHERE key = 'tls_x_test'), '"v"', 'config value stored');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action = 'tls_config_set' AND notes = 'tls_x_test'), 1, 'one audit row');
+SELECT * FROM finish();
+ROLLBACK;

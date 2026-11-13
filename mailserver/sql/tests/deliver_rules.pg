@@ -1,0 +1,48 @@
+-- pgTAP: deliver() applies inbound recipient rules end to end (the
+-- deliver() → apply_rules → apply_action seam). Inbound filtering had NO
+-- integration test — apply_rules was tested directly but never proven to run
+-- from a real delivery. Positive + negative control (a rule that flagged every
+-- message would pass the positive but fail the negative).
+BEGIN;
+SELECT plan(2);
+
+INSERT INTO domains (name, is_local) VALUES ('dr.test', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('alice', (SELECT id FROM domains WHERE name = 'dr.test'), 'alice@dr.test', 'Alice');
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+  VALUES ((SELECT id FROM users WHERE email = 'alice@dr.test'),
+          (SELECT id FROM domains WHERE name = 'dr.test'),
+          'alice@dr.test', 'Alice', 'personal', TRUE);
+
+-- Server rule: flag any inbound message whose From contains 'vip@'.
+INSERT INTO rules (user_id, mailbox_id, name, enabled, priority, run_on, conditions, actions)
+VALUES (
+  (SELECT id FROM users WHERE email = 'alice@dr.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@dr.test'),
+  'flag VIP', TRUE, 0, 'server',
+  '[{"field":"from_addr","op":"contains","value":"vip@"}]'::JSONB,
+  '[{"type":"flag"}]'::JSONB);
+
+-- (1) A matching inbound message is flagged BY the rule during delivery.
+SELECT deliver('refvip', '<vip>', 'vip@partner.test', 'VIP', 'alice@dr.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hi', NULL, NULL, 'body', NULL, 100, FALSE,
+  now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT is_flagged FROM messages WHERE message_id = '<vip>'
+     AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@dr.test')),
+  TRUE,
+  'deliver() runs inbound rules: a From-matching message is flagged on delivery');
+
+-- (2) Negative control: a non-matching sender is NOT flagged — proves the rule
+--     evaluates its condition rather than acting on every message.
+SELECT deliver('refother', '<other>', 'random@partner.test', 'R', 'alice@dr.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Hi', NULL, NULL, 'body', NULL, 100, FALSE,
+  now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT is_flagged FROM messages WHERE message_id = '<other>'
+     AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@dr.test')),
+  FALSE,
+  'deliver() rule does NOT fire for a non-matching sender (condition evaluated)');
+
+SELECT * FROM finish();
+ROLLBACK;

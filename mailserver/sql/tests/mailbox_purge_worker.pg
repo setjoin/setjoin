@@ -1,0 +1,70 @@
+BEGIN;
+SELECT plan(13);
+
+SELECT mk_account('mpw-actor') AS actor_mb \gset
+SELECT mk_account('mpw-approver') AS approver_mb \gset
+SELECT mk_account('mpw-target') AS target_mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:actor_mb \gset
+SELECT user_id AS approver FROM mailboxes WHERE id=:approver_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(:actor,1,:actor);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.mailbox_lifecycle_retention';
+
+SELECT (mailbox_lifecycle_read(:target_mb)->>'generation')::bigint AS gen \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,gen_random_uuid(),'detach_retain',:gen,
+  repeat('1',64),'worker purge retention');
+UPDATE mailbox_lifecycle SET retention_until=statement_timestamp()-interval '1 second' WHERE mailbox_id=:target_mb;
+SELECT mailbox_lifecycle_preview(:actor,:target_mb)->>'previewDigest' AS preview \gset
+SELECT gen_random_uuid() AS schedule_op \gset
+SELECT mailbox_purge_schedule(:actor,:target_mb,:'schedule_op',:gen+1,:'preview',repeat('2',64),
+  'worker purge request',:approver);
+SELECT approval_request_id AS approval_id,id AS purge_id FROM mailbox_purge_requests
+ WHERE operation_id=:'schedule_op' \gset
+SELECT mailbox_purge_approval_apply(:approval_id,:approver,'approve','independent approval');
+UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE id=:'purge_id';
+
+SELECT mailbox_purge_claim('purge-worker',60) AS first_claim \gset
+SELECT is((:'first_claim'::jsonb)->>'purgeRequestId',:'purge_id','worker claims the approved eligible purge');
+SELECT is((SELECT state FROM mailbox_purge_requests WHERE id=:'purge_id'),'claimed','claim persists its lease state');
+SELECT matches((:'first_claim'::jsonb)->>'requestDigest','^[0-9a-f]{64}$','worker execution digest is deterministic');
+SELECT lives_ok(format('SELECT mailbox_purge_fail(%L,%L,%L)','purge-worker',:'purge_id','temporary storage failure'),
+  'transient purge failure is recorded');
+SELECT is((SELECT state FROM mailbox_purge_requests WHERE id=:'purge_id'),'failed','failed purge remains recoverable');
+UPDATE mailbox_purge_requests SET lease_until=statement_timestamp()-interval '1 second' WHERE id=:'purge_id';
+SELECT mailbox_purge_claim('purge-worker-2',60) AS retry_claim \gset
+SELECT is(((:'retry_claim'::jsonb)->>'attempt')::integer,2,'expired failed purge is reclaimed');
+SELECT is((:'retry_claim'::jsonb)->>'operationId',(:'first_claim'::jsonb)->>'operationId',
+  'purge retries keep one stable execution operation ID');
+SELECT mailbox_purge_execute(:actor,:'purge_id',((:'retry_claim'::jsonb)->>'operationId')::uuid,
+  (:'retry_claim'::jsonb)->>'requestDigest') AS purge_receipt \gset
+SELECT is((:'purge_receipt'::jsonb)->>'state','completed','worker execution completes the approved purge');
+SELECT ok(NOT EXISTS(SELECT 1 FROM mailboxes WHERE id=:target_mb),'worker purge removes the logical mailbox');
+SELECT is((mailbox_purge_execute(:actor,:'purge_id',((:'retry_claim'::jsonb)->>'operationId')::uuid,
+  (:'retry_claim'::jsonb)->>'requestDigest')->>'replayed')::boolean,true,
+  'same execution operation returns the exact receipt after deletion');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_lifecycle_effects e JOIN mailbox_lifecycle_operations o
+  ON o.operation_id=e.operation_id WHERE o.action='purge_execute' AND e.effect_kind='lifecycle_webhook'),
+  'completed purge leaves a durable webhook effect');
+
+-- A fresh legal hold is persisted as blocked by the claim path rather than
+-- being rolled back with an exception from the destructive reducer.
+SELECT mk_account('mpw-held') AS held_mb \gset
+SELECT (mailbox_lifecycle_read(:held_mb)->>'generation')::bigint AS held_gen \gset
+SELECT mailbox_lifecycle_transition(:actor,:held_mb,gen_random_uuid(),'detach_retain',:held_gen,
+  repeat('3',64),'held worker purge');
+UPDATE mailboxes SET litigation_hold=true,hold_since=statement_timestamp() WHERE id=:held_mb;
+UPDATE mailbox_lifecycle SET retention_until=statement_timestamp()-interval '1 second' WHERE mailbox_id=:held_mb;
+SELECT mailbox_lifecycle_preview(:actor,:held_mb)->>'previewDigest' AS held_preview \gset
+SELECT gen_random_uuid() AS held_schedule \gset
+SELECT mailbox_purge_schedule(:actor,:held_mb,:'held_schedule',:held_gen+1,:'held_preview',repeat('4',64),
+  'held purge request',:approver);
+SELECT approval_request_id AS held_approval,id AS held_purge FROM mailbox_purge_requests
+ WHERE operation_id=:'held_schedule' \gset
+SELECT mailbox_purge_approval_apply(:held_approval,:approver,'approve','independent approval');
+UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE id=:'held_purge';
+SELECT is((mailbox_purge_claim('purge-worker',60)->>'blocked')::boolean,true,
+  'worker refuses a newly held mailbox');
+SELECT is((SELECT state FROM mailbox_purge_requests WHERE id=:'held_purge'),'blocked',
+  'fresh retention blockers persist for operator recovery');
+
+SELECT * FROM finish();
+ROLLBACK;

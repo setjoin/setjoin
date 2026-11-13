@@ -1,0 +1,73 @@
+-- pgTAP: mailbox_effective_type.pg
+-- Tests for the mailbox_effective_type() derived role function.
+-- Proves that effective role is derived from satellite tables, not mailboxes.type.
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (name, is_local) VALUES ('efftype.test', TRUE);
+
+-- ADR-003: DIVERGENT ids. users 107001/107002 own mailboxes 7001/7002;
+-- mailbox_effective_type() takes a MAILBOX id; the delegate row below references
+-- the real USER id (107001), not the mailbox id.
+-- (a) Personal mailbox: user_id IS NOT NULL, no satellite rows
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (107001, 'eff_personal', (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'personal@efftype.test', 'Personal User', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7001, 107001, (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'personal@efftype.test', 'Personal', 'personal', TRUE);
+
+-- (b) Distribution group mailbox: personal-type with a distribution_groups satellite row
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (107002, 'eff_group', (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'group@efftype.test', 'Group User', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7002, 107002, (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'group@efftype.test', 'Group', 'personal', TRUE);
+INSERT INTO distribution_groups (id, mailbox_id, is_dynamic)
+  VALUES (7001, 7002, FALSE);
+
+-- (c) Room resource mailbox: personal-type, user_id NULL, resource_type = 'room'
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type,
+                       resource_type, resource_capacity, is_primary)
+  VALUES (7003, NULL, (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'room@efftype.test', 'Conference Room', 'personal',
+          'room', 10, FALSE);
+
+-- (d) Shared mailbox: personal-type, user_id NULL, has a mailbox_delegates full_access row
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7004, NULL, (SELECT id FROM domains WHERE name = 'efftype.test'),
+          'shared@efftype.test', 'Shared Mailbox', 'personal', FALSE);
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (7004, 107001, 'full_access', 107001);
+
+-- Test 1: personal mailbox returns 'personal'
+SELECT is(
+  mailbox_effective_type(7001),
+  'personal',
+  'personal mailbox with no satellite rows returns personal'
+);
+
+-- Test 2: mailbox with distribution_groups row returns 'distribution'
+SELECT is(
+  mailbox_effective_type(7002),
+  'distribution',
+  'mailbox with distribution_groups satellite row returns distribution'
+);
+
+-- Test 3: mailbox with resource_type=room returns 'room'
+SELECT is(
+  mailbox_effective_type(7003),
+  'room',
+  'resource mailbox with resource_type=room returns room'
+);
+
+-- Test 4: shared mailbox (user_id NULL, has delegates) returns 'shared'
+SELECT is(
+  mailbox_effective_type(7004),
+  'shared',
+  'mailbox with user_id NULL and mailbox_delegates row returns shared'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

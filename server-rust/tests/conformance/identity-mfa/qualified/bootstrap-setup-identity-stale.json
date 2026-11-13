@@ -1,0 +1,127 @@
+{
+  "case": "bootstrap-setup-identity-stale",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "audit": [],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "mfa_reauth_step_ups": [
+        {
+          "bound_factor_generation": 2,
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "operation": "bootstrap.totp.enroll",
+          "proof_method": "password",
+          "proving_factor_id": null,
+          "refresh_family_id": null,
+          "session_jti": "idmfa1-actor",
+          "target_ref": null,
+          "token_hash": "<MFA token SHA256>",
+          "token_scope": "mfa_pending",
+          "user_id": "actor"
+        }
+      ],
+      "totp_pending_enrollments": [],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": false,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": false,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": null,
+        "enabled_at": false
+      },
+      "foreign": {
+        "active_secret": null,
+        "enabled_at": false
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"mfa_token\":\"<mfa_token>\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/totp/enroll/setup"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz235\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"conflict\",\"instance\":\"/auth/totp/enroll/setup\",\"remediation\":\"restart sign-in against the current source generation\",\"code\":\"BZ235\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 409
+    }
+  },
+  "route": "POST /auth/totp/enroll/setup"
+}

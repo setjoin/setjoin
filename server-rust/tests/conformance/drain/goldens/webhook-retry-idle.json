@@ -1,0 +1,21 @@
+{
+  "case": "webhook-retry-idle",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "publications": [],
+    "requests": [],
+    "subscriptions": [
+      {
+        "key_id": "v1",
+        "label": "a",
+        "legacy_prev": false,
+        "legacy_secret": false,
+        "prev_key_id": null,
+        "sealed": true,
+        "sealed_prev": false
+      }
+    ]
+  }
+}

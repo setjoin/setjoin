@@ -1,0 +1,45 @@
+-- pgTAP: rust_settings_sessions.sql (#308) — frozen Go's self-service session revocation and
+-- "this wasn't me" account securing, keyed by the verified user (R3).
+BEGIN;
+SELECT plan(14);
+SET LOCAL app.capture_notify = 'on';
+SELECT mk_account('ssown') AS mb \gset
+SELECT mk_account('ssoth') AS omb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ou FROM mailboxes WHERE id = :omb \gset
+
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method)
+VALUES ('ss-own-1',:u,digest('ss-own-1','sha256'),now()+interval '1 hour','password'),
+       ('ss-own-2',:u,digest('ss-own-2','sha256'),now()+interval '1 hour','password'),
+       ('ss-oth-1',:ou,digest('ss-oth-1','sha256'),now()+interval '1 hour','password');
+INSERT INTO oauth_tokens(user_id,token_hash,token_type,expires_at,family_id)
+VALUES (:u,digest('ss-fam-a','sha256'),'refresh',now()+interval '1 hour','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+       (:u,digest('ss-fam-b','sha256'),'refresh',now()+interval '1 hour','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+INSERT INTO oauth_tokens(user_id,token_hash,token_type,expires_at)
+VALUES (:u,digest('ss-legacy','sha256'),'refresh',now()+interval '1 hour'),
+       (:ou,digest('ss-oth-tok','sha256'),'refresh',now()+interval '1 hour');
+SELECT id AS legacy FROM oauth_tokens WHERE user_id = :u AND family_id IS NULL \gset
+SELECT id AS fam FROM oauth_tokens WHERE user_id = :u AND family_id IS NOT NULL ORDER BY id LIMIT 1 \gset
+SELECT id AS otok FROM oauth_tokens WHERE user_id = :ou \gset
+
+SELECT is(rust_session_revoke_one(:u, 'ss-oth-1'), 'not_found', 'another user''s session is not found (R3)');
+SELECT is(rust_session_revoke_one(:u, :'otok'), 'not_found', 'another user''s oauth token is not found (R3)');
+SELECT is(rust_session_revoke_one(:u, 'ss-own-1'), 'revoked', 'own web session is revoked');
+SELECT is((SELECT count(*) FROM sessions WHERE user_id = :u), 1::bigint, 'only that web session is gone');
+SELECT is((SELECT count(*) FROM session_revocations WHERE user_id = :u AND scope = 'jti' AND jti = 'ss-own-1'), 1::bigint, 'the jti denylist row is written');
+SELECT is(rust_session_revoke_one(:u, :'fam'::text), 'revoked', 'a family token revokes the whole family');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id = :u AND family_id IS NOT NULL AND revoked_at IS NULL), 0::bigint, 'every family member is revoked');
+SELECT is(rust_session_revoke_one(:u, :'legacy'::text), 'revoked', 'a family-less token is revoked alone');
+SELECT is(rust_session_revoke_one(:u, :'legacy'::text), 'not_found', 'an already revoked family-less token is not found');
+SELECT is(rust_session_revoke_one(:u, 'no-such-id'), 'not_found', 'an unknown id is not found');
+
+SELECT rust_sessions_revoke_all(:u);
+SELECT is((SELECT count(*) FROM sessions WHERE user_id = :u), 0::bigint, 'revoke-all deletes the caller''s sessions');
+SELECT is((SELECT count(*) FROM sessions WHERE user_id = :ou), 1::bigint, 'revoke-all leaves another user''s sessions (R3)');
+
+UPDATE users SET must_change_password = false WHERE id IN (:u, :ou);
+SELECT rust_secure_account_self(:u, '203.0.113.9');
+SELECT is((SELECT must_change_password FROM users WHERE id = :u), true, 'secure-account forces a password change');
+SELECT is((SELECT must_change_password FROM users WHERE id = :ou), false, 'secure-account leaves another user alone (R3)');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,13 @@
+[package]
+name = "setjoin-calendar-format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+[dependencies]
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+tz-rs = "=0.7.3"
+serde_json = "=1.0.145"
+setjoin-mime = { path = "../mime" }
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,10 @@
+{
+  "stdout": "connectivity: profile=custom source=NETWORK_MODE publicNetwork=true writesHost=false\nprovider: ai               openai_compatible    not_configured\nprovider: url_reputation   google_safe_browsing not_configured\nprovider: url_reputation   spamhaus_dbl         configured\nhost: distro= release= arch=amd64 supported=false writesHost=false\n  apt             external           missing              \n[BLOCKER] custom_source_required: custom profile has no Collabora repository; remedy: configure the custom Collabora repository\n[WARNING] host_inventory_unsupported: host inventory is read-only and currently limited to Ubuntu\n[WARNING] assist_posture_unavailable: DB_DSN is not set, so the read-only assist system_config posture was not inspected\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

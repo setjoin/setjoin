@@ -1,0 +1,58 @@
+-- journal_op.pg: the shared journal write helper (reducers/journal_op.sql), the deep
+-- entry point the 5 A4 datatype triggers delegate to (V099). Proves the TG_OP→op
+-- mapping, the NULL-mailbox no-op, journal_resync's sentinel, AND — the point of the
+-- deepening — the best-effort FORCE-RLS skip IN-SUITE under setjoin_app (previously only
+-- provable by a manual role test, because the mail superuser bypasses FORCE).
+BEGIN;
+SELECT plan(9);
+
+INSERT INTO domains (name, is_local) VALUES ('jop.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (992001,'ja',(SELECT id FROM domains WHERE name='jop.test'),'ja@jop.test','JA'),
+  (992002,'jb',(SELECT id FROM domains WHERE name='jop.test'),'jb@jop.test','JB');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (99201,992001,(SELECT id FROM domains WHERE name='jop.test'),'ja@jop.test','JA','personal',TRUE),
+  (99202,992002,(SELECT id FROM domains WHERE name='jop.test'),'jb@jop.test','JB','personal',TRUE);
+
+-- ── TG_OP → op mapping (distinct entity ids so each has one row) ──────────────
+SELECT journal_op(99201, 'Task', 111, 'INSERT');
+SELECT journal_op(99201, 'Task', 112, 'UPDATE');
+SELECT journal_op(99201, 'Task', 113, 'DELETE');
+SELECT is((SELECT op FROM jmap_changes_journal WHERE mailbox_id=99201 AND datatype='Task' AND entity_id=111),
+          'created', 'journal_op INSERT → created');
+SELECT is((SELECT op FROM jmap_changes_journal WHERE mailbox_id=99201 AND datatype='Task' AND entity_id=112),
+          'updated', 'journal_op UPDATE → updated');
+SELECT is((SELECT op FROM jmap_changes_journal WHERE mailbox_id=99201 AND datatype='Task' AND entity_id=113),
+          'destroyed', 'journal_op DELETE → destroyed');
+
+-- ── NULL mailbox (parent-join miss under cascade) → no-op, no raise ──────────
+SELECT lives_ok($$ SELECT journal_op(NULL, 'Task', 999, 'INSERT') $$,
+                'journal_op with NULL mailbox is a no-op (cascade-safe)');
+SELECT is((SELECT count(*) FROM jmap_changes_journal WHERE entity_id=999),
+          0::bigint, 'NULL-mailbox journal_op wrote nothing');
+
+-- ── journal_resync → the coarse-path sentinel row ───────────────────────────
+SELECT journal_resync(99201, 'CalendarEvent');
+SELECT is((SELECT op FROM jmap_changes_journal WHERE mailbox_id=99201 AND datatype='CalendarEvent' AND entity_id=0),
+          'resync', 'journal_resync writes the entity_id=0 sentinel');
+
+-- ── THE F5 PROOF: under setjoin_app (NOBYPASSRLS), a cross-mailbox write is
+--    best-effort SKIPPED, not raised — the calendar mutation would survive. ────
+GRANT INSERT, SELECT, UPDATE ON jmap_changes_journal, jmap_entity_state TO setjoin_app;
+GRANT EXECUTE ON FUNCTION journal_op(bigint,text,bigint,text,bigint,text),
+                          append_change(bigint,text,bigint,bigint,text,bigint,text),
+                          bump_entity_state(bigint,text) TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', '99201', true);   -- acting as mailbox A
+SELECT journal_op(99201, 'Task', 222, 'INSERT');              -- same mailbox → journals
+SELECT lives_ok($$ SELECT journal_op(99202, 'Task', 333, 'INSERT') $$,
+                'cross-mailbox journal_op is skipped, not raised (F5 best-effort)');  -- 99202 != GUC
+RESET ROLE;
+
+SELECT is((SELECT count(*) FROM jmap_changes_journal WHERE mailbox_id=99201 AND datatype='Task' AND entity_id=222),
+          1::bigint, 'same-mailbox write journaled under setjoin_app');
+SELECT is((SELECT count(*) FROM jmap_changes_journal WHERE mailbox_id=99202 AND datatype='Task' AND entity_id=333),
+          0::bigint, 'cross-mailbox write skipped (best-effort) — no row, no error');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,41 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/diagnostics",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\",\"sinceSeconds\":3600,\"sourceKey\":\"directory\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001/download",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"job\": {\n    \"jobId\": \"00000000-0000-4000-8000-000000000001\",\n    \"kind\": \"diagnostics\",\n    \"state\": \"completed\",\n    \"snapshotId\": \"00000000-0000-4000-8000-000000000002\",\n    \"sourceKey\": null,\n    \"transitionId\": null,\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"expiresAt\": \"2026-01-01T00:00:00Z\",\n    \"progress\": {},\n    \"nextAction\": \"review\",\n    \"terminal\": true,\n    \"cancelRequested\": false,\n    \"manifestVersion\": \"1\",\n    \"byteCount\": 21,\n    \"sha256\": \"964749ce4e689f8fd463fd4af0c5302132f49c7650d03b62aaad6937a1186708\",\n    \"redactionCounts\": null\n  },\n  \"output\": \"$HOME/diagnostics.zip\",\n  \"sha256\": \"964749ce4e689f8fd463fd4af0c5302132f49c7650d03b62aaad6937a1186708\"\n}\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000001\n",
+  "exit": 0,
+  "files": {
+    "diagnostics.zip": {
+      "body": "PK\u0003\u0004sanitized-fixture",
+      "mode": 384
+    }
+  }
+}

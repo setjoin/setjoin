@@ -1,0 +1,84 @@
+-- mailserver/sql/tests/drive_conflict_sibling.pg — I-9: two writers, no data
+-- loss + the P4 auto-branch extension (Task 4): the conflict sibling is now
+-- ALSO the head of a fresh auto-created branch (§5.2), including the
+-- gxp-in-retention case (the V115 WORM carve must not block it).
+BEGIN;
+SELECT plan(16);
+SELECT mk_account('dcf') AS mba \gset
+SELECT mk_account('dcg') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+SELECT drive_space_create(:ua, 'CF', 'regular') AS sid \gset
+SELECT drive_member_grant(:ua, :sid, :ub, 'editor');
+SELECT drive_node_create(:ua, :sid, NULL, 'file', 'r.xlsx') AS nid \gset
+SELECT drive_chunk_register(:ua, :sid, repeat('1',64), 10);
+SELECT drive_chunk_register(:ua, :sid, repeat('2',64), 10);
+SELECT drive_chunk_register(:ub, :sid, repeat('3',64), 10);
+
+SELECT (drive_file_put_version(:ua, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, 'base', 'A')->>'versionId')::bigint AS v1 \gset
+-- Anna advances from v1
+SELECT (drive_file_put_version(:ua, :nid, repeat('b',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, 'anna', 'A')->>'versionId')::bigint AS v2 \gset
+-- Bob saves from the SAME base v1: conflict sibling, head unchanged
+SELECT drive_file_put_version(:ub, :nid, repeat('c',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, 'bob', 'B') AS rb \gset
+SELECT is((:'rb'::jsonb->>'conflict')::boolean, TRUE, 'second writer from a stale base → conflict');
+SELECT is((:'rb'::jsonb->>'headVersionId')::bigint, :v2::bigint, 'head did NOT move');
+SELECT is((SELECT conflict_of FROM drive_file_versions WHERE id=(:'rb'::jsonb->>'versionId')::bigint), :v2::bigint,
+  'conflict_of = the head that won');
+SELECT is((SELECT parent_version_id FROM drive_file_versions WHERE id=(:'rb'::jsonb->>'versionId')::bigint), :v1::bigint,
+  'parentage records the true base');
+-- BOTH manifests retrievable (no data loss)
+SELECT is((SELECT count(*) FROM drive_version_chunks WHERE version_id=:v2)::int, 1, 'winner manifest intact');
+SELECT is((SELECT count(*) FROM drive_version_chunks WHERE version_id=(:'rb'::jsonb->>'versionId')::bigint)::int, 1, 'sibling manifest intact');
+-- idempotent re-POST of the conflicted save returns the SAME sibling
+SELECT is((drive_file_put_version(:ub, :nid, repeat('c',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, 'bob', 'B')->>'versionId')::bigint,
+  (:'rb'::jsonb->>'versionId')::bigint, 'conflict re-POST is idempotent');
+-- idempotent re-POST is also matched when the caller doesn't know the
+-- auto-branch id and re-sends p_branch_id=NULL (AUTOPLAN batch-1 #5)
+SELECT is((drive_file_put_version(:ub, :nid, repeat('c',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, 'bob', 'B', NULL)->>'versionId')::bigint,
+  (:'rb'::jsonb->>'versionId')::bigint, 'conflict retry with p_branch_id re-sent as NULL is ALSO idempotent');
+
+-- P4 auto-branch extension (I-9): the sibling is the head of a fresh branch
+-- named "<device_label> <YYYY-MM-DD>", forked at the stale base v1.
+SELECT (:'rb'::jsonb->>'branchId')::bigint AS abid \gset
+SELECT ok(:abid IS NOT NULL, 'conflict response carries a branchId');
+SELECT is((SELECT branch_id FROM drive_file_versions WHERE id=(:'rb'::jsonb->>'versionId')::bigint), :abid::bigint,
+  'sibling version.branch_id = the auto-branch');
+SELECT is((SELECT head_version_id FROM drive_file_branches WHERE id=:abid), (:'rb'::jsonb->>'versionId')::bigint,
+  'auto-branch head = the sibling version');
+SELECT is((SELECT forked_from_version_id FROM drive_file_branches WHERE id=:abid), :v1::bigint,
+  'auto-branch forked_from = the stale base (v1)');
+SELECT is((SELECT auto_created FROM drive_file_branches WHERE id=:abid), TRUE, 'auto_created = true');
+SELECT is((SELECT name FROM drive_file_branches WHERE id=:abid), 'B ' || to_char(now(),'YYYY-MM-DD'),
+  'default name = "<device_label> <YYYY-MM-DD>"');
+
+-- a SECOND same-day conflict from the same device gets the " -2" G4 suffix
+SELECT drive_chunk_register(:ub, :sid, repeat('4',64), 10);
+SELECT drive_file_put_version(:ub, :nid, repeat('e',64), 10, NULL, :v1,
+  format('[{"sha256":"%s","size":10}]', repeat('4',64))::jsonb, 'bob2', 'B') AS rb2 \gset
+SELECT is((SELECT name FROM drive_file_branches WHERE id=(:'rb2'::jsonb->>'branchId')::bigint),
+  'B ' || to_char(now(),'YYYY-MM-DD') || ' -2', 'second same-day conflict gets the " -2" G4 suffix');
+
+-- gxp-in-retention conflict: the auto-branch's version->branch_id UPDATE
+-- must NOT trip trg_drive_version_worm (the V115 carve exempts exactly this
+-- NULL->value transition).
+INSERT INTO drive_spaces (name, owner_user_id, classification, retention_days, worm_mode)
+  VALUES ('GXPC', :ua, 'gxp', 365, 'compliance');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS gsid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES
+  (:gsid, :ua, 'manager', :ua), (:gsid, :ub, 'editor', :ua);
+SELECT drive_node_create(:ua, :gsid, NULL, 'file', 'g.bin') AS gnid \gset
+SELECT drive_chunk_register(:ua, :gsid, repeat('5',64), 10);
+SELECT drive_chunk_register(:ub, :gsid, repeat('6',64), 10);
+SELECT (drive_file_put_version(:ua, :gnid, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('5',64))::jsonb, 'base', 'A')->>'versionId')::bigint AS gv1 \gset
+SELECT lives_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, %s,
+  '[{"sha256":"%s","size":10}]', 'bob', 'B') $$, :ub, :gnid, repeat('7',64), :gv1, repeat('6',64)),
+  'gxp-in-retention conflict auto-branches clean (WORM carve does not block it)');
+
+SELECT * FROM finish();
+ROLLBACK;

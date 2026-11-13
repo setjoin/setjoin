@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: usage: mailctl push test --user <email>\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

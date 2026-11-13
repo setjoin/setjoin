@@ -1,0 +1,37 @@
+{
+  "case": "webpush-wrong-type-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "created_at": "<timestamp>",
+          "device_name": "Foreign subscription",
+          "device_public_key": null,
+          "id": "<push-b-1>",
+          "last_used_at": null,
+          "push_provider": "webpush",
+          "push_token_enc": "<PGP encrypted: {\"endpoint\":\"https://foreign.push.idlogin3.test/send\",\"keys\":{\"auth\":\"foreign\",\"p256dh\":\"foreign\"}}>",
+          "revoked_at": null,
+          "user_id": "<foreign>"
+        }
+      ],
+      "before": [
+        {
+          "created_at": "<timestamp>",
+          "device_name": "Foreign subscription",
+          "device_public_key": null,
+          "id": "<push-b-1>",
+          "last_used_at": null,
+          "push_provider": "webpush",
+          "push_token_enc": "<PGP encrypted: {\"endpoint\":\"https://foreign.push.idlogin3.test/send\",\"keys\":{\"auth\":\"foreign\",\"p256dh\":\"foreign\"}}>",
+          "revoked_at": null,
+          "user_id": "<foreign>"
+        }
+      ],
+      "table": "push_devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /auth/device/register"
+}

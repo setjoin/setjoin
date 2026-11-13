@@ -1,0 +1,50 @@
+{
+  "case": "authorize-invalid-input",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "oidc_auth_requests"
+      },
+      {
+        "after": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "before": [],
+        "table": "auth_attempts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/authorize",
+      "query": "",
+      "wire_method": "GET",
+      "wire_path": "/authorize"
+    },
+    "response": {
+      "body": "auth request is missing client_id\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8",
+        "vary": "Origin",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 400
+    }
+  },
+  "route": "* /authorize"
+}

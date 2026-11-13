@@ -1,0 +1,32 @@
+-- pgTAP: V011__backfill_admin_role_assignments.pg — RETIRED by the RBAC cut-over.
+--
+-- V011 was a ONE-TIME forward backfill: every is_admin user with a named
+-- users.admin_role and no admin_role_assignments row got the matching builtin
+-- role group, so their resolved permissions stopped depending on the bounded
+-- legacy IsAdmin bridge. It ran (in version order) while users.admin_role still
+-- existed, then V017 DROPPED that column — governed admin_role_assignments is
+-- now the single authority axis.
+--
+-- The original test seeded users.admin_role and replayed the backfill INSERT.
+-- Against the post-V017 schema that column is gone, so the backfill can never
+-- run again — by construction. This tombstone pins exactly that: the dropped
+-- column the backfill keyed off no longer exists, and the governed target table
+-- the backfill wrote into is still present. (Do NOT resurrect users.admin_role
+-- to "restore" the old assertions — the cut-over deliberately removed it.)
+BEGIN;
+SELECT plan(2);
+
+-- The column the V011 backfill SELECTed from is gone (V017) — the backfill is
+-- permanently inapplicable, which is the post-cut-over invariant.
+SELECT hasnt_column(
+  'users', 'admin_role',
+  'V011 backfill source users.admin_role dropped by V017 — backfill cannot recur');
+
+-- The governed target table the backfill wrote into survives the cut-over and
+-- remains the single authority axis.
+SELECT has_table(
+  'public', 'admin_role_assignments',
+  'governed admin_role_assignments survives — the only authority axis post-cut-over');
+
+SELECT * FROM finish();
+ROLLBACK;

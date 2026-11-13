@@ -1,0 +1,211 @@
+/* setjoin color tokens — light theme (light-first; dark theme TBD).
+   Base scales + semantic aliases. */
+:root {
+  /* ——— Neutral scale (cool-cast gray) ——— */
+  --gray-0: #FFFFFF;
+  --gray-25: #FBFBFD;
+  --gray-50: #F6F7F9;
+  --gray-100: #EFF0F4;
+  --gray-200: #E3E5EB;
+  --gray-300: #D0D3DC;
+  --gray-400: #A8ACBA;
+  --gray-500: #7E8395;
+  --gray-600: #5D6172;
+  --gray-700: #454857;
+  --gray-800: #2F3240;
+  --gray-900: #1E202B;
+  --gray-950: #14151D;
+
+  /* ——— Indigo scale (brand accent) ——— */
+  --indigo-50: #EEF0FE;
+  --indigo-100: #E1E4FD;
+  --indigo-200: #C9CEFA;
+  --indigo-300: #A8AFF4;
+  --indigo-400: #828BEC;
+  --indigo-500: #5F66E0;
+  --indigo-600: #4A50D0;
+  --indigo-700: #3E42AE;
+  --indigo-800: #34378D;
+  --indigo-900: #2D3071;
+  --indigo-950: #1A1C45;
+
+  /* ——— Semantic status ——— */
+  --success-fg: #1C7A36;
+  --success-bg: #E5F4E8;
+  --success-solid: #2B9C4C;
+  --warning-fg: #95620C;
+  --warning-bg: #FBF1DC;
+  --warning-solid: #D29B1D;
+  --danger-fg: #C03A30;
+  --danger-bg: #FCEBEA;
+  --danger-solid: #D4453B;
+  --info-fg: #1D5BB8;
+  --info-bg: #E8F0FC;
+  --info-solid: #3B7DE0;
+
+  /* ——— Tag palette (8 hues; subtle bg + strong fg + dot) ——— */
+  --tag-blue-bg: #E8F0FC;   --tag-blue-fg: #1D5BB8;   --tag-blue-dot: #3B7DE0;
+  --tag-teal-bg: #E2F4F3;   --tag-teal-fg: #0E6B66;   --tag-teal-dot: #15938C;
+  --tag-green-bg: #E5F4E8;  --tag-green-fg: #1C7A36;  --tag-green-dot: #2B9C4C;
+  --tag-amber-bg: #FBF1DC;  --tag-amber-fg: #8A6510;  --tag-amber-dot: #D29B1D;
+  --tag-orange-bg: #FCEEE4; --tag-orange-fg: #A14E14; --tag-orange-dot: #DD7833;
+  --tag-rose-bg: #FBEAEE;   --tag-rose-fg: #B02A4C;   --tag-rose-dot: #DE5277;
+  --tag-purple-bg: #F2ECFB; --tag-purple-fg: #6D3BB8; --tag-purple-dot: #9263DB;
+  --tag-gray-bg: #EFF0F4;   --tag-gray-fg: #5D6172;   --tag-gray-dot: #A8ACBA;
+
+  /* ——— Semantic aliases: surfaces ——— */
+  --surface-page: var(--gray-50);
+  --surface-card: var(--gray-0);
+  --surface-sunken: var(--gray-100);
+  --surface-raised: var(--gray-0);
+  --surface-sidebar: var(--gray-25);
+  --surface-hover: var(--gray-100);
+  --surface-selected: var(--indigo-50);
+  --surface-inverse: var(--gray-900);
+
+  /* ——— Theme-preview swatches (fixed: always show dark/light regardless
+     of the active theme — used by the appearance theme picker) ——— */
+  --preview-dark-bg: #1A1A2E;
+  --preview-light-bg: #F5F5F5;
+
+  /* ——— Semantic aliases: text ——— */
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  /* --text-caption: the AA-safe (≥4.5:1) channel for small text that must be
+     read — input hints/errors, form labels, captions, timestamps, stat labels.
+     #696D7E ⇒ 4.79:1 on --surface-page, 5.14:1 on --surface-card, 4.51:1 on
+     --surface-sunken. --text-tertiary stays for genuinely decorative/large use
+     only (it is 3.52:1 on page — below AA for body text). */
+  --text-caption: #696D7E;
+  --text-tertiary: var(--gray-500);
+  --text-disabled: var(--gray-400);
+  --text-inverse: var(--gray-0);
+  --text-accent: var(--indigo-600);
+
+  /* ——— Links ——— */
+  --link: var(--indigo-600);
+  --link-visited: var(--indigo-800); /* #34378D ⇒ ≥4.5:1 on page+card; distinct from unvisited */
+
+  /* ——— Semantic aliases: borders ——— */
+  --border-subtle: var(--gray-100);
+  --border-default: var(--gray-200);
+  --border-strong: var(--gray-300);
+  --border-accent: var(--indigo-300);
+
+  /* ——— Semantic aliases: accent ——— */
+  --accent: var(--indigo-600);
+  --accent-hover: var(--indigo-700);
+  --accent-active: var(--indigo-800);
+  --accent-subtle: var(--indigo-50);
+  --accent-subtle-hover: var(--indigo-100);
+  --accent-fg-on-subtle: var(--indigo-700);
+
+  /* ——— Per-app accents (workspace launcher, app icons) ——— */
+  --app-mail: var(--indigo-600);
+  --app-calendar: #3B7DE0;
+  --app-contacts: #2B9C4C;
+  --app-tasks: #DD7833;
+  --app-approvals: #0891B2;
+  --app-drive: #15938C;
+  --app-chat: #9263DB;
+  --app-meeting: #DE5277;
+  --app-auth: #D29B1D;
+  --app-admin: var(--gray-700);
+
+  /* ——— Focus ——— */
+  /* Outer ring = brand accent (indigo-600): 5.85:1 on --surface-page, 6.27:1 on
+     the white inner halo — clears WCAG 2.4.11/1.4.11's 3:1 focus-indicator
+     minimum. (indigo-300 was ~2:1.) Dark override mirrors this with indigo-500. */
+  --focus-ring: 0 0 0 2px var(--gray-0), 0 0 0 4px var(--indigo-600);
+
+  /* ——— Scrim ——— */
+  /* Modal-backdrop overlay. Theme-agnostic: same value in light and dark. */
+  --scrim: rgb(20, 21, 29, 0.45);
+}
+
+/* ——— Dark theme (toggle via <html data-theme="dark">) ——— */
+[data-theme="dark"] {
+  /* Flipped neutral scale */
+  --gray-0: #1B1D28;
+  --gray-25: #1A1C25;
+  --gray-50: #16171F;
+  --gray-100: #262934;
+  --gray-200: #303442;
+  --gray-300: #3D4150;
+  --gray-400: #565B6C;
+  --gray-500: #7E8395;
+  --gray-600: #9BA0B0;
+  --gray-700: #B6BAC7;
+  --gray-800: #D3D5DE;
+  --gray-900: #ECEDF2;
+  --gray-950: #F6F7FA;
+
+  /* Status — darkened beds, lifted foregrounds */
+  --success-fg: #6FC987;  --success-bg: #15301C;  --success-solid: #2B9C4C;
+  --warning-fg: #E0B25C;  --warning-bg: #332912;  --warning-solid: #D29B1D;
+  --danger-fg: #F08B83;   --danger-bg: #3A1A17;   --danger-solid: #D4453B;
+  --info-fg: #7FAEF0;     --info-bg: #1A2A45;     --info-solid: #3B7DE0;
+
+  /* Tag palette — dots are lighter variants matching each light dot's intent,
+     legible on the dark sidebar/list surfaces (the light dots are too dark on
+     dark beds). All 8 dots must be present so Tag.svelte's var(--tag-{c}-dot)
+     resolves in dark mode (guarded by tokens.test.ts theme-completeness). */
+  --tag-blue-bg: #1A2A45;   --tag-blue-fg: #7FAEF0;   --tag-blue-dot: #6FA3EC;
+  --tag-teal-bg: #12302E;   --tag-teal-fg: #5BC4BD;   --tag-teal-dot: #3FB3AB;
+  --tag-green-bg: #15301C;  --tag-green-fg: #6FC987;  --tag-green-dot: #4FBE6E;
+  --tag-amber-bg: #332912;  --tag-amber-fg: #E0B25C;  --tag-amber-dot: #D8AA4A;
+  --tag-orange-bg: #362113; --tag-orange-fg: #E89A66; --tag-orange-dot: #E0894F;
+  --tag-rose-bg: #381722;   --tag-rose-fg: #EE8FA9;   --tag-rose-dot: #E67191;
+  --tag-purple-bg: #2A1F3D; --tag-purple-fg: #BD9BEA; --tag-purple-dot: #A77EE0;
+  --tag-gray-bg: #262934;   --tag-gray-fg: #9BA0B0;   --tag-gray-dot: #565B6C;
+
+  /* Surfaces */
+  --surface-page: #131420;
+  --surface-card: #1B1D28;
+  --surface-sunken: #14151D;
+  --surface-raised: #1F212D;
+  --surface-sidebar: #181A24;
+  --surface-hover: #262934;
+  --surface-selected: #252849;
+  --surface-inverse: #2F3240;
+
+  /* Text */
+  --text-primary: #ECEDF2;
+  --text-secondary: #9BA0B0;
+  /* --text-caption dark: #888D9E ⇒ 5.53:1 on dark page, 5.07:1 on card,
+     4.83:1 on raised — AA-safe on every dark surface (dark --text-tertiary
+     #7E8395 is only 4.44:1 on card / 4.24:1 on raised, so caption is explicit). */
+  --text-caption: #888D9E;
+  --text-tertiary: #7E8395;
+  --text-disabled: #565B6C;
+  --text-inverse: #FFFFFF;
+  --text-accent: var(--indigo-300);
+
+  /* Links */
+  --link: var(--indigo-300);
+  --link-visited: var(--indigo-300);
+
+  /* Borders */
+  --border-subtle: #232531;
+  --border-default: #2D3040;
+  --border-strong: #3D4150;
+  --border-accent: var(--indigo-700);
+
+  /* Accent */
+  --accent: var(--indigo-500);
+  --accent-hover: var(--indigo-400);
+  --accent-active: var(--indigo-300);
+  --accent-subtle: #232649;
+  --accent-subtle-hover: #2A2E55;
+  --accent-fg-on-subtle: var(--indigo-300);
+
+  /* Shadows — heavier on dark */
+  --shadow-xs: 0 1px 2px rgb(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 3px rgb(0, 0, 0, 0.45), 0 1px 2px rgb(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgb(0, 0, 0, 0.5), 0 1px 3px rgb(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgb(0, 0, 0, 0.6), 0 2px 6px rgb(0, 0, 0, 0.4);
+
+  /* indigo-500 on the dark page = 3.89:1 / 3.56:1 on the dark halo — clears 3:1.
+     (indigo-700 was 2.26:1: a darker ring loses contrast on a dark surface.) */
+  --focus-ring: 0 0 0 2px var(--gray-0), 0 0 0 4px var(--indigo-500);
+}

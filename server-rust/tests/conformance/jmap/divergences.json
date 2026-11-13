@@ -1,0 +1,245 @@
+[
+  {
+    "route": "POST /jmap Email/set",
+    "case": "mark-read",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner chose to persist the operation ID for lookup of an unknown commit; frozen Go writes NULL. The decision and explicit comparison with Go are recorded in commit bdee4e732c7d2d7e23660c2127cf570ed8b9efd8.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "mark-read-cross-tenant",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The same owner decision records an operation ID in every email_set audit row, including a notFound result, for unknown-commit lookup.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "mark-read-invalid-seen",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The same owner decision records an operation ID in every email_set audit row, including a per-item error, for unknown-commit lookup.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "mark-read-repeat",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner-approved operation ID is recorded in the first email_set audit row for unknown-commit lookup.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "mark-read-repeat",
+    "field": "/audit/1/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The same owner-approved operation ID is recorded for the repeated email_set, which is a separate operation.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-update-flag",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-move-label",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-destroy",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-destroy-malformed",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-invalid-keyword",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-update-repeat",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "POST /jmap Email/set",
+    "case": "email-set-update-repeat",
+    "field": "/audit/1/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner decision of 2026-10-29 records an operation ID in every email_set audit row for unknown-commit lookup; frozen Go writes NULL. The general Email/set reuses the same statement shape and lookup as mark-read. The repeated request is a separate operation.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "GET /jmap/ws",
+    "case": "ws-write-repeat-v2",
+    "field": "/audit/0/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner chose to persist the operation ID for lookup of an unknown commit; frozen Go writes NULL. The decision and explicit comparison with Go are recorded in commit bdee4e732c7d2d7e23660c2127cf570ed8b9efd8. This is the same qualified command and audit receipt through the WebSocket envelope.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "GET /jmap/ws",
+    "case": "ws-write-repeat-v2",
+    "field": "/audit/1/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner chose to persist the operation ID for lookup of an unknown commit; frozen Go writes NULL. The decision and explicit comparison with Go are recorded in commit bdee4e732c7d2d7e23660c2127cf570ed8b9efd8. This is the same qualified command and audit receipt through the WebSocket envelope.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "route": "GET /jmap/ws",
+    "case": "ws-write-repeat-v2",
+    "field": "/audit/2/details",
+    "from": null,
+    "to": {
+      "operation": "<operation-id>"
+    },
+    "reason": "The owner chose to persist the operation ID for lookup of an unknown commit; frozen Go writes NULL. The decision and explicit comparison with Go are recorded in commit bdee4e732c7d2d7e23660c2127cf570ed8b9efd8. This is the same qualified command and audit receipt through the WebSocket envelope.",
+    "reviewer": "project owner (owner decision, 2026-10-29)",
+    "reviewed": true,
+    "review_reference": "bdee4e732c7d2d7e23660c2127cf570ed8b9efd8"
+  },
+  {
+    "baseline": "goldens/submission-undo-shared-id.json",
+    "sha256": "a5486556ea65aa51937e6a8cb500d8157fb91ddaf6a7be3301fb656bedc4b1e4",
+    "expectation": "security/submission-undo-shared-id.json",
+    "reason": "owner-approved security fix 2026-11-05 (#476: undo_send deletes only the caller's own outbound queue rows; another tenant's queue row sharing the Message-ID survives)",
+    "issue": "#476",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix6.rs::undo_send_never_deletes_another_tenants_queue_row",
+    "mutant": "sql:undo-queue-unscoped"
+  },
+  {
+    "baseline": "goldens/jmap-download-cross-tenant.json",
+    "sha256": "270f0843c8595a953778a84aa7f4d7c79a7c1a95127ce325febfb9b8f5e51239",
+    "expectation": "security/jmap-download-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#478: JMAP download decides ownership before reading blob metadata, so a known foreign hash answers 404 blobNotFound exactly like an unknown one, not 403)",
+    "issue": "#478",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/jmap_other.rs::jmap_download_cross_tenant",
+    "mutant": "download-existence-oracle"
+  },
+  {
+    "baseline": "goldens/zip-success.json",
+    "sha256": "de03d98c742796bb7885c5e478d84c26d0fb849b25381e7dfed2ef1af7e5b868",
+    "expectation": "security/zip-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#469: attachments.zip names a '.'/'..' attachment 'attachment' instead of a dot entry)",
+    "issue": "#469",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix6.rs::attachments_zip_neutralises_dot_names_and_bounds_entries",
+    "mutant": "zip-dot-names"
+  },
+  {
+    "baseline": "goldens/zip-large.json",
+    "sha256": "246d3760e9fdf29131ea5e571e9bc892fdcb4465af15af676230c74d388e6f7f",
+    "expectation": "security/zip-large.json",
+    "reason": "owner-approved security fix 2026-11-05 (#469: attachments.zip names a '.'/'..' attachment 'attachment' instead of a dot entry)",
+    "issue": "#469",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix6.rs::attachments_zip_neutralises_dot_names_and_bounds_entries",
+    "mutant": "zip-dot-names"
+  }
+]

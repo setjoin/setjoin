@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -generation: parse error\nUsage of office configure:\n  -allow-cidrs string\n    \tcomma-separated private target CIDRs\n  -allow-hosts string\n    \tcomma-separated exact private target hosts\n  -build-id string\n    \tprovider build identifier\n  -discovery-url string\n    \tHTTPS discovery URL\n  -editor-url string\n    \tHTTPS editor launch URL\n  -entitlement-state string\n    \tsupport entitlement state (default \"unknown\")\n  -generation int\n    \texpected provider generation; zero creates (default -1)\n  -profile string\n    \treadiness profile (default \"existing-provider\")\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\n  -wopi-base-url string\n    \tHTTPS public Setjoin WOPI base URL\nError: usage: mailctl office configure --generation N --discovery-url URL --wopi-base-url URL --editor-url URL --reason TEXT [--profile existing-provider]\n",
+  "exit": 1
+}

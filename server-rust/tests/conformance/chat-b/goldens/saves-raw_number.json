@@ -1,0 +1,55 @@
+{
+  "case": "saves-raw_number",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "response": {
+      "body": [
+        {
+          "attachments": [],
+          "authorExternal": false,
+          "authorId": "<actor>",
+          "authorRemoved": false,
+          "body": "chat3 root",
+          "broadcast": null,
+          "channelId": "<channel>",
+          "createdAt": "<timestamp>",
+          "deletedAt": null,
+          "deliveredAt": null,
+          "editedAt": null,
+          "federatedSenderAddr": null,
+          "lastReplyAt": null,
+          "mentionsMe": false,
+          "messageId": "<message>",
+          "msgType": "text",
+          "parentMessageId": null,
+          "payload": {
+            "html": "<b>&",
+            "n": 1.2345678901234567e39
+          },
+          "pinned": false,
+          "reactions": [],
+          "replyCount": 0,
+          "seq": 1,
+          "spamQuarantined": false
+        }
+      ],
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat3-oracle"
+      },
+      "status": 200
+    },
+    "wirePayloads": [
+      "{\"n\":1234567890123456789012345678901234567890,\"html\":\"\\u003cb\\u003e\\u0026\"}"
+    ]
+  },
+  "route": "GET /chat/saves"
+}

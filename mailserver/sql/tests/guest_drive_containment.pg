@@ -1,0 +1,101 @@
+-- guest_drive_containment.pg — Guest G0 Task 7/Step 4b (codex C-3): the
+-- Drive containment story is the GRANT DOOR + LIVE DERIVATION, not the
+-- routes. (1) explicit grants naming a guest refuse (both grant reducers);
+-- (2) a guest's chat-derived role on a chat-bound space EXISTS while the
+-- membership lives and DIES with it (the A2/V120 model); (3) space create
+-- refuses a guest caller.
+--
+-- Implementer deviations from the brief's draft (both load-bearing, not
+-- cosmetic): drive_space_create's classification CHECK is regular|secure|gxp
+-- (no 'internal' value) — the fixture below uses 'regular'. And
+-- drive_space_create does not auto-create a root folder node, and
+-- drive_subtree_admin checks the drive_folder_admins table, NOT space-
+-- manager role — so the admin caller is explicitly seated as a folder admin
+-- of a freshly created root folder (drive_node_create + drive_folder_admin_
+-- grant, the same fixture shape drive_folder_admins.pg uses) before the
+-- delegated-grant-door assertion, otherwise the call would 403 on
+-- drive_subtree_admin (BZ140) before ever reaching the new guest arm.
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (name, is_local) VALUES ('gdc-host.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled, is_local_admin)
+SELECT 'gdc-admin', d.id, 'gdc-admin@gdc-host.example', 'Admin', TRUE, TRUE
+  FROM domains d WHERE d.name = 'gdc-host.example';
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'gdc-guest@ext.example', d.id, 'gdc-guest@ext.example', 'Guest', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO guest_accounts (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'gdc-admin@gdc-host.example', h.id, 'active'
+  FROM users u, domains h WHERE u.email = 'gdc-guest@ext.example' AND h.name = 'gdc-host.example';
+
+-- An ORDINARY space the admin manages (the premature-G4 target).
+DO $$
+BEGIN
+  PERFORM drive_space_create((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+                             'gdc-ordinary', 'regular');
+END $$;
+
+-- (1) The grant doors refuse a guest grantee.
+SELECT throws_ok($$ SELECT drive_member_grant(
+    (SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+    (SELECT id FROM drive_spaces WHERE name = 'gdc-ordinary'),
+    (SELECT id FROM users WHERE email = 'gdc-guest@ext.example'), 'viewer') $$,
+  'BZ215', NULL, 'C-3: drive_member_grant refuses a guest grantee (ordinary space)');
+SELECT is( (SELECT count(*) FROM approval_requests WHERE consumer_type = 'drive.share')::int, 0,
+  'C-3: the refusal fired BEFORE approval routing — no pending share request minted');
+
+-- (2) Chat-derived access: bind a channel space, add the guest as a channel
+-- member, and the derived role EXISTS…
+DO $$
+DECLARE v_chan bigint;
+BEGIN
+  PERFORM chat_channel_create((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+                              'gdc-chan', NULL, 'private');
+  SELECT id INTO v_chan FROM chat_channels WHERE name = 'gdc-chan';
+  PERFORM chat_space_ensure((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'), v_chan);
+  PERFORM chat_member_add((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'), v_chan,
+                          (SELECT id FROM users WHERE email = 'gdc-guest@ext.example'));
+END $$;
+SELECT is( drive_member_role(
+    (SELECT id FROM drive_spaces WHERE chat_channel_id = (SELECT id FROM chat_channels WHERE name = 'gdc-chan')),
+    (SELECT id FROM users WHERE email = 'gdc-guest@ext.example')), 'viewer',
+  'C-3: chat-bound guest role derives live from membership but is capped at viewer (G4)');
+
+-- …and DIES with the membership (live revocation, never a frozen grant).
+DELETE FROM chat_channel_members
+ WHERE user_id = (SELECT id FROM users WHERE email = 'gdc-guest@ext.example')
+   AND channel_id = (SELECT id FROM chat_channels WHERE name = 'gdc-chan');
+SELECT is( drive_member_role(
+    (SELECT id FROM drive_spaces WHERE chat_channel_id = (SELECT id FROM chat_channels WHERE name = 'gdc-chan')),
+    (SELECT id FROM users WHERE email = 'gdc-guest@ext.example')), NULL,
+  'C-3: derived role dies with the membership — reach is a LIVE function');
+
+-- (1b) The delegated door refuses too (folder-admin grant path). The admin
+-- is seated as the folder's own delegated admin (drive_subtree_admin checks
+-- drive_folder_admins, not space-manager role — the manager row alone does
+-- not satisfy it) on a freshly created root folder.
+DO $$
+DECLARE v_sid bigint; v_folder bigint;
+BEGIN
+  SELECT id INTO v_sid FROM drive_spaces WHERE name = 'gdc-ordinary';
+  v_folder := drive_node_create((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+                                v_sid, NULL, 'folder', 'root');
+  PERFORM drive_folder_admin_grant((SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+                                   v_folder, (SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'));
+END $$;
+SELECT throws_ok($$ SELECT drive_folder_member_grant(
+    (SELECT id FROM users WHERE email = 'gdc-admin@gdc-host.example'),
+    (SELECT id FROM drive_spaces WHERE name = 'gdc-ordinary'),
+    (SELECT id FROM drive_nodes WHERE space_id = (SELECT id FROM drive_spaces WHERE name = 'gdc-ordinary')
+       AND kind = 'folder' ORDER BY id LIMIT 1),
+    (SELECT id FROM users WHERE email = 'gdc-guest@ext.example'), 'viewer') $$,
+  'BZ215', NULL, 'C-3: drive_folder_member_grant refuses a guest grantee');
+
+-- (3) Space create refuses a guest caller (belt behind the 404'd route).
+SELECT throws_ok($$ SELECT drive_space_create(
+    (SELECT id FROM users WHERE email = 'gdc-guest@ext.example'), 'guest-space', 'regular') $$,
+  'BZ215', NULL, 'C-3 belt: drive_space_create refuses a guest caller');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,56 @@
+{
+  "case": "invalid",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "external_path": "/approvals/email/{token}",
+      "method": "POST",
+      "path": "/approvals/email/{token}"
+    },
+    "response": {
+      "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>Invalid link</title>\n<style>\n*{box-sizing:border-box;margin:0;padding:0}\nbody{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;\n     background:#f9fafb;color:#111827;min-height:100vh;\n     display:flex;align-items:center;justify-content:center;padding:16px}\n.card{background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.1);\n      max-width:480px;width:100%;padding:32px 28px;text-align:center}\n.icon{font-size:2.5rem;margin-bottom:16px}\nh1{font-size:1.25rem;font-weight:600;margin-bottom:8px}\np{color:#6b7280;font-size:.9rem}\n</style>\n</head>\n<body>\n<div class=\"card\" role=\"main\">\n  <div class=\"icon\" aria-hidden=\"true\">✗</div>\n  <h1>Invalid or expired link</h1>\n  <p>This approval link is invalid or has expired. Please request a new notification email.</p>\n</div>\n</body></html>\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "951"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/html; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /approvals/email/{token}"
+}

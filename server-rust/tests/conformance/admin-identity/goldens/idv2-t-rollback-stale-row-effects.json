@@ -1,0 +1,687 @@
+{
+  "case": "stale-row-effects",
+  "effects": [
+    {
+      "after": {
+        "approvals": [
+          {
+            "approver_ref": "<other>",
+            "comment": "admin8 reason <&>",
+            "decided_by": "<other>",
+            "requester_user_id": "<admin>",
+            "status": "approved"
+          }
+        ],
+        "challenges": [
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest2>",
+            "generation": 2,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest2>",
+            "generation": 3,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000033",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000063",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<other>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000083",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000103",
+            "invalidated": false
+          }
+        ],
+        "effects": [
+          {
+            "attempts": 1,
+            "error": null,
+            "kind": "auth_sessions",
+            "state": "completed",
+            "user_id": "<target>",
+            "worker": false
+          },
+          {
+            "attempts": 1,
+            "error": "admin8_livekit",
+            "kind": "livekit_sessions",
+            "state": "failed",
+            "user_id": "<target>",
+            "worker": false
+          },
+          {
+            "attempts": 0,
+            "error": null,
+            "kind": "subscriber_notice",
+            "state": "pending",
+            "user_id": "<target>",
+            "worker": false
+          }
+        ],
+        "elevations": [
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest4>",
+            "generation": 2,
+            "idempotency_key": "95400000-0000-4000-8000-000000000513",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest6>",
+            "generation": 3,
+            "idempotency_key": "95400000-0000-4000-8000-000000000533",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest7>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000563",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<other>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest8>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000583",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": false,
+            "factor_digest": "<digest9>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000603",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          }
+        ],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": false
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_requested",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "approvalRequired": false,
+              "transitionGeneration": 3
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_committed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "kind": "directory_to_local",
+              "lifecycleGeneration": 2,
+              "linkGeneration": 1,
+              "personPreserved": true,
+              "sourceGeneration": 1,
+              "targetLinkId": null,
+              "targetSourceId": null
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_failed",
+            "actor_user_id": null,
+            "metadata": {
+              "effectId": "<uuid10>",
+              "effectKind": "livekit_sessions",
+              "errorCode": "admin8_livekit"
+            },
+            "reason": "identity transition effect failed",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_requested",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_approved",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 2,
+            "stage": "request",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 4,
+            "stage": "authority_commit",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 5,
+            "stage": "auth_sessions",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": "admin8_livekit",
+            "ordinal": 6,
+            "stage": "livekit_sessions",
+            "state": "failed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 0,
+            "error": null,
+            "ordinal": 7,
+            "stage": "subscriber_notice",
+            "state": "pending",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 8,
+            "stage": "rollback_preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 9,
+            "stage": "rollback_request",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 10,
+            "stage": "rollback_approval",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<admin>",
+            "approver_elevation": false,
+            "authorized_generation": 3,
+            "boundary": "reversible",
+            "committed": true,
+            "completed": false,
+            "decided_by": null,
+            "execution_elevation": true,
+            "failure": null,
+            "generation": 8,
+            "has_approval": false,
+            "has_rollback_approval": true,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest2>",
+            "protected": false,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": true,
+            "rollback_digest": "<digest3>",
+            "rollback_execution_elevation": false,
+            "rollback_reason": "admin8 reason <&>",
+            "rollback_requester_elevation": true,
+            "state": "rollback_previewed",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "before": {
+        "approvals": [
+          {
+            "approver_ref": "<other>",
+            "comment": "admin8 reason <&>",
+            "decided_by": "<other>",
+            "requester_user_id": "<admin>",
+            "status": "approved"
+          }
+        ],
+        "challenges": [
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest2>",
+            "generation": 2,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest2>",
+            "generation": 3,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000033",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000063",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<other>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000083",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 8,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000103",
+            "invalidated": false
+          }
+        ],
+        "effects": [
+          {
+            "attempts": 1,
+            "error": null,
+            "kind": "auth_sessions",
+            "state": "completed",
+            "user_id": "<target>",
+            "worker": false
+          },
+          {
+            "attempts": 1,
+            "error": "admin8_livekit",
+            "kind": "livekit_sessions",
+            "state": "failed",
+            "user_id": "<target>",
+            "worker": false
+          },
+          {
+            "attempts": 0,
+            "error": null,
+            "kind": "subscriber_notice",
+            "state": "pending",
+            "user_id": "<target>",
+            "worker": false
+          }
+        ],
+        "elevations": [
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest4>",
+            "generation": 2,
+            "idempotency_key": "95400000-0000-4000-8000-000000000513",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest6>",
+            "generation": 3,
+            "idempotency_key": "95400000-0000-4000-8000-000000000533",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest7>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000563",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<other>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest8>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000583",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": false,
+            "factor_digest": "<digest9>",
+            "generation": 8,
+            "idempotency_key": "95400000-0000-4000-8000-000000000603",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          }
+        ],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": false
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_requested",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "approvalRequired": false,
+              "transitionGeneration": 3
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_committed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "kind": "directory_to_local",
+              "lifecycleGeneration": 2,
+              "linkGeneration": 1,
+              "personPreserved": true,
+              "sourceGeneration": 1,
+              "targetLinkId": null,
+              "targetSourceId": null
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_failed",
+            "actor_user_id": null,
+            "metadata": {
+              "effectId": "<uuid10>",
+              "effectKind": "livekit_sessions",
+              "errorCode": "admin8_livekit"
+            },
+            "reason": "identity transition effect failed",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_requested",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_rollback_approved",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 2,
+            "stage": "request",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 4,
+            "stage": "authority_commit",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 5,
+            "stage": "auth_sessions",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": "admin8_livekit",
+            "ordinal": 6,
+            "stage": "livekit_sessions",
+            "state": "failed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 0,
+            "error": null,
+            "ordinal": 7,
+            "stage": "subscriber_notice",
+            "state": "pending",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 8,
+            "stage": "rollback_preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 9,
+            "stage": "rollback_request",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 10,
+            "stage": "rollback_approval",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<admin>",
+            "approver_elevation": false,
+            "authorized_generation": 3,
+            "boundary": "reversible",
+            "committed": true,
+            "completed": false,
+            "decided_by": null,
+            "execution_elevation": true,
+            "failure": null,
+            "generation": 8,
+            "has_approval": false,
+            "has_rollback_approval": true,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest2>",
+            "protected": false,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": true,
+            "rollback_digest": "<digest3>",
+            "rollback_execution_elevation": false,
+            "rollback_reason": "admin8 reason <&>",
+            "rollback_requester_elevation": true,
+            "state": "rollback_previewed",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "table": "identity"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/identity/v2/transitions/{id}/rollback"
+}

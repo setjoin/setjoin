@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of eap create:\n  -additional string\n    \tAdditional templates JSON array, e.g. '[\"a@{domain}\"]'\n  -cond-ad-ou string\n    \tAD OU condition JSON array, e.g. '[\"OU=Sales\"]'\n  -cond-department string\n    \tDepartment condition JSON array, e.g. '[\"Sales\"]'\n  -cond-domain-ids string\n    \tDomain IDs condition JSON array, e.g. '[5,6]'\n  -cond-mailbox-type string\n    \tMailbox type condition JSON array, e.g. '[\"personal\"]'\n  -duplicate-resolution string\n    \tDuplicate resolution strategy (numeric_suffix, …)\n  -enabled\n    \tEnable policy (default true)\n  -name string\n    \tPolicy name (required)\n  -overwrite\n    \tOverwrite existing directory address\n  -primary string\n    \tPrimary address template, e.g. {given_name}.{surname}@{domain} (required)\n",
+  "exit": 0
+}

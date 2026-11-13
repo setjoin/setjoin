@@ -1,0 +1,124 @@
+{
+  "case": "bad-range",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "n": 0
+          }
+        ],
+        "before": [
+          {
+            "n": 0
+          }
+        ],
+        "table": "upgrade_history"
+      },
+      {
+        "after": [
+          {
+            "json": {
+              "expires_at": "<expiry>",
+              "filename": "bundle.bin",
+              "key_id": "offline-oracle",
+              "metadata_version": 1,
+              "platform": "desktop",
+              "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+              "size_bytes": 31,
+              "slug": "linux-amd64",
+              "target_metadata": "<verified-signed-target>",
+              "uploaded_at": "2026-10-01T00:00:00Z",
+              "version": "1.2.3"
+            },
+            "name": "linux-amd64.json"
+          },
+          {
+            "name": "linux-amd64_bundle.bin",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size": 31
+          }
+        ],
+        "before": [
+          {
+            "json": {
+              "expires_at": "<expiry>",
+              "filename": "bundle.bin",
+              "key_id": "offline-oracle",
+              "metadata_version": 1,
+              "platform": "desktop",
+              "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+              "size_bytes": 31,
+              "slug": "linux-amd64",
+              "target_metadata": "<verified-signed-target>",
+              "uploaded_at": "2026-10-01T00:00:00Z",
+              "version": "1.2.3"
+            },
+            "name": "linux-amd64.json"
+          },
+          {
+            "name": "linux-amd64_bundle.bin",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size": 31
+          }
+        ],
+        "table": "airgap_files"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/updates/linux-amd64/bundle.bin",
+      "method": "GET",
+      "path": "/updates/{slug}/{filename}"
+    },
+    "response": {
+      "body": "invalid range: failed to overlap\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"bundle.bin\""
+        ],
+        "content-length": [
+          "33"
+        ],
+        "content-range": [
+          "bytes */31"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "text/plain; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 416
+    }
+  },
+  "route": "GET /updates/{slug}/{filename}"
+}

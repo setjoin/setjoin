@@ -1,0 +1,39 @@
+-- pgTAP: user_app_entitlements schema test (B8.1)
+-- Asserts the table structure, PK, and CHECK constraint on app column.
+BEGIN;
+SELECT plan(6);
+
+-- 1. Table exists
+SELECT has_table('user_app_entitlements', 'user_app_entitlements table exists');
+
+-- 2. user_id column exists
+SELECT has_column('user_app_entitlements', 'user_id', 'has user_id column');
+
+-- 3. app column exists
+SELECT has_column('user_app_entitlements', 'app', 'has app column');
+
+-- 4. enabled column exists
+SELECT has_column('user_app_entitlements', 'enabled', 'has enabled column');
+
+-- 5. Composite primary key on (user_id, app)
+SELECT col_is_pk(
+  'user_app_entitlements',
+  ARRAY['user_id', 'app'],
+  'composite PK on (user_id, app)'
+);
+
+-- 6. CHECK constraint rejects an actually unknown app — V145 deliberately
+-- widens the catalog to include chat, drive, and meet.
+INSERT INTO domains(name, is_local) VALUES ('uae-schema.example', TRUE);
+INSERT INTO users(username, domain_id, email, display_name, enabled)
+SELECT 'uae-schema', id, 'uae-schema@uae-schema.example', 'Schema Fixture', TRUE
+  FROM domains WHERE name='uae-schema.example';
+SELECT throws_ok(
+  $$INSERT INTO user_app_entitlements(user_id, app, enabled)
+      SELECT id, 'bogus', true FROM users WHERE email='uae-schema@uae-schema.example'$$,
+  '23514', NULL,
+  'unknown app ''bogus'' violates CHECK constraint'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

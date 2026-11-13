@@ -1,0 +1,75 @@
+-- calendar_effective_acl.pg — pgTAP tests for the headline (viewer, owner)
+-- resolver (spec 2026-06-27-sharing-delegation-design.md §5 / D5 / D6 / D10 / D11).
+-- Covers: explicit grant always wins, toggle OFF short-circuit (explicit only),
+-- toggle ON defaults ladder, self-access, fail-closed none.
+BEGIN;
+SELECT plan(10);
+
+-- ── fixtures ────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES (95031, 'cea.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (95231, 'cea_owner',  95031, 'owner@cea.test',  'Owner',  TRUE),
+  (95232, 'cea_viewer', 95031, 'viewer@cea.test', 'Viewer', TRUE),
+  (95233, 'cea_bob',    95031, 'bob@cea.test',    'Bob',    TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (95341, 95231, 95031, 'owner@cea.test', 'Owner', 'personal', TRUE);
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (95441, 95341, 'Owner primary', TRUE),
+  (95442, 95341, 'Owner secondary', FALSE);
+
+-- toggle OFF (seeded default): no grants, no defaults → none (fail-closed D10)
+SELECT is(calendar_effective_acl(95232, 95231), 'none',
+  'no grant, no default, toggle off → none');
+
+-- self-access short-circuits
+SELECT is(calendar_effective_acl(95231, 95231), 'admin',
+  'viewer = owner → admin');
+
+-- a default exists but the toggle is OFF → ladder skipped (D11 inertness)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'org', 95031, 'everyone', 95031, 'freebusy', 95231);
+SELECT is(calendar_effective_acl(95232, 95231), 'none',
+  'toggle OFF: defaults ladder is skipped entirely (explicit-only, D11)');
+
+-- explicit grant works with the toggle OFF (today''s behavior)
+INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (95441, 95233, 'write');
+SELECT is(calendar_effective_acl(95233, 95231), 'write',
+  'toggle OFF: explicit grant on the primary calendar resolves');
+
+-- flip the toggle ON
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'sharing.defaults';
+
+SELECT is(calendar_effective_acl(95232, 95231), 'freebusy',
+  'toggle ON: org default (freebusy) reaches a viewer with no explicit grant');
+
+-- explicit beats every default (D5) — even when the default is MORE permissive
+UPDATE sharing_defaults SET level = 'read'
+ WHERE owner_scope = 'org' AND owner_ref = 95031;
+INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (95441, 95232, 'freebusy');
+SELECT is(calendar_effective_acl(95232, 95231), 'freebusy',
+  'explicit freebusy grant beats a read default (explicit always wins, D5)');
+
+-- explicit grant on a SECONDARY calendar does not decide the resolver (D6:
+-- explicit step is pinned to the primary calendar; the defaults ladder answers)
+DELETE FROM calendar_acls WHERE calendar_id = 95441 AND user_id = 95232;
+INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (95442, 95232, 'admin');
+SELECT is(calendar_effective_acl(95232, 95231), 'read',
+  'secondary-calendar grant does not preempt the primary-calendar resolution (D6)');
+
+-- user-scope opt-out (none) closes the org default (D5)
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by)
+VALUES ('calendar', 'user', 95231, 'everyone', 95031, 'none', 95231);
+SELECT is(calendar_effective_acl(95233, 95231), 'write',
+  'explicit write survives the user opt-out (explicit always wins)');
+DELETE FROM calendar_acls WHERE calendar_id = 95441 AND user_id = 95233;
+SELECT is(calendar_effective_acl(95233, 95231), 'none',
+  'user-scope none opt-out closes the org default');
+
+-- owner with NO primary calendar: explicit step skipped, defaults still answer
+DELETE FROM sharing_defaults WHERE owner_scope = 'user';
+DELETE FROM calendars WHERE id IN (95441, 95442);
+SELECT is(calendar_effective_acl(95232, 95231), 'read',
+  'owner without a primary calendar still resolves through defaults');
+
+SELECT * FROM finish();
+ROLLBACK;

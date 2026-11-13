@@ -1,0 +1,143 @@
+-- scheduled_action_send.pg: the send handler — exactly-once SMTP egress.
+-- message_schedule enqueues a `send` scheduled_action (no tags.timer_type); the
+-- handler moves the draft to Sent, enqueues outbound_queue_hot keyed by dedup_key
+-- (= the action id), and a re-run does NOT double-enqueue (dedup backstop).
+BEGIN;
+SELECT plan(14);
+
+INSERT INTO domains (name, is_local) VALUES ('sas.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (194001, 'sas', (SELECT id FROM domains WHERE name='sas.test'),
+        'sas@sas.test', 'Sas', crypt('x', gen_salt('bf')), FALSE) ON CONFLICT (id) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 194001 != mailbox 94001).
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (94001, 194001, (SELECT id FROM domains WHERE name='sas.test'),
+        'sas@sas.test', 'Sas', 'personal', TRUE) ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(94001);
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (94001, 94001, (SELECT id FROM tags WHERE mailbox_id=94001 AND name='Drafts'),
+    '<sas-1@sas.test>', 'Schedule me', 'sas@sas.test', 'Sas',
+    '[{"email":"rcpt@ext.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thr-sas-1', 'raw/94001', now() - interval '1 hour')
+ON CONFLICT (id, received_at) DO NOTHING;
+
+-- Production scheduled dispatch runs on DB_WORKER_DSN.
+SET LOCAL ROLE setjoin_worker;
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 94001, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m WHERE m.id=94001 AND t.mailbox_id=94001 AND t.name='Drafts' ON CONFLICT DO NOTHING;
+
+-- Scheduling enqueues a send scheduled_action (no tags.timer_type anywhere).
+SELECT lives_ok($$ SELECT message_schedule(94001, 94001, now() + interval '2 hours', NULL) $$,
+  'message_schedule enqueues a send action');
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='send' AND mailbox_id=94001),
+  1::BIGINT, 'one send scheduled_action created');
+SELECT is(
+  (SELECT dedup_key FROM scheduled_actions WHERE action_kind='send' AND mailbox_id=94001) =
+  (SELECT id::TEXT  FROM scheduled_actions WHERE action_kind='send' AND mailbox_id=94001),
+  TRUE, 'dedup_key = the action id');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,0,
+  'scheduling alone creates no committed mail.sent fact');
+
+-- Fire the handler directly (force fire_at to the past first).
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute'
+WHERE action_kind='send' AND mailbox_id=94001;
+SELECT is(
+  (SELECT scheduled_action_send(sa)->>'status' FROM scheduled_actions sa
+   WHERE action_kind='send' AND mailbox_id=94001),
+  'ok', 'send handler reports ok');
+SELECT is(
+  (SELECT count(*) FROM message_tags mt JOIN tags t ON t.id=mt.tag_id
+   WHERE mt.message_id=94001 AND t.name='Sent'),
+  1::BIGINT, 'message moved to Sent');
+SELECT is(
+  (SELECT rcpt_addrs FROM outbound_queue_hot WHERE message_id='<sas-1@sas.test>'),
+  ARRAY['rcpt@ext.test'], 'recipients expanded from to_addrs');
+SELECT is((SELECT count(*) FROM webhook_publications
+  WHERE event_id='mail-sent-94001-1')::integer,1,
+  'scheduled fire creates exactly one stable committed mail.sent fact');
+
+-- Idempotency: re-running the handler does NOT enqueue a second egress.
+SELECT scheduled_action_send(sa) FROM scheduled_actions sa
+  WHERE action_kind='send' AND mailbox_id=94001;
+SELECT is(
+  (SELECT count(*) FROM outbound_queue_hot WHERE message_id='<sas-1@sas.test>'),
+  1::BIGINT, 'second handler run does not double-enqueue (dedup_key guard)');
+SELECT is((SELECT count(*) FROM webhook_publications
+  WHERE event_id='mail-sent-94001-1')::integer,1,
+  'scheduled handler replay does not duplicate the mail.sent fact');
+
+-- jmap_email_submission scheduled-list reads scheduled_actions, not tags.timer_type.
+-- Re-schedule a fresh draft to assert the submission view derives sendAt from the action.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (94002, 94001, (SELECT id FROM tags WHERE mailbox_id=94001 AND name='Drafts'),
+    '<sas-2@sas.test>', 'Schedule me 2', 'sas@sas.test', 'Sas',
+    '[{"email":"r2@ext.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thr-sas-2', 'raw/94002', now() - interval '1 hour')
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 94002, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m WHERE m.id=94002 AND t.mailbox_id=94001 AND t.name='Drafts' ON CONFLICT DO NOTHING;
+SELECT message_schedule(94001, 94002, now() + interval '3 hours', NULL);
+SELECT is(
+  (SELECT count(*) FROM jsonb_array_elements(
+     (jmap_email_submission_get(94001)->'list'))
+   WHERE value->>'emailId' = '94002'),
+  1::BIGINT, 'submission/get lists the scheduled message from scheduled_actions');
+
+-- ── SP1 Phase 7 (Task 7.4): scheduled encrypted send — cert-expiry-at-fire is
+-- fail-closed BY CONSTRUCTION. S/MIME encryption is re-homed to EmailSubmission/set
+-- (submission/schedule time): a scheduled encrypted draft is ALREADY the CMS
+-- ciphertext in raw_ref with body_text/body_html NULL (encrypted-at-rest). At fire
+-- time scheduled_action_send relays that raw_ref VERBATIM — it never re-reads the
+-- body, never re-encrypts, never re-derives plaintext. So a recipient cert that
+-- expires BETWEEN schedule and fire cannot cause a plaintext egress: there is no
+-- fire-time encrypt step that could fall open. The fail-closed-on-expired-cert
+-- gate lives at the encrypt point (smime.ResolveRecipientCert, schedule time;
+-- proven in internal/smime/resolve_test.go "expired RSA excluded"). This pins the
+-- fire-time half: the enqueued egress carries the ciphertext blob, not plaintext.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, body_text, body_html, thread_id, raw_ref, received_at)
+VALUES (94003, 94001, (SELECT id FROM tags WHERE mailbox_id=94001 AND name='Drafts'),
+    '<sas-enc@sas.test>', 'Encrypted schedule', 'sas@sas.test', 'Sas',
+    '[{"email":"rcpt@ext.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    NULL, NULL,                        -- encrypted-at-rest: body cols NULL
+    'thr-sas-enc', 'ciphertext-blob-ref-94003', now() - interval '1 hour')
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 94003, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m WHERE m.id=94003 AND t.mailbox_id=94001 AND t.name='Drafts' ON CONFLICT DO NOTHING;
+
+SELECT message_schedule(94001, 94003, now() + interval '4 hours', NULL);
+-- Force fire (cert is now "expired" between schedule and this fire — irrelevant to
+-- the relay path: no re-encrypt happens here).
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute'
+WHERE action_kind='send' AND mailbox_id=94001
+  AND (payload->>'message_id')::BIGINT = 94003;
+
+SELECT is(
+  (SELECT scheduled_action_send(sa)->>'status' FROM scheduled_actions sa
+   WHERE action_kind='send' AND mailbox_id=94001
+     AND (sa.payload->>'message_id')::BIGINT = 94003),
+  'ok', 'encrypted scheduled send fires ok (relays the ciphertext)');
+
+-- The enqueued egress carries the CIPHERTEXT raw_ref verbatim — the fire path
+-- never re-derived plaintext.
+SELECT is(
+  (SELECT raw_ref FROM outbound_queue_hot WHERE message_id='<sas-enc@sas.test>'),
+  'ciphertext-blob-ref-94003',
+  'fire enqueues the encrypted raw_ref verbatim (no fire-time re-encrypt)');
+
+-- And the Sent copy stays encrypted-at-rest (no plaintext body materialized at fire).
+SELECT ok(
+  (SELECT body_text IS NULL AND body_html IS NULL FROM messages WHERE id=94003),
+  'fired encrypted send keeps body cols NULL (no plaintext at fire time)');
+
+SELECT * FROM finish();
+ROLLBACK;

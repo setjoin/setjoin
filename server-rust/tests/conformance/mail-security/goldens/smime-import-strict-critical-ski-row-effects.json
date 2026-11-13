@@ -1,0 +1,17 @@
+{
+  "case": "strict-critical-ski-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": []
+      },
+      "before": {
+        "anchors": []
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/smime/trust-anchors"
+}

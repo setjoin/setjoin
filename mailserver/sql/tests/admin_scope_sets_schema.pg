@@ -1,0 +1,97 @@
+-- pgTAP: admin_scope_sets_schema.pg
+--
+-- 13 tests covering V041: admin_scope_sets tables, eligibility column,
+-- CHECK retirements (group/user→set), referential triggers.
+--
+-- Seed ids: 954xx domain, 950xx users (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(15);
+
+-- ── Fixtures ─────────────────────────────────────────────────────────────────
+-- Domain + users required by FK-constrained admin_role_assignments inserts.
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95401, 'scope-sets.test', TRUE);
+
+INSERT INTO public.users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95001, 'scopeset_u1', 95401, 'u1@scope-sets.test', 'U1', TRUE),
+  (95002, 'scopeset_u2', 95401, 'u2@scope-sets.test', 'U2', TRUE),
+  (95003, 'scopeset_u3', 95401, 'u3@scope-sets.test', 'U3', TRUE);
+
+-- ── 1-2: tables exist ────────────────────────────────────────────────────────
+SELECT has_table('public', 'admin_scope_sets',        'admin_scope_sets table exists');
+SELECT has_table('public', 'admin_scope_set_members', 'members table exists');
+
+-- ── 3-4: eligibility column ──────────────────────────────────────────────────
+SELECT has_column('public', 'distribution_groups', 'usable_as_admin_scope', 'eligibility flag added');
+SELECT col_default_is('public', 'distribution_groups', 'usable_as_admin_scope', 'false', 'eligibility defaults false');
+
+-- ── 5: member_type NOT NULL ──────────────────────────────────────────────────
+SELECT col_not_null('public', 'admin_scope_set_members', 'member_type', 'member_type NOT NULL');
+
+-- ── 6-7: grant CHECK retires group/user ──────────────────────────────────────
+-- CHECK fires before FK triggers, so user_id=1 not existing does not matter here.
+PREPARE bad_grant AS INSERT INTO admin_role_assignments(user_id, role_group_id, scope_type, scope_id)
+  VALUES (1, 1, 'group', 1);
+SELECT throws_ok('bad_grant', '23514', NULL, 'scope_type=group rejected at grant level');
+
+PREPARE bad_user AS INSERT INTO admin_role_assignments(user_id, role_group_id, scope_type, scope_id)
+  VALUES (1, 1, 'user', 1);
+SELECT throws_ok('bad_user', '23514', NULL, 'scope_type=user rejected at grant level');
+
+-- ── 8-9: bulk CHECK accepts 'set', rejects 'group' ──────────────────────────
+PREPARE bulk_set AS INSERT INTO bulk_role_jobs(op, role_id, actor_id, user_ids, total, scope_type, scope_id)
+  VALUES ('assign', 1, 1, ARRAY[2]::bigint[], 1, 'set', 1);
+SELECT lives_ok('bulk_set', 'bulk_role_jobs accepts scope_type=set');
+
+PREPARE bulk_bad_group AS INSERT INTO bulk_role_jobs(op, role_id, actor_id, user_ids, total, scope_type, scope_id)
+  VALUES ('assign', 1, 1, ARRAY[2]::bigint[], 1, 'group', 1);
+SELECT throws_ok('bulk_bad_group', '23514', NULL, 'scope_type=group rejected at bulk_role_jobs level');
+
+-- ── 10: NULLS NOT DISTINCT unique guard ──────────────────────────────────────
+INSERT INTO admin_scope_sets(name) VALUES ('dupe');
+PREPARE dup_set AS INSERT INTO admin_scope_sets(name) VALUES ('dupe');
+SELECT throws_ok('dup_set', '23505', NULL, 'duplicate (NULL domain, name) rejected');
+
+-- ── 11: member CASCADE ───────────────────────────────────────────────────────
+-- member_id is polymorphic bigint (no FK), so member_id=2 is fine without user 2.
+INSERT INTO admin_scope_sets(id, name) VALUES (9001, 'cascade-test');
+INSERT INTO admin_scope_set_members(set_id, member_type, member_id) VALUES (9001, 'user', 2);
+DELETE FROM admin_scope_sets WHERE id = 9001;
+SELECT is((SELECT count(*) FROM admin_scope_set_members WHERE set_id = 9001), 0::bigint,
+  'deleting a set cascades its members');
+
+-- ── 12: RESTRICT-in-use ──────────────────────────────────────────────────────
+INSERT INTO admin_scope_sets(id, name) VALUES (9002, 'in-use');
+INSERT INTO admin_role_assignments(user_id, role_group_id, scope_type, scope_id)
+  VALUES (95003, 1, 'set', 9002);
+PREPARE del_inuse AS DELETE FROM admin_scope_sets WHERE id = 9002;
+SELECT throws_ok('del_inuse', 'P0001', NULL, 'in-use set delete blocked');
+
+-- ── 13: drop-member trigger (user) ───────────────────────────────────────────
+INSERT INTO admin_scope_sets(id, name) VALUES (9003, 'drop-test');
+INSERT INTO admin_scope_set_members(set_id, member_type, member_id) VALUES (9003, 'user', 95001);
+DELETE FROM users WHERE id = 95001;
+SELECT is((SELECT count(*) FROM admin_scope_set_members WHERE set_id = 9003 AND member_type = 'user'),
+  0::bigint, 'deleting a user drops its scope-set member row');
+
+-- ── 14: V039 replacement — dept delete DROPS the OU grant ────────────────────
+-- Use role_group_id=2 (User Admin, not Super Admin) so trg_protect_last_super_admin
+-- immediately returns OLD (role_group_id <> 1) and does not block the cascade delete.
+INSERT INTO admin_scope_sets(id, name) VALUES (9004, 'noop');
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE
+  VALUES (95900, 'TmpDept', '/tmpdept', 'ou=TmpDept,dc=scope-sets,dc=test');
+INSERT INTO admin_role_assignments(user_id, role_group_id, scope_type, scope_id)
+  VALUES (95002, 2, 'ou', 95900);
+DELETE FROM departments WHERE id = 95900;
+SELECT is((SELECT count(*) FROM admin_role_assignments WHERE user_id = 95002 AND role_group_id = 2),
+  0::bigint, 'department delete DROPS the OU grant (not null-to-unrestricted)');
+
+-- ── 15: Super Admin seeded with scope_sets.manage (spec §3.4) ───────────────
+SELECT ok(
+  (SELECT permissions @> ARRAY['scope_sets.manage'] FROM admin_role_groups WHERE id = 1),
+  'Super Admin (role 1) is seeded with scope_sets.manage'
+);
+
+SELECT finish();
+ROLLBACK;

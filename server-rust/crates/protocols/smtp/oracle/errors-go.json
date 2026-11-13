@@ -1,0 +1,4924 @@
+[
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001', HINT='{\"type\": \"over_quota\"}'; END $smtp1$;",
+    "name": "BZ001-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Mailbox full\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ009'; END $smtp1$;",
+    "name": "BZ009-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Mailbox full\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ004'; END $smtp1$;",
+    "name": "BZ004-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Sending quota exceeded\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ002'; END $smtp1$;",
+    "name": "BZ002-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ003'; END $smtp1$;",
+    "name": "BZ003-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ005'; END $smtp1$;",
+    "name": "BZ005-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ015'; END $smtp1$;",
+    "name": "BZ015-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ045'; END $smtp1$;",
+    "name": "BZ045-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ052'; END $smtp1$;",
+    "name": "BZ052-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ061'; END $smtp1$;",
+    "name": "BZ061-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ065'; END $smtp1$;",
+    "name": "BZ065-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ066'; END $smtp1$;",
+    "name": "BZ066-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ069'; END $smtp1$;",
+    "name": "BZ069-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ071'; END $smtp1$;",
+    "name": "BZ071-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ107'; END $smtp1$;",
+    "name": "BZ107-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ116'; END $smtp1$;",
+    "name": "BZ116-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ007'; END $smtp1$;",
+    "name": "BZ007-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ019'; END $smtp1$;",
+    "name": "BZ019-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ020'; END $smtp1$;",
+    "name": "BZ020-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ021'; END $smtp1$;",
+    "name": "BZ021-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ030'; END $smtp1$;",
+    "name": "BZ030-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ033'; END $smtp1$;",
+    "name": "BZ033-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ038'; END $smtp1$;",
+    "name": "BZ038-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ042'; END $smtp1$;",
+    "name": "BZ042-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ049'; END $smtp1$;",
+    "name": "BZ049-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ051'; END $smtp1$;",
+    "name": "BZ051-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ053'; END $smtp1$;",
+    "name": "BZ053-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ060'; END $smtp1$;",
+    "name": "BZ060-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ074'; END $smtp1$;",
+    "name": "BZ074-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ084'; END $smtp1$;",
+    "name": "BZ084-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ086'; END $smtp1$;",
+    "name": "BZ086-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ091'; END $smtp1$;",
+    "name": "BZ091-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ099'; END $smtp1$;",
+    "name": "BZ099-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ101'; END $smtp1$;",
+    "name": "BZ101-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ103'; END $smtp1$;",
+    "name": "BZ103-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ112'; END $smtp1$;",
+    "name": "BZ112-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ113'; END $smtp1$;",
+    "name": "BZ113-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ114'; END $smtp1$;",
+    "name": "BZ114-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ118'; END $smtp1$;",
+    "name": "BZ118-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ121'; END $smtp1$;",
+    "name": "BZ121-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ081'; END $smtp1$;",
+    "name": "BZ081-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ125'; END $smtp1$;",
+    "name": "BZ125-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ130'; END $smtp1$;",
+    "name": "BZ130-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ132'; END $smtp1$;",
+    "name": "BZ132-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ134'; END $smtp1$;",
+    "name": "BZ134-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ139'; END $smtp1$;",
+    "name": "BZ139-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ140'; END $smtp1$;",
+    "name": "BZ140-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ148'; END $smtp1$;",
+    "name": "BZ148-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Mailbox full\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ161'; END $smtp1$;",
+    "name": "BZ161-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ163'; END $smtp1$;",
+    "name": "BZ163-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ164'; END $smtp1$;",
+    "name": "BZ164-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ166'; END $smtp1$;",
+    "name": "BZ166-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ167'; END $smtp1$;",
+    "name": "BZ167-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ169'; END $smtp1$;",
+    "name": "BZ169-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ170'; END $smtp1$;",
+    "name": "BZ170-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ171'; END $smtp1$;",
+    "name": "BZ171-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ173'; END $smtp1$;",
+    "name": "BZ173-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ175'; END $smtp1$;",
+    "name": "BZ175-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ176'; END $smtp1$;",
+    "name": "BZ176-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ185'; END $smtp1$;",
+    "name": "BZ185-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ186'; END $smtp1$;",
+    "name": "BZ186-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ187'; END $smtp1$;",
+    "name": "BZ187-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ194'; END $smtp1$;",
+    "name": "BZ194-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ196'; END $smtp1$;",
+    "name": "BZ196-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Sending quota exceeded\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ199'; END $smtp1$;",
+    "name": "BZ199-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ203'; END $smtp1$;",
+    "name": "BZ203-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ204'; END $smtp1$;",
+    "name": "BZ204-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ211'; END $smtp1$;",
+    "name": "BZ211-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ213'; END $smtp1$;",
+    "name": "BZ213-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ215'; END $smtp1$;",
+    "name": "BZ215-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ216'; END $smtp1$;",
+    "name": "BZ216-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ219'; END $smtp1$;",
+    "name": "BZ219-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ217'; END $smtp1$;",
+    "name": "BZ217-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ218'; END $smtp1$;",
+    "name": "BZ218-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ223'; END $smtp1$;",
+    "name": "BZ223-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ220'; END $smtp1$;",
+    "name": "BZ220-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ236'; END $smtp1$;",
+    "name": "BZ236-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ239'; END $smtp1$;",
+    "name": "BZ239-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ244'; END $smtp1$;",
+    "name": "BZ244-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ250'; END $smtp1$;",
+    "name": "BZ250-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ253'; END $smtp1$;",
+    "name": "BZ253-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ258'; END $smtp1$;",
+    "name": "BZ258-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ268'; END $smtp1$;",
+    "name": "BZ268-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ270'; END $smtp1$;",
+    "name": "BZ270-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ272'; END $smtp1$;",
+    "name": "BZ272-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ273'; END $smtp1$;",
+    "name": "BZ273-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ277'; END $smtp1$;",
+    "name": "BZ277-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ284'; END $smtp1$;",
+    "name": "BZ284-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ300'; END $smtp1$;",
+    "name": "BZ300-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ302'; END $smtp1$;",
+    "name": "BZ302-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ307'; END $smtp1$;",
+    "name": "BZ307-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ308'; END $smtp1$;",
+    "name": "BZ308-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ310'; END $smtp1$;",
+    "name": "BZ310-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ311'; END $smtp1$;",
+    "name": "BZ311-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ314'; END $smtp1$;",
+    "name": "BZ314-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ317'; END $smtp1$;",
+    "name": "BZ317-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ321'; END $smtp1$;",
+    "name": "BZ321-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ323'; END $smtp1$;",
+    "name": "BZ323-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ008'; END $smtp1$;",
+    "name": "BZ008-normal",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001'; END $smtp1$;",
+    "name": "BZ001-no-hint",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001', HINT='{\"type\": \"forbidden\"}'; END $smtp1$;",
+    "name": "BZ001-other-type",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ081', HINT='{\"type\": \"bad_outcome\"}'; END $smtp1$;",
+    "name": "BZ081-bad-outcome",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ099', HINT='{\"type\": \"last_global\"}'; END $smtp1$;",
+    "name": "BZ099-last-global",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ006'; END $smtp1$;",
+    "name": "BZ006-account-not-found",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ041'; END $smtp1$;",
+    "name": "BZ041-invalid-arguments",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='23505'; END $smtp1$;",
+    "name": "23505-infra",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "restore_reducer": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='ZZ999'; END $smtp1$;",
+    "name": "ZZ999-unknown",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Sender \u003csender@remote.test\u003e\r\nTo: Alice \u003calice@smtp1.test\u003e\r\nSubject: SMTP1 hello\r\nMessage-Id: \u003csmtp1-basic@remote.test\u003e\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

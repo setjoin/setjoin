@@ -1,0 +1,721 @@
+{
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "row": {
+      "bytes": 25165840,
+      "disabled": false,
+      "sample_count": 2,
+      "sha256": "90483e15e5ec5bebba6297e5275d20e06c13563cc8c303d265c23f8936348590",
+      "trained": true
+    },
+    "s3": [
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      },
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "observation": {
+    "events": [
+      {
+        "api": "cf",
+        "name": "example.test",
+        "op": "zone"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      }
+    ],
+    "published": false
+  }
+}

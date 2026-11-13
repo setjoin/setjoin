@@ -1,0 +1,23 @@
+{
+  "case": "ftp-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "client_ip": "127.0.0.1",
+          "created_recent": true,
+          "mailbox": "<mailbox-actor>",
+          "message_resolved": false,
+          "scanner": "spamhaus",
+          "url_hash": "b408b697d9172900e6d64a046fcf8ca3c087a06fa914e9d9ed5d92230f1ce17d",
+          "verdict": "safe"
+        }
+      ],
+      "before": [],
+      "table": "link_protect_audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /link-protect"
+}

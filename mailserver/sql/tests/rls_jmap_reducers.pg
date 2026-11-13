@@ -1,0 +1,115 @@
+-- pgTAP: rls_jmap_reducers.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- W6 ISOLATION PROOF (JMAP) — the REAL jmap_email_get / jmap_email_query reducers
+-- run as SET LOCAL ROLE setjoin_app under FORCE'd messages/message_tags, and the
+-- RLS policy is shown to be LOAD-BEARING (not redundant with the reducer's own
+-- app-level R1 filter). This goes one level above rls_policies.pg: that test
+-- asserts the raw policy on `SELECT count(*) FROM messages`; THIS test drives the
+-- actual JMAP reducers the gateway calls, proving the dormant V003 policies (now
+-- live via V004) isolate the production read path.
+--
+-- WHY THE RLS IS LOAD-BEARING HERE (the crux): jmap_email_get / jmap_email_query
+-- BOTH carry the app-level filter `m.mailbox_id = p_mailbox_id`. If p_mailbox_id
+-- always equals the GUC, RLS and the app filter agree and RLS looks redundant. To
+-- isolate RLS as the active control we DELIBERATELY DESYNC them: call the reducer
+-- with p_mailbox_id = A while the connection's GUC is scoped to B. The app filter
+-- says "A's rows"; RLS (GUC=B) makes only B's rows visible; the intersection is
+-- EMPTY → 0 rows. That 0 is RLS denying a read the reducer's own predicate would
+-- have allowed — the fail-OPEN class (a wrong/forgotten app predicate) that native
+-- RLS exists to close. The matching-GUC case returns the rows, so it is not a
+-- blanket deny.
+--
+-- Production now ships V004 (ENABLE+FORCE on the real tables). This test does NOT
+-- re-ALTER — it asserts the migration set FORCE, then SET LOCAL ROLEs to the
+-- constrained setjoin_app role (the test connection `mail` is SUPERUSER + owner →
+-- bypasses RLS even under FORCE). All inside BEGIN…ROLLBACK.
+--
+-- NON-VACUITY: a control block runs the desynced query as the SUPERUSER `mail`
+-- (RLS-bypassing) and confirms it DOES return A's rows — so the 0 under setjoin_app
+-- is the POLICY denying, not an empty fixture or a coincidental app-filter miss.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(9);
+
+-- ── Production force-state precondition (V004 applied) ──────────────────────
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'messages' AND relnamespace = 'public'::regnamespace),
+  TRUE, 'precondition: messages is FORCE ROW LEVEL SECURITY (V004 applied)');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'message_tags' AND relnamespace = 'public'::regnamespace),
+  TRUE, 'precondition: message_tags is FORCE ROW LEVEL SECURITY (V004 applied)');
+
+-- ── Two tenants, divergent ids (ADR-003). A is subject; B is foreign. ───────
+SELECT mk_account('jrlsA') AS mba \gset
+SELECT mk_account('jrlsB') AS mbb \gset
+
+-- Messages inserted as the SUPERUSER (bypasses RLS for fixture setup): A ×2, B ×1.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES
+  (781001, :mba, get_tag_id('Inbox', :mba), '<ja1@rls.test>', 'JA one', 'x@ext.com', 10, 'thr-ja1', 'raw-ja1', now(), FALSE),
+  (781002, :mba, get_tag_id('Inbox', :mba), '<ja2@rls.test>', 'JA two', 'x@ext.com', 10, 'thr-ja2', 'raw-ja2', now(), FALSE),
+  (782001, :mbb, get_tag_id('Inbox', :mbb), '<jb1@rls.test>', 'JB one', 'x@ext.com', 10, 'thr-jb1', 'raw-jb1', now(), FALSE);
+
+SELECT tag_message(781001, (SELECT received_at FROM messages WHERE id=781001), 'Inbox', :mba, 'deliver', TRUE);
+SELECT tag_message(781002, (SELECT received_at FROM messages WHERE id=781002), 'Inbox', :mba, 'deliver', TRUE);
+SELECT tag_message(782001, (SELECT received_at FROM messages WHERE id=782001), 'Inbox', :mbb, 'deliver', TRUE);
+
+-- Defensive re-GRANT (BYPASSRLS bypasses policies, not GRANTs; setjoin_app has neither).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.messages, public.message_tags TO setjoin_app;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- NON-VACUITY CONTROL — the DESYNCED query as the RLS-bypassing superuser.
+-- p_mailbox_id = A, GUC = B (the desync). As superuser RLS is bypassed, so the
+-- reducer's own app filter (m.mailbox_id = A) wins → A's 2 ids. This proves the
+-- 0 we assert below under setjoin_app is RLS denying, NOT an empty fixture.
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', :mbb::text, true);  -- GUC = B
+SELECT is(
+  jsonb_array_length((jmap_email_query(:mba, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
+  2,
+  'non-vacuity: as SUPERUSER, desynced jmap_email_query(p=A, GUC=B) sees A''s 2 ids (RLS bypassed → app filter wins)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- ISOLATION under setjoin_app + FORCE
+-- ════════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+
+-- ── Matching GUC=A, p=A: both RLS and app filter agree → A's 2 ids. ─────────
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+SELECT is(
+  jsonb_array_length((jmap_email_query(:mba, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
+  2,
+  'jmap_email_query / setjoin_app GUC=A p=A: returns exactly A''s 2 ids (not a blanket deny)');
+SELECT is(
+  jsonb_array_length((jmap_email_get(:mba, ARRAY[781001,781002]::bigint[], NULL)::jsonb) -> 'list'),
+  2,
+  'jmap_email_get / setjoin_app GUC=A p=A: fetches A''s 2 own messages');
+
+-- ── THE LOAD-BEARING RLS PROOF: desync p=A, GUC=B. App filter says A's rows;
+-- RLS (GUC=B) makes only B's rows visible; intersection empty → 0. RLS overrides
+-- the reducer's own predicate (catches the fail-open wrong-predicate class). ──
+SELECT set_config('app.current_mailbox_id', :mbb::text, true);  -- GUC = B, but ask for A
+SELECT is(
+  jsonb_array_length((jmap_email_query(:mba, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
+  0,
+  'RLS LOAD-BEARING: setjoin_app desync jmap_email_query(p=A, GUC=B) → 0 ids (RLS denies what the app filter would allow)');
+SELECT is(
+  jsonb_array_length((jmap_email_get(:mba, ARRAY[781001,781002]::bigint[], NULL)::jsonb) -> 'list'),
+  0,
+  'RLS LOAD-BEARING: setjoin_app desync jmap_email_get(p=A, GUC=B) → 0 rows (RLS denies A''s rows under B''s GUC)');
+
+-- ── Mirror: GUC=B p=B agrees → B's 1 id; GUC=A p=B desync → 0. ──────────────
+SELECT is(
+  jsonb_array_length((jmap_email_query(:mbb, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
+  1,
+  'jmap_email_query / setjoin_app GUC=B p=B: returns exactly B''s 1 id (mirror agree)');
+SELECT set_config('app.current_mailbox_id', :mba::text, true);  -- GUC = A, ask for B
+SELECT is(
+  jsonb_array_length((jmap_email_query(:mbb, NULL, NULL, 0, 50)::jsonb) -> 'ids'),
+  0,
+  'RLS LOAD-BEARING mirror: setjoin_app desync jmap_email_query(p=B, GUC=A) → 0 ids');
+
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

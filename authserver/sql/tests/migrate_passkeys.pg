@@ -1,0 +1,221 @@
+-- pgTAP test: V004 passkey migration from users.webauthn_credentials JSONB
+-- to the normalized passkey_credentials table.
+BEGIN;
+SELECT plan(8);
+
+-- Setup: a test user with WebAuthn credentials in JSONB format
+DO $$
+DECLARE
+    v_uid       BIGINT;
+BEGIN
+    v_uid := mk_auth_user('passkey-test@test.local', 'x', 'Test User');
+    UPDATE users SET webauthn_credentials =
+        '[
+          {"ID":"AQIDBA==","PublicKey":"cHVibGljX2tleV8x","AttestationType":"packed","Authenticator":{"SignCount":5}},
+          {"ID":"BQYHCA==","PublicKey":"cHVibGljX2tleV8y","AttestationType":"platform","Authenticator":{"SignCount":10}}
+        ]'::JSONB WHERE id = v_uid;
+
+    -- Run migration logic for this user
+    IF NOT EXISTS (SELECT 1 FROM passkey_credentials WHERE user_id = v_uid) THEN
+        WITH creds AS (
+            SELECT jsonb_array_elements(webauthn_credentials) AS cred
+            FROM users WHERE id = v_uid
+        )
+        INSERT INTO passkey_credentials (id, user_id, public_key, attestation_type, sign_count, created_at)
+        SELECT
+            decode(c.cred->>'ID', 'base64')::BYTEA,
+            v_uid,
+            decode(c.cred->>'PublicKey', 'base64')::BYTEA,
+            COALESCE(c.cred->>'AttestationType', 'none'),
+            COALESCE((c.cred->'Authenticator'->>'SignCount')::INT, 0),
+            now()
+        FROM creds c
+        WHERE c.cred->>'ID' IS NOT NULL;
+    END IF;
+
+    PERFORM set_config('app.pk_uid1', v_uid::TEXT, TRUE);
+END;
+$$;
+
+-- Test 1: 2 credentials → 2 rows
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_uid1')::BIGINT),
+    2,
+    'JSONB with 2 credentials produces 2 passkey rows');
+
+-- Test 2: attestation_type and sign_count populated correctly
+SELECT ok(
+    EXISTS (SELECT 1 FROM passkey_credentials
+            WHERE user_id = current_setting('app.pk_uid1')::BIGINT
+              AND attestation_type = 'packed' AND sign_count = 5),
+    'attestation_type and sign_count populated from JSONB');
+
+-- Test 3: Empty '[]' JSONB should not be migrated
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    v_uid := mk_auth_user('empty-creds@test.local', 'x', 'Empty');
+    UPDATE users SET webauthn_credentials = '[]'::JSONB WHERE id = v_uid;
+
+    -- The migration WHERE clause filters out '[]'::JSONB
+    PERFORM 1 FROM users WHERE id = v_uid AND webauthn_credentials = '[]'::JSONB;
+    IF NOT FOUND THEN RAISE EXCEPTION 'precondition failed'; END IF;
+
+    PERFORM set_config('app.pk_empty_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_empty_uid')::BIGINT),
+    0,
+    'empty [] JSONB produces no passkey rows');
+
+-- Test 4: NULL webauthn_credentials excluded by WHERE clause
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    -- users.webauthn_credentials is NOT NULL DEFAULT '[]' in this schema; the
+    -- default ('[]') is the "no real credentials" case this test asserts on.
+    v_uid := mk_auth_user('null-creds@test.local', 'x', 'NullCreds');
+    PERFORM set_config('app.pk_null_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_null_uid')::BIGINT),
+    0,
+    'NULL webauthn_credentials produces no passkey rows');
+
+-- Test 5: Idempotent — already-migrated user does not get duplicates
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    -- distinct credential ID: passkey_credentials.id is a GLOBAL PK and the
+    -- whole file is one txn, so reusing test 1's "AQIDBA==" would collide.
+    v_uid := mk_auth_user('idempotent@test.local', 'x', 'Idempotent');
+    UPDATE users SET webauthn_credentials =
+        '[{"ID":"CQoLDA==","PublicKey":"cHVibGljX2tleV8x","AttestationType":"none"}]'::JSONB WHERE id = v_uid;
+
+    -- First migration
+    IF NOT EXISTS (SELECT 1 FROM passkey_credentials WHERE user_id = v_uid) THEN
+        WITH creds AS (
+            SELECT jsonb_array_elements(webauthn_credentials) AS cred FROM users WHERE id = v_uid
+        )
+        INSERT INTO passkey_credentials (id, user_id, public_key, attestation_type, sign_count, created_at)
+        SELECT decode(c.cred->>'ID', 'base64')::BYTEA, v_uid,
+               decode(c.cred->>'PublicKey', 'base64')::BYTEA,
+               COALESCE(c.cred->>'AttestationType', 'none'), 0, now()
+        FROM creds c WHERE c.cred->>'ID' IS NOT NULL;
+    END IF;
+
+    -- Second migration attempt — should skip since user_id already exists
+    IF NOT EXISTS (SELECT 1 FROM passkey_credentials WHERE user_id = v_uid) THEN
+        RAISE EXCEPTION 'guard clause failed — should have detected existing rows';
+    END IF;
+
+    PERFORM set_config('app.pk_idem_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_idem_uid')::BIGINT),
+    1,
+    'already-migrated user is idempotent (no duplicates)');
+
+-- Test 6: Duplicate credential ID deduplicated
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    -- distinct (and intra-array duplicated) credential ID, unique to this block.
+    v_uid := mk_auth_user('dupes@test.local', 'x', 'Dupes');
+    UPDATE users SET webauthn_credentials =
+        '[{"ID":"DQ4PEA==","PublicKey":"cHVibGljX2tleV8x"},{"ID":"DQ4PEA==","PublicKey":"cHVibGljX2tleV8y"}]'::JSONB WHERE id = v_uid;
+
+    WITH creds AS (
+        SELECT jsonb_array_elements(webauthn_credentials) AS cred FROM users WHERE id = v_uid
+    )
+    INSERT INTO passkey_credentials (id, user_id, public_key, attestation_type, sign_count, created_at)
+    SELECT decode(c.cred->>'ID', 'base64')::BYTEA, v_uid,
+           decode(c.cred->>'PublicKey', 'base64')::BYTEA, 'none', 0, now()
+    FROM creds c
+    WHERE c.cred->>'ID' IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM passkey_credentials WHERE id = decode(c.cred->>'ID', 'base64')::BYTEA
+      )
+    -- NOT EXISTS dedups already-migrated rows; ON CONFLICT dedups duplicate IDs
+    -- within the same array (the guard's snapshot can't see same-statement rows).
+    ON CONFLICT (id) DO NOTHING;
+
+    PERFORM set_config('app.pk_dupe_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_dupe_uid')::BIGINT),
+    1,
+    'duplicate credential IDs are deduplicated');
+
+-- Test 7: Missing AttestationType defaults to 'none'
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    -- distinct credential ID, unique to this block (global PK, shared txn).
+    v_uid := mk_auth_user('no-att@test.local', 'x', 'NoAttestation');
+    UPDATE users SET webauthn_credentials =
+        '[{"ID":"ERITFA==","PublicKey":"cHVibGljX2tleV8x"}]'::JSONB WHERE id = v_uid;
+
+    WITH creds AS (
+        SELECT jsonb_array_elements(webauthn_credentials) AS cred FROM users WHERE id = v_uid
+    )
+    INSERT INTO passkey_credentials (id, user_id, public_key, attestation_type, sign_count, created_at)
+    SELECT decode(c.cred->>'ID', 'base64')::BYTEA, v_uid,
+           decode(c.cred->>'PublicKey', 'base64')::BYTEA,
+           COALESCE(c.cred->>'AttestationType', 'none'), 0, now()
+    FROM creds c WHERE c.cred->>'ID' IS NOT NULL;
+
+    PERFORM set_config('app.pk_noatt_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT attestation_type FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_noatt_uid')::BIGINT LIMIT 1),
+    'none',
+    'missing AttestationType defaults to none');
+
+-- Test 8: 1 credential JSONB produces exactly 1 row
+DO $$
+DECLARE
+    v_uid BIGINT;
+BEGIN
+    -- distinct credential ID, unique to this block (global PK, shared txn).
+    v_uid := mk_auth_user('single@test.local', 'x', 'Single');
+    UPDATE users SET webauthn_credentials =
+        '[{"ID":"FRYXGA==","PublicKey":"cHVibGljX2tleV8x","AttestationType":"packed","Authenticator":{"SignCount":3}}]'::JSONB WHERE id = v_uid;
+
+    WITH creds AS (
+        SELECT jsonb_array_elements(webauthn_credentials) AS cred FROM users WHERE id = v_uid
+    )
+    INSERT INTO passkey_credentials (id, user_id, public_key, attestation_type, sign_count, created_at)
+    SELECT decode(c.cred->>'ID', 'base64')::BYTEA, v_uid,
+           decode(c.cred->>'PublicKey', 'base64')::BYTEA,
+           COALESCE(c.cred->>'AttestationType', 'none'),
+           COALESCE((c.cred->'Authenticator'->>'SignCount')::INT, 0), now()
+    FROM creds c WHERE c.cred->>'ID' IS NOT NULL;
+
+    PERFORM set_config('app.pk_single_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COUNT(*)::INT FROM passkey_credentials
+     WHERE user_id = current_setting('app.pk_single_uid')::BIGINT),
+    1,
+    'JSONB with 1 credential produces 1 passkey row');
+
+SELECT * FROM finish();
+ROLLBACK;

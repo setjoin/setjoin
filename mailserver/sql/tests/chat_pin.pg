@@ -1,0 +1,108 @@
+-- chat_pin.pg: channel pin (curation act) reducer (Pillar A3 QoL Task 3).
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql,
+-- chat_pin.sql. chat_channel_members has no FK to users (V119) so bare
+-- bigint ids suffice.
+BEGIN;
+SELECT plan(20);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: a channel with owner 921, admin-promoted-later 922 stays member,
+-- non-member 923 never joins. A DM between 921 and 924.
+SELECT chat_channel_create(921, 'pin-general') AS ch_id \gset
+SELECT chat_member_add(921, :ch_id, 922);
+SELECT chat_message_send(921, :ch_id, 'pin me') AS msg_json \gset
+SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS msg_id \gset
+
+-- chat_dm_open now validates its target member id against `users` (BZ170);
+-- 924 needs a real row (this file otherwise uses bare ids throughout).
+INSERT INTO domains (id, name, is_local) VALUES (92199, 'chat-pin.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (924, 'pin924', 92199, 'pin924@chat-pin.test', 'Pin 924')
+  ON CONFLICT (id) DO NOTHING;
+SELECT chat_dm_open(921, ARRAY[924]::bigint[]) AS dm_id \gset
+SELECT chat_message_send(921, :dm_id, 'pin me in dm') AS dm_msg_json \gset
+SELECT (:'dm_msg_json'::jsonb ->> 'messageId')::bigint AS dm_msg_id \gset
+
+-- ── BZ176: a plain member (not owner/admin) cannot pin in a CHANNEL ──────
+SELECT throws_ok(format($$ SELECT chat_pin_toggle(922, %s) $$, :msg_id),
+  'BZ176', NULL, 'non-admin channel member cannot pin (BZ176)');
+
+-- ── owner CAN pin in a channel ────────────────────────────────────────────
+SELECT chat_pin_toggle(921, :msg_id) AS pinned \gset
+SELECT is(:'pinned'::boolean, true, 'owner pin toggles to true');
+SELECT is((SELECT count(*)::int FROM chat_message_pins
+            WHERE channel_id = :ch_id AND message_id = :msg_id), 1, 'pin row inserted');
+SELECT is(last_notify_event('chat:922'), 'message_pinned', 'pin fans out message_pinned');
+
+-- ── unpin is COLLECTIVE: a different owner/admin (not the original pinner)
+-- may unpin. Promote 922 to admin first.
+UPDATE chat_channel_members SET role = 'admin' WHERE channel_id = :ch_id AND user_id = 922;
+SELECT chat_pin_toggle(922, :msg_id) AS unpinned \gset
+SELECT is(:'unpinned'::boolean, false, 'a DIFFERENT admin (not the pinner) can unpin (collective curation)');
+SELECT is((SELECT count(*)::int FROM chat_message_pins
+            WHERE channel_id = :ch_id AND message_id = :msg_id), 0, 'pin row removed');
+
+-- ── pin bumps change_seq: the message re-surfaces via since(seq) replay
+-- with pinned:true, even for a client that missed the live push ──────────
+SELECT chat_pin_toggle(921, :msg_id) AS repinned \gset
+SELECT is(:'repinned'::boolean, true, 're-pin toggles back to true');
+SELECT (SELECT (chat_message_to_json(m, 921) ->> 'pinned')::boolean FROM chat_messages m WHERE m.id = :msg_id) AS pinned_flag \gset
+SELECT is(:'pinned_flag'::boolean, true, 'chat_message_to_json projects pinned:true');
+SELECT ok(
+  (SELECT bool_or((e ->> 'pinned')::boolean)
+     FROM jsonb_array_elements(chat_messages_since(921, :ch_id, 0)) e
+    WHERE (e ->> 'messageId')::bigint = :msg_id),
+  'a since(0) replay surfaces the pin (pinned:true) via the seq rail, not just the live push');
+
+-- ── BZ163: a non-member cannot pin or list pins ──────────────────────────
+SELECT throws_ok(format($$ SELECT chat_pin_toggle(923, %s) $$, :msg_id),
+  'BZ163', NULL, 'non-member cannot pin (BZ163)');
+SELECT throws_ok(format($$ SELECT chat_pins_list(923, %s) $$, :ch_id),
+  'BZ163', NULL, 'non-member cannot list pins (BZ163)');
+
+-- ── BZ169: pinning a nonexistent/soft-deleted message ────────────────────
+SELECT throws_ok($$ SELECT chat_pin_toggle(921, 999999999) $$,
+  'BZ169', NULL, 'pinning a nonexistent message raises BZ169');
+
+-- ── chat_pins_list returns the pinned message, newest-pin-first ──────────
+SELECT is(jsonb_array_length(chat_pins_list(922, :ch_id)), 1, 'pins_list returns one pinned message');
+SELECT is((chat_pins_list(921, :ch_id) -> 0 ->> 'messageId')::bigint, :msg_id::bigint, 'pins_list carries the pinned message');
+
+-- ── DM member (role is always 'member') pins SUCCESSFULLY — DM pin is
+-- all-member, not admin-gated (BZ176 would make it dead-on-arrival) ──────
+SELECT chat_pin_toggle(924, :dm_msg_id) AS dm_pinned \gset
+SELECT is(:'dm_pinned'::boolean, true, 'a plain DM member (role=member) can pin in a DM');
+
+-- ── a message from another channel never leaks into this channel's list ──
+SELECT chat_channel_create(921, 'pin-other') AS other_ch_id \gset
+SELECT is(jsonb_array_length(chat_pins_list(921, :other_ch_id)), 0, 'an unrelated channel has zero pins');
+
+-- ── review blocker: pin-then-soft-delete must not leave a stuck pin ──────
+-- (ordinary moderation flow — an admin deletes an offensive pinned message).
+-- Before the fix: the pin row survives chat_message_delete, chat_pins_list
+-- keeps returning the blanked/deleted message, chat_message_to_json keeps
+-- projecting pinned:true forever, and chat_pin_toggle's BZ169 guard (message
+-- not found/deleted) fires before the toggle logic, so no member/admin/owner
+-- can ever unpin it.
+SELECT chat_message_send(921, :ch_id, 'pin me then delete me') AS del_msg_json \gset
+SELECT (:'del_msg_json'::jsonb ->> 'messageId')::bigint AS del_msg_id \gset
+SELECT chat_pin_toggle(921, :del_msg_id) AS del_pinned \gset
+SELECT is((SELECT count(*)::int FROM chat_message_pins
+            WHERE channel_id = :ch_id AND message_id = :del_msg_id), 1, 'pin row exists before delete');
+
+SELECT chat_message_delete(921, :del_msg_id);
+
+SELECT is((SELECT count(*)::int FROM chat_message_pins
+            WHERE channel_id = :ch_id AND message_id = :del_msg_id), 0,
+  'soft-deleting a pinned message removes its pin row (no stuck pin)');
+SELECT ok(
+  NOT (SELECT bool_or((e ->> 'messageId')::bigint = :del_msg_id)
+         FROM jsonb_array_elements(chat_pins_list(921, :ch_id)) e),
+  'chat_pins_list no longer returns the deleted message');
+SELECT is((SELECT (chat_message_to_json(m, 921) ->> 'pinned')::boolean
+             FROM chat_messages m WHERE m.id = :del_msg_id), false,
+  'chat_message_to_json no longer projects pinned:true for the deleted message');
+
+SELECT * FROM finish();
+ROLLBACK;

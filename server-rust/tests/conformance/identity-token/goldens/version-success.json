@@ -1,0 +1,24 @@
+{
+  "case": "version-success",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/api/v1/version"
+    },
+    "response": {
+      "body": "{\"server_version\":\"2.5.0\",\"update_type\":\"up_to_date\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /api/v1/version"
+}

@@ -1,0 +1,56 @@
+-- approval_active_delegate.pg — QoL #23 out-of-office approval delegation.
+-- Covers: delegate substituted inside the window; self returned outside / with no row;
+-- latest-created wins on an overlapping window; and approval_resolve_approver reroutes
+-- a 'manager' approver to the delegate when the manager is OOO.
+BEGIN;
+SELECT plan(7);
+
+-- fixtures: one domain, three users (delegator/manager 20, delegate 30, requester 10).
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90911, 'appdel.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (10, 'appdel_req',  90911, 'req@appdel.test',  'Requester', TRUE),
+  (20, 'appdel_mgr',  90911, 'mgr@appdel.test',  'Manager',   TRUE),
+  (30, 'appdel_del',  90911, 'del@appdel.test',  'Delegate',  TRUE);
+
+-- no delegation row → returns self
+SELECT is(approval_active_delegate(20), 20::bigint, 'no delegation → self');
+
+-- active window (now inside) → returns the delegate
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 30, now() - interval '1 day', now() + interval '1 day');
+SELECT is(approval_active_delegate(20), 30::bigint, 'inside window → delegate');
+
+-- a DIFFERENT user (the delegate) has no delegation → returns self (single-hop, no chain)
+SELECT is(approval_active_delegate(30), 30::bigint, 'delegate not itself delegated → self');
+
+-- expired window → returns self
+DELETE FROM approval_delegations WHERE delegator_user_id = 20;
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 30, now() - interval '10 day', now() - interval '1 day');
+SELECT is(approval_active_delegate(20), 20::bigint, 'expired window → self');
+
+-- future window → returns self
+DELETE FROM approval_delegations WHERE delegator_user_id = 20;
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 30, now() + interval '1 day', now() + interval '10 day');
+SELECT is(approval_active_delegate(20), 20::bigint, 'future window → self');
+
+-- overlapping active windows → latest-created wins (delegate 10, not 30)
+DELETE FROM approval_delegations WHERE delegator_user_id = 20;
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 30, now() - interval '2 day', now() + interval '2 day');
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 10, now() - interval '1 day', now() + interval '2 day');
+SELECT is(approval_active_delegate(20), 10::bigint, 'overlap → latest-created wins');
+
+-- integration: resolver reroutes a 'manager' approver to the manager's active delegate.
+-- requester 10's manager is 20; 20 is OOO to 30 (single active row) → resolve → 30.
+DELETE FROM approval_delegations WHERE delegator_user_id = 20;
+INSERT INTO approval_delegations (delegator_user_id, delegate_user_id, starts_at, ends_at)
+  VALUES (20, 30, now() - interval '1 day', now() + interval '1 day');
+UPDATE users SET manager_id = 20 WHERE id = 10;
+SELECT is((SELECT ref FROM approval_resolve_approver(10, '{"kind":"manager"}'::jsonb)),
+          30::bigint, 'resolver reroutes OOO manager to delegate');
+
+SELECT * FROM finish();
+ROLLBACK;

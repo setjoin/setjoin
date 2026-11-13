@@ -1,0 +1,11 @@
+{
+  "stdout": "pending (current=274 \u2192 target=275): V275__feature_toggle_registry_projection.sql\n  applied V275__feature_toggle_registry_projection.sql\ndatabase schema is now at version 275\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "schema_added": [
+      275
+    ],
+    "schema_removed": []
+  }
+}

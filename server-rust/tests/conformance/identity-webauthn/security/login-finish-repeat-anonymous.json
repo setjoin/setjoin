@@ -1,0 +1,18 @@
+{
+  "audit": [
+    {
+      "details": null,
+      "email": null,
+      "event": "login_failed",
+      "id": "<id>",
+      "ip_address": "127.0.0.1",
+      "occurred_at": "<timestamp>",
+      "provider": "webauthn",
+      "user_id": null
+    }
+  ],
+  "case": "login-finish-repeat-anonymous-audit",
+  "format": 1,
+  "go_source": "6c1a7fee2c8d147965cc84ed94ea4663488a89c7",
+  "route": "POST /auth/webauthn/login/finish"
+}

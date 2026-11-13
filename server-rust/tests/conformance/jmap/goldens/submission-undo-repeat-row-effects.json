@@ -1,0 +1,216 @@
+{
+  "case": "submission-undo-repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<inbox-only>",
+        "mailbox_id": "<mailbox>",
+        "op": "updated",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<inbox-only>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "added_by": "user",
+        "imap_modseq": 1,
+        "imap_uid": 1,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Drafts>"
+      },
+      "change": "insert",
+      "row": "<inbox-only>:<tag:Drafts>",
+      "table": "message_tags"
+    },
+    {
+      "before": {
+        "added_at": "<timestamp>",
+        "added_by": "send",
+        "imap_modseq": 1,
+        "imap_uid": 1,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Sent>"
+      },
+      "change": "delete",
+      "row": "<inbox-only>:<tag:Sent>",
+      "table": "message_tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "folder_id": {
+          "after": "<tag:Drafts>",
+          "before": "<tag:Sent>"
+        }
+      },
+      "row": "<inbox-only>",
+      "table": "messages"
+    },
+    {
+      "before": {
+        "attempt_count": 0,
+        "dedup_key": null,
+        "delivered_at": null,
+        "dkim_signed": false,
+        "forward_unwrap_links": false,
+        "from_addr": "oracle@example.test",
+        "id": "<outbound_queue-1>",
+        "last_error": null,
+        "mailbox_id": "<mailbox>",
+        "message_id": "<inbox-only@oracle.test>",
+        "message_pk": null,
+        "next_attempt_at": "<timestamp>",
+        "queued_at": "<timestamp>",
+        "raw_ref": "raw-inbox-only",
+        "rcpt_addrs": [
+          "recipient@external.test"
+        ],
+        "status": "deferred"
+      },
+      "change": "delete",
+      "row": "item-1",
+      "table": "outbound_queue"
+    },
+    {
+      "before": {
+        "attempt_count": 0,
+        "dedup_key": null,
+        "delivered_at": null,
+        "dkim_signed": false,
+        "forward_unwrap_links": false,
+        "from_addr": "oracle@example.test",
+        "id": "<outbound_queue_hot-1>",
+        "last_error": null,
+        "mailbox_id": "<mailbox>",
+        "message_id": "<inbox-only@oracle.test>",
+        "message_pk": "<inbox-only>",
+        "next_attempt_at": "<timestamp>",
+        "queued_at": "<timestamp>",
+        "raw_ref": "raw-inbox-only",
+        "rcpt_addrs": [
+          "recipient@external.test"
+        ],
+        "status": "pending"
+      },
+      "change": "delete",
+      "row": "item-1",
+      "table": "outbound_queue_hot"
+    },
+    {
+      "before": {
+        "action_kind": "send",
+        "attempts": 0,
+        "created_at": "<timestamp>",
+        "dedup_key": "<scheduled-action-1>",
+        "fire_at": "<timestamp>",
+        "id": "<scheduled-action-1>",
+        "last_error": null,
+        "locked_by": null,
+        "locked_until": null,
+        "mailbox_id": "<mailbox>",
+        "payload": {
+          "message_id": "<inbox-only>",
+          "received_at": "<timestamp>",
+          "undo": true
+        },
+        "status": "pending",
+        "updated_at": "<timestamp>"
+      },
+      "change": "delete",
+      "row": "action-1",
+      "table": "scheduled_actions"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "imap_modseq": {
+          "after": 2,
+          "before": 1
+        },
+        "imap_uid_next": {
+          "after": 2,
+          "before": 1
+        },
+        "jmap_state": {
+          "after": 1,
+          "before": 0
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 0
+        },
+        "total_count": {
+          "after": 1,
+          "before": 0
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "Drafts",
+      "table": "tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_state": {
+          "after": 2,
+          "before": 1
+        },
+        "size_bytes": {
+          "after": 0,
+          "before": 10
+        },
+        "total_count": {
+          "after": 0,
+          "before": 1
+        },
+        "unread_count": {
+          "after": 0,
+          "before": 1
+        }
+      },
+      "row": "Sent",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /messages/{id}/undo"
+}

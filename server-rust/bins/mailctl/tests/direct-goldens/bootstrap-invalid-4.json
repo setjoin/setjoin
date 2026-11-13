@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: --email must not use a reserved local-part (RFC 2142)\n",
+  "exit": 1,
+  "database_effects": {
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

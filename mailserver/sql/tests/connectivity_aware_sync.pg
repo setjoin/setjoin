@@ -1,0 +1,136 @@
+-- pgTAP: V209 connectivity-aware sync authority, compatibility, and isolation.
+BEGIN;
+SELECT plan(25);
+
+SELECT has_column('public','offline_policies','background_sync_allowed',
+  'V209 adds policy background authority');
+SELECT has_column('public','user_devices','automatic_network_pref',
+  'V209 adds device-requested network preference');
+
+CREATE TEMP TABLE _accounts AS
+  SELECT mk_account('cas-owner') AS owner_mb,
+         mk_account('cas-other') AS other_mb,
+         mk_account('cas-admin') AS admin_mb;
+CREATE TEMP TABLE _ids AS
+  SELECT (SELECT user_id FROM mailboxes WHERE id=owner_mb) AS owner_uid,
+         (SELECT user_id FROM mailboxes WHERE id=other_mb) AS other_uid,
+         (SELECT user_id FROM mailboxes WHERE id=admin_mb) AS admin_uid
+    FROM _accounts;
+CREATE TEMP TABLE _devices AS
+  SELECT mk_offline_device((SELECT owner_mb FROM _accounts),'approved') AS owner_device;
+
+INSERT INTO admin_role_groups(id,name,permissions)
+  OVERRIDING SYSTEM VALUE
+  VALUES (99920901,'cas-preview-admin',ARRAY['mail.offline_policy']);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+  SELECT admin_uid,99920901,admin_uid FROM _ids;
+
+CREATE TEMP TABLE _policy AS
+SELECT offline_policy_set_v2(
+  (SELECT admin_uid FROM _ids),NULL,'cas-user','user',(SELECT owner_uid FROM _ids),
+  true,21,true,'admin_default',209,
+  true,'unmetered','never',true,'execute') AS id;
+SELECT ok((SELECT id FROM _policy)>0,'canonical policy reducer creates a row');
+
+SELECT lives_ok($$SELECT offline_device_set_preferences(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices),
+  true,14,true,'any','always')$$,
+  'canonical device reducer accepts owner-bound preferences');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.offline_mail';
+UPDATE feature_toggles SET enabled=false WHERE key='feature.connectivity_aware_sync';
+SELECT ok(NOT (offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices)) ? 'syncQoS'),
+  'OFF flag omits syncQoS');
+SELECT is((SELECT count(*)::int FROM jsonb_object_keys(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices)))),5,
+  'OFF flag preserves the exact five-key legacy shape');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.connectivity_aware_sync';
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,mode}','execute','winning rollout mode is projected');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,requested,automaticNetwork}','any','requested value stays visible');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,effective,automaticNetwork}','unmetered',
+  'user any intersected with policy unmetered');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,effective,attachmentPrefetch}','never',
+  'user always intersected with policy never');
+
+SELECT lives_ok($$SELECT offline_device_set_preferences(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices),
+  true,14,false,'any','always')$$,
+  'background preference can be disabled without changing hard ceilings');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,backgroundAllowed}','false',
+  'background admission is disabled separately');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,effective,automaticNetwork}','unmetered',
+  'foreground network ceiling remains reachable when background is disabled');
+SELECT is(offline_effective_policy(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices))
+  #>> '{syncQoS,sources,automaticNetwork,policyId}',
+  (SELECT id::text FROM _policy),'source ID crosses JSON as a decimal string');
+
+SELECT offline_policy_set(
+  (SELECT admin_uid FROM _ids),(SELECT id FROM _policy),'cas-user-renamed','user',
+  (SELECT owner_uid FROM _ids),true,21,true,'admin_default',209);
+SELECT is((SELECT automatic_network_max FROM offline_policies WHERE id=(SELECT id FROM _policy)),
+  'unmetered','legacy policy wrapper preserves V209 fields');
+SELECT ok(pg_get_functiondef(
+  'offline_policy_set(bigint,bigint,text,text,bigint,boolean,integer,boolean,text,integer)'::regprocedure)
+  LIKE '%FOR UPDATE%',
+  'legacy policy wrapper locks preserved V209 fields before delegating');
+
+SELECT offline_device_opt_in(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices),true,7);
+SELECT is((SELECT automatic_network_pref FROM user_devices WHERE id=(SELECT owner_device FROM _devices)),
+  'any','legacy device wrapper preserves V209 preferences');
+SELECT lives_ok($$SELECT offline_device_opt_in(999999999,999999999,true,7)$$,
+  'legacy device wrapper preserves the unknown-mailbox fail-safe');
+
+UPDATE offline_policies SET enabled=true,max_offline_days=7
+ WHERE scope_type='global';
+SELECT offline_device_set_preferences(
+  (SELECT owner_mb FROM _accounts),(SELECT owner_device FROM _devices),
+  true,30,false,'any','always');
+SELECT is((SELECT offline_window_days FROM user_devices WHERE id=(SELECT owner_device FROM _devices)),
+  21,'device window clamp follows the precedence winner, not MIN of fallbacks');
+
+SELECT throws_ok($$SELECT offline_policy_set_v2(
+  (SELECT admin_uid FROM _ids),NULL,'bad','global',NULL,true,1,true,'never',0,
+  true,'wifi','never',true,'off')$$,
+  'BZ099',NULL,'invalid connectivity enum fails closed');
+SELECT throws_ok($$SELECT offline_device_set_preferences(
+  (SELECT other_mb FROM _accounts),(SELECT owner_device FROM _devices),
+  false,1,false,'never','never')$$,
+  'BZ100',NULL,'cross-user device substitution is rejected in the mutation');
+
+SELECT throws_ok($$SELECT offline_sync_policy_preview(
+  (SELECT owner_uid FROM _ids),(SELECT owner_uid FROM _ids),
+  (SELECT owner_device FROM _devices))$$,
+  'BZ002',NULL,'preview without a live persisted permission is opaque');
+SELECT lives_ok($$SELECT offline_sync_policy_preview(
+  (SELECT admin_uid FROM _ids),(SELECT owner_uid FROM _ids),
+  (SELECT owner_device FROM _devices))$$,
+  'authorized preview uses the shared resolver');
+UPDATE feature_toggles SET enabled=false WHERE key='feature.connectivity_aware_sync';
+SELECT is(offline_sync_policy_preview(
+  (SELECT admin_uid FROM _ids),(SELECT owner_uid FROM _ids),
+  (SELECT owner_device FROM _devices)) #>> '{projection,syncQoS,mode}',
+  'off','authorized preview is intentionally available before enablement');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.connectivity_aware_sync';
+SELECT is(offline_sync_policy_preview(
+  (SELECT admin_uid FROM _ids),(SELECT owner_uid FROM _ids),
+  (SELECT owner_device FROM _devices)) #>> '{projection,syncQoS,mode}',
+  'execute','preview and JMAP projection share the winning mode');
+
+SELECT * FROM finish();
+ROLLBACK;

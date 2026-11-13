@@ -1,0 +1,1531 @@
+[
+  {
+    "name": "fail",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <0@spf.smtp2.test>\r\nSubject: fail\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "softfail",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ~all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <1@spf.smtp2.test>\r\nSubject: softfail\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "neutral",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ?all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <2@spf.smtp2.test>\r\nSubject: neutral\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "empty-record",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <3@spf.smtp2.test>\r\nSubject: empty-record\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "unknown-mechanism-ignored",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 whatever +all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <4@spf.smtp2.test>\r\nSubject: unknown-mechanism-ignored\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "mixed-case",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "V=SPF1 IP4:127.0.0.0/8 -ALL"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <5@spf.smtp2.test>\r\nSubject: mixed-case\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ip4-miss",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ip4:10.0.0.0/8 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <6@spf.smtp2.test>\r\nSubject: ip4-miss\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "malformed-ip-skipped",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ip4:bad ~all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <7@spf.smtp2.test>\r\nSubject: malformed-ip-skipped\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "prefix-version",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1strange +all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <8@spf.smtp2.test>\r\nSubject: prefix-version\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "ip6-miss",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ip6:::1/128 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <9@spf.smtp2.test>\r\nSubject: ip6-miss\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "a-cidr-unsupported",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 a/24 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <10@spf.smtp2.test>\r\nSubject: a-cidr-unsupported\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "no-spf",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "not spf"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <11@spf.smtp2.test>\r\nSubject: no-spf\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "nxdomain",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {},
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <12@spf.smtp2.test>\r\nSubject: nxdomain\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "temporary-dns",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <13@spf.smtp2.test>\r\nSubject: temporary-dns\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "multiple-records",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 +all",
+        "v=spf1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <14@spf.smtp2.test>\r\nSubject: multiple-records\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-a",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 a -all"
+      ],
+      "ip:spf.smtp2.test": [
+        "127.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <15@spf.smtp2.test>\r\nSubject: match-a\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-a-host.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 a:host.test -all"
+      ],
+      "ip:host.test": [
+        "127.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <16@spf.smtp2.test>\r\nSubject: match-a-host.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-mx",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 mx -all"
+      ],
+      "mx:spf.smtp2.test": [
+        "mx.test."
+      ],
+      "ip:mx.test.": [
+        "127.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <17@spf.smtp2.test>\r\nSubject: match-mx\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-mx-mail.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 mx:mail.test -all"
+      ],
+      "mx:mail.test": [
+        "fail.test.",
+        "mx.test."
+      ],
+      "ip:fail.test.": "temporary",
+      "ip:mx.test.": [
+        "127.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <18@spf.smtp2.test>\r\nSubject: match-mx-mail.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-ptr",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ptr -all"
+      ],
+      "ptr:127.0.0.1": [
+        "ptr.spf.smtp2.test."
+      ],
+      "ip:ptr.spf.smtp2.test": [
+        "127.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <19@spf.smtp2.test>\r\nSubject: match-ptr\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-exists-exists.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 exists:exists.test -all"
+      ],
+      "ip:exists.test": []
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <20@spf.smtp2.test>\r\nSubject: match-exists-exists.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-exists-%{l}.%{d}",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 exists:%{l}.%{d} -all"
+      ],
+      "ip:sender.spf.smtp2.test": [
+        "10.0.0.1"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <21@spf.smtp2.test>\r\nSubject: match-exists-%{l}.%{d}\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-include-include.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:include.test -all"
+      ],
+      "txt:include.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <22@spf.smtp2.test>\r\nSubject: match-include-include.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "match-redirect=include.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 redirect=include.test -all"
+      ],
+      "txt:include.test": [
+        "v=spf1 +all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <23@spf.smtp2.test>\r\nSubject: match-redirect=include.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "error-is-nonmatch-a",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 a -all"
+      ],
+      "ip:spf.smtp2.test": "temporary",
+      "mx:spf.smtp2.test": "temporary",
+      "ptr:127.0.0.1": "temporary",
+      "ip:bad.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <24@spf.smtp2.test>\r\nSubject: error-is-nonmatch-a\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "error-is-nonmatch-mx",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 mx -all"
+      ],
+      "ip:spf.smtp2.test": "temporary",
+      "mx:spf.smtp2.test": "temporary",
+      "ptr:127.0.0.1": "temporary",
+      "ip:bad.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <25@spf.smtp2.test>\r\nSubject: error-is-nonmatch-mx\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "error-is-nonmatch-ptr",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 ptr -all"
+      ],
+      "ip:spf.smtp2.test": "temporary",
+      "mx:spf.smtp2.test": "temporary",
+      "ptr:127.0.0.1": "temporary",
+      "ip:bad.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <26@spf.smtp2.test>\r\nSubject: error-is-nonmatch-ptr\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "error-is-nonmatch-exists-bad.test",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 exists:bad.test -all"
+      ],
+      "ip:spf.smtp2.test": "temporary",
+      "mx:spf.smtp2.test": "temporary",
+      "ptr:127.0.0.1": "temporary",
+      "ip:bad.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <27@spf.smtp2.test>\r\nSubject: error-is-nonmatch-exists-bad.test\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "include-fail",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:include.test -all"
+      ],
+      "txt:include.test": [
+        "v=spf1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <28@spf.smtp2.test>\r\nSubject: include-fail\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "include-none",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:include.test -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <29@spf.smtp2.test>\r\nSubject: include-none\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "include-temp",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:include.test -all"
+      ],
+      "txt:include.test": "temporary"
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <30@spf.smtp2.test>\r\nSubject: include-temp\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "include-perm",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:include.test -all"
+      ],
+      "txt:include.test": [
+        "v=spf1 +all",
+        "v=spf1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <31@spf.smtp2.test>\r\nSubject: include-perm\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "include-loop",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 include:spf.smtp2.test -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <32@spf.smtp2.test>\r\nSubject: include-loop\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "a-budget-becomes-fail",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 a a a a a a a a a a a -all"
+      ],
+      "ip:spf.smtp2.test": []
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <33@spf.smtp2.test>\r\nSubject: a-budget-becomes-fail\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "redirect-eager",
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:spf.smtp2.test": [
+        "v=spf1 redirect=include.test +all"
+      ],
+      "txt:include.test": [
+        "v=spf1 -all"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@spf.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@spf.smtp2.test\r\nTo: alice@smtp1.test\r\nMessage-Id: <34@spf.smtp2.test>\r\nSubject: redirect-eager\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  }
+]

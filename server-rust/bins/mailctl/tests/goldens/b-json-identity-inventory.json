@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/inventory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"schemaVersion\": 1,\n  \"generatedAt\": \"2026-01-01T00:00:00Z\",\n  \"people\": {\n    \"total\": 0,\n    \"enabled\": 0,\n    \"disabled\": 0,\n    \"guests\": 0,\n    \"members\": 0,\n    \"unclassifiedWithoutMailbox\": 0\n  },\n  \"mailboxes\": {\n    \"shared\": 0,\n    \"resources\": 0\n  },\n  \"lifecycleSources\": {},\n  \"federationPairs\": {\n    \"oidcComplete\": 0,\n    \"oidcPartial\": 0,\n    \"samlComplete\": 0,\n    \"samlPartial\": 0,\n    \"legacyInventoried\": 0\n  },\n  \"protectedAccounts\": {\n    \"total\": 0,\n    \"breakGlass\": 0,\n    \"sensitiveRoleHolders\": 0\n  },\n  \"entitlementAmbiguity\": {\n    \"distributionGroupMemberships\": 0,\n    \"adminRoleAssignments\": 0\n  },\n  \"connectorSecrets\": {\n    \"ad\": \"configured\",\n    \"ldap\": \"not_configured\"\n  },\n  \"blockers\": []\n}\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,85 @@
+-- pgTAP: admin_set_reaches.pg
+--
+-- admin_set_reaches(p_set_id, p_target) — does any member of the scope-set
+-- cover the target user?
+--   ou    → target's department is in the member's subtree
+--   group → target's PRIMARY mailbox is in the (static) group
+--   user  → target IS the member
+-- Fail-closed: empty set / dangling members / no-primary-mailbox → FALSE.
+--
+-- 7 assertions:
+--   1. OU member covers a user in the subtree
+--   2. group member covers a user whose primary mailbox is in the group
+--   3. direct user member
+--   4. uncovered user not reached
+--   5. empty set reaches nobody
+--   6. after group delete, no longer reached via group
+--   7. no-primary-mailbox target unreachable via group member
+--
+-- Seed ids: 97xxx (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(7);
+
+-- ── Domain ───────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (97000, 'setreach97.test', TRUE);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+-- /eng        parent dept (scope-set member)
+-- /eng/backend descendant (user 97100 lives here → reached via OU arm)
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (97001, 'Eng',     '/eng',         'ou=Eng,dc=setreach97,dc=test'),
+  (97002, 'Backend', '/eng/backend', 'ou=Backend,ou=Eng,dc=setreach97,dc=test');
+
+-- ── Users ────────────────────────────────────────────────────────────────────
+INSERT INTO public.users (id, username, domain_id, email, display_name, department_id)
+  OVERRIDING SYSTEM VALUE VALUES
+  (97100, 'in-ou',  97000, 'in-ou@setreach97.test',  'InOU',  97002),  -- under /eng subtree
+  (97101, 'in-grp', 97000, 'in-grp@setreach97.test', 'InGrp', NULL),   -- reached via group
+  (97102, 'direct', 97000, 'direct@setreach97.test',  'Direct',NULL),   -- direct user member
+  (97103, 'nobody', 97000, 'nobody@setreach97.test',  'Nobody',NULL);   -- reached by nothing
+
+-- ── Mailboxes ────────────────────────────────────────────────────────────────
+-- Group backing mailbox (no user_id — distribution group's own address)
+INSERT INTO public.mailboxes (id, domain_id, email, display_name, type, is_primary)
+  OVERRIDING SYSTEM VALUE VALUES
+  (97299, 97000, 'dg97300@setreach97.test', 'DG97300', 'personal', FALSE);
+-- Member mailboxes (primary mailboxes for users who can be reached via group)
+INSERT INTO public.mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  OVERRIDING SYSTEM VALUE VALUES
+  (97200, 97101, 97000, 'in-grp@setreach97.test', 'InGrp',  'personal', TRUE),
+  (97201, 97102, 97000, 'direct@setreach97.test',  'Direct', 'personal', TRUE);
+
+-- ── Static distribution group ────────────────────────────────────────────────
+INSERT INTO public.distribution_groups (id, mailbox_id, is_dynamic) VALUES (97300, 97299, false);
+INSERT INTO public.distribution_group_members (group_id, mailbox_id) VALUES (97300, 97200);
+
+-- ── Scope sets ───────────────────────────────────────────────────────────────
+INSERT INTO public.admin_scope_sets (id, name) VALUES (97400, 'mixed');
+INSERT INTO public.admin_scope_set_members (set_id, member_type, member_id) VALUES
+  (97400, 'ou',    97001),  -- Eng (/eng) subtree
+  (97400, 'group', 97300),  -- static group containing user 97101's mailbox
+  (97400, 'user',  97102);  -- direct user member
+INSERT INTO public.admin_scope_sets (id, name) VALUES (97401, 'empty');
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+SELECT ok(admin_set_reaches(97400, 97100), 'set reaches a user via OU member (subtree)');
+SELECT ok(admin_set_reaches(97400, 97101), 'set reaches a user via group member (primary mailbox in group)');
+SELECT ok(admin_set_reaches(97400, 97102), 'set reaches a direct user member');
+SELECT ok(NOT admin_set_reaches(97400, 97103), 'set does not reach an uncovered user');
+SELECT ok(NOT admin_set_reaches(97401, 97100), 'empty set reaches nobody');
+
+-- dangling group member: deleting the group fires trg_scope_member_drop_group,
+-- which removes (97400, 'group', 97300) from admin_scope_set_members.
+DELETE FROM public.distribution_groups WHERE id = 97300;
+SELECT ok(NOT admin_set_reaches(97400, 97101), 'after group delete, no longer reached via group');
+
+-- no-primary-mailbox: user 97103 has no primary mailbox → EXISTS in admin_mailbox_in_group
+-- finds no rows → FALSE even if the group member entry exists in the set.
+INSERT INTO public.distribution_groups (id, mailbox_id, is_dynamic) VALUES (97301, 97299, false);
+INSERT INTO public.admin_scope_set_members (set_id, member_type, member_id) VALUES (97400, 'group', 97301);
+SELECT ok(NOT admin_set_reaches(97400, 97103), 'no-primary-mailbox target unreachable via group');
+
+SELECT finish();
+ROLLBACK;

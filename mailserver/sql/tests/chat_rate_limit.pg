@@ -1,0 +1,65 @@
+-- chat_rate_limit.pg — Chat A4a Task 10: per-user chat send rate limiting.
+-- Own standalone abuse-control feature, NOT gated on feature.chat_compliance
+-- (ships live to every existing chat deployment). Requires: chat_channel.sql,
+-- chat_message.sql, notify_chat_state.sql.
+BEGIN;
+SELECT plan(11);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: 801/802 = two members of one channel, so the per-user counter's
+-- isolation (not a shared per-channel counter) can be proven.
+SELECT chat_channel_create(801, 'ratelimit-general') AS gen_id \gset
+SELECT chat_member_add(801, :gen_id, 802);
+
+-- ── key = 3: the 4th send inside one minute raises BZ196 ────────────────
+SELECT set_system_config('chat.send_rate_per_minute', '3'::jsonb);
+
+SELECT lives_ok(format($$ SELECT chat_message_send(801, %s, 'one') $$, :gen_id),
+  'send 1/3 succeeds');
+SELECT lives_ok(format($$ SELECT chat_message_send(801, %s, 'two') $$, :gen_id),
+  'send 2/3 succeeds');
+SELECT lives_ok(format($$ SELECT chat_message_send(801, %s, 'three') $$, :gen_id),
+  'send 3/3 succeeds');
+SELECT throws_ok(format($$ SELECT chat_message_send(801, %s, 'four') $$, :gen_id),
+  'BZ196', NULL, 'the 4th send inside the minute raises BZ196');
+
+-- a failed send rolls the counter back — the count in chat_send_counters
+-- still reads 3, not 4 (the RAISE aborted the transaction, including the
+-- UPDATE ... RETURNING that would have bumped it to 4).
+SELECT is((SELECT sent_count FROM chat_send_counters WHERE user_id = 801), 3,
+  'a rate-limited send consumes nothing — counter stays at 3');
+
+-- ── two different users do not share a counter ──────────────────────────
+-- 801 is already pinned at its 3/3 cap above; 802 has sent nothing yet. If
+-- the counter were shared (keyed by channel, not by user), 802's send would
+-- also be rejected here.
+SELECT lives_ok(format($$ SELECT chat_message_send(802, %s, 'y1') $$, :gen_id),
+  'a different user has an independent counter (not shared with 801)');
+SELECT is((SELECT sent_count FROM chat_send_counters WHERE user_id = 802), 1,
+  '802''s own counter reads 1, unaffected by 801''s 3');
+
+-- ── window reset: a send in the "next minute" succeeds ──────────────────
+-- Rather than sleep, backdate 801's window_start so the reducer's
+-- date_trunc('minute', now()) comparison reads it as a stale window.
+UPDATE chat_send_counters SET window_start = window_start - interval '2 minutes'
+  WHERE user_id = 801;
+SELECT lives_ok(format($$ SELECT chat_message_send(801, %s, 'five') $$, :gen_id),
+  'a send in a new minute window succeeds (window reset)');
+SELECT is((SELECT sent_count FROM chat_send_counters WHERE user_id = 801), 1,
+  'the reset window restarts the count at 1, not 4');
+
+-- ── key = 0: unlimited ───────────────────────────────────────────────────
+SELECT set_system_config('chat.send_rate_per_minute', '0'::jsonb);
+SELECT lives_ok(format($$
+  SELECT chat_message_send(801, %1$s, 'a') FROM generate_series(1,5)
+$$, :gen_id), '0 disables the limit entirely (5 more rapid sends all succeed)');
+
+-- ── key absent: falls back to the 60/min default ────────────────────────
+DELETE FROM system_config WHERE key = 'chat.send_rate_per_minute';
+DELETE FROM chat_send_counters WHERE user_id = 801;
+SELECT lives_ok(format($$
+  SELECT chat_message_send(801, %1$s, 'z') FROM generate_series(1,10)
+$$, :gen_id), 'with no config key at all, 10 rapid sends succeed under the 60 default');
+
+SELECT finish();
+ROLLBACK;

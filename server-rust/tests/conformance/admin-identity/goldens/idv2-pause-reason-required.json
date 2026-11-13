@@ -1,0 +1,359 @@
+{
+  "case": "reason-required",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "sensitive_action.reason_missing",
+        "after_state": null,
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "identity.write",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "candidates": [
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000001",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000002",
+              "reason": "later",
+              "status": "deferred"
+            },
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 5,
+              "id": "95000000-0000-4000-8000-000000000003",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000004",
+              "reason": "no",
+              "status": "rejected"
+            }
+          ],
+          "decisions": [
+            {
+              "candidate": "95000000-0000-4000-8000-000000000001",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "earlier"
+            },
+            {
+              "candidate": "95000000-0000-4000-8000-000000000002",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "later"
+            }
+          ],
+          "events": [],
+          "jobs": [
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000001",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000002",
+              "next_action": "wait",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000003",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000004",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            }
+          ],
+          "links": [
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-b",
+              "user_id": "<other>"
+            },
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-t",
+              "user_id": "<third>"
+            },
+            {
+              "source": "admin7-beta",
+              "state": "detached",
+              "subject": "admin7-subject-a",
+              "user_id": "<admin>"
+            }
+          ],
+          "operations": [],
+          "sources": [
+            {
+              "config_key_version": 1,
+              "generation": 3,
+              "key": "admin7-alpha",
+              "mapping_version": 2,
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 5,
+              "key": "admin7-beta",
+              "mapping_version": 2,
+              "state": "paused",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 2,
+              "key": "admin7-delta",
+              "mapping_version": 1,
+              "state": "validated",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 1,
+              "key": "admin7-gamma",
+              "mapping_version": 2,
+              "state": "draft",
+              "updated_by": null
+            }
+          ]
+        },
+        "before": {
+          "candidates": [
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000001",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000002",
+              "reason": "later",
+              "status": "deferred"
+            },
+            {
+              "decided": false,
+              "decided_by": null,
+              "generation": 5,
+              "id": "95000000-0000-4000-8000-000000000003",
+              "reason": null,
+              "status": "pending"
+            },
+            {
+              "decided": true,
+              "decided_by": "<admin>",
+              "generation": 3,
+              "id": "95000000-0000-4000-8000-000000000004",
+              "reason": "no",
+              "status": "rejected"
+            }
+          ],
+          "decisions": [
+            {
+              "candidate": "95000000-0000-4000-8000-000000000001",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "earlier"
+            },
+            {
+              "candidate": "95000000-0000-4000-8000-000000000002",
+              "decided_by": "<admin>",
+              "decision": "defer",
+              "has_link": false,
+              "has_person": false,
+              "reason": "later"
+            }
+          ],
+          "events": [],
+          "jobs": [
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000001",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000002",
+              "next_action": "wait",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000003",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "cancel_requested": false,
+              "id": "95100000-0000-4000-8000-000000000004",
+              "next_action": "wait",
+              "state": "completed",
+              "terminal": true
+            }
+          ],
+          "links": [
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-b",
+              "user_id": "<other>"
+            },
+            {
+              "source": "admin7-alpha",
+              "state": "active",
+              "subject": "admin7-subject-t",
+              "user_id": "<third>"
+            },
+            {
+              "source": "admin7-beta",
+              "state": "detached",
+              "subject": "admin7-subject-a",
+              "user_id": "<admin>"
+            }
+          ],
+          "operations": [],
+          "sources": [
+            {
+              "config_key_version": 1,
+              "generation": 3,
+              "key": "admin7-alpha",
+              "mapping_version": 2,
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 5,
+              "key": "admin7-beta",
+              "mapping_version": 2,
+              "state": "paused",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 2,
+              "key": "admin7-delta",
+              "mapping_version": 1,
+              "state": "validated",
+              "updated_by": null
+            },
+            {
+              "config_key_version": 1,
+              "generation": 1,
+              "key": "admin7-gamma",
+              "mapping_version": 2,
+              "state": "draft",
+              "updated_by": null
+            }
+          ]
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"expectedGeneration\":\"3\",\"idempotencyKey\":\"95300000-0000-4000-8000-000000000001\",\"reason\":\"admin7 reason <&>\"}",
+      "external_path": "/api/admin/identity/v2/sources/{sourceKey}/pause",
+      "headers": [
+        "content-type",
+        "idempotency-key",
+        "if-match"
+      ],
+      "method": "POST",
+      "path": "/admin/identity/v2/sources/{sourceKey}/pause"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"reason_required\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "99"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /admin/identity/v2/sources/{sourceKey}/pause"
+}

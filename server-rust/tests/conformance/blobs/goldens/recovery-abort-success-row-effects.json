@@ -1,0 +1,41 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "status": {
+          "after": "aborted",
+          "before": "uploading"
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_items"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "status": {
+          "after": "aborted",
+          "before": "uploading"
+        },
+        "terminal_reason": {
+          "after": "user_cancelled",
+          "before": null
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_sessions"
+    }
+  ],
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "normalization": [
+    "changed update timestamp"
+  ],
+  "route": "DELETE /recovery/uploads/{sessionId}"
+}

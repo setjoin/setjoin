@@ -1,0 +1,72 @@
+{
+  "case": "big-limit",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "audit_rows": 5,
+          "config": [],
+          "policies": [],
+          "violations": 0
+        },
+        "before": {
+          "audit_rows": 5,
+          "config": [],
+          "policies": [],
+          "violations": 0
+        },
+        "table": "dlp"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/link-protect/audit",
+      "method": "GET",
+      "path": "/admin/link-protect/audit",
+      "query": "?limit=101"
+    },
+    "response": {
+      "body": "{\"count\":5,\"items\":[{\"id\":\"<l0>\",\"url_hash\":\"hash-a\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":11,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"10.0.0.1\",\"created_at\":\"2026-10-05T10:00:00Z\"},{\"id\":\"<l1>\",\"url_hash\":\"hash-b\",\"verdict\":\"malicious\",\"scanner\":\"safebrowsing\",\"message_id\":12,\"mailbox_id\":\"<mailbox-other>\",\"client_ip\":\"10.0.0.2\",\"created_at\":\"2026-10-04T10:00:00Z\"},{\"id\":\"<l2>\",\"url_hash\":\"hash-a\",\"verdict\":\"unknown\",\"scanner\":\"pipeline\",\"message_id\":13,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"::1\",\"created_at\":\"2026-10-03T10:00:00Z\"},{\"id\":\"<l3>\",\"url_hash\":\"hash-c\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":14,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"\",\"created_at\":\"2026-10-02T10:00:00Z\"},{\"id\":\"<l4>\",\"url_hash\":\"hash-d\",\"verdict\":\"safe\",\"scanner\":\"spamhaus\",\"message_id\":15,\"mailbox_id\":\"<mailbox-actor>\",\"client_ip\":\"10.0.0.5\",\"created_at\":\"2026-10-01T10:00:00Z\"}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "911"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/link-protect/audit"
+}

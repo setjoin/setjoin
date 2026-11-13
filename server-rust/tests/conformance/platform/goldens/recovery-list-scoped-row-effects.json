@@ -1,0 +1,21 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "n": 0
+        }
+      ],
+      "before": [
+        {
+          "n": 0
+        }
+      ],
+      "table": "mail_recovery_incidents"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "GET /admin/system/recovery/incidents"
+}

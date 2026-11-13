@@ -1,0 +1,10 @@
+[
+  {
+    "baseline": "authority-error.json",
+    "sha256": "c446263f59fd6a0cf574c194946152e72d750be75b512c2fcb321896feecefd7",
+    "expectation": "security/authority-error.json",
+    "reason": "owner-approved security fix 2026-11-05 (#484: a failed live authority lookup drops signed grants (403 with a console.denied audit row)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  }
+]

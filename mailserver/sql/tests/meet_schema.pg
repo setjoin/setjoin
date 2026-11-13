@@ -1,0 +1,29 @@
+-- mailserver/sql/tests/meet_schema.pg — Task 1: V125 meet core schema.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 1.
+BEGIN;
+SELECT plan(16);
+SELECT has_table('public', 'meetings', 'meetings exists');
+SELECT has_table('public', 'meeting_participants', 'participants exists');
+SELECT has_table('public', 'meeting_join_requests', 'join requests exists');
+SELECT has_column('public', 'meeting_participants', 'banned_at', 'kick-ban marker exists');
+SELECT has_function('meeting_member_role', ARRAY['bigint','bigint']);
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='meeting_member_role'), true,
+          'scope helper is SECURITY DEFINER');
+SELECT ok((SELECT proconfig::text FROM pg_proc WHERE proname='meeting_member_role')
+          LIKE '%search_path%', 'scope helper pins search_path (DEFINER foot-gun guard)');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.meet'), false,
+          'feature.meet seeded OFF');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='meet.guest_access'), true,
+          'meet.guest_access seeded ON');
+SELECT col_is_unique('public','meetings','room_name','room_name unique');
+SELECT col_is_unique('public','meetings','slug','slug unique');
+-- msg_type widened for the §3.3 bridge:
+SELECT lives_ok($$ INSERT INTO chat_channels (kind,name,created_by) VALUES ('channel','t',1) $$);
+SELECT lives_ok($$ INSERT INTO chat_messages (channel_id, seq, author_id, msg_type, body, payload)
+  SELECT id, 1, 1, 'call', '', '{"meetingId":1}' FROM chat_channels WHERE name='t' $$,
+  'msg_type ''call'' accepted');
+-- FORCE RLS on all three:
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE relname='meetings'), true);
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE relname='meeting_participants'), true);
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE relname='meeting_join_requests'), true);
+SELECT * FROM finish(); ROLLBACK;

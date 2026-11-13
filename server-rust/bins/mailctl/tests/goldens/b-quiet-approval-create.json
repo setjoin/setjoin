@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/approval-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"approverSpec\":{},\"conditions\":{\"z\":1,\"a\":2},\"consumerType\":\"mail.external_send\",\"enabled\":true,\"name\":\"Review\",\"requiresApproval\":true}"
+    }
+  ],
+  "stdout": "Approval policy created: id=7\n",
+  "stderr": "",
+  "exit": 0
+}

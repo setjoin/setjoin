@@ -1,0 +1,197 @@
+{
+  "case": "token-confidential-basic",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [
+          {
+            "acr": "aal2",
+            "amr": [
+              "pwd",
+              "user",
+              "swk"
+            ],
+            "auth_time": "2023-11-14T22:13:20+00:00",
+            "client_id": "idfed1-client",
+            "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "code_challenge_method": "S256",
+            "code_hash": "_code1-sha256",
+            "created_at": "_created",
+            "done": true,
+            "expires_at": "_created+600s",
+            "id": "_request1",
+            "nonce": "nonce-339",
+            "redirect_uri": "https://rp.idfed1.test/callback",
+            "scopes": [
+              "openid",
+              "email",
+              "profile",
+              "offline_access"
+            ],
+            "state": "state-339",
+            "user_id": "_actor"
+          }
+        ],
+        "table": "oidc_auth_requests"
+      },
+      {
+        "after": [
+          {
+            "client_id": "idfed1-client",
+            "created_at": "_created",
+            "expires_at": "_created+300s",
+            "id": "_access1",
+            "refresh_expires_at": "_created+30d",
+            "refresh_token_hash": "_refresh1-sha256",
+            "revoked_at": null,
+            "scopes": [
+              "openid",
+              "email",
+              "profile",
+              "offline_access"
+            ],
+            "subject": "_actor",
+            "user_id": "_actor"
+          }
+        ],
+        "before": [],
+        "table": "oidc_tokens"
+      },
+      {
+        "after": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt2",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt3",
+            "occurred_at": "_attempt-time",
+            "outcome": "success",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "before": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt2",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "table": "auth_attempts"
+      }
+    ],
+    "issued": {
+      "access": {
+        "claims": {
+          "aud": [
+            "idfed1-client"
+          ],
+          "client_id": "idfed1-client",
+          "exp": "_mint+300s",
+          "iat": "_mint",
+          "iss": "https://auth.idfed1.test",
+          "jti": "_access1",
+          "nbf": "_mint",
+          "sub": "_actor"
+        },
+        "header": {
+          "alg": "RS256",
+          "kid": "K1J7kz73PeVSzguZuSJUvo4U84pun6ozieYbBELisfI",
+          "typ": "JWT"
+        }
+      },
+      "id": {
+        "claims": {
+          "acr": "aal2",
+          "amr": [
+            "pwd",
+            "user",
+            "swk"
+          ],
+          "at_hash": "_access1-hash",
+          "aud": [
+            "idfed1-client"
+          ],
+          "auth_time": 1700000000,
+          "azp": "idfed1-client",
+          "c_hash": "_code1-hash",
+          "client_id": "idfed1-client",
+          "email": "_actor-email",
+          "email_verified": true,
+          "exp": "_mint+300s",
+          "iat": "_mint",
+          "iss": "https://auth.idfed1.test",
+          "name": "idfed1-actor",
+          "nonce": "nonce-339",
+          "sub": "_actor"
+        },
+        "header": {
+          "alg": "RS256",
+          "kid": "K1J7kz73PeVSzguZuSJUvo4U84pun6ozieYbBELisfI",
+          "typ": "JWT"
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "grant_type=authorization_code&client_id=idfed1-client&code=_code1&redirect_uri=https%3A%2F%2Frp.idfed1.test%2Fcallback&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+      "method": "*",
+      "path": "/oauth/token",
+      "wire_method": "POST",
+      "wire_path": "/oauth/token"
+    },
+    "response": {
+      "body": "{\"access_token\":\"_access1\",\"token_type\":\"Bearer\",\"refresh_token\":\"_refresh1\",\"expires_in\":\"_access-validity\",\"id_token\":\"_id1\",\"scope\":\"openid email profile offline_access\"}\n",
+      "headers": {
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /oauth/token authorization-code"
+}

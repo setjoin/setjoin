@@ -1,0 +1,62 @@
+-- chat_reaction.pg: message-reaction reducer (Pillar A1 Task 6).
+-- chat_channel_members has no FK to users (V119) so bare bigint ids suffice.
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql,
+-- chat_reaction.sql.
+BEGIN;
+SELECT plan(14);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: 901 = owner, 902 = member, 903 = never joined (non-member).
+SELECT chat_channel_create(901, 'react-general') AS ch_id \gset
+SELECT chat_member_add(901, :ch_id, 902);
+SELECT chat_message_send(901, :ch_id, 'react to me') AS msg_json \gset
+SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS msg_id \gset
+SELECT (:'msg_json'::jsonb ->> 'seq')::bigint AS msg_seq \gset
+
+-- ── membership guard (BZ163) ──────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_reaction_toggle(903, %s, '👍') $$, :msg_id),
+  'BZ163', NULL, 'non-member cannot react (BZ163)');
+
+-- ── message-not-found (BZ169), distinct from BZ163 ───────────────────────
+SELECT throws_ok($$ SELECT chat_reaction_toggle(901, 999999999, '👍') $$,
+  'BZ169', NULL, 'reacting to a nonexistent message raises BZ169');
+
+-- ── toggle add ─────────────────────────────────────────────────────────────
+SELECT chat_reaction_toggle(901, :msg_id, '👍') AS added \gset
+SELECT is(:'added'::boolean, true, 'first toggle adds the reaction (returns true)');
+SELECT is((SELECT count(*)::int FROM chat_message_reactions
+            WHERE message_id = :msg_id AND user_id = 901 AND emoji = '👍'), 1,
+  'reaction row inserted');
+SELECT is(last_notify_event('chat:902'), 'reaction_added', 'toggle-add notifies reaction_added');
+SELECT is((SELECT (last_notify_payload('chat:902')::jsonb ->> 'seq')::bigint), :msg_seq::bigint,
+  'the notify payload carries the reacted-to message''s CURRENT seq');
+
+-- ── toggle remove (idempotent flip) ───────────────────────────────────────
+SELECT chat_reaction_toggle(901, :msg_id, '👍') AS removed \gset
+SELECT is(:'removed'::boolean, false, 'second toggle removes the reaction (returns false)');
+SELECT is((SELECT count(*)::int FROM chat_message_reactions
+            WHERE message_id = :msg_id AND user_id = 901 AND emoji = '👍'), 0,
+  'reaction row deleted');
+SELECT is(last_notify_event('chat:902'), 'reaction_removed', 'toggle-remove notifies reaction_removed');
+
+-- ── independent emoji / independent user ──────────────────────────────────
+SELECT chat_reaction_toggle(901, :msg_id, '❤️') AS added2 \gset
+SELECT is(:'added2'::boolean, true, 'a different emoji from the same user toggles independently');
+SELECT chat_reaction_toggle(902, :msg_id, '❤️') AS added3 \gset
+SELECT is(:'added3'::boolean, true, 'a different user reacting with the same emoji toggles independently (PK per message,user,emoji)');
+SELECT is((SELECT count(*)::int FROM chat_message_reactions WHERE message_id = :msg_id AND emoji = '❤️'), 2,
+  'both reactors'' rows for the same emoji coexist');
+
+-- ── reacting to a SOFT-DELETED message raises BZ169 (not BZ167) ──────────
+SELECT chat_message_delete(901, :msg_id);
+SELECT throws_ok(format($$ SELECT chat_reaction_toggle(902, %s, '🎉') $$, :msg_id),
+  'BZ169', NULL, 'reacting to a soft-deleted message raises BZ169');
+
+-- a non-member also gets BZ169 (not BZ163) when the message id itself is bogus,
+-- and BZ163 (not BZ169) when the message is real but they're not a member —
+-- pins the interface's stated guard order (message existence resolved first).
+SELECT throws_ok(format($$ SELECT chat_reaction_toggle(903, %s, '🎉') $$, :msg_id),
+  'BZ169', NULL, 'a non-member reacting to the now-deleted message still raises BZ169 (message check runs first)');
+
+SELECT * FROM finish();
+ROLLBACK;

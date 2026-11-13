@@ -1,0 +1,37 @@
+BEGIN;
+SELECT plan(20);
+SELECT set_config('app.capture_notify','on',true);
+
+INSERT INTO domains(id,name,is_local) OVERRIDING SYSTEM VALUE VALUES(98401,'exchange-import.test',true);
+INSERT INTO users(id,username,domain_id,email,display_name,enabled) VALUES
+  (98401,'importer',98401,'importer@exchange-import.test','Importer',true),
+  (98402,'outsider',98401,'outsider@exchange-import.test','Outsider',true);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(98401,1,98401);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.exchange_replacement_assessment';
+
+SELECT lives_ok($$SELECT exchange_assessment_project_create_idempotent(98401,'10000000-0000-4000-8000-000000000001',repeat('a',64),98401,'Import project',NULL)$$,'idempotent project create succeeds');
+SELECT lives_ok($$SELECT exchange_assessment_project_create_idempotent(98401,'10000000-0000-4000-8000-000000000001',repeat('a',64),98401,'Import project',NULL)$$,'same project request replays');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_projects),1,'project replay creates no duplicate');
+SELECT throws_ok($$SELECT exchange_assessment_project_create_idempotent(98401,'10000000-0000-4000-8000-000000000001',repeat('b',64),98401,'Changed',NULL)$$,'BZ319',NULL,'changed payload conflicts');
+
+SELECT lives_ok($$SELECT exchange_assessment_run_create_idempotent(98401,'10000000-0000-4000-8000-000000000002',repeat('c',64),(SELECT id FROM exchange_assessment_projects),'EX2019-ONPREM-INITIAL','26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963',1,'cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09',1,'1')$$,'idempotent run create succeeds');
+SELECT lives_ok($$SELECT exchange_assessment_run_create_idempotent(98401,'10000000-0000-4000-8000-000000000002',repeat('c',64),(SELECT id FROM exchange_assessment_projects),'EX2019-ONPREM-INITIAL','26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963',1,'cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09',1,'1')$$,'same run request replays');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_runs),1,'run replay creates no duplicate');
+
+SELECT throws_ok($$SELECT exchange_assessment_artifact_commit(98402,(SELECT id FROM exchange_assessment_runs),1,repeat('d',64),'exchange/test.sjae','standard','key-v1',128,decode(repeat('01',12),'hex'),decode(repeat('02',64),'hex'),repeat('e',64),NULL)$$,'BZ317',NULL,'artifact authorization precedes existence disclosure');
+SELECT lives_ok($$SELECT exchange_assessment_artifact_commit(98401,(SELECT id FROM exchange_assessment_runs),1,repeat('d',64),'exchange/test.sjae','standard','key-v1',128,decode(repeat('01',12),'hex'),decode(repeat('02',64),'hex'),repeat('e',64),NULL)$$,'encrypted artifact metadata commits');
+SELECT is((SELECT state FROM exchange_assessment_runs),'validating','artifact commit advances run to validating');
+SELECT lives_ok($$SELECT exchange_assessment_artifact_commit(98401,(SELECT id FROM exchange_assessment_runs),1,repeat('d',64),'exchange/test.sjae','standard','key-v1',128,decode(repeat('01',12),'hex'),decode(repeat('02',64),'hex'),repeat('e',64),NULL)$$,'exact artifact replay is idempotent across generation bump');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_artifacts),1,'artifact replay creates no duplicate');
+
+SELECT lives_ok($$SELECT exchange_assessment_delete_request(98401,(SELECT id FROM exchange_assessment_projects),'artifact',(SELECT id FROM exchange_assessment_runs),(SELECT id FROM exchange_assessment_artifacts),'retention expired')$$,'artifact deletion request is durable');
+SELECT lives_ok($$SELECT exchange_assessment_delete_finalize((SELECT id FROM exchange_assessment_deletion_requests),repeat('f',64),jsonb_build_object('claims',jsonb_build_object('receiptId',repeat('1',64),'kind','deletion','subjectSha256',repeat('f',64),'disposition','backup_expiry_pending'),'algorithm','ed25519','signature',repeat('A',86)),'ed25519','continuity-v1',decode(repeat('03',64),'hex'))$$,'active-store deletion finalizes with honest backup-pending receipt');
+SELECT is((SELECT state FROM exchange_assessment_deletion_requests),'backup_pending','deletion remains backup pending');
+SELECT is((SELECT disposition FROM exchange_assessment_artifacts),'backup_expiry_pending','artifact records backup-pending disposition');
+SELECT ok((SELECT deleted_at IS NOT NULL FROM exchange_assessment_artifacts),'active-store deletion timestamp is retained');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_receipts WHERE kind='deletion'),1,'one deletion receipt is retained');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_tombstones),1,'artifact tombstone prevents silent reappearance');
+SELECT lives_ok($$SELECT exchange_assessment_delete_finalize((SELECT id FROM exchange_assessment_deletion_requests),repeat('f',64),jsonb_build_object('claims',jsonb_build_object('receiptId',repeat('1',64),'kind','deletion','subjectSha256',repeat('f',64),'disposition','backup_expiry_pending'),'algorithm','ed25519','signature',repeat('A',86)),'ed25519','continuity-v1',decode(repeat('03',64),'hex'))$$,'exact deletion finalization replays');
+
+SELECT * FROM finish();
+ROLLBACK;

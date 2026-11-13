@@ -1,0 +1,250 @@
+-- pgTAP test for retention reducer
+BEGIN;
+SELECT plan(9);
+
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+  v_folder_id BIGINT;
+  v_msg_id BIGINT;
+  v_policy_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testretain.example', TRUE) RETURNING id INTO v_domain_id;
+
+  INSERT INTO users (email, display_name, password_hash, domain_id, username, enabled)
+  VALUES ('retain@testretain.example', 'Retain', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, 'retain', TRUE)
+  RETURNING id INTO v_user_id;
+
+  INSERT INTO mailboxes (user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (v_user_id, v_domain_id, 'retain@testretain.example', 'personal', TRUE, 'Retain')
+  RETURNING id INTO v_mailbox_id;
+
+  SELECT id INTO v_folder_id FROM folders WHERE mailbox_id = v_mailbox_id AND role = 'inbox';
+
+  -- Insert a retention policy
+  INSERT INTO retention_policies (name, domain_id, retain_days, action, is_default)
+  VALUES ('Test Policy', v_domain_id, 30, 'delete', FALSE)
+  RETURNING id INTO v_policy_id;
+
+  -- Insert a message
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, thread_id, raw_ref
+  ) VALUES (
+    v_mailbox_id, v_folder_id, '<retain-msg@test>', 'a@b.com', '[]'::JSONB,
+    'retain@testretain.example',
+    'hello', now(), 100, TRUE, FALSE, '<retain-msg@test>', 'ref-retain-msg'
+  )
+  RETURNING id INTO v_msg_id;
+
+  -- Tag the message
+  PERFORM tag_retention(v_msg_id, now(), v_mailbox_id);
+
+  PERFORM set_config('app.ret_msg', v_msg_id::TEXT, TRUE);
+END;
+$$;
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM message_retention_tags
+   WHERE message_id = current_setting('app.ret_msg')::BIGINT),
+  1,
+  'tag_retention creates a retention tag');
+
+-- expires_at must land ~30 days out (the policy's retain_days)
+SELECT ok(
+  EXISTS (SELECT 1 FROM message_retention_tags
+          WHERE message_id = current_setting('app.ret_msg')::BIGINT
+            AND expires_at > now() + interval '29 days'
+            AND expires_at < now() + interval '31 days'),
+  'tag_retention sets correct expiry date');
+
+-- Test enforce_retention with an expired tag
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+  v_folder_id BIGINT;
+  v_msg_id BIGINT;
+  v_policy_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testenforce.example', TRUE) RETURNING id INTO v_domain_id;
+
+  INSERT INTO users (email, display_name, password_hash, domain_id, username, enabled)
+  VALUES ('enforce@testenforce.example', 'Enforce', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, 'enforce', TRUE)
+  RETURNING id INTO v_user_id;
+
+  INSERT INTO mailboxes (user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (v_user_id, v_domain_id, 'enforce@testenforce.example', 'personal', TRUE, 'Enforce')
+  RETURNING id INTO v_mailbox_id;
+
+  SELECT id INTO v_folder_id FROM folders WHERE mailbox_id = v_mailbox_id AND role = 'inbox';
+
+  INSERT INTO retention_policies (name, domain_id, retain_days, action, is_default)
+  VALUES ('Enforce Policy', v_domain_id, 1, 'delete', FALSE)
+  RETURNING id INTO v_policy_id;
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, thread_id, raw_ref
+  ) VALUES (
+    v_mailbox_id, v_folder_id, '<enforce-msg@test>', 'a@b.com', '[]'::JSONB,
+    'enforce@testenforce.example',
+    'hello', now() - interval '2 days', 100, TRUE, FALSE, '<enforce-msg@test>', 'ref-enforce-msg'
+  )
+  RETURNING id INTO v_msg_id;
+
+  -- Simulate prior quota usage so the retention delete has something to free.
+  UPDATE mailboxes SET used_bytes = 500 WHERE id = v_mailbox_id;
+
+  INSERT INTO message_retention_tags (message_id, received_at, policy_id, expires_at)
+  VALUES (v_msg_id, now() - interval '2 days', v_policy_id, now() - interval '1 day');
+
+  PERFORM set_config('app.enf_msg', v_msg_id::TEXT, TRUE);
+  PERFORM set_config('app.enf_mb', v_mailbox_id::TEXT, TRUE);
+  PERFORM set_config('app.enf_state0',
+    (SELECT jmap_email_state FROM mailboxes WHERE id = v_mailbox_id)::TEXT, TRUE);
+END;
+$$;
+
+-- Only this block's tag is expired, so exactly 1 message is deleted.
+SELECT is(enforce_retention(100), 1, 'enforce_retention returns correct delete count');
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM messages WHERE id = current_setting('app.enf_msg')::BIGINT),
+  'enforce_retention deletes expired messages');
+
+-- V077: retention frees the mailbox quota (used_bytes -= size) + bumps
+-- jmap_email_state EXACTLY ONCE per deleted message, directly by mailbox_id.
+SELECT is(
+  (SELECT ARRAY[used_bytes, jmap_email_state]
+   FROM mailboxes WHERE id = current_setting('app.enf_mb')::BIGINT),
+  ARRAY[400::BIGINT, current_setting('app.enf_state0')::BIGINT + 1],
+  'enforce_retention frees mailbox quota + bumps JMAP state exactly once (V077)');
+
+-- ── ADR-003: tag_retention resolves the mailbox's domain via account_scope() ──
+-- DIVERGENT ids by construction (mk_account: user_id ∈ 70000+, mailbox_id ∈
+-- 90000+). The domain-specific retention policy must be selected via the DOMAIN
+-- BEHIND THE MAILBOX (account_scope), not via any coincidence of user/mailbox ids.
+DO $$
+DECLARE
+  v_mb     BIGINT := mk_account('retain_scope');
+  v_dom    BIGINT;
+  v_folder BIGINT;
+  v_msg    BIGINT;
+BEGIN
+  SELECT domain_id INTO v_dom FROM account_scope(v_mb);
+  -- A domain-specific policy on THIS mailbox's domain (90-day retention).
+  INSERT INTO retention_policies (name, domain_id, retain_days, action, is_default)
+  VALUES ('Scope Policy', v_dom, 90, 'delete', FALSE);
+
+  SELECT id INTO v_folder FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+  INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+                        body_text, received_at, size_bytes, is_read, is_deleted, thread_id, raw_ref)
+  VALUES (v_mb, v_folder, '<scope-msg@test>', 'a@b.com', '[]'::JSONB, 's', 'b', now(), 100, TRUE, FALSE, '<scope-msg@test>', 'ref-scope')
+  RETURNING id INTO v_msg;
+
+  PERFORM tag_retention(v_msg, now(), v_mb);
+
+  PERFORM set_config('app.scope_msg', v_msg::TEXT, TRUE);
+END;
+$$;
+
+-- The 90-day domain policy must have been resolved via account_scope(mailbox).
+SELECT ok(
+  EXISTS (SELECT 1 FROM message_retention_tags
+          WHERE message_id = current_setting('app.scope_msg')::BIGINT
+            AND expires_at > now() + interval '89 days'
+            AND expires_at < now() + interval '91 days'),
+  'tag_retention resolves the domain policy via account_scope (divergent ids)');
+
+-- ── #55: enforce_retention must narrow its catch to BZ015 (litigation hold)
+-- ONLY, mirroring content_purge_messages (which had this exact hazard and was
+-- narrowed first). A blanket `WHEN OTHERS` silently swallows OOM/constraint/
+-- permission errors and reports success. ──
+
+-- (a) A legitimate litigation-hold row (messages.held = TRUE → the DELETE
+-- trigger trg_messages_hold_check raises BZ015) is still skipped without error.
+DO $$
+DECLARE
+  v_mb  BIGINT := mk_account('ret_hold');
+  v_fld BIGINT;
+  v_msg BIGINT;
+BEGIN
+  SELECT id INTO v_fld FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, thread_id, raw_ref, held
+  ) VALUES (
+    v_mb, v_fld, '<ret-hold-msg@test>', 'a@b.com', '[]'::JSONB, 'held',
+    'hello', now() - interval '2 days', 100, TRUE, FALSE, '<ret-hold-msg@test>', 'ref-ret-hold', TRUE
+  )
+  RETURNING id INTO v_msg;
+
+  INSERT INTO retention_policies (name, domain_id, retain_days, action, is_default)
+  VALUES ('Hold Policy', (SELECT domain_id FROM account_scope(v_mb)), 1, 'delete', FALSE);
+
+  INSERT INTO message_retention_tags (message_id, received_at, policy_id, expires_at)
+  SELECT v_msg, now() - interval '2 days', id, now() - interval '1 day'
+  FROM retention_policies WHERE name = 'Hold Policy';
+
+  PERFORM set_config('app.hold_msg', v_msg::TEXT, TRUE);
+END;
+$$;
+
+SELECT lives_ok(
+  $$ SELECT enforce_retention(1000) $$,
+  'enforce_retention does not throw when a row is under litigation hold (BZ015 caught)');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM messages WHERE id = current_setting('app.hold_msg')::BIGINT),
+  'the litigation-held message survives enforce_retention (skipped, not deleted)');
+
+-- (b) A non-BZ015 failure must PROPAGATE instead of being swallowed as a
+-- litigation-hold skip. A BEFORE DELETE trigger raises an unrelated error
+-- (XX000) for a sentinel row.
+CREATE OR REPLACE FUNCTION _ret_boom() RETURNS trigger LANGUAGE plpgsql AS $boom$
+BEGIN
+  IF OLD.subject = 'RET-BOOM' THEN
+    RAISE EXCEPTION 'unexpected DELETE failure' USING ERRCODE = 'XX000';
+  END IF;
+  RETURN OLD;
+END $boom$;
+CREATE TRIGGER _ret_boom_trg BEFORE DELETE ON messages FOR EACH ROW EXECUTE FUNCTION _ret_boom();
+
+DO $$
+DECLARE
+  v_mb  BIGINT := mk_account('ret_boom');
+  v_fld BIGINT;
+  v_msg BIGINT;
+BEGIN
+  SELECT id INTO v_fld FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, thread_id, raw_ref, held
+  ) VALUES (
+    v_mb, v_fld, '<ret-boom-msg@test>', 'a@b.com', '[]'::JSONB, 'RET-BOOM',
+    'hello', now() - interval '2 days', 100, TRUE, FALSE, '<ret-boom-msg@test>', 'ref-ret-boom', FALSE
+  )
+  RETURNING id INTO v_msg;
+
+  INSERT INTO retention_policies (name, domain_id, retain_days, action, is_default)
+  VALUES ('Boom Policy', (SELECT domain_id FROM account_scope(v_mb)), 1, 'delete', FALSE);
+
+  INSERT INTO message_retention_tags (message_id, received_at, policy_id, expires_at)
+  SELECT v_msg, now() - interval '2 days', id, now() - interval '1 day'
+  FROM retention_policies WHERE name = 'Boom Policy';
+END;
+$$;
+
+SELECT throws_ok(
+  $$ SELECT enforce_retention(1000) $$,
+  'XX000', NULL,
+  'a non-BZ015 DELETE error propagates (no longer swallowed as a litigation-hold skip)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,152 @@
+-- pgTAP tests for external sender warning banners (Stage 1.6)
+-- Tests the deliver() reducer's is_external, sender_display_name,
+-- is_name_spoof, and is_first_time flags.
+BEGIN;
+SELECT plan(11);
+
+-- ============================================================
+-- Setup: one local domain, one user with a display_name
+-- ============================================================
+INSERT INTO domains (name, is_local) VALUES ('corp.example.com', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('ceo', (SELECT id FROM domains WHERE name = 'corp.example.com'), 'ceo@corp.example.com', 'CEO Name');
+INSERT INTO mailboxes (user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (
+    (SELECT id FROM users WHERE email = 'ceo@corp.example.com'),
+    (SELECT id FROM domains WHERE name = 'corp.example.com'),
+    'ceo@corp.example.com', 'personal', TRUE, 'CEO Name'
+  );
+
+-- ============================================================
+-- Test 1: is_external=TRUE when delivering from external domain
+-- ============================================================
+SELECT lives_ok(
+  $$ SELECT deliver(
+    'raw-ref-ext', '<ext1@evil.com>', 'phish@evil.com', 'CEO Name',
+    'ceo@corp.example.com',
+    '[{"email":"ceo@corp.example.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'URGENT: Wire transfer', NULL, NULL, 'Please send money', NULL,
+    500, FALSE, now(),
+    'none', 'none', 'none', 0.0, '[]'::JSONB,
+    NULL, NULL,       -- vote_response, crypto_type (not set for this test)
+    TRUE,              -- p_is_external = TRUE
+    'CEO Name',        -- p_sender_display_name
+    TRUE               -- p_is_name_spoof = TRUE
+  ) $$,
+  'deliver accepts p_is_external=TRUE for external sender'
+);
+
+-- Verify the flag was stored
+SELECT is(
+  (SELECT is_external FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'phish@evil.com' LIMIT 1),
+  TRUE,
+  'is_external=TRUE stored when p_is_external=TRUE'
+);
+
+-- ============================================================
+-- Test 2: is_external=FALSE for local sender
+-- ============================================================
+SELECT lives_ok(
+  $$ SELECT deliver(
+    'raw-ref-local', '<alice@corp.example.com>', 'alice@corp.example.com', 'Alice',
+    'ceo@corp.example.com',
+    '[{"email":"ceo@corp.example.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'Lunch?', NULL, NULL, 'Want to grab lunch?', NULL,
+    200, FALSE, now(),
+    'none', 'none', 'none', 0.0, '[]'::JSONB,
+    NULL, NULL,       -- vote_response, crypto_type
+    FALSE,             -- p_is_external = FALSE (local)
+    'Alice',           -- p_sender_display_name
+    FALSE              -- p_is_name_spoof = FALSE
+  ) $$,
+  'deliver accepts p_is_external=FALSE for local sender'
+);
+
+SELECT is(
+  (SELECT is_external FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'alice@corp.example.com' LIMIT 1),
+  FALSE,
+  'is_external=FALSE stored when p_is_external=FALSE'
+);
+
+-- ============================================================
+-- Test 3: sender_display_name stored correctly
+-- ============================================================
+SELECT is(
+  (SELECT sender_display_name FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'alice@corp.example.com' LIMIT 1),
+  'Alice',
+  'sender_display_name stored correctly from p_sender_display_name'
+);
+
+-- ============================================================
+-- Test 4: is_name_spoof=TRUE when external domain + display name
+--          matches internal user
+-- ============================================================
+SELECT is(
+  (SELECT is_name_spoof FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'phish@evil.com' LIMIT 1),
+  TRUE,
+  'is_name_spoof=TRUE when external display name matches internal user'
+);
+
+-- ============================================================
+-- Test 5: is_name_spoof=FALSE when display name is unique
+-- ============================================================
+-- Deliver a second external email with a unique display name
+SELECT lives_ok(
+  $$ SELECT deliver(
+    'raw-ref-ext2', '<vendor@outside.com>', 'vendor@outside.com', 'Vendor Inc',
+    'ceo@corp.example.com',
+    '[{"email":"ceo@corp.example.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'Invoice attached', NULL, NULL, 'Please find invoice', NULL,
+    300, FALSE, now(),
+    'none', 'none', 'none', 0.0, '[]'::JSONB,
+    NULL, NULL,       -- vote_response, crypto_type
+    TRUE,              -- p_is_external = TRUE
+    'Vendor Inc',      -- p_sender_display_name
+    FALSE              -- p_is_name_spoof = FALSE
+  ) $$,
+  'deliver accepts unique display name without name spoof flag'
+);
+
+SELECT is(
+  (SELECT is_name_spoof FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'vendor@outside.com' LIMIT 1),
+  FALSE,
+  'is_name_spoof=FALSE when display name does not match any internal user'
+);
+
+-- ============================================================
+-- Test 6: is_first_time=TRUE on first delivery from a given from_addr
+-- ============================================================
+SELECT is(
+  (SELECT is_first_time FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'phish@evil.com' LIMIT 1),
+  TRUE,
+  'is_first_time=TRUE on first delivery from external sender'
+);
+
+-- ============================================================
+-- Test 7: is_first_time=FALSE on second delivery from same from_addr
+--         to same mailbox
+-- ============================================================
+SELECT lives_ok(
+  $$ SELECT deliver(
+    'raw-ref-ext3', '<ext1-again@evil.com>', 'phish@evil.com', 'CEO Name',
+    'ceo@corp.example.com',
+    '[{"email":"ceo@corp.example.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'RE: URGENT: Wire transfer', '<ext1@evil.com>', NULL, 'Did you get my last email?', NULL,
+    450, FALSE, now(),
+    'none', 'none', 'none', 0.0, '[]'::JSONB,
+    NULL, NULL,       -- vote_response, crypto_type
+    TRUE,              -- p_is_external = TRUE
+    'CEO Name',        -- p_sender_display_name
+    TRUE               -- p_is_name_spoof = TRUE (still matches)
+  ) $$,
+  'deliver accepts second delivery from same from_addr'
+);
+
+SELECT is(
+  (SELECT is_first_time FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'ceo@corp.example.com') AND from_addr = 'phish@evil.com' AND raw_ref = 'raw-ref-ext3' LIMIT 1),
+  FALSE,
+  'is_first_time=FALSE on second delivery from same from_addr to same mailbox'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

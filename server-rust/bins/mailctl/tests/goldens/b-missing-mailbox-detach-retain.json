@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox detach-retain <mailbox-id> --generation N --reason TEXT\n",
+  "exit": 1
+}

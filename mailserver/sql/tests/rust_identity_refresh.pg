@@ -1,0 +1,24 @@
+-- #332: public refresh reducer seam, including stale-signature proposals.
+BEGIN;
+SELECT plan(11);
+INSERT INTO domains(name,is_local) VALUES('rust-idlogin2-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,enabled)
+VALUES('refresh@rust-idlogin2-pgtap.test','refresh@rust-idlogin2-pgtap.test','refresh',:dom,'x',true) RETURNING id AS u \gset
+INSERT INTO oauth_tokens(user_id,token_hash,token_type,expires_at,family_id)
+VALUES(:u,digest('parent','sha256'),'refresh',now()+interval '1 hour','33200000-0000-4000-8000-000000000001');
+SELECT rust_identity_refresh(:u,digest('parent','sha256'),'33200000-0000-4000-8000-000000000001',NULL,NULL,3600,'33200000-0000-4000-8000-000000000001')::text AS ctx \gset
+SELECT is(:'ctx'::jsonb->>'status','mint','active signed anchor has a proposal');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:u),1::bigint,'proposal alone does not rotate');
+SELECT is(rust_identity_refresh(:u,digest('parent','sha256'),'33200000-0000-4000-8000-000000000001',jsonb_set(:'ctx'::jsonb,'{email}','"attacker@test"'),digest('bad','sha256'),3600,'33200000-0000-4000-8000-000000000001')->>'status','retry','stale signed metadata cannot publish');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:u),1::bigint,'stale proposal writes no anchor');
+SELECT set_config('app.rust_operation_id','33200000-0000-4000-8000-000000000099',true);
+SELECT is(rust_identity_refresh(:u,digest('parent','sha256'),'33200000-0000-4000-8000-000000000001',:'ctx'::jsonb,digest('child','sha256'),3600,'33200000-0000-4000-8000-000000000001')->>'status','mint','current proposal rotates atomically');
+SELECT ok(EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id='33200000-0000-4000-8000-000000000099' AND family='F21' AND command='refresh'),'same transaction stores only opaque commit metadata');
+SELECT ok((SELECT rotated_at IS NOT NULL FROM oauth_tokens WHERE user_id=:u AND token_hash=digest('parent','sha256')),'parent is retired');
+SELECT ok((SELECT previous_token_hash=digest('parent','sha256') FROM oauth_tokens WHERE user_id=:u AND token_hash=digest('child','sha256')),'child extends the exact parent');
+SELECT is(rust_identity_refresh(:u,digest('parent','sha256'),'33200000-0000-4000-8000-000000000001',NULL,NULL,3600,'33200000-0000-4000-8000-000000000001')->>'parent',encode(digest('child','sha256'),'hex'),'grace retry extends the current tip');
+UPDATE oauth_tokens SET rotated_at=now()-interval '31 seconds' WHERE user_id=:u AND token_hash=digest('parent','sha256');
+SELECT is(rust_identity_refresh(:u,digest('parent','sha256'),'33200000-0000-4000-8000-000000000001',NULL,NULL,3600,'33200000-0000-4000-8000-000000000001')->>'status','denied','late reuse is refused');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:u AND revoked_at IS NULL),0::bigint,'late reuse revokes all capability');
+SELECT * FROM finish();
+ROLLBACK;

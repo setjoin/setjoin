@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -limit: parse error\nUsage of approval audit:\n  -limit int\n    \tMax rows to return (default 50)\n  -offset int\n    \tRow offset\nError: invalid value \"not-an-integer\" for flag -limit: parse error\n",
+  "exit": 1
+}

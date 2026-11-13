@@ -1,0 +1,34 @@
+{
+  "case": "prune-ws-subscriptions",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "subscriptions": [
+              "gofree-cron-ws-fresh",
+              "gofree-cron-ws-stale"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "subscriptions": [
+              "gofree-cron-ws-fresh"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

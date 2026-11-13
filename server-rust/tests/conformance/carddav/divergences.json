@@ -1,0 +1,14 @@
+[
+  {
+    "baseline": "goldens/gal-query-hidden-manager.json",
+    "sha256": "8dab28b9ac3c18838b6d07cd2299f60480517415ff6168ab3501fd4e44c6f2c3",
+    "expectation": "security/gal-query-hidden-manager.json",
+    "reason": "owner-approved security fix 2026-11-05 (#427/#512: the GAL shows a manager's name only when the manager is visible to the caller)",
+    "issue": "#427",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/carddav.rs::edge_gal_query_hidden_manager",
+    "mutant": "gal-manager-disclosed"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: bootstrap administrator: ERROR: ensure_admin: built-in Super Admin role is missing (SQLSTATE P0001)\n",
+  "exit": 1,
+  "database_effects": {
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

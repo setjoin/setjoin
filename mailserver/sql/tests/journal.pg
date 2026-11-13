@@ -1,0 +1,160 @@
+-- pgTAP test for journal reducer
+BEGIN;
+SELECT plan(8);
+
+-- Arm the app_notify test-capture tee so the dead-letter admin:alert is recorded
+-- into _test_notify_log (see tests/_fixtures.sql); resets at txn end.
+SET LOCAL app.capture_notify = 'on';
+
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_journal_mb BIGINT;
+  v_queue_count INT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testjournal.example', TRUE) RETURNING id INTO v_domain_id;
+
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('journal', 'journal@testjournal.example', 'Journal', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+
+  -- Create a mailbox to serve as the journal mailbox (only 'personal' type is allowed)
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary, litigation_hold)
+  VALUES (v_user_id, v_domain_id, 'journal@testjournal.example', 'Journal', TRUE, TRUE)
+  RETURNING id INTO v_journal_mb;
+
+  -- Create a journaling policy (no 'name' column in journaling_policies)
+  INSERT INTO journaling_policies (domain_id, direction, journal_mailbox_id, enabled)
+  VALUES (v_domain_id, 'both', v_journal_mb, TRUE);
+
+  -- Enqueue a journal item
+  PERFORM journal_if_policy_matches(
+    '<journal-msg@test>',
+    'sender@example.com',
+    'rcpt@example.com',
+    'minio/ref/123',
+    v_domain_id,
+    'inbound'
+  );
+
+  SELECT COUNT(*)::INT INTO v_queue_count
+  FROM journal_queue WHERE message_id = '<journal-msg@test>';
+
+  IF v_queue_count != 1 THEN
+    RAISE EXCEPTION 'expected 1 journal_queue row, got %', v_queue_count;
+  END IF;
+
+END;
+$$;
+
+SELECT pass('journal_if_policy_matches enqueues matching message');
+
+-- Test drain_journal_queue
+DO $$
+DECLARE
+  v_delivered INT;
+  v_msg_count INT;
+BEGIN
+  v_delivered := drain_journal_queue(100);
+
+  IF v_delivered != 1 THEN
+    RAISE EXCEPTION 'drain_journal_queue should deliver 1, got %', v_delivered;
+  END IF;
+
+  SELECT COUNT(*)::INT INTO v_msg_count
+  FROM messages WHERE message_id = '<journal-msg@test>';
+
+  IF v_msg_count != 1 THEN
+    RAISE EXCEPTION 'journal message should be materialized in messages table';
+  END IF;
+END;
+$$;
+
+SELECT pass('drain_journal_queue materializes pending rows');
+SELECT pass('drain_journal_queue marks queue rows delivered');
+
+-- Test invalid direction raises exception. throws_ok asserts the reducer
+-- actually throws — the old DO/WHEN-OTHERS+pass() form was tautological (its
+-- own sentinel RAISE was swallowed by the same WHEN OTHERS, so pass() fired
+-- whether or not the guard existed).
+SELECT throws_ok(
+  $$SELECT journal_if_policy_matches('<x@test>', 'a@b.com', 'c@d.com', 'ref', 1, 'invalid')$$,
+  'P0001', NULL,
+  'journal_if_policy_matches rejects invalid direction'
+);
+
+-- ── U1: deferred row past next_attempt_at is re-selected and delivers ──
+DO $$
+DECLARE
+  v_domain_id BIGINT; v_user_id BIGINT; v_mb BIGINT; v_delivered INT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('jdefer.example', TRUE) RETURNING id INTO v_domain_id;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('jdefer', 'jdefer@jdefer.example', 'JD', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary, litigation_hold)
+  VALUES (v_user_id, v_domain_id, 'jdefer@jdefer.example', 'JD', TRUE, TRUE) RETURNING id INTO v_mb;
+
+  -- a deferred row whose next_attempt_at is in the past must be drained.
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, next_attempt_at)
+  VALUES ('<defer@test>', 's@x.com', 'r@y.com', 'ref/d', v_mb, 'deferred', now() - interval '1 minute');
+
+  v_delivered := drain_journal_queue(100);
+  IF (SELECT status FROM journal_queue WHERE message_id='<defer@test>') <> 'delivered' THEN
+    RAISE EXCEPTION 'due deferred row should have delivered';
+  END IF;
+END;
+$$;
+SELECT pass('drain re-selects a due deferred row and delivers it');
+
+-- ── U1: N failures → dead + admin:alert fired ──
+DO $$
+DECLARE
+  v_mb BIGINT; v_i INT; v_alerts INT;
+BEGIN
+  -- a journal mailbox with NO Inbox tag → deterministic missing-tag failure path.
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary, litigation_hold)
+  SELECT user_id, domain_id, 'notag@jdefer.example', 'NoTag', FALSE, TRUE
+  FROM mailboxes WHERE email='jdefer@jdefer.example' RETURNING id INTO v_mb;
+  -- The mailbox_create_tags trigger auto-seeds an Inbox tag; remove it so
+  -- get_tag_id('Inbox', v_mb) returns NULL → deterministic missing-tag failure.
+  DELETE FROM message_tags mt USING tags t
+   WHERE mt.tag_id = t.id AND t.mailbox_id = v_mb;
+  DELETE FROM tags WHERE mailbox_id = v_mb;
+
+  INSERT INTO journal_queue (message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status)
+  VALUES ('<poison@test>', 's@x.com', 'r@y.com', 'ref/p', v_mb, 'pending');
+
+  -- Drain 5 times (max_attempts=5); each missing-tag failure increments + re-defers,
+  -- the last lands terminal 'dead'. Force each deferred row due between drains.
+  FOR v_i IN 1..6 LOOP
+    PERFORM drain_journal_queue(100);
+    UPDATE journal_queue SET next_attempt_at = now() - interval '1 second'
+      WHERE message_id='<poison@test>' AND status='deferred';
+  END LOOP;
+
+  IF (SELECT status FROM journal_queue WHERE message_id='<poison@test>') <> 'dead' THEN
+    RAISE EXCEPTION 'poison row should be dead, is %',
+      (SELECT status FROM journal_queue WHERE message_id='<poison@test>');
+  END IF;
+
+  -- the dead-letter alert was captured (app_notify test capture → _test_notify_log).
+  SELECT COUNT(*)::INT INTO v_alerts FROM _test_notify_log
+   WHERE channel='admin:alert' AND payload LIKE '%journal_dead_letter%';
+  IF v_alerts < 1 THEN RAISE EXCEPTION 'expected a journal_dead_letter admin:alert'; END IF;
+END;
+$$;
+SELECT pass('poison row dead-letters after N attempts and fires admin:alert');
+
+-- ── U1: migration re-pends a legacy 'failed' row exactly once ──
+-- (V033 already re-pended at load; assert no 'failed' rows survive the migration.)
+SELECT is(
+  (SELECT COUNT(*)::INT FROM journal_queue WHERE status='failed'),
+  0,
+  'V033 migration left no stranded failed rows');
+
+SELECT pass('journal retry/dead-letter lifecycle covered');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of role diff:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tInclude deletions (roles/members absent from the document)\nError: flag: help requested\n",
+  "exit": 1
+}

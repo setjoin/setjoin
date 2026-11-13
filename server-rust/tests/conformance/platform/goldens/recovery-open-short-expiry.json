@@ -1,0 +1,123 @@
+{
+  "case": "short-expiry",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [
+      {
+        "action": "mail_recovery_incident_open",
+        "after_state": {
+          "approvalRequired": false,
+          "expiresAt": "<timestamp>",
+          "incidentId": "<uuid>",
+          "mailboxCount": 1,
+          "maximumTimeline": "2",
+          "minimumTimeline": "1"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "mail_recovery_incident",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "approval_required": false,
+            "approved_at": null,
+            "approved_by": null,
+            "close_reason": null,
+            "closed_at": null,
+            "closed_by": null,
+            "created_at": "<timestamp>",
+            "expires_at": "<timestamp>",
+            "id": "<uuid>",
+            "idempotency_key": "<uuid>",
+            "installation_id": "<installation>",
+            "maximum_timeline": 2,
+            "minimum_timeline": 1,
+            "opened_by": "<admin>",
+            "reason": "oracle recovery opening",
+            "status": "open",
+            "step_up_binding": "<verified-step-up-binding>"
+          }
+        ],
+        "before": [],
+        "table": "mail_recovery_incidents"
+      },
+      {
+        "after": [
+          {
+            "affected_user_id": "<other>",
+            "evidence_token_sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "incident_id": "<uuid>",
+            "mailbox_id": "<other-mailbox>"
+          }
+        ],
+        "before": [],
+        "table": "mail_recovery_incident_accounts"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "mail_recovery_incident_changed",
+        "payload": {
+          "incident_id": "<uuid>",
+          "status": "open"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"approvalRequired\":false,\"evidence\":{\"{{other-mailbox}}\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"expiresAt\":\"{{now+2h}}\",\"idempotencyKey\":\"45500000-0000-4000-8000-000000000042\",\"incidentId\":\"455abcde-abcd-4abc-8abc-000000000041\",\"mailboxIds\":[\"{{other-mailbox}}\"],\"maximumTimeline\":\"2\",\"minimumTimeline\":\"1\",\"reason\":\"oracle recovery opening\"}",
+      "external_path": "/api/admin/system/recovery/incidents",
+      "method": "POST",
+      "path": "/admin/system/recovery/incidents"
+    },
+    "response": {
+      "body": "{\"id\": \"455abcde-abcd-4abc-8abc-000000000041\", \"status\": \"open\", \"replayed\": false, \"expiresAt\": \"<timestamp>\", \"approvalRequired\": false}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "138"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /admin/system/recovery/incidents"
+}

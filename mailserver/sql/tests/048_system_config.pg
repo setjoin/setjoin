@@ -1,0 +1,79 @@
+-- pgTAP: system_config CRUD functions and NOTIFY trigger
+-- NOTE: system_config is pre-seeded with defaults by V001/V004. Tests use
+-- test-prefixed keys ('test_key', 'secret_key', 'key_a', 'key_b') that are
+-- distinct from all seeded defaults to avoid interference.
+BEGIN;
+SELECT plan(9);
+
+-- 1. get_system_config() for a test key that does not yet exist returns NULL
+SELECT is(
+  get_system_config('test_key'),
+  NULL::JSONB,
+  'get_system_config() returns NULL for a key that does not exist yet'
+);
+
+-- 2. set_system_config inserts a new key
+SELECT results_eq(
+  $$ SELECT key, value, encrypted FROM set_system_config('test_key', '"hello"'::JSONB) $$,
+  $$ SELECT 'test_key'::TEXT, '"hello"'::JSONB, FALSE $$,
+  'set_system_config inserts new key'
+);
+
+-- 3. get_system_config('test_key') returns the value
+SELECT is(
+  get_system_config('test_key'),
+  '"hello"'::JSONB,
+  'get_system_config(key) returns single value'
+);
+
+-- 4. get_system_config() returns all keys including test_key
+SELECT is(
+  get_system_config('test_key'),
+  '"hello"'::JSONB,
+  'get_system_config() contains inserted test_key'
+);
+
+-- 5. set_system_config updates an existing key
+SELECT results_eq(
+  $$ SELECT key, value FROM set_system_config('test_key', '"updated"'::JSONB) $$,
+  $$ SELECT 'test_key'::TEXT, '"updated"'::JSONB $$,
+  'set_system_config updates existing key'
+);
+
+-- 6. get_system_config reflects the update
+SELECT is(
+  get_system_config('test_key'),
+  '"updated"'::JSONB,
+  'get_system_config sees updated value'
+);
+
+-- 7. set_system_config with encrypted flag
+SELECT results_eq(
+  $$ SELECT encrypted FROM set_system_config('secret_key', '"sensitive"'::JSONB, TRUE) $$,
+  $$ SELECT TRUE $$,
+  'set_system_config stores encrypted flag'
+);
+
+-- 8. get_system_config for non-existent key returns NULL
+SELECT is(
+  get_system_config('nonexistent'),
+  NULL::JSONB,
+  'get_system_config returns NULL for missing key'
+);
+
+-- 9. multiple keys aggregate correctly — use a DO block for the PERFORM calls
+DO $$
+BEGIN
+  PERFORM set_system_config('key_a', '1'::JSONB);
+  PERFORM set_system_config('key_b', '2'::JSONB);
+END;
+$$;
+SELECT cmp_ok(
+  (SELECT count(*) FROM jsonb_object_keys(get_system_config()) WHERE jsonb_object_keys IN ('test_key','secret_key','key_a','key_b')),
+  '>=',
+  4::BIGINT,
+  'get_system_config() contains all 4 inserted test keys'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

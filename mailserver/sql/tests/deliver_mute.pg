@@ -1,0 +1,73 @@
+-- deliver_mute.pg: Mute / Ignore-Conversation delivery gate (deliver_group_vacation.sql 5a).
+-- Regression guard for the dead-gate bug: 5a used to require a `mute_thread` rule
+-- that nothing ever creates, so muted-thread replies still landed in the Inbox.
+-- Now a reply to a thread carrying the Muted tag auto-archives (Muted only, no
+-- Inbox location), unless the recipient is an explicit To/Cc (breakout).
+BEGIN;
+SELECT plan(5);
+
+-- Fixture: one local mailbox.
+INSERT INTO domains (name, is_local) VALUES ('mutetest.example.com', TRUE);
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('alice', (SELECT id FROM domains WHERE name = 'mutetest.example.com'),
+          'alice@mutetest.example.com', 'Alice');
+INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary)
+  VALUES ((SELECT id FROM users WHERE email = 'alice@mutetest.example.com'),
+          (SELECT id FROM domains WHERE name = 'mutetest.example.com'),
+          'alice@mutetest.example.com', 'Alice', 'personal', TRUE);
+
+-- 1. Deliver the thread-opening message → lands in Inbox.
+SELECT deliver('mref1', '<mute1>', 'bob@ext.com', 'Bob', 'alice@mutetest.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Project chat', NULL, NULL, 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+   WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<mute1>') AND t.name = 'Inbox'),
+  1, 'thread-opening message is in the Inbox');
+
+-- Mute the thread: tag the opening message Muted (what Email/set mailboxIds does).
+SELECT tag_message(
+  (SELECT id FROM messages WHERE message_id = '<mute1>'),
+  (SELECT received_at FROM messages WHERE message_id = '<mute1>'),
+  'Muted', (SELECT id FROM mailboxes WHERE email = 'alice@mutetest.example.com'), 'user', FALSE);
+
+-- 2. A reply on the same thread (recipient NOT in To/Cc) skips the Inbox.
+SELECT deliver('mref2', '<mute2>', 'bob@ext.com', 'Bob', 'alice@mutetest.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Re: Project chat', '<mute1>', '<mute1>', 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+   WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<mute2>') AND t.name = 'Inbox'),
+  0, 'muted-thread reply skips the Inbox');
+
+-- 3. …and is still reachable via the Muted tag (All Mail / search).
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+   WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<mute2>') AND t.name = 'Muted'),
+  1, 'muted-thread reply carries the Muted tag (All Mail)');
+
+-- 4. Breakout: a reply that names the user in To reaches the Inbox despite the mute.
+SELECT deliver('mref3', '<mute3>', 'bob@ext.com', 'Bob', 'alice@mutetest.example.com',
+  '[{"email":"alice@mutetest.example.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'Re: Project chat', '<mute1>', '<mute1>', 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+   WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<mute3>') AND t.name = 'Inbox'),
+  1, 'explicit To recipient breaks out of the mute (reaches Inbox)');
+
+-- 5. Unmute (strip Muted from the thread) → a later reply is back in the Inbox.
+DELETE FROM message_tags mt USING tags t
+ WHERE mt.tag_id = t.id AND t.name = 'Muted'
+   AND mt.message_id IN (SELECT id FROM messages WHERE thread_id =
+       (SELECT thread_id FROM messages WHERE message_id = '<mute1>'));
+SELECT deliver('mref4', '<mute4>', 'bob@ext.com', 'Bob', 'alice@mutetest.example.com',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Re: Project chat', '<mute1>', '<mute1>', 'body', NULL,
+  100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL);
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+   WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<mute4>') AND t.name = 'Inbox'),
+  1, 'unmuted-thread reply is restored to the Inbox');
+
+SELECT * FROM finish();
+ROLLBACK;

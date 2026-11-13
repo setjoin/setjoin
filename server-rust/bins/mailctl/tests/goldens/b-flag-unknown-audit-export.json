@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of audit export:\n  -out string\n    \tWrite CSV to this file instead of stdout\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

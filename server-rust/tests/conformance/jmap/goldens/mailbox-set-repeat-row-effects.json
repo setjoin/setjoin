@@ -1,0 +1,108 @@
+{
+  "case": "mailbox-set-repeat-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "jmap_mailbox_state": {
+          "after": 3,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "before": {
+        "color": null,
+        "created_at": "<timestamp>",
+        "exclusive_group": null,
+        "icon": null,
+        "id": "<tag:Oracle Label>",
+        "imap_expose": true,
+        "imap_modseq": 2,
+        "imap_name": null,
+        "imap_uid_next": 2,
+        "imap_uid_validity": "<timestamp>",
+        "is_default": false,
+        "jmap_state": 1,
+        "mailbox_id": "<mailbox>",
+        "name": "Oracle Label",
+        "parent_id": null,
+        "size_bytes": 10,
+        "sort_order": 0,
+        "tag_type": "user",
+        "total_count": 1,
+        "unread_count": 1,
+        "updated_at": "<timestamp>"
+      },
+      "change": "delete",
+      "row": "Oracle Label",
+      "table": "tags"
+    },
+    {
+      "after": {
+        "color": null,
+        "created_at": "<timestamp>",
+        "exclusive_group": null,
+        "icon": null,
+        "id": "<tag:Oracle Label>",
+        "imap_expose": true,
+        "imap_modseq": 2,
+        "imap_name": null,
+        "imap_uid_next": 2,
+        "imap_uid_validity": "<timestamp>",
+        "is_default": false,
+        "jmap_state": 1,
+        "mailbox_id": "<mailbox>",
+        "name": "Projects",
+        "parent_id": null,
+        "size_bytes": 10,
+        "sort_order": 11,
+        "tag_type": "user",
+        "total_count": 1,
+        "unread_count": 1,
+        "updated_at": "<timestamp>"
+      },
+      "change": "insert",
+      "row": "Projects",
+      "table": "tags"
+    },
+    {
+      "after": {
+        "color": "blue",
+        "created_at": "<timestamp>",
+        "exclusive_group": null,
+        "icon": null,
+        "id": "<new-tag:Work>",
+        "imap_expose": true,
+        "imap_modseq": 1,
+        "imap_name": null,
+        "imap_uid_next": 1,
+        "imap_uid_validity": "<timestamp>",
+        "is_default": false,
+        "jmap_state": 0,
+        "mailbox_id": "<mailbox>",
+        "name": "Work",
+        "parent_id": null,
+        "size_bytes": 0,
+        "sort_order": 100,
+        "tag_type": "user",
+        "total_count": 0,
+        "unread_count": 0,
+        "updated_at": "<timestamp>"
+      },
+      "change": "insert",
+      "row": "Work",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Mailbox/set"
+}

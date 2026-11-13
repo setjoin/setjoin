@@ -1,0 +1,26 @@
+[package]
+name = "setjoin-conformance"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+# Database-backed parity oracles (#212). Each oracle drives an implementation
+# of one command through a small trait so the same cases run unchanged against
+# the reducer today and the Rust command later (#214).
+[dependencies]
+setjoin-contracts = { path = "../../crates/contracts" }
+# Same requirements as setjoin-pg, so the workspace resolves one copy of each.
+tokio-postgres = "0.7.18"
+tokio = { version = "1.54", features = ["rt", "macros", "time", "sync", "net", "io-util"] }
+# In-process fake LDAP directory (#380), TLS server side only.
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde_json = "=1.0.145"
+
+# The Rust command under test (#214) links only into tests/, never into the
+# oracle library, so the cases stay independent of the implementation they judge.
+[dev-dependencies]
+setjoin-db = { path = "../../crates/db" }
+setjoin-jmap = { path = "../../crates/domains/jmap" }
+setjoin-pg = { path = "../../crates/pg" }

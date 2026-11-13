@@ -1,0 +1,55 @@
+-- pgTAP: V022__drop_umbrella_perms.pg — post-drop umbrella permission assertions
+BEGIN;
+SELECT plan(6);
+
+-- 1. Catalog count is now 55 after the seven Exchange assessment authorities,
+-- the two Office view/manage authorities, and the two managed-app authorities.
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions$$,
+    $$SELECT 56$$,
+    '56 permissions after Exchange, Office, managed-app authorities, and mail.export were added'
+);
+
+-- 2. users.write absent from catalog.
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions WHERE permission_key = 'users.write'$$,
+    $$SELECT 0$$,
+    'users.write absent from admin_permissions'
+);
+
+-- 3. mail.write absent from catalog.
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions WHERE permission_key = 'mail.write'$$,
+    $$SELECT 0$$,
+    'mail.write absent from admin_permissions'
+);
+
+-- 4. Super Admin has 53 permissions (lost users.write + mail.write; gained
+--    mail.offline_policy + scope_sets.manage V041 + 2 approvals perms V073
+--    + 2 sharing perms V089 + 2 drive perms V114 + 2 chat compliance perms
+--    V126 + 1 chat.ediscovery V127 + 1 federation.manage V139 + 2 guests perms
+--    V143 + system.recovery V181 + two normalized directory-group permissions V185
+--    + seven Exchange assessment permissions V214 + two Office permissions V220
+--    + apps.view/apps.manage V224).
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Super Admin'$$,
+    $$SELECT 53$$,
+    'Super Admin has 53 permissions including Exchange, Office, and managed-app authority'
+);
+
+-- 5. User Admin has 6 permissions (was 7: lost users.write).
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'User Admin'$$,
+    $$SELECT 6$$,
+    'User Admin has 6 permissions after umbrella removal'
+);
+
+-- 6. Domain Admin has 7 permissions (was 8: lost users.write).
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Domain Admin'$$,
+    $$SELECT 7$$,
+    'Domain Admin has 7 permissions after umbrella removal'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

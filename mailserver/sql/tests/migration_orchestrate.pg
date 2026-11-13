@@ -1,0 +1,59 @@
+-- migration_orchestrate.pg: A — orchestrator phase FSM moved to a reducer.
+-- Requires: migration_orchestrate, migration_recover_stuck, migration_jobs.
+BEGIN;
+SELECT plan(12);
+
+INSERT INTO domains (name, is_local) VALUES ('mig.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (91001, 'mig', (SELECT id FROM domains WHERE name='mig.test'),
+        'mig@mig.test', 'Mig', crypt('x', gen_salt('bf')), FALSE),
+       (91002, 'mig2', (SELECT id FROM domains WHERE name='mig.test'),
+        'mig2@mig.test', 'Mig2', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+-- One non-terminal job per user (partial unique index migration_one_active_per_user).
+INSERT INTO migration_jobs (id, user_id, source_type, status, source_config_enc)
+VALUES (91001, 91001, 'imap', 'pending', '\x0102'::bytea),
+       (91002, 91002, 'imap', 'paused',  '\x0304'::bytea)
+ON CONFLICT (id) DO NOTHING;
+
+-- 1: start moves pending → fetching and stamps started_at.
+SELECT is((migration_orchestrate(91001,'start','{}'::jsonb))->>'status', 'fetching',
+          'start: pending → fetching');
+SELECT isnt((SELECT started_at FROM migration_jobs WHERE id=91001), NULL,
+          'start: started_at set');
+
+-- 2: progress deep-merges cursor + progress without touching status.
+SELECT migration_orchestrate(91001,'progress',
+   '{"cursor_uids":{"INBOX":42},"progress":{"imap":{"items_done":3}}}'::jsonb);
+SELECT is((SELECT (resume_cursor::jsonb->'uids'->>'INBOX')::int FROM migration_jobs WHERE id=91001), 42,
+          'progress: cursor uid persisted under uids');
+SELECT is((SELECT status FROM migration_jobs WHERE id=91001), 'fetching',
+          'progress: status unchanged');
+
+-- 3: a second progress merges, does not clobber, the first cursor (lost-update guard).
+SELECT migration_orchestrate(91001,'progress','{"delta":{"INBOX":"d1"}}'::jsonb);
+SELECT is((SELECT (resume_cursor::jsonb->'uids'->>'INBOX')::int FROM migration_jobs WHERE id=91001), 42,
+          'cursor merge preserves prior uids');
+SELECT is((SELECT resume_cursor::jsonb->'delta'->>'INBOX' FROM migration_jobs WHERE id=91001), 'd1',
+          'cursor merge adds delta link');
+
+-- 4: pause from fetching → paused.
+SELECT is((migration_orchestrate(91001,'pause','{}'::jsonb))->>'status', 'paused', 'pause → paused');
+-- 5: resume from paused → fetching.
+SELECT is((migration_orchestrate(91002,'resume','{}'::jsonb))->>'status', 'fetching', 'resume → fetching');
+
+-- 6: complete NULLs credentials + cursor and stamps completed_at.
+SELECT migration_orchestrate(91001,'complete','{}'::jsonb);
+SELECT is((SELECT source_config_enc FROM migration_jobs WHERE id=91001), NULL, 'complete NULLs creds');
+SELECT is((SELECT resume_cursor FROM migration_jobs WHERE id=91001), NULL, 'complete NULLs cursor');
+
+-- 7: illegal transition (complete → start) raises BZ048.
+SELECT throws_ok($$ SELECT migration_orchestrate(91001,'start','{}'::jsonb) $$,
+   'BZ048', NULL, 'illegal transition from terminal state raises BZ048');
+
+-- 8: recover marks stuck jobs failed and returns their ids (91002 is 'fetching').
+SELECT ok((migration_recover_stuck()->'ids') @> '91002'::jsonb,
+   'recover returns stuck job id 91002');
+
+SELECT * FROM finish();
+ROLLBACK;

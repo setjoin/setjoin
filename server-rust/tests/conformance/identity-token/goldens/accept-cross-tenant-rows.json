@@ -1,0 +1,36 @@
+{
+  "case": "accept-cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "accepted_at": "<timestamp>",
+          "source_ip": "127.0.0.1",
+          "tou_id": "<tou>",
+          "user_id": "<actor>",
+          "version": 1
+        },
+        {
+          "accepted_at": "<timestamp>",
+          "source_ip": null,
+          "tou_id": "<tou>",
+          "user_id": "<foreign>",
+          "version": 1
+        }
+      ],
+      "before": [
+        {
+          "accepted_at": "<timestamp>",
+          "source_ip": null,
+          "tou_id": "<tou>",
+          "user_id": "<foreign>",
+          "version": 1
+        }
+      ],
+      "table": "terms_of_use_acceptance"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /terms/accept"
+}

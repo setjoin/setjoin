@@ -1,0 +1,168 @@
+{
+  "case": "bootstrap-confirm-proof-operation-row-effects",
+  "effects": [
+    {
+      "after": {
+        "active_secrets": [
+          {
+            "owner": "actor",
+            "secret": null
+          },
+          {
+            "owner": "foreign",
+            "secret": null
+          }
+        ],
+        "audit": [
+          {
+            "action": "mfa_reauth_refused",
+            "ip": "127.0.0.1/32",
+            "notes": "bootstrap enrollment grant mismatch",
+            "owner": "actor",
+            "target_type": "user"
+          }
+        ],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "totp_pending_enrollments": [
+          {
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "id": "<enrollment>",
+            "secret_enc": "<encrypted pending secret>",
+            "staged_by_jti": "idmfa1-actor",
+            "staged_via": "enroll_setup",
+            "user_id": "actor"
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "active_secrets": [
+          {
+            "owner": "actor",
+            "secret": null
+          },
+          {
+            "owner": "foreign",
+            "secret": null
+          }
+        ],
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [
+          {
+            "bound_factor_generation": 2,
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "operation": "recovery.regenerate",
+            "proof_method": "password",
+            "proving_factor_id": null,
+            "refresh_family_id": null,
+            "session_jti": "idmfa1-actor",
+            "target_ref": "<enrollment>",
+            "token_hash": "<MFA token SHA256>",
+            "token_scope": "mfa_pending",
+            "user_id": "actor"
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "totp_pending_enrollments": [
+          {
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "id": "<enrollment>",
+            "secret_enc": "<encrypted pending secret>",
+            "staged_by_jti": "idmfa1-actor",
+            "staged_via": "enroll_setup",
+            "user_id": "actor"
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/enroll/confirm"
+}

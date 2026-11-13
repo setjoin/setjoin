@@ -1,0 +1,22 @@
+{
+  "case": "ws-reference-formats",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Core/echo\",{\"rows\":[{\"z\":1,\"a\":2}],\"big\":9007199254740993,\"exp\":1e21},\"raw\"],[\"Core/echo\",{\"copied\":{\"a\":2,\"z\":1},\"literal\":{\"z\":3,\"a\":4}},\"fold\"],[\"Core/echo\",{\"exp\":1e+21,\"large\":9007199254740992,\"literal\":{\"z\":3,\"a\":4}},\"number\"]],\"requestId\":\"formats\"}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

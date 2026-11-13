@@ -1,0 +1,78 @@
+-- link_protect_check_and_audit.pg: C — verdict rules + audit-before-redirect.
+-- Requires: link_protect_check_and_audit, link_protect_audit, messages.
+BEGIN;
+SELECT plan(14);
+
+-- Seed an account + a message carrying an RFC Message-ID header under it. The
+-- reducer must resolve that RFC header (TEXT) to the numeric messages.id for the
+-- audit FK, scoped to the verified mailbox (R1).
+SELECT mk_account('lp') AS mb \gset
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, from_addr, subject, raw_ref, thread_id, received_at)
+VALUES (880001, :mb, get_tag_id('Inbox', :mb), '<rfc-lp-1@sender.test>',
+        'sender@sender.test', 'lp msg', 'raw/880001', 'thread-880001', now());
+
+-- 1: safe base → safe, audit row written.
+SELECT is((link_protect_check_and_audit('https://ok.test','<rfc-lp-1@sender.test>',:mb,'safe',
+   '{"safebrowsing":"safe"}'::jsonb,FALSE,FALSE,'1.2.3.4'))->>'verdict','safe','safe → safe');
+SELECT is((SELECT count(*) FROM link_protect_audit WHERE verdict='safe' AND client_ip='1.2.3.4'),
+   1::bigint,'audit row written for safe verdict (durable before redirect)');
+
+-- 2: all-errors passthrough → unknown regardless of strict_mode.
+SELECT is((link_protect_check_and_audit('https://down.test','<rfc-lp-1@sender.test>',:mb,'unknown',
+   '{"safebrowsing":"unknown","spamhaus":"unknown"}'::jsonb,TRUE,TRUE,'1.2.3.4'))->>'verdict',
+   'unknown','all-errors passthrough beats strict_mode');
+
+-- 3: strict_mode upgrades unknown → malicious.
+SELECT is((link_protect_check_and_audit('https://maybe.test','<rfc-lp-1@sender.test>',:mb,'unknown',
+   '{"spamhaus":"unknown"}'::jsonb,FALSE,TRUE,'1.2.3.4'))->>'verdict','malicious',
+   'strict_mode: unknown → malicious');
+
+-- 4: without strict_mode, unknown stays unknown.
+SELECT is((link_protect_check_and_audit('https://maybe2.test','<rfc-lp-1@sender.test>',:mb,'unknown',
+   '{"spamhaus":"unknown"}'::jsonb,FALSE,FALSE,'1.2.3.4'))->>'verdict','unknown',
+   'no strict_mode: unknown stays unknown');
+
+-- 5: malicious base → malicious, audited as malicious.
+SELECT is((link_protect_check_and_audit('https://bad.test','<rfc-lp-1@sender.test>',:mb,'malicious',
+   '{"safebrowsing":"malicious"}'::jsonb,FALSE,FALSE,'1.2.3.4'))->>'verdict','malicious','malicious → malicious');
+SELECT is((SELECT verdict FROM link_protect_audit ORDER BY id DESC LIMIT 1),'malicious',
+   'last audit row records the final (post-strict) verdict');
+
+-- 6: url_hash is sha256 hex of the url.
+SELECT is((SELECT url_hash FROM link_protect_audit ORDER BY id DESC LIMIT 1),
+   encode(digest('https://bad.test','sha256'),'hex'),'url_hash is sha256 hex of url');
+
+-- 7: attributed scanner is one whose result equals the final verdict.
+SELECT is((link_protect_check_and_audit('https://attr.test','<rfc-lp-1@sender.test>',:mb,'malicious',
+   '{"spamhaus":"safe","safebrowsing":"malicious"}'::jsonb,FALSE,FALSE,'1.2.3.4'))->>'scanner',
+   'safebrowsing','attributed scanner matches final verdict');
+
+-- 8: exactly one audit row per call (no double-insert).
+SELECT is((SELECT count(*) FROM link_protect_audit WHERE url_hash=encode(digest('https://attr.test','sha256'),'hex')),
+   1::bigint,'one audit row per call');
+
+-- 9: the RFC Message-ID header is resolved to the numeric messages.id for the
+-- audit FK (NOT 0 / NOT the literal string), mailbox-scoped.
+SELECT is((SELECT message_id FROM link_protect_audit
+           WHERE url_hash=encode(digest('https://attr.test','sha256'),'hex')),
+   880001::bigint,'RFC Message-ID resolved to numeric messages.id for audit FK');
+
+-- 10: no matching message (unknown RFC id) → audit FK is NULL, row still written
+-- with mailbox_id / verdict / url_hash / client_ip.
+SELECT is((link_protect_check_and_audit('https://nomatch.test','<does-not-exist@sender.test>',:mb,'safe',
+   '{"safebrowsing":"safe"}'::jsonb,FALSE,FALSE,'9.9.9.9'))->>'verdict','safe','no-match call still returns a verdict');
+SELECT is((SELECT message_id FROM link_protect_audit WHERE client_ip='9.9.9.9'),
+   NULL::bigint,'unresolved RFC Message-ID → audit FK is NULL (message deleted / cross-mailbox)');
+
+-- 11: cross-mailbox isolation (R1) — the same RFC id verified under a DIFFERENT
+-- mailbox does not resolve; FK stays NULL even though a message with that header
+-- exists globally (it belongs to :mb, not :mb2).
+SELECT mk_account('lp2') AS mb2 \gset
+SELECT link_protect_check_and_audit('https://xmb.test','<rfc-lp-1@sender.test>',:mb2,'safe',
+   '{"safebrowsing":"safe"}'::jsonb,FALSE,FALSE,'7.7.7.7');
+SELECT is((SELECT message_id FROM link_protect_audit
+           WHERE url_hash=encode(digest('https://xmb.test','sha256'),'hex')),
+   NULL::bigint,'RFC id from another mailbox does not resolve (R1 isolation)');
+
+SELECT * FROM finish();
+ROLLBACK;

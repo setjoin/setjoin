@@ -1,0 +1,34 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/roles/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "~ update role \"Reader\"\n+ grant a@example.test -> \"Reader\"\n- revoke z@example.test from \"Reader\"\n+ create role \"New\"\n- delete role \"Obsolete\"\n",
+  "stderr": "Error: changes present\n",
+  "exit": 2
+}

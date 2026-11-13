@@ -1,0 +1,440 @@
+-- pgTAP: jmap_email.sql — set_create (compose), recover, purge, inArchive filter
+-- ADR-003: accounts come from mk_account() / mk_shared_mailbox(), so user_id and
+-- mailbox_id are DIVERGENT by construction (was coincident 5201/5201). The whole
+-- point of jmap_email_* is mailbox-scoped (R1/R3) — divergent ids prove a stray
+-- user_id = p_mailbox_id predicate would match zero rows and fail, not pass.
+BEGIN;
+SELECT plan(43);
+
+-- Primary account (owning user has a DIVERGENT id from the mailbox).
+CREATE TEMP TABLE _acct AS SELECT mk_account('emluser') AS mb_id;
+
+-- Test 1: create a draft email (use actual Inbox tag id for this mailbox)
+SELECT lives_ok(
+  format(
+    $fmt$ SELECT jmap_email_set_create(%s, ('{"k1":{"mailboxIds":{"%s":true},"from":[{"email":"emluser@mk.test"}],"subject":"Test Draft","bodyText":"Hello"}}')::JSONB) $fmt$,
+    (SELECT mb_id FROM _acct),
+    (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _acct) AND name = 'Inbox')
+  ),
+  'create draft email succeeds'
+);
+
+-- Test 2: created email appears in query
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_email_query((SELECT mb_id FROM _acct))->'ids') > 0),
+  'query returns created email'
+);
+
+-- Test 3: get returns the email
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_email_get((SELECT mb_id FROM _acct), ARRAY[((jmap_email_query((SELECT mb_id FROM _acct))->'ids'->0) #>> '{}')::BIGINT])->'list') > 0),
+  'get returns email details'
+);
+
+-- Test 4: soft-delete (destroy) then recover
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE mailbox_id = (SELECT mb_id FROM _acct);
+SELECT lives_ok(
+  $$ SELECT jmap_email_recover((SELECT mb_id FROM _acct), ARRAY[(SELECT id FROM messages WHERE mailbox_id = (SELECT mb_id FROM _acct) LIMIT 1)]) $$,
+  'recover restores deleted email'
+);
+
+-- Test 5: purge permanently deletes
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE mailbox_id = (SELECT mb_id FROM _acct);
+SELECT lives_ok(
+  $$ SELECT jmap_email_purge((SELECT mb_id FROM _acct), ARRAY[(SELECT id FROM messages WHERE mailbox_id = (SELECT mb_id FROM _acct) LIMIT 1)]) $$,
+  'purge permanently deletes email'
+);
+
+-- Tests 5b/5c/5d (arch A8): purge with p_notify=FALSE (the IMAP EXPUNGE contract)
+-- does the blob-safe hard-delete + queues the unshared raw_ref blob for GC, but
+-- does NOT bump jmap_email_state (the \Deleted STORE already notified).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_deleted, deleted_at)
+  VALUES (999042, (SELECT mb_id FROM _acct), get_tag_id('Inbox', (SELECT mb_id FROM _acct)), '<p1@a8>', 'S', 'x@e.com', 5, 'thr-a8', 'raw-a8-unique', now(), TRUE, now());
+SELECT jmap_email_state AS s0 FROM mailboxes WHERE id = (SELECT mb_id FROM _acct) \gset
+SELECT jmap_email_purge((SELECT mb_id FROM _acct), ARRAY[999042::BIGINT], FALSE);
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE id = 999042),
+  0, 'purge(p_notify=FALSE) hard-deletes the message');
+SELECT is(
+  (SELECT count(*)::INT FROM orphaned_message_blobs WHERE raw_ref = 'raw-a8-unique'),
+  1, 'purge queues the unshared raw_ref blob for GC (the EXPUNGE blob-leak fix)');
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _acct)),
+  :s0::BIGINT, 'purge(p_notify=FALSE) does NOT bump jmap_email_state (IMAP already notified)');
+
+-- Test 6: jmap_email_set_create uses 2-arg notify_state_change → resync sentinel →
+-- real jmap_email_changes raises BZ011 (cannotCalculateChanges). Task 4 upgrades
+-- the call site to precise rows; until then, BZ011 is the correct contract.
+SELECT throws_ok(
+  format($$SELECT jmap_email_changes(%s,'0')$$, (SELECT mb_id FROM _acct))::text,
+  'BZ011', NULL,
+  'jmap_email_changes after set_create → resync sentinel → BZ011');
+
+-- ── Archive filter (A2): inArchive returns only messages with NO location-group
+--    tag (archived = location tag removed → All Mail), excluding Inbox/Trash mail.
+--    A second account (its own divergent user) holds the archive fixtures.
+CREATE TEMP TABLE _arc AS SELECT mk_account('arc') AS mb_id;
+
+-- msg A: stays in Inbox (carries a location tag → NOT archived)
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (5210, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)), '<a@eml.test>', 'In inbox', 'x@ext.com', 100, 'thr-5210', 's3://raw-5210', now(), FALSE);
+SELECT tag_message(5210, (SELECT received_at FROM messages WHERE id = 5210), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+
+-- msg B: archived — delivered then its location tag removed (no location tag left)
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (5211, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)), '<b@eml.test>', 'Archived', 'y@ext.com', 100, 'thr-5211', 's3://raw-5211', now(), FALSE);
+SELECT tag_message(5211, (SELECT received_at FROM messages WHERE id = 5211), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+DELETE FROM message_tags mt USING tags t
+  WHERE mt.tag_id = t.id AND mt.message_id = 5211 AND t.exclusive_group = 'location';
+
+-- Test 7: inArchive returns exactly the one archived message
+SELECT is(
+  jsonb_array_length(jmap_email_query((SELECT mb_id FROM _arc), '{"inArchive":true}'::jsonb)->'ids'),
+  1, 'inArchive returns only the archived message');
+
+-- Test 8: the archived message id is present
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _arc), '{"inArchive":true}'::jsonb)->'ids') ? '5211',
+  'archived message present in inArchive');
+
+-- Test 9: the inbox message is excluded
+SELECT ok(
+  NOT ((jmap_email_query((SELECT mb_id FROM _arc), '{"inArchive":true}'::jsonb)->'ids') ? '5210'),
+  'inbox message excluded from inArchive');
+
+-- ── Part 2 (seam adoption): destroy / recover route the location swap through
+-- transition_message_location with p_notify=FALSE — the batch emits exactly ONE
+-- notify_state_change after the loop, so the per-swap push is suppressed (no
+-- double bump). Msg 5210 starts in Inbox (a location tag). ──
+CREATE TEMP TABLE _de_base AS
+  SELECT jmap_email_state AS e0 FROM mailboxes WHERE id = (SELECT mb_id FROM _arc);
+
+-- destroy 5210 (not in Trash → moves to Trash).
+SELECT jmap_email_set_destroy((SELECT mb_id FROM _arc), ARRAY[5210::BIGINT]);
+
+-- Test 10: the message landed in Trash with exactly one location tag.
+SELECT is(
+  ARRAY[
+    (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+       WHERE mt.message_id = 5210 AND t.exclusive_group = 'location'),
+    (SELECT (t.name = 'Trash')::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+       WHERE mt.message_id = 5210 AND t.exclusive_group = 'location')
+  ],
+  ARRAY[1, 1],
+  'destroy moves the message to Trash via the location seam (exactly one location tag)');
+
+-- Test 11: the destroy batch bumped jmap_email_state EXACTLY ONCE (the single
+-- end-of-call notify; the per-swap push was suppressed via p_notify=FALSE).
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _arc)),
+  (SELECT e0 + 1 FROM _de_base),
+  'destroy bumps jmap_email_state exactly once (no per-message double-push)');
+
+-- Test 12: recover restores 5210 to Inbox via the seam (and undestroys the row).
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE id = 5210;
+SELECT jmap_email_recover((SELECT mb_id FROM _arc), ARRAY[5210::BIGINT]);
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 5210 AND t.exclusive_group = 'location'),
+  'Inbox',
+  'recover restores the message to Inbox via the location seam');
+
+-- ── REAL push assertions (WAVE 4 Phase 3): the destroy/recover batches emit ONE
+-- notify_state_change after the loop (per-swap pushes suppressed with
+-- p_notify=FALSE). Capture the app_notify tee and prove the batch pushes EXACTLY
+-- ONCE on tag:{mailbox} with the state_change event — the no-double-push contract
+-- observed at the wire, not just via the state token. Uses a fresh message in
+-- Inbox so the destroy has a location swap to perform. ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (5212, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)), '<c@eml.test>', 'Push', 'z@ext.com', 100, 'thr-5212', 's3://raw-5212', now(), FALSE);
+SELECT tag_message(5212, (SELECT received_at FROM messages WHERE id = 5212), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+
+SET LOCAL app.capture_notify = 'on';
+
+-- Test 13: destroy pushes exactly once on the owner's tag channel.
+SELECT jmap_email_set_destroy((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT]);
+SELECT is(
+  notify_count('tag:' || (SELECT mb_id FROM _arc)),
+  1,
+  'destroy batch pushes exactly once on tag:{mailbox} (per-swap pushes suppressed)');
+SELECT is(
+  last_notify_event('tag:' || (SELECT mb_id FROM _arc)),
+  'state_change',
+  'destroy push carries the state_change event');
+
+-- Test 15: recover then pushes once more → cumulative count is 2 on the channel.
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE id = 5212;
+SELECT jmap_email_recover((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT]);
+SELECT is(
+  notify_count('tag:' || (SELECT mb_id FROM _arc)),
+  2,
+  'recover batch pushes once more (cumulative 2 on the channel)');
+
+-- ── GOLDEN ENVELOPE (seam adoption, behavior-preserving) ──────────────────────
+-- jmap_email_get routes through build_jmap_get_response (already scoped). The
+-- Email projection carries timestamps, so pin the ENVELOPE keys byte-for-byte
+-- (accountId/state/notFound) + list length for [own_msg, missing_id]. 5212 is the
+-- live message seeded above (recovered to Inbox); 999999999 never exists.
+SELECT is(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT, 999999999::BIGINT])->>'accountId',
+  (SELECT mb_id FROM _arc)::TEXT,
+  'email_get golden: accountId is the mailbox id');
+SELECT is(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT, 999999999::BIGINT])->'notFound',
+  jsonb_build_array('999999999'),
+  'email_get golden notFound: the missing id (own id absent), scoped behavior unchanged');
+SELECT is(
+  jsonb_array_length(jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT, 999999999::BIGINT])->'list'),
+  1,
+  'email_get golden: list contains exactly the one owned message');
+
+-- ── S/MIME verdict (A8): jmap_email_get emits smimeStatus + smimeSignerCn. ──
+-- Set a valid verdict on msg 5212 (live, in Inbox for _arc) and assert Email/get
+-- carries both keys through. Tests 19 and 20.
+UPDATE messages SET smime_status = 'valid', smime_signer_cn = 'Bank of Example', smime_signer_email = 'bank@trust.example'
+  WHERE id = 5212;
+SELECT is(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT])->'list'->0->>'smimeStatus',
+  'valid', 'Email/get emits smimeStatus');
+SELECT is(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5212::BIGINT])->'list'->0->>'smimeSignerCn',
+  'Bank of Example', 'Email/get emits smimeSignerCn');
+
+-- Property projection (offline #1a): metadata-only request omits body fields.
+-- Uses _arc/5212 (live message with body_text seeded above via jmap_email_set_create
+-- in the _acct fixture; _arc msg 5212 was created with subject 'Push' — no body_text
+-- from that INSERT, so use _acct's message via jmap_email_query on _arc which has
+-- the recovered 5212).  Use _arc account since _acct messages were purged in test 5.
+-- ponytail: _arc's msg 5212 has no body_text (raw INSERT), so bodyText is NULL even
+-- without projection; use _acct with a fresh query-driven id reference won't work
+-- (purged). Simplest fix: seed a body_text on 5212, then test projection against it.
+UPDATE messages SET body_text = 'Hello projection test' WHERE id = 5212;
+SELECT ok(
+  NOT ((jmap_email_get(
+    (SELECT mb_id FROM _arc),
+    ARRAY[5212::BIGINT],
+    ARRAY['id','subject','receivedAt']
+  )->'list'->0) ? 'bodyText'),
+  'metadata-only get omits bodyText'
+);
+SELECT ok(
+  NOT ((jmap_email_get(
+    (SELECT mb_id FROM _arc),
+    ARRAY[5212::BIGINT],
+    ARRAY['id','subject']
+  )->'list'->0) ? 'bodyHTML'),
+  'metadata-only get omits bodyHTML'
+);
+SELECT ok(
+  (jmap_email_get(
+    (SELECT mb_id FROM _arc),
+    ARRAY[5212::BIGINT]
+  )->'list'->0) ? 'bodyText',
+  'default get (NULL properties) still returns bodyText'
+);
+
+-- ── Batch-collapse (Fix 1): set_update and set_destroy with N>1 ids must emit
+-- exactly ONE state bump + N precise journal rows at that one state_seq (no per-id
+-- push amplification). Uses fresh messages 5220/5221 to avoid state pollution. ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (5220, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)), '<batch1@eml.test>', 'Batch1', 'b@ext.com', 100, 'thr-5220', 's3://raw-5220', now(), FALSE),
+         (5221, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)), '<batch2@eml.test>', 'Batch2', 'b@ext.com', 100, 'thr-5221', 's3://raw-5221', now(), FALSE);
+SELECT tag_message(5220, (SELECT received_at FROM messages WHERE id = 5220), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+SELECT tag_message(5221, (SELECT received_at FROM messages WHERE id = 5221), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+
+CREATE TEMP TABLE _batch_base AS
+  SELECT jmap_email_state AS e0 FROM mailboxes WHERE id = (SELECT mb_id FROM _arc);
+
+-- batch set_update: mark both 5220 and 5221 read in one call
+SELECT jmap_email_set_update(
+  (SELECT mb_id FROM _arc),
+  jsonb_build_object(
+    '5220', '{"keywords":{"$seen":true}}'::jsonb,
+    '5221', '{"keywords":{"$seen":true}}'::jsonb
+  )
+);
+
+-- Test 24: batch set_update bumps jmap_email_state exactly ONCE (not twice).
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _arc)),
+  (SELECT e0 + 1 FROM _batch_base),
+  'batch set_update: exactly ONE state bump for N ids (not N bumps)');
+
+-- Test 25: batch set_update wrote exactly 2 precise journal rows at that one state_seq.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jmap_changes_journal
+   WHERE mailbox_id = (SELECT mb_id FROM _arc)
+     AND datatype = 'email'
+     AND state_seq = (SELECT e0 + 1 FROM _batch_base)
+     AND entity_id != 0),
+  2,
+  'batch set_update: 2 precise journal rows at the single state_seq');
+
+-- ── SP1 P5 (C7): encrypted-at-rest mail is excluded from preview / body_tsv. ──
+-- An encrypted copy stores ONLY the ciphertext in raw_ref; body_text/body_html/
+-- body_tsv are NULL, subject is retained. The READ side (jmap_email_get) must NOT
+-- leak any body/preview for it (the Go decrypt-on-read pass is the ONLY cleartext
+-- producer) while still surfacing cryptoType + subject. Tests 21–25.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr,
+                      size_bytes, thread_id, raw_ref, received_at, is_read,
+                      body_text, body_html, body_tsv, crypto_type)
+VALUES (5213, (SELECT mb_id FROM _arc), get_tag_id('Inbox', (SELECT mb_id FROM _arc)),
+        '<enc@eml.test>', 'Encrypted subject', 'enc@ext.com', 100, 'thr-5213',
+        's3://raw-5213-ciphertext', now(), FALSE,
+        NULL, NULL, NULL, 'smime-encrypted');
+SELECT tag_message(5213, (SELECT received_at FROM messages WHERE id = 5213), 'Inbox', (SELECT mb_id FROM _arc), 'deliver', TRUE);
+
+-- 21: the encrypted message is NOT full-text indexed.
+SELECT is(
+  (SELECT body_tsv FROM messages WHERE id = 5213),
+  NULL,
+  'encrypted message is not full-text indexed (body_tsv NULL)');
+
+-- 22: Email/get returns NULL bodyText for the encrypted row.
+SELECT ok(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5213::BIGINT])->'list'->0->>'bodyText' IS NULL,
+  'Email/get bodyText is null for an encrypted message');
+
+-- 23: Email/get returns NULL bodyHTML for the encrypted row.
+SELECT ok(
+  jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5213::BIGINT])->'list'->0->>'bodyHTML' IS NULL,
+  'Email/get bodyHTML is null for an encrypted message');
+
+-- 24: preview is null/empty (no left(NULL,256) garbage display).
+SELECT ok(
+  COALESCE(jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5213::BIGINT])->'list'->0->>'preview', '') = '',
+  'Email/get preview is null/empty for an encrypted message');
+
+-- 25: cryptoType read-state signal AND the unencrypted subject ARE returned.
+SELECT is(
+  (jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5213::BIGINT])->'list'->0->>'cryptoType')
+    || '|' ||
+  (jmap_email_get((SELECT mb_id FROM _arc), ARRAY[5213::BIGINT])->'list'->0->>'subject'),
+  'smime-encrypted|Encrypted subject',
+  'Email/get retains cryptoType + subject for an encrypted message');
+
+-- Unknown-tag search: the webmail sends inMailbox='__no_match__' when a
+-- tag:/in:/label: search names a tag that doesn't exist. Must return zero rows,
+-- NOT crash the ::BIGINT cast (regression guard for the rich-search operators).
+SELECT is(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"inMailbox":"__no_match__"}'::JSONB, NULL, 20, 0)->>'total')::INT,
+  0,
+  'unknown-tag (__no_match__) inMailbox returns zero, not a bigint-cast error');
+
+-- ── c3 rollback proof: one JMAP /set = ONE transaction. The gateway now runs
+-- create/update/destroy inside a single BEGIN…COMMIT (reducercall.
+-- CallScopedBatch); this proves the DB half of that contract: EVERYTHING
+-- jmap_email_set_create does — the message insert AND the jmap_email_state
+-- bump — lives inside the caller's transaction, so a gateway ROLLBACK (a later
+-- phase raising) erases the create completely. No non-transactional residue
+-- (no sequence-backed row, no committed side channel) may survive. ──
+CREATE TEMP TABLE _c3_before AS
+  SELECT (SELECT count(*) FROM messages WHERE mailbox_id = (SELECT mb_id FROM _arc)) AS msg_count,
+         (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _arc)) AS email_state;
+
+SAVEPOINT c3_set;
+SELECT jmap_email_set_create(
+  (SELECT mb_id FROM _arc),
+  format(
+    '{"c3":{"mailboxIds":{"%s":true},"from":[{"email":"emluser@mk.test"}],"subject":"c3 rollback probe","bodyText":"must not survive"}}',
+    (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _arc) AND name = 'Inbox')
+  )::JSONB
+);
+-- Precondition guard (plain RAISE, not a pgTAP test — pgTAP bookkeeping must
+-- not straddle the savepoint): the create must have actually inserted, or the
+-- two assertions below would pass vacuously.
+DO $c3$
+BEGIN
+  IF (SELECT count(*) FROM messages WHERE mailbox_id = (SELECT mb_id FROM _arc))
+     <= (SELECT msg_count FROM _c3_before) THEN
+    RAISE EXCEPTION 'c3 probe: set_create created nothing inside the savepoint';
+  END IF;
+END $c3$;
+ROLLBACK TO SAVEPOINT c3_set;
+
+-- Test 35: the rolled-back create left no message behind.
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = (SELECT mb_id FROM _arc)),
+  (SELECT msg_count FROM _c3_before),
+  'c3: rolled-back set_create leaves no message (create is fully transactional)');
+
+-- Test 36: the rolled-back create left no state bump behind — the client-visible
+-- jmap_email_state transitions exactly once per COMMITTED /set, never for a
+-- rolled-back one.
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _arc)),
+  (SELECT email_state FROM _c3_before),
+  'c3: rolled-back set_create leaves no jmap_email_state bump');
+
+-- ── er5-s12 (occ_913c9852b75a06f007751b04, resource-exhaustion
+-- .attachment-size-trust): Email/set must NOT trust the client-declared
+-- attachment "size". blobId is the sha256 of an already-uploaded blob, so
+-- blobs.size_bytes is the authority: a mismatched declaration is refused,
+-- unknown blobIds are refused with a clear SetError, and the 25MiB cap +
+-- quota account for the BLOB's bytes (a declared-0 oversized blob can no
+-- longer sail past the cap to the submission assembler). ──
+CREATE TEMP TABLE _sz AS SELECT mk_account('szacct') AS mb_id;
+INSERT INTO blobs (sha256, minio_ref, size_bytes, ref_count)
+  VALUES (repeat('a', 64), 's3://er5s12-blob-a', 1000, 1),
+         (repeat('b', 64), 's3://er5s12-blob-b', 26300000, 1)
+  ON CONFLICT (sha256) DO NOTHING;
+
+-- 37: an honest declaration (size == blob size) creates, and the persisted
+-- message_attachments row carries the blob's authoritative size.
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT mb_id FROM _sz),
+    format('{"att-ok":{"mailboxIds":{"%s":true},"subject":"att honest","bodyValues":{"text":{"value":"hi"}},"attachments":[{"blobId":"%s","type":"application/octet-stream","size":1000,"name":"f.bin"}]}}',
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _sz) AND name = 'Inbox'),
+      repeat('a', 64))::JSONB)
+   -> 'created' ? 'att-ok'),
+  true, 'an attachment declared at its exact blob size creates');
+
+SELECT is(
+  (SELECT ma.size_bytes FROM message_attachments ma
+     JOIN messages m ON m.id = ma.message_id
+    WHERE m.subject = 'att honest'),
+  1000::BIGINT, 'the persisted attachment size is the blob''s authoritative size');
+
+-- 39: declaring 1 byte on the 1000-byte blob is refused; nothing is created.
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT mb_id FROM _sz),
+    format('{"att-lie":{"mailboxIds":{"%s":true},"subject":"att understated","attachments":[{"blobId":"%s","size":1,"name":"f.bin"}]}}',
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _sz) AND name = 'Inbox'),
+      repeat('a', 64))::JSONB)
+   -> 'notCreated' -> 'att-lie' ->> 'type'),
+  'invalidAttachments', 'an understated declared size is refused (invalidAttachments)');
+SELECT is(
+  (SELECT count(*)::INT FROM messages WHERE subject = 'att understated'),
+  0, 'the refused create persisted no message');
+
+-- 41: an honestly-DECLARED oversized blob now hits the 25MiB cap — the pre-s12
+-- code summed the declaration, so declaring its size small (39) was the bypass.
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT mb_id FROM _sz),
+    format('{"att-big":{"mailboxIds":{"%s":true},"subject":"att oversized","attachments":[{"blobId":"%s","size":26300000,"name":"big.bin"}]}}',
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _sz) AND name = 'Inbox'),
+      repeat('b', 64))::JSONB)
+   -> 'notCreated' -> 'att-big' ->> 'type'),
+  'tooLarge', 'an oversized BLOB is capped by its real size (26.3MB > 25MiB), declared honestly');
+
+-- 42: a negative declared size (the pre-s12 understating bypass) is refused.
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT mb_id FROM _sz),
+    format('{"att-neg":{"mailboxIds":{"%s":true},"subject":"att negative","attachments":[{"blobId":"%s","size":-5,"name":"f.bin"}]}}',
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _sz) AND name = 'Inbox'),
+      repeat('a', 64))::JSONB)
+   -> 'notCreated' -> 'att-neg' ->> 'type'),
+  'invalidAttachments', 'a negative declared size is refused');
+
+-- 43: a blobId with no uploaded blob row is refused with a clear SetError
+-- (pre-s12 it reached the message_attachments FK and died as opaque SQLERRM).
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT mb_id FROM _sz),
+    format('{"att-ghost":{"mailboxIds":{"%s":true},"subject":"att ghost","attachments":[{"blobId":"%s","size":10,"name":"f.bin"}]}}',
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT mb_id FROM _sz) AND name = 'Inbox'),
+      repeat('c', 64))::JSONB)
+   -> 'notCreated' -> 'att-ghost' ->> 'type'),
+  'invalidAttachments', 'an unknown blobId is refused with a clear SetError');
+
+SELECT * FROM finish();
+ROLLBACK;

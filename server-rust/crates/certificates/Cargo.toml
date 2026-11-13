@@ -1,0 +1,26 @@
+[package]
+name = "setjoin-certificates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+oracle-mutants = []
+
+[dependencies]
+setjoin-authz = { path = "../authz" }
+setjoin-mime = { path = "../mime" }
+der = { version = "=0.8.3", features = ["alloc", "std", "oid"] }
+p224 = { version = "=0.14.0-rc.15", default-features = false, features = ["arithmetic", "std"] }
+p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std"] }
+p384 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std"] }
+p521 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std"] }
+setjoin-pg = { path = "../pg" }
+regex = "=1.13.1"
+x509-parser = "=0.18.1"
+base64 = "=0.22.1"
+sha2 = "=0.10.9"
+
+[lints.rust]
+unsafe_code = "forbid"

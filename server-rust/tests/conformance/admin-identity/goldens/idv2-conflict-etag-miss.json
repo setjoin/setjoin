@@ -1,0 +1,61 @@
+{
+  "case": "etag-miss",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/v2/conflicts/{id}",
+      "headers": [
+        "if-none-match"
+      ],
+      "method": "GET",
+      "path": "/admin/identity/v2/conflicts/{id}"
+    },
+    "response": {
+      "body": "{\"id\": \"95000000-0000-4000-8000-000000000001\", \"state\": \"pending\", \"source\": {\"kind\": \"local\", \"state\": \"active\", \"sourceKey\": \"admin7-alpha\", \"generation\": \"3\", \"displayName\": \"Admin7 Alpha <&>\"}, \"createdAt\": \"2026-10-04T08:00:00.5+00:00\", \"decidedAt\": null, \"expiresAt\": \"2031-01-01T00:00:00+00:00\", \"generation\": \"3\", \"explanation\": \"admin7 hard anchor <match>\", \"evidenceClass\": \"hard\", \"evidenceDigest\": \"0101010101010101010101010101010101010101010101010101010101010101\", \"candidatePerson\": {\"email\": \"admin7-other@host-b.test\", \"userId\": \"<other>\", \"enabled\": true, \"protected\": false, \"displayName\": \"admin7-other\"}, \"decisionHistory\": [{\"id\": \"<n>\", \"linkId\": null, \"reason\": \"earlier\", \"decision\": \"defer\", \"personId\": null, \"decidedBy\": \"<admin>\", \"occurredAt\": \"2026-10-04T12:00:00+00:00\"}], \"allowedDecisions\": [\"link\", \"reject\", \"defer\"], \"subjectFingerprint\": \"37d6e90f06118329\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "894"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "<etag>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/identity/v2/conflicts/{id}"
+}

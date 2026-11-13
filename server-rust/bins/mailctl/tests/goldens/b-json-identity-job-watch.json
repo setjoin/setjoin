@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/jobs/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/jobs/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"jobId\": \"00000000-0000-4000-8000-000000000001\",\n  \"kind\": \"upgrade_backfill\",\n  \"state\": \"completed\",\n  \"snapshotId\": \"00000000-0000-4000-8000-000000000002\",\n  \"sourceKey\": null,\n  \"transitionId\": null,\n  \"createdAt\": \"2026-01-01T00:00:00Z\",\n  \"expiresAt\": \"2026-01-01T00:00:00Z\",\n  \"progress\": {},\n  \"nextAction\": \"review\",\n  \"terminal\": true,\n  \"cancelRequested\": false,\n  \"manifestVersion\": \"\",\n  \"byteCount\": null,\n  \"sha256\": \"\",\n  \"redactionCounts\": null\n}\n",
+  "stderr": "Identity job 00000000-0000-4000-8000-000000000001: running; next=review\n",
+  "exit": 0
+}

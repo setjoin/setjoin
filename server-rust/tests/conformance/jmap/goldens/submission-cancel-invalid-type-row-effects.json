@@ -1,0 +1,12 @@
+{
+  "case": "submission-cancel-invalid-type-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap EmailSubmission/cancel"
+}

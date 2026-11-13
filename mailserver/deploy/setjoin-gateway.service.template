@@ -1,0 +1,62 @@
+[Unit]
+Description=Setjoin Rust front door (setjoin-gateway, ARCH-027)
+Documentation=https://github.com/setjoin/setjoin/blob/main/docs/adr/ARCH-027-rust-front-door-gateway.md
+# Systemd owns the loopback HTTP and configured public HTTPS sockets. The loopback
+# listener (setjoin-gateway.socket) queues connections across a restart instead
+# of refusing them and the process needs no capability. Every request it does
+# not serve itself is forwarded to Go's internal plain listener
+# (HTTP_MODE=proxy) and /auth/* to authserverd. Rollback reinstalls the previous
+# release's matching binaries, units, socket set and configuration.
+Requires=setjoin-gateway.socket
+After=network.target setjoin-gateway.socket setjoin.service setjoin-auth.service
+Wants=setjoin.service setjoin-auth.service
+# An installation adopted before a release carried the gateway has no binary
+# yet: stay inactive (not failed) until the next signed release brings it.
+ConditionPathExists={{RUNTIME_DIR}}/setjoin-gateway
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+ExecStart={{RUNTIME_DIR}}/setjoin-gateway
+# Federation gets only its app/worker/LISTEN credentials and static settings.
+# Never load config.env or the owner credential tier into the front door.
+EnvironmentFile=-{{FEDERATION_ENV}}
+# SMTP (#501) likewise gets its own allow-listed file: the worker tier and the
+# settings it needs, never the owner credential tier or config.env.
+EnvironmentFile=-{{SMTP_ENV}}
+EnvironmentFile={{GATEWAY_ENV}}
+EnvironmentFile=-{{TLS_ENV}}
+Restart=always
+RestartSec=2
+# The gateway drains active HTTP for 30s on SIGTERM.
+TimeoutStopSec=40
+MemoryMax=512M
+TasksMax=512
+LimitNOFILE=65536
+
+# No capability: the socket is bound by systemd.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-gateway
+
+[Install]
+WantedBy=multi-user.target
+Also=setjoin-gateway.socket

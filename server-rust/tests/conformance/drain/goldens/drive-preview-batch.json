@@ -1,0 +1,102 @@
+{
+  "case": "drive-preview-batch",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290|14|drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290|rc=5",
+      "g|<b6>|5|drive/g/<b6>|rc=1",
+      "g|<b5>|5|drive/g/<b5>|rc=1",
+      "g|<b2>|5|drive/g/<b2>|rc=1",
+      "g|<b4>|5|drive/g/<b4>|rc=1",
+      "g|<b3>|5|drive/g/<b3>|rc=1",
+      "g|<b1>|5|drive/g/<b1>|rc=1",
+      "g|<b7>|5|drive/g/<b7>|rc=1"
+    ],
+    "preview_chunks": [
+      "1:0:g:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "2:0:g:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "3:0:g:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "4:0:g:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "5:0:g:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+    ],
+    "s3": {
+      "keys": [
+        "drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+        "drive/g/<b6>",
+        "drive/g/<b5>",
+        "drive/g/<b2>",
+        "drive/g/<b4>",
+        "drive/g/<b3>",
+        "drive/g/<b1>",
+        "drive/g/<b7>"
+      ],
+      "requests": [
+        {
+          "body_len": 14,
+          "body_sha256": "17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+        },
+        {
+          "body_len": 14,
+          "body_sha256": "17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+        },
+        {
+          "body_len": 14,
+          "body_sha256": "17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+        },
+        {
+          "body_len": 14,
+          "body_sha256": "17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+        },
+        {
+          "body_len": 14,
+          "body_sha256": "17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+          "content_type": "application/pdf",
+          "method": "PUT",
+          "path": "/mailblobs/drive/g/17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<b1>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<b2>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<b3>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<b4>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<b5>"
+        }
+      ]
+    },
+    "versions": [
+      "1:ready:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "2:ready:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "3:ready:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "4:ready:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "5:ready:17b32d0ae56d92b33215733df9c24dc2f379231615c6af70cfa5df02c25d1290",
+      "6:pending:-",
+      "7:pending:-"
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "case": "storage-migration-cancel-scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed": false,
+          "error": null,
+          "id": 9700,
+          "last": null,
+          "migrated": 0,
+          "source": "s3",
+          "started": true,
+          "status": "backfill",
+          "target": "posix",
+          "total": null
+        }
+      ],
+      "before": [
+        {
+          "completed": false,
+          "error": null,
+          "id": 9700,
+          "last": null,
+          "migrated": 0,
+          "source": "s3",
+          "started": true,
+          "status": "backfill",
+          "target": "posix",
+          "total": null
+        }
+      ],
+      "table": "storage_migrations"
+    }
+  ],
+  "format": 1
+}

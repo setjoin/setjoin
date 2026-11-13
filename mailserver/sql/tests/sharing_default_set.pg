@@ -1,0 +1,91 @@
+-- sharing_default_set.pg — pgTAP tests for the sharing_defaults upsert reducer
+-- (spec 2026-06-27-sharing-delegation-design.md §4 / D3 / D7 / D8).
+-- Covers: self user-scope set + upsert, auth ladder (non-admin org-scope BZ116,
+-- foreign user-scope BZ116, domain-scoped admin cross-domain BZ116), validation
+-- (BZ117 on resource/level/audience/unknown refs), admin org/ou/group set, audit.
+BEGIN;
+SELECT plan(14);
+
+-- ── fixtures ────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES
+  (95001, 'sds-a.test', TRUE),
+  (95002, 'sds-b.test', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou) VALUES
+  (95101, 'Eng', '/eng', 'ou=eng');
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, department_id) VALUES
+  (95201, 'sds_alice', 95001, 'alice@sds-a.test', 'Alice', TRUE, 95101),
+  (95202, 'sds_admin', 95001, 'admin@sds-a.test', 'Admin', TRUE, NULL),
+  (95203, 'sds_rando', 95001, 'rando@sds-a.test', 'Rando', TRUE, NULL),
+  (95204, 'sds_badmin', 95002, 'badmin@sds-b.test', 'B Admin', TRUE, NULL);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (95301, NULL, 95001, 'leads@sds-a.test', 'Leads', 'personal', FALSE);
+INSERT INTO distribution_groups (id, mailbox_id) VALUES (95401, 95301);
+-- global sharing.manage admin (95202); domain-B-scoped sharing.manage admin (95204)
+INSERT INTO admin_role_groups (id, name, permissions) VALUES
+  (95501, 'sds-sharing-admin', ARRAY['sharing.manage']);
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) VALUES
+  (95502, 'sds-sharing-admin-b', ARRAY['sharing.manage'], 95002);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES
+  (95202, 95501, 95202),
+  (95204, 95502, 95202);
+
+-- ── self-service user-scope default (D5 opt-out path) ───────────────────────
+SELECT ok(
+  (SELECT sharing_default_set(95201, 'calendar', 'user', 95201, 'everyone', 95001, 'freebusy')) > 0,
+  'owner sets own user-scope default');
+SELECT is(
+  (SELECT level FROM sharing_defaults
+    WHERE owner_scope = 'user' AND owner_ref = 95201 AND audience = 'everyone' AND audience_ref = 95001),
+  'freebusy', 'row stored with level freebusy');
+
+-- upsert: same key, new level → level updated, still one row
+SELECT ok(
+  (SELECT sharing_default_set(95201, 'calendar', 'user', 95201, 'everyone', 95001, 'read')) > 0,
+  'upsert same key succeeds');
+SELECT is(
+  (SELECT count(*)::int FROM sharing_defaults WHERE owner_scope = 'user' AND owner_ref = 95201),
+  1, 'upsert keeps one row');
+SELECT is(
+  (SELECT level FROM sharing_defaults WHERE owner_scope = 'user' AND owner_ref = 95201),
+  'read', 'upsert updated the level');
+
+-- ── auth ladder (BZ116) ─────────────────────────────────────────────────────
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95203, 'calendar', 'org', 95001, 'everyone', 95001, 'freebusy')$$,
+  'BZ116', NULL, 'non-admin org-scope set raises BZ116');
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95203, 'calendar', 'user', 95201, 'everyone', 95001, 'none')$$,
+  'BZ116', NULL, 'setting another user''s user-scope default without sharing.manage raises BZ116');
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95204, 'calendar', 'org', 95001, 'everyone', 95001, 'freebusy')$$,
+  'BZ116', NULL, 'domain-B-scoped admin cannot set domain-A org default (D7)');
+
+-- ── validation (BZ117) ──────────────────────────────────────────────────────
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95201, 'mailbox', 'user', 95201, 'everyone', 95001, 'freebusy')$$,
+  'BZ117', NULL, 'non-calendar resource raises BZ117 (D2)');
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95201, 'calendar', 'user', 95201, 'everyone', 95001, 'write')$$,
+  'BZ117', NULL, 'level outside none/freebusy/read raises BZ117');
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95202, 'calendar', 'org', 999999999, 'everyone', 95001, 'freebusy')$$,
+  'BZ117', NULL, 'unknown owner_ref raises BZ117');
+SELECT throws_ok(
+  $$SELECT sharing_default_set(95201, 'calendar', 'user', 95201, 'group', 999999999, 'read')$$,
+  'BZ117', NULL, 'unknown audience_ref raises BZ117');
+
+-- ── admin path: org / ou / group scopes ─────────────────────────────────────
+SELECT ok(
+  (SELECT sharing_default_set(95202, 'calendar', 'org', 95001, 'everyone', 95001, 'freebusy')) > 0
+  AND (SELECT sharing_default_set(95202, 'calendar', 'ou', 95101, 'everyone', 95001, 'none')) > 0
+  AND (SELECT sharing_default_set(95202, 'calendar', 'group', 95401, 'ou', 95101, 'read')) > 0,
+  'sharing.manage admin sets org/ou/group defaults');
+
+-- ── audit (D8) ──────────────────────────────────────────────────────────────
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action = 'sharing_default_set' AND user_id = 95201) >= 1
+  AND (SELECT count(*) FROM admin_audit_log WHERE action = 'sharing_default_set' AND user_id = 95202) >= 1,
+  'audit rows written for self and admin sets');
+
+SELECT * FROM finish();
+ROLLBACK;

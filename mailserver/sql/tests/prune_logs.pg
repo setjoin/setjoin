@@ -1,0 +1,76 @@
+-- pgTAP test for prune_log_tables function
+-- NOTE: mailbox_audit_log is WORM-protected by trg_audit_append_only. Rows are
+-- never deleted by prune_log_tables(). The test asserts that both old and recent
+-- audit rows survive pruning (compliance requirement).
+BEGIN;
+SELECT plan(4);
+
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testprune.example', TRUE) RETURNING id INTO v_domain_id;
+
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('prune', 'prune@testprune.example', 'Prune', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+  VALUES (v_user_id, v_domain_id, 'prune@testprune.example', 'Prune', TRUE)
+  RETURNING id INTO v_mailbox_id;
+
+  -- Insert old message_trace rows (45 days ago)
+  INSERT INTO message_trace (message_id, event, from_addr, rcpt_addr, occurred_at)
+  VALUES ('<old@test>', 'delivered', 'a@b.com', 'prune@testprune.example', now() - interval '45 days');
+
+  -- Insert recent message_trace row (5 days ago)
+  INSERT INTO message_trace (message_id, event, from_addr, rcpt_addr, occurred_at)
+  VALUES ('<new@test>', 'delivered', 'a@b.com', 'prune@testprune.example', now() - interval '5 days');
+
+  -- Insert old mailbox_audit_log row (100 days ago)
+  INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action)
+  VALUES (now() - interval '100 days', v_mailbox_id, v_user_id, 'read');
+
+  -- Insert recent mailbox_audit_log row (10 days ago)
+  INSERT INTO mailbox_audit_log (occurred_at, mailbox_id, actor_user_id, action)
+  VALUES (now() - interval '10 days', v_mailbox_id, v_user_id, 'read');
+
+  -- Set retention to 30 days for trace, 90 days for audit
+  INSERT INTO system_config (key, value, updated_at)
+  VALUES
+    ('log_retention_message_trace_days', '30', now()),
+    ('log_retention_mailbox_audit_days', '90', now())
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+  -- Run prune
+  PERFORM prune_log_tables();
+
+  PERFORM set_config('app.prune_mb', v_mailbox_id::TEXT, TRUE);
+END;
+$$;
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM message_trace WHERE message_id = '<old@test>'),
+  'prune_log_tables deletes expired message_trace rows');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM message_trace WHERE message_id = '<new@test>'),
+  'prune_log_tables keeps recent message_trace rows');
+
+-- WORM: trg_audit_append_only prevents deletion — the old audit row is RETAINED.
+SELECT ok(
+  EXISTS (SELECT 1 FROM mailbox_audit_log
+          WHERE mailbox_id = current_setting('app.prune_mb')::BIGINT
+            AND occurred_at < now() - interval '95 days'),
+  'prune_log_tables does NOT delete audit_log rows (WORM-protected)');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM mailbox_audit_log
+          WHERE mailbox_id = current_setting('app.prune_mb')::BIGINT
+            AND occurred_at > now() - interval '15 days'),
+  'prune_log_tables keeps recent audit_log rows');
+
+SELECT * FROM finish();
+ROLLBACK;

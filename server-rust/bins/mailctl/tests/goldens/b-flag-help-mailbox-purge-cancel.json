@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: invalid purge-cancel flags\n",
+  "exit": 1
+}

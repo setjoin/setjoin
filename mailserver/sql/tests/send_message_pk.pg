@@ -1,0 +1,73 @@
+-- pgTAP test: send() sets outbound_queue.message_pk to the Sent message's surrogate id.
+-- Covers both the immediate path (outbound_queue_hot, p_send_at IS NULL) and
+-- the scheduled path (outbound_queue, p_send_at in the future).
+BEGIN;
+SELECT plan(4);
+
+-- ── Fixtures ────────────────────────────────────────────────────────────────
+INSERT INTO domains (name, is_local) VALUES ('local.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('ext.test',   FALSE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7901, 'sender', (SELECT id FROM domains WHERE name = 'local.test'),
+          'sender@local.test', 'Sender');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9901, 7901,
+          (SELECT id FROM domains WHERE name = 'local.test'),
+          'sender@local.test', 'Sender', 'personal', TRUE);
+
+-- ── Test 1 & 2: immediate path (p_send_at IS NULL → outbound_queue_hot) ────
+-- Capture the returned messages.id from send().
+CREATE TEMP TABLE _send_result_hot (msg_id BIGINT);
+
+INSERT INTO _send_result_hot (msg_id)
+  SELECT send(
+    7901,
+    9901,
+    'ref-hot', '<msgpk-hot@local.test>', 'sender@local.test',
+    '[{"email":"rcpt@ext.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'Test message_pk hot', NULL, NULL, 'body text', NULL, 100, FALSE, NULL
+  );
+
+SELECT isnt(
+  (SELECT msg_id FROM _send_result_hot),
+  NULL,
+  'send() returns a non-NULL message id (immediate path)'
+);
+
+SELECT is(
+  (SELECT oqh.message_pk FROM outbound_queue_hot oqh
+     WHERE oqh.message_id = '<msgpk-hot@local.test>'),
+  (SELECT msg_id FROM _send_result_hot),
+  'outbound_queue_hot.message_pk equals the Sent messages.id (immediate path)'
+);
+
+-- ── Test 3 & 4: scheduled path (p_send_at in the future → outbound_queue) ──
+CREATE TEMP TABLE _send_result_sched (msg_id BIGINT);
+
+INSERT INTO _send_result_sched (msg_id)
+  SELECT send(
+    7901,
+    9901,
+    'ref-sched', '<msgpk-sched@local.test>', 'sender@local.test',
+    '[{"email":"rcpt2@ext.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'Test message_pk scheduled', NULL, NULL, 'body text', NULL, 100, FALSE,
+    now() + interval '1 hour'
+  );
+
+SELECT isnt(
+  (SELECT msg_id FROM _send_result_sched),
+  NULL,
+  'send() returns a non-NULL message id (scheduled path)'
+);
+
+SELECT is(
+  (SELECT oq.message_pk FROM outbound_queue oq
+     WHERE oq.message_id = '<msgpk-sched@local.test>'),
+  (SELECT msg_id FROM _send_result_sched),
+  'outbound_queue.message_pk equals the Sent messages.id (scheduled path)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

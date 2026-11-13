@@ -1,0 +1,154 @@
+-- pgTAP: SCIM bearer-token auth boundary.
+-- scim_list_active_tokens() is the legacy fallback auth surface (gateway middleware
+-- bcrypt-compares against the token_hash values it returns; since V238 it surfaces
+-- ONLY pre-index tokens with token_lookup_hash IS NULL — modern tokens resolve
+-- through scim_token_lookup() instead, see scim_token_lookup.pg). It MUST surface
+-- only active tokens: a revoked (revoked_at set) or expired (expires_at in the
+-- past) token must never be offered for comparison, else a revoked/expired bearer
+-- token still authenticates.
+BEGIN;
+SELECT plan(11);
+
+-- Tokens are scoped to an active SCIM identity source. Keep this fixture
+-- explicit so the auth-boundary assertions exercise the normalized source
+-- state gate rather than relying on a legacy unscoped token.
+INSERT INTO identity_sources (
+  source_key,
+  display_name,
+  kind,
+  capabilities,
+  state
+) VALUES (
+  'scim:pgtap-token-active',
+  'pgTAP SCIM token source',
+  'scim',
+  '{"provision_lifecycle": true, "stable_immutable_subject": true}'::jsonb,
+  'active'
+);
+INSERT INTO identity_sources (
+  source_key, display_name, kind, capabilities, state
+) VALUES
+  ('scim:pgtap-token-paused', 'pgTAP paused SCIM token source', 'scim',
+   '{"provision_lifecycle": true, "stable_immutable_subject": true}'::jsonb,
+   'paused'),
+  ('ldap:pgtap-token-wrong-kind', 'pgTAP non-SCIM token source', 'ldap',
+   '{"provision_lifecycle": true, "stable_immutable_subject": true}'::jsonb,
+   'active');
+
+-- Token creation is a reducer-owned source binding. The caller supplies only a
+-- bcrypt verifier, never the plaintext bearer token.
+SELECT lives_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-active',
+    'scimtok-created-87004',
+    '$2a$10$createdcreatedcreatedcreate',
+    now() + interval '1 day',
+    'soft',
+    'pgtap',
+    repeat('ab', 32)
+  )$$,
+  'token creation accepts one active SCIM source'
+);
+SELECT is(
+  (SELECT src.source_key
+     FROM scim_tokens st
+     JOIN identity_sources src ON src.id=st.source_id
+    WHERE st.name='scimtok-created-87004'),
+  'scim:pgtap-token-active',
+  'created token stores the exact SCIM source foreign key'
+);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-active',
+    'scimtok-app-role-87005',
+    '$2a$10$approleapproleapproleapp',
+    NULL,
+    'soft',
+    'mailctl',
+    repeat('cd', 32)
+  )$$,
+  'runtime app role can execute the guarded token-creation reducer'
+);
+SELECT is(
+  (SELECT count(*) FROM scim_token_list()
+    WHERE source_key='scim:pgtap-token-active'),
+  2::BIGINT,
+  'runtime app role inventories source-bound tokens through the guarded list reducer'
+);
+RESET ROLE;
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-paused',
+    'scimtok-paused-rejected',
+    '$2a$10$pausedpausedpausedpausedp',
+    NULL,
+    'soft',
+    'pgtap',
+    repeat('ef', 32)
+  )$$,
+  'BZ228',
+  'SCIM token requires an active SCIM identity source',
+  'paused SCIM source cannot mint a token'
+);
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'ldap:pgtap-token-wrong-kind',
+    'scimtok-wrong-kind-rejected',
+    '$2a$10$wrongkindwrongkindwrongki',
+    NULL,
+    'soft',
+    'pgtap',
+    repeat('12', 32)
+  )$$,
+  'BZ228',
+  'SCIM token requires an active SCIM identity source',
+  'non-SCIM source cannot mint a SCIM token'
+);
+
+-- Three namespaced tokens: one active (future expiry), one revoked, one expired.
+INSERT INTO scim_tokens (id, name, token_hash, expires_at, revoked_at, source_id) VALUES
+  (87001, 'scimtok-active-87001',  '$2a$10$activeactiveactiveactivea',  now() + interval '1 day', NULL,                    (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-active')),
+  (87002, 'scimtok-revoked-87002', '$2a$10$revokedrevokedrevokedrevo', now() + interval '1 day', now() - interval '1 hour', (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-active')),
+  (87003, 'scimtok-expired-87003', '$2a$10$expiredexpiredexpiredexpi', now() - interval '1 day', NULL,                    (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-active'));
+
+-- 1. Active token (non-revoked, future expiry) is offered for auth.
+SELECT ok(
+  EXISTS (SELECT 1 FROM scim_list_active_tokens() WHERE name = 'scimtok-active-87001'),
+  'active token is returned for validation'
+);
+
+-- 2. Revoked token must NOT be offered — revocation is an auth boundary.
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM scim_list_active_tokens() WHERE name = 'scimtok-revoked-87002'),
+  'revoked token (revoked_at set) is NOT returned'
+);
+
+-- 3. Expired token must NOT be offered.
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM scim_list_active_tokens() WHERE name = 'scimtok-expired-87003'),
+  'expired token (expires_at in past) is NOT returned'
+);
+
+-- 4. Of the seeded legacy tokens (direct INSERT, token_lookup_hash NULL), exactly
+-- one (the active) survives the filter. The reducer-minted tokens above carry a
+-- token_lookup_hash, so they authenticate via scim_token_lookup() and MUST NOT
+-- reappear in the legacy scan set.
+SELECT is(
+  (SELECT count(*) FROM scim_list_active_tokens() WHERE name LIKE 'scimtok-%-870%'),
+  1::BIGINT,
+  'only active legacy (lookup-hash-less) tokens are returned by the scan fallback'
+);
+SELECT ok(
+  NOT EXISTS (
+    SELECT 1
+      FROM scim_tokens st
+     WHERE st.token_lookup_hash IS NOT NULL
+       AND EXISTS (SELECT 1 FROM scim_list_active_tokens() la
+                    WHERE la.token_id = st.id)
+  ),
+  'indexed (lookup-hash) tokens never re-enter the legacy bcrypt-scan set'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

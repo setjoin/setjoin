@@ -1,0 +1,79 @@
+{
+  "case": "smtp-received-webhooks",
+  "format": 1,
+  "go_source": "b99b1ed1a75d292ed4d68886c44b87d9dc1a3157",
+  "observation": {
+    "deliveries": [
+      [
+        "/org",
+        "mail.received",
+        "{\"id\": \"<id>\", \"data\": {\"to\": \"alice@smtp1.test\", \"from\": \"sender@remote.test\"}, \"time\": \"<time>\", \"type\": \"mail.received\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/org",
+        "mail.received",
+        "{\"id\": \"<id>\", \"data\": {\"to\": \"alice@smtp1.test\", \"from\": \"sender@remote.test\"}, \"time\": \"<time>\", \"type\": \"mail.received\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self",
+        "mail.received",
+        "{\"id\": \"<id>\", \"data\": {\"to\": \"alice@smtp1.test\", \"from\": \"sender@remote.test\"}, \"time\": \"<time>\", \"type\": \"mail.received\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/self",
+        "mail.received",
+        "{\"id\": \"<id>\", \"data\": {\"to\": \"alice@smtp1.test\", \"from\": \"sender@remote.test\"}, \"time\": \"<time>\", \"type\": \"mail.received\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ]
+    ],
+    "requests": [
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"mail.received\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"from\":\"sender@remote.test\",\"to\":\"alice@smtp1.test\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"mail.received\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"from\":\"sender@remote.test\",\"to\":\"alice@smtp1.test\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/org",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"mail.received\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"from\":\"sender@remote.test\",\"to\":\"alice@smtp1.test\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"mail.received\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"from\":\"sender@remote.test\",\"to\":\"alice@smtp1.test\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/self",
+        "signature": "<valid>"
+      }
+    ]
+  }
+}

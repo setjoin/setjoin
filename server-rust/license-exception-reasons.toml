@@ -1,0 +1,3 @@
+# When deny.toml has a license exception, add its exact crate spec and reason:
+# "crate@1.2.3" = "Why this specific exception is acceptable."
+[reasons]

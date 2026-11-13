@@ -1,0 +1,85 @@
+-- pgTAP: V244__ediscovery_result_binding_sso_grant_authority.pg — med-shard3-007
+-- (Astra waves34 HOLD items 2 and 3). Proves the two authority fences the
+-- migration installs: (1) ediscovery_search_results is the case-bound result
+-- store — shape, search-scoped uniqueness, cascade teardown; (2) the
+-- sso_admin_role_grant_authority seed records all four governed labels with
+-- authorized_perms ceilings that cover the role groups' live permissions, and
+-- the exact containment predicate the authserver mint fence evaluates.
+BEGIN;
+SELECT plan(10);
+
+-- ── Shape: the case-bound result store ───────────────────────────────────────
+SELECT has_table('ediscovery_search_results');
+SELECT has_column('ediscovery_search_results', 'search_id');
+SELECT has_column('ediscovery_search_results', 'message_id');
+
+-- ── Behavior: one row per (search, message); cascade with the search ─────────
+INSERT INTO domains (id, name, is_local) VALUES (96440,'v244tap.test',TRUE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+VALUES (96441,'v244tap_u',96440,'v244tap_u@v244tap.test','V',TRUE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO ediscovery_cases (id, name, status, created_by)
+VALUES (96442,'v244tap-case','active',96441)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO ediscovery_searches (id, name, created_by, query, status, case_id)
+VALUES (96443,'v244tap-search',96441,'{"keywords":"x"}'::jsonb,'complete',96442)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO ediscovery_search_results (search_id, message_id) VALUES (96443, 96444);
+
+SELECT is(
+    (SELECT count(*) FROM ediscovery_search_results
+      WHERE search_id = 96443 AND message_id = 96444),
+    1::bigint,
+    'a bound (search, message) pair persists');
+
+SELECT throws_ok(
+    'INSERT INTO ediscovery_search_results (search_id, message_id) VALUES (96443, 96444)',
+    NULL,
+    NULL,
+    'the (search_id, message_id) pair is unique — rebinding cannot duplicate');
+
+-- cascade: deleting the search removes its bound rows.
+DELETE FROM ediscovery_searches WHERE id = 96443;
+SELECT is(
+    (SELECT count(*) FROM ediscovery_search_results WHERE search_id = 96443),
+    0::bigint,
+    'bound results cascade away with their search');
+
+-- ── Behavior: the SSO mint-authority seed ────────────────────────────────────
+SELECT is(
+    (SELECT count(*) FROM (
+        SELECT jsonb_object_keys(value) AS label
+          FROM system_config WHERE key = 'sso_admin_role_grant_authority'
+     ) k WHERE label IN ('super_admin','user_admin','auditor','read_only')),
+    4::bigint,
+    'the seed records minting authority for all four governed labels');
+
+-- The containment predicate the authserver fence issues: the seed's
+-- authorized_perms ceiling must cover the role group's LIVE permissions.
+SELECT is(
+    (SELECT COALESCE(
+        sc.value -> 'user_admin' -> 'authorized_perms', '[]'::jsonb)
+        @> to_jsonb(rg.permissions)
+       FROM admin_role_groups rg
+       LEFT JOIN system_config sc ON sc.key = 'sso_admin_role_grant_authority'
+      WHERE rg.id = 2),
+    true,
+    'user_admin seed authority covers the live User Admin permission set');
+
+SELECT is(
+    (SELECT COALESCE(
+        sc.value -> 'user_admin' -> 'authorized_perms', '[]'::jsonb)
+        @> to_jsonb(rg.permissions || '{system.upgrade}'::text[])
+       FROM admin_role_groups rg
+       LEFT JOIN system_config sc ON sc.key = 'sso_admin_role_grant_authority'
+      WHERE rg.id = 2),
+    false,
+    'a role widened beyond its authorized ceiling fails the containment predicate (authority loss refused)');
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 244),
+          1, 'schema_migrations records version 244');
+
+SELECT * FROM finish();
+ROLLBACK;

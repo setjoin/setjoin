@@ -1,0 +1,49 @@
+{
+  "case": "grant-foreign-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 0
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<foreign-user>",
+          "mailbox_id": "<foreign-mailbox>",
+          "permission": "read",
+          "user_id": "<owner-user>"
+        }
+      ]
+    },
+    [
+      {
+        "action": "mailbox_delegate_granted",
+        "after_state": {
+          "grantee_user_id": "<owner-user>",
+          "mailbox_id": "<foreign-mailbox>",
+          "permission": "read"
+        },
+        "before_state": null,
+        "ip": null,
+        "notes": null,
+        "target_id": "<foreign-mailbox>",
+        "target_type": "mailbox_delegate",
+        "user_id": "<foreign-user>"
+      }
+    ],
+    []
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "POST /me/sharing/delegates"
+}

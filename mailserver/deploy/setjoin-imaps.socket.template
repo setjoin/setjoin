@@ -1,0 +1,13 @@
+[Unit]
+Description=Setjoin native implicit TLS IMAP listener
+
+[Socket]
+ListenStream={{IMAP_LISTEN}}
+FileDescriptorName=imaps
+Service=setjoin-gateway.service
+Accept=no
+NoDelay=true
+Backlog=4096
+
+[Install]
+WantedBy=sockets.target

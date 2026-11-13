@@ -1,0 +1,156 @@
+-- pgTAP tests for send()'s authorization RAISEs (BZ002/BZ003/BZ005), which had
+-- zero throws_ok coverage — send.pg exercises the happy paths + BZ004 quota,
+-- but never trips the ownership/delegate check (lines ~57-73), the
+-- send-as/from-spoofing check (~77-89), or the DLP block path (~308-315).
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (name, is_local) VALUES ('local.test', TRUE);
+
+-- alice owns her mailbox; carol is a bystander with no delegation on it at all.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7101, 'alice', (SELECT id FROM domains WHERE name = 'local.test'),
+          'alice@local.test', 'Alice');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9101, 7101, (SELECT id FROM domains WHERE name = 'local.test'),
+          'alice@local.test', 'Alice', 'personal', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7103, 'carol', (SELECT id FROM domains WHERE name = 'local.test'),
+          'carol@local.test', 'Carol');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9103, 7103, (SELECT id FROM domains WHERE name = 'local.test'),
+          'carol@local.test', 'Carol', 'personal', TRUE);
+INSERT INTO aliases (mailbox_id, email, domain_id)
+  VALUES (9103, 'carol.alias@local.test', (SELECT id FROM domains WHERE name = 'local.test'));
+
+-- Shared mailbox: NULL owner is intentional. It still requires an explicit
+-- delegate row for every non-system send.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9104, NULL, (SELECT id FROM domains WHERE name = 'local.test'),
+          'shared@local.test', 'Shared', 'personal', FALSE);
+INSERT INTO aliases (mailbox_id, email, domain_id)
+  VALUES (9104, 'sales@local.test', (SELECT id FROM domains WHERE name = 'local.test'));
+
+-- ── BZ002: no ownership, no mailbox_delegates row — carol cannot send from
+-- alice's mailbox at all (send.sql lines 64-73). ──────────────────────────
+SELECT throws_ok(
+  $$ SELECT send(
+       7103, 9101,
+       'ref-bz002', '<msg-bz002>', 'alice@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ002', NULL,
+  'send() rejects a user with no ownership/delegation on the mailbox (BZ002)'
+);
+
+-- NULL-safe ownership proof: a shared mailbox has no owning users.id, but that
+-- must not make it open to every authenticated sender.
+SELECT throws_ok(
+  $$ SELECT send(
+       7103, 9104,
+       'ref-shared-no-grant', '<msg-shared-no-grant>', 'sales@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ002', NULL,
+  'send() rejects a shared-mailbox alias when the caller has no delegate grant'
+);
+
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (9104, 7103, 'send_as', 7101);
+
+SELECT lives_ok(
+  $$ SELECT send(
+       7103, 9104,
+       'ref-shared-alias', '<msg-shared-alias>', 'sales@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send_as delegate can send from an alias on the selected shared mailbox'
+);
+
+DELETE FROM mailbox_delegates
+ WHERE mailbox_id = 9104 AND user_id = 7103 AND permission = 'send_as';
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (9104, 7103, 'send_on_behalf', 7101);
+
+SELECT throws_ok(
+  $$ SELECT send(
+       7103, 9104,
+       'ref-onbehalf-alias', '<msg-onbehalf-alias>', 'sales@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ003', NULL,
+  'send_on_behalf alone cannot impersonate a shared-mailbox alias'
+);
+
+SELECT lives_ok(
+  $$ SELECT send(
+       7103, 9104,
+       'ref-onbehalf-own', '<msg-onbehalf-own>', 'carol@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send_on_behalf can submit through the shared account only as the delegate identity'
+);
+
+SELECT lives_ok(
+  $$ SELECT send(
+       7103, 9104,
+       'ref-onbehalf-own-alias', '<msg-onbehalf-own-alias>', 'carol.alias@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send_on_behalf can submit through the shared account with an alias on the delegate primary mailbox'
+);
+
+SELECT throws_ok(
+  $$ SELECT send(
+       7101, 9101,
+       'ref-null-from', '<msg-null-from>', NULL,
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ003', NULL,
+  'send() rejects a missing required From address at the authorization boundary'
+);
+
+-- ── BZ003: alice (the real owner) tries to send AS an address that is
+-- neither her mailbox's own email, nor an alias on this mailbox, nor a
+-- send_as-delegated mailbox (send.sql lines 77-89) — From-spoofing. ───────
+SELECT throws_ok(
+  $$ SELECT send(
+       7101, 9101,
+       'ref-bz003', '<msg-bz003>', 'spoofed@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ003', NULL,
+  'send() rejects a From address with no alias/delegate backing it (BZ003)'
+);
+
+-- ── BZ005: a DLP policy with action='block' matches the outbound body —
+-- the whole submission (including the Sent-copy insert already made this
+-- call) rolls back (send.sql lines 296-315). ──────────────────────────────
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, keywords, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'local.test'),
+        'block-ztrigger', TRUE, -1, 'block', ARRAY['zblocktrigger'], TRUE);
+
+SELECT throws_ok(
+  $$ SELECT send(
+       7101, 9101,
+       'ref-bz005', '<msg-bz005>', 'alice@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'this body has zblocktrigger inside', NULL, 100, FALSE, NULL) $$,
+  'BZ005', NULL,
+  'send() blocked by a DLP block-action policy (BZ005), whole submission rolls back'
+);
+
+-- ── Happy path: same owner, same mailbox, own address, clean body — none of
+-- the three guards fire. ───────────────────────────────────────────────────
+SELECT lives_ok(
+  $$ SELECT send(
+       7101, 9101,
+       'ref-ok', '<msg-ok>', 'alice@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'clean body', NULL, 100, FALSE, NULL) $$,
+  'send() succeeds for the mailbox owner sending as herself with a clean body'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

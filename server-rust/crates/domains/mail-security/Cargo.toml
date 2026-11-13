@@ -1,0 +1,27 @@
+[package]
+name = "setjoin-mail-security"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Test-only: restores the frozen-Go S/MIME trust cache defects (SETJOIN_MAILSEC_MUTANT).
+oracle-mutants = ["setjoin-contracts/oracle-mutants", "setjoin-certificates/oracle-mutants"]
+
+[dependencies]
+setjoin-spam = { path = "../../spam" }
+setjoin-certificates = { path = "../../certificates" }
+setjoin-authz = { path = "../../authz" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+setjoin-mime = { path = "../../mime" }
+regex = "=1.13.1"
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+x509-parser = "=0.18.1"
+base64 = "=0.22.1"
+
+[dev-dependencies]
+flate2 = "=1.1.9"

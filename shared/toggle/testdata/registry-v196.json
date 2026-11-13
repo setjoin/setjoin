@@ -1,0 +1,564 @@
+{
+  "version": "V196",
+  "registryDigest": "5723e7fdc076388a920bed98027d801279c5cb334741806610dc534e78c3bec5",
+  "definitions": [
+    {
+      "key": "approval.group_moderation",
+      "defaultEnabled": false
+    },
+    {
+      "key": "approval.guest_invite",
+      "defaultEnabled": false
+    },
+    {
+      "key": "approval.hr_expense",
+      "defaultEnabled": false
+    },
+    {
+      "key": "approval.hr_leave",
+      "defaultEnabled": false
+    },
+    {
+      "key": "approval.mail_external",
+      "defaultEnabled": false
+    },
+    {
+      "key": "approval.rbac",
+      "defaultEnabled": false
+    },
+    {
+      "key": "chat.chain_notary",
+      "defaultEnabled": false
+    },
+    {
+      "key": "chat.channel_creation",
+      "defaultEnabled": true
+    },
+    {
+      "key": "chat.unfurl",
+      "defaultEnabled": false
+    },
+    {
+      "key": "dengbao.sod_mode",
+      "defaultEnabled": false
+    },
+    {
+      "key": "device_telemetry",
+      "defaultEnabled": false
+    },
+    {
+      "key": "drive.space_creation",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.ad_sync",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.antiphish_contact_graph",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.antiphish_display_name",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.antiphish_lookalike",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.antiphish_strict_mode",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.app_passwords",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.arc",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.assist",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.auth_log_app_password",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_basic",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.auth_log_bcrypt",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_conditional_access",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_jwt",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_kerberos",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_ldap",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_rate_limit",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_threat",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.auth_log_webauthn",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.biometric_unlock",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.booking_pages",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.cae_runtime",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.caldav",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.captcha",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.carddav",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.cert_rollout",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.chat",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.chat_compliance",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.chat_push",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.clamav",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.client_recovery_cache",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.client_recovery_ingest",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.client_recovery_receipts",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.conditional_access",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.dane",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.device_lockdown",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.device_trust_enforcement",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.directory_group_authority",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.disable_basic_auth",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.dkim",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.dlp",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.dmarc",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.dmarc_reporting",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.dnssec",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.drive",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.drive_access_governance",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.drive_compliance",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.drive_emergency_access",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.drive_node_acl_reads",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.drive_node_acl_writes",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.email_address_policy",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.external_sender_first_time",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.external_sender_name_spoof",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.external_sender_warn",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.federation",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.forgot_password",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.forgot_password_push",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.full_text_search",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.gal_carddav",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.geo_block",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.greylisting",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.guest_accounts",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.identity_model_v2",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.identity_normalized_reads",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.identity_transitions",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.imap",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.imap_membership_uid",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.journaling",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.kerberos",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.ldap_gal",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.link_protect_rewrite",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.link_protect_safebrowsing",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.link_protect_spamhaus",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.link_protect_strict_mode",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.mail_migration_source_identity",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.mail_push",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.mailbox_audit_log",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.mdm",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.meet",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.meet_breakouts",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.meet_captions",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.meet_recording",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.ml_spam",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.mta_sts",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.newsletter_bundles",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.notify_decouple",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.offline_mail",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.oidc",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.oidc_op",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.rate_limit",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.rbl",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.recall",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.require_mfa",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.retention",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.rules_engine",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.saml",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.shared_task_lists",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.smime_verify",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.smtp_inbound",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.smtp_submission",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.spam_ml_detectors",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.spam_scoring",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.spf",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.spray_detect",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.stale_nudges",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.tarpit",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.tasks",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.threat_feed",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.tls_rpt",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.token_binding",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.transactional_upgrades_catalog",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.transactional_upgrades_execution",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.user_risk",
+      "defaultEnabled": false
+    },
+    {
+      "key": "feature.vacation",
+      "defaultEnabled": true
+    },
+    {
+      "key": "feature.windows_sso_unlock",
+      "defaultEnabled": false
+    },
+    {
+      "key": "meet.guest_access",
+      "defaultEnabled": true
+    },
+    {
+      "key": "rbac.jit",
+      "defaultEnabled": false
+    },
+    {
+      "key": "sharing.defaults",
+      "defaultEnabled": false
+    }
+  ],
+  "authProviders": [
+    {
+      "provider": "app_password",
+      "featureKey": "feature.auth_log_app_password"
+    },
+    {
+      "provider": "basic",
+      "featureKey": "feature.auth_log_basic"
+    },
+    {
+      "provider": "bcrypt",
+      "featureKey": "feature.auth_log_bcrypt"
+    },
+    {
+      "provider": "conditional_access",
+      "featureKey": "feature.auth_log_conditional_access"
+    },
+    {
+      "provider": "jwt",
+      "featureKey": "feature.auth_log_jwt"
+    },
+    {
+      "provider": "kerberos",
+      "featureKey": "feature.auth_log_kerberos"
+    },
+    {
+      "provider": "ldap",
+      "featureKey": "feature.auth_log_ldap"
+    },
+    {
+      "provider": "rate_limit",
+      "featureKey": "feature.auth_log_rate_limit"
+    },
+    {
+      "provider": "threat",
+      "featureKey": "feature.auth_log_threat"
+    },
+    {
+      "provider": "webauthn",
+      "featureKey": "feature.auth_log_webauthn"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+-- Public seam for the F08 terms-of-use transactions (#303): row write and audit are atomic,
+-- a missing id is a 404 status that writes nothing, database errors propagate.
+BEGIN;
+SELECT plan(9);
+CREATE TEMP TABLE tou_acc AS SELECT mk_account('tou-admin') AS mailbox_id;
+CREATE TEMP TABLE tou_user AS SELECT m.user_id FROM mailboxes m WHERE m.id=(SELECT mailbox_id FROM tou_acc);
+CREATE TEMP TABLE tou_new AS SELECT (rust_platform_tou_create((SELECT user_id FROM tou_user),'tou-doc',1,'body','en',true,true,'127.0.0.1')->>'id')::bigint AS id;
+SELECT is((SELECT body_md FROM terms_of_use WHERE id=(SELECT id FROM tou_new)),'body','create inserts the document');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='tou.create' AND target_id=(SELECT id FROM tou_new)),1,'create audits in the same transaction');
+SELECT is(rust_platform_tou_update((SELECT user_id FROM tou_user),99999999,'x',1,'b','en',true,true,'')->>'status','404','update of a missing document is 404');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='tou.update'),0,'a 404 update writes no audit row');
+SELECT is(rust_platform_tou_update((SELECT user_id FROM tou_user),(SELECT id FROM tou_new),'tou-doc2',2,'b2','fr',false,false,'')->>'status','204','update succeeds');
+SELECT is((SELECT name||version FROM terms_of_use WHERE id=(SELECT id FROM tou_new)),'tou-doc22','update persists');
+SELECT throws_ok($$SELECT rust_platform_tou_create((SELECT user_id FROM tou_user),'tou-doc2',2,'b','fr',true,true,'')$$,'23505',NULL,'a duplicate name/version/lang propagates');
+SELECT is(rust_platform_tou_delete((SELECT user_id FROM tou_user),(SELECT id FROM tou_new),'')->>'status','204','delete removes the document');
+SELECT is(rust_platform_tou_delete((SELECT user_id FROM tou_user),(SELECT id FROM tou_new),'')->>'status','404','a second delete is 404');
+SELECT * FROM finish();
+ROLLBACK;

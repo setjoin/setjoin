@@ -1,0 +1,51 @@
+{
+  "case": "ignored-query-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "blob_count": 9001,
+          "created": "2026-10-01T10:00:00Z",
+          "id": "9001",
+          "status": "completed"
+        },
+        {
+          "blob_count": 9002,
+          "created": "2026-10-01T11:00:00Z",
+          "id": "9002",
+          "status": "failed"
+        },
+        {
+          "blob_count": 9003,
+          "created": "2026-10-01T12:00:00Z",
+          "id": "9003",
+          "status": "pending"
+        }
+      ],
+      "before": [
+        {
+          "blob_count": 9001,
+          "created": "2026-10-01T10:00:00Z",
+          "id": "9001",
+          "status": "completed"
+        },
+        {
+          "blob_count": 9002,
+          "created": "2026-10-01T11:00:00Z",
+          "id": "9002",
+          "status": "failed"
+        },
+        {
+          "blob_count": 9003,
+          "created": "2026-10-01T12:00:00Z",
+          "id": "9003",
+          "status": "pending"
+        }
+      ],
+      "table": "backup_runs"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/system/backup/list"
+}

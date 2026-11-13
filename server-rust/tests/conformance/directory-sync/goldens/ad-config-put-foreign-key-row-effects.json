@@ -1,0 +1,124 @@
+{
+  "case": "put-foreign-key-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ad_sync_bind_dn",
+            "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_domain",
+            "value": "\"ad.example.test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_ldap_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ad_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": null,
+            "generation": 1,
+            "state": "paused"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ad6-admin",
+            "email": "ad6-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ad6-admin@host-a.test"
+          }
+        ]
+      },
+      "before": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ad_sync_bind_dn",
+            "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_domain",
+            "value": "\"ad.example.test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ad_sync_ldap_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ad_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": null,
+            "generation": 1,
+            "state": "paused"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_object_guid": null,
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ad6-admin",
+            "email": "ad6-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ad6-admin@host-a.test"
+          }
+        ]
+      },
+      "directory": [],
+      "table": "ad"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/ad/config"
+}

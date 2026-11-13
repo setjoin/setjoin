@@ -1,0 +1,271 @@
+{
+  "case": "normalized-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ldap_sync_auto_create_depts",
+            "value": "\"false\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_base_dn",
+            "value": "\"dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_bind_dn",
+            "value": "\"cn=svc,dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_enabled",
+            "value": "\"true\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ldap_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_port",
+            "value": "\"<port>\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_subject_attribute",
+            "value": "\"entryUUID\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_tls",
+            "value": "\"true\""
+          }
+        ],
+        "conflicts": [],
+        "departments": [
+          {
+            "ldap_ou": "Ops",
+            "path": "Ops"
+          }
+        ],
+        "inbox": [
+          {
+            "object_key": "uuid-n1",
+            "state": "applied"
+          },
+          {
+            "object_key": "uuid-n2",
+            "state": "applied"
+          }
+        ],
+        "links": [
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "uuid-n1",
+            "user": "n1@host-a.test"
+          },
+          {
+            "purposes": [
+              "provision"
+            ],
+            "state": "active",
+            "subject": "uuid-n2",
+            "user": "n2@host-a.test"
+          }
+        ],
+        "quarantine": [
+          {
+            "object_key": " padded ",
+            "occurrences": 1,
+            "reason": "INVALID_IMMUTABLE_SUBJECT"
+          },
+          {
+            "object_key": "uid=n4,ou=people,dc=example,dc=test",
+            "occurrences": 1,
+            "reason": "MISSING_IMMUTABLE_SUBJECT"
+          },
+          {
+            "object_key": "uuid-n3",
+            "occurrences": 1,
+            "reason": "NO_USABLE_MAIL_ATTRIBUTE"
+          }
+        ],
+        "source": [
+          {
+            "cursor": {
+              "modifyTimestamp": "20260101000015Z"
+            },
+            "generation": 1,
+            "state": "active"
+          }
+        ],
+        "sync_log": [
+          {
+            "checked": 2,
+            "created": 2,
+            "details": {
+              "batchId": "<uuid>",
+              "cursorDigest": "f68dea368308411d9aa2c2aa2f94bd1d334ae1823c07035e3e1a98eeb3564eae",
+              "quarantined": 0
+            },
+            "disabled": 0,
+            "error": null,
+            "skipped": 0,
+            "source": "ldap",
+            "updated": 0
+          }
+        ],
+        "users": [
+          {
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ldap5-admin",
+            "email": "ldap5-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ldap5-admin@host-a.test"
+          },
+          {
+            "ad_upn": null,
+            "department": null,
+            "display_name": "Norm One",
+            "email": "n1@host-a.test",
+            "enabled": true,
+            "first_name": "N",
+            "job_title": "Boss",
+            "krb5_principal": null,
+            "last_name": "One",
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "ldap",
+            "username": "n1"
+          },
+          {
+            "ad_upn": null,
+            "department": "Ops",
+            "display_name": "Norm Two",
+            "email": "n2@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": "n1@host-a.test",
+            "phone": null,
+            "sync_source": "ldap",
+            "username": "n2"
+          }
+        ]
+      },
+      "before": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ldap_sync_auto_create_depts",
+            "value": "\"false\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_base_dn",
+            "value": "\"dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_bind_dn",
+            "value": "\"cn=svc,dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_enabled",
+            "value": "\"true\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ldap_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_port",
+            "value": "\"<port>\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_subject_attribute",
+            "value": "\"entryUUID\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_tls",
+            "value": "\"true\""
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": null,
+            "generation": 1,
+            "state": "active"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ldap5-admin",
+            "email": "ldap5-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ldap5-admin@host-a.test"
+          }
+        ]
+      },
+      "directory": [
+        "bind dn=cn=svc,dc=example,dc=test password=ok",
+        "search base=dc=example,dc=test scope=2 sizeLimit=0 filter=(objectClass=person) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl,entryUUID page=500"
+      ],
+      "table": "ldap"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/ldap/sync"
+}

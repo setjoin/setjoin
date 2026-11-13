@@ -1,0 +1,53 @@
+-- pgTAP: ca_error_codes.pg — CA-1 C8: consolidation/anchor test asserting each
+-- BZ085–BZ088 error code is raised by its documented reducer.
+-- These codes are exercised more deeply in their per-reducer test files; this
+-- file is the canonical "each code actually fires" assertion for the catalog.
+BEGIN;
+SELECT plan(4);
+SET app.capture_notify = 'on';
+
+-- Shared actor (admin role so ca_lockout_guard finds a reachable admin if needed).
+INSERT INTO domains (id, name, is_local) VALUES (97900, 'ec.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (84900, 'ec_actor', 97900, 'actor@ec.test', 'Actor', TRUE);
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (91900, 'ec-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES (84900, 91900, NULL);
+
+-- BZ085: ca_template_instantiate with unknown slug.
+SELECT throws_ok(
+  $$ SELECT ca_template_instantiate('no-such-template', 84900) $$,
+  'BZ085', NULL,
+  'BZ085: ca_template_instantiate raises on unknown slug');
+
+-- BZ086: ca_policy_restore_from_audit with missing/non-CA audit row.
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore_from_audit(9999999, 84900) $$,
+  'BZ086', NULL,
+  'BZ086: ca_policy_restore_from_audit raises on missing audit row');
+
+-- BZ087: ca_policy_restore raises on priority clash.
+-- Two soft-deleted on-policies sharing priority=700; restore the first to make
+-- it live, then attempt to restore the second into the occupied slot.
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions, deleted_at)
+  VALUES
+    (970001, 700, 'ec-clash-a', 'on', 'global',
+     '{}'::jsonb, '{"action":"allow"}'::jsonb, now() - INTERVAL '2 hours'),
+    (970002, 700, 'ec-clash-b', 'on', 'global',
+     '{}'::jsonb, '{"action":"allow"}'::jsonb, now() - INTERVAL '1 hour');
+-- Restore the first policy (priority 700 is now live).
+SELECT ca_policy_restore(970001, 84900);
+-- Attempt to restore the second — same priority, BZ087.
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore(970002, 84900) $$,
+  'BZ087', NULL,
+  'BZ087: ca_policy_restore raises on priority clash');
+
+-- BZ088: ca_policy_import with schemaVersion too new.
+SELECT throws_ok(
+  $$ SELECT ca_policy_import('{"schemaVersion":99,"policies":[]}'::jsonb, 84900, 'merge') $$,
+  'BZ088', NULL,
+  'BZ088: ca_policy_import raises on unsupported schemaVersion');
+
+SELECT finish();
+ROLLBACK;

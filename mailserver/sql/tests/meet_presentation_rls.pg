@@ -1,0 +1,148 @@
+-- meet_presentation_rls.pg — MEET plan M2: the V265 presentation tables'
+-- FORCE-RLS proof (the rls_meet.pg genre, participant-scoped per the M2
+-- brief). Two orthogonal machine guards, both driven as the constrained
+-- non-owner runtime role setjoin_app with a SECOND tenant's rows present:
+--   · DENIAL — a foreign meeting's participant (and a GUC-less session)
+--     sees no presentation/event rows; their UPDATE no-ops; their INSERT
+--     42501s; the checkpoint read is the indistinguishable not-found.
+--   · ALLOW — the meeting's own host drives the REAL reducer write path
+--     (meeting_presentation_prepare) and the event-rail INSERT as
+--     setjoin_app under FORCE: the legitimate writer is never locked out
+--     (the V125/V135 flip-blocker class, arch review #A4).
+-- COVERED entries: scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
+BEGIN;
+SELECT plan(16);
+
+-- ── Fixtures as superuser: two disjoint meetings (two tenants), each with
+--    its own participant set; tenant A also holds a Drive file version. ──
+INSERT INTO domains (name, is_local) VALUES ('pres-rls.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id, 'pres-rls-' || id::text,
+       (SELECT id FROM domains WHERE name = 'pres-rls.test'),
+       'pres-rls-' || id::text || '@pres-rls.test', 'Pres RLS ' || id::text, 'x'
+  FROM generate_series(81, 84) AS ids(id)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('pres-a', 81, 'live')
+  RETURNING id AS ma \gset
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('pres-b', 83, 'live')
+  RETURNING id AS mb \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ma, 81, 'u:81', 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:mb, 83, 'u:83', 'host', now());
+
+-- Tenant A's Drive fixture (owner 81) + a session seeded directly.
+SELECT drive_space_create(81, 'pres-rls-space', 'regular') AS rspace \gset
+SELECT drive_node_create(81, :rspace, NULL, 'file', 'rls.pdf') AS rnode \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:rnode, :rspace, repeat('ab', 32), 1, 81) RETURNING id AS rver \gset
+INSERT INTO meeting_presentations
+  (meeting_id, drive_node_id, drive_version_id, source_sha256, manifest_digest,
+   status, presenter_participant_id, presenter_generation, checkpoint_seq, initiated_by)
+SELECT :ma, :rnode, :rver, repeat('ab', 32), repeat('ef', 32),
+       'ACTIVE', (SELECT id FROM meeting_participants WHERE meeting_id = :ma AND user_id = 81),
+       1, 1, 81
+RETURNING id AS rpid \gset
+INSERT INTO meeting_presentation_events
+  (presentation_id, meeting_id, checkpoint_seq, presenter_generation, kind, actor_user_id)
+VALUES (:rpid, :ma, 1, 1, 'start', 81);
+
+-- Tenant B seeds its own session + event (the cross-tenant presence the
+-- denial arms require to be meaningful).
+INSERT INTO meeting_presentations
+  (meeting_id, drive_node_id, drive_version_id, source_sha256, manifest_digest,
+   status, presenter_participant_id, presenter_generation, checkpoint_seq, initiated_by)
+SELECT :mb, :rnode, :rver, repeat('ab', 32), repeat('ef', 32),
+       'PREPARING', (SELECT id FROM meeting_participants WHERE meeting_id = :mb AND user_id = 83),
+       1, 1, 83
+RETURNING id AS bpid \gset
+INSERT INTO meeting_presentation_events
+  (presentation_id, meeting_id, checkpoint_seq, presenter_generation, kind, actor_user_id)
+VALUES (:bpid, :mb, 1, 1, 'start', 83);
+
+-- FORCE state, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_presentations'::regclass),
+  TRUE, 'meeting_presentations RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_presentation_events'::regclass),
+  TRUE, 'meeting_presentation_events RLS FORCED');
+
+GRANT SELECT, INSERT, UPDATE ON public.meeting_presentations,
+  public.meeting_presentation_events TO setjoin_app;
+GRANT SELECT, UPDATE ON public.meetings, public.meeting_participants TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_presentation_prepare(bigint, bigint, bigint, bigint, text)
+  TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- DENIAL: load-bearing first — the policies MUST NOT recurse (the
+-- ARCH-018 scope-helper dodge).
+SELECT set_config('app.current_user_id', '81', true);
+SELECT lives_ok($$ SELECT count(*) FROM meeting_presentations $$,
+  'participant policy does not recurse');
+
+-- Positive control: tenant A's host sees exactly their session + event.
+SELECT is((SELECT count(*)::int FROM meeting_presentations), 1,
+  'tenant A sees exactly their own session');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_events), 1,
+  'tenant A sees exactly their own event');
+
+-- DENIAL: tenant B's host sees none of tenant A's rows (participant scope).
+SELECT set_config('app.current_user_id', '83', true);
+SELECT is((SELECT count(*)::int FROM meeting_presentations WHERE meeting_id = :ma), 0,
+  'a foreign participant sees no presentation rows (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_events WHERE meeting_id = :ma), 0,
+  'a foreign participant sees no event rows (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM meeting_presentations), 1,
+  'tenant B still sees exactly their own session');
+-- A foreign UPDATE no-ops (same-statement ownership posture, R3): run it
+-- top-level as tenant B, then read the row back as tenant A.
+UPDATE meeting_presentations SET page_index = 99
+ WHERE meeting_id = :ma;
+SELECT set_config('app.current_user_id', '81', true);
+SELECT is((SELECT page_index FROM meeting_presentations WHERE id = :rpid), 0,
+  'a foreign participant''s UPDATE no-ops (tenant A row untouched)');
+SELECT set_config('app.current_user_id', '83', true);
+-- A foreign INSERT 42501s (WITH CHECK denies the not-a-participant arm).
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_presentations
+       (meeting_id, drive_node_id, drive_version_id, source_sha256, manifest_digest,
+        status, presenter_participant_id, presenter_generation, initiated_by)
+     SELECT %s, %s, %s, repeat('ab', 32), repeat('ef', 32),
+            'PREPARING', NULL, 1, 83 $$, :ma, :rnode, :rver),
+  '42501', NULL, 'a foreign participant''s INSERT is denied (WITH CHECK)');
+-- The checkpoint read is the indistinguishable not-found for a non-attendee.
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_checkpoint(83, %s, %s) $$, :ma, :rpid),
+  'BZ272', NULL, 'a non-attendee checkpoint read is the anti-oracle not-found');
+-- Fail-closed: no GUC at all.
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM meeting_presentations), 0,
+  'no GUC is fail-closed (no rows)');
+SELECT set_config('app.current_user_id', '81', true);
+
+-- ALLOW: the meeting's OWN host drives the REAL reducer write path as
+-- setjoin_app under FORCE — meeting_presentation_prepare INSERTs the new
+-- session (after the seeded one is revoked to terminal, the one-live guard
+-- clears), and the event rail accepts the reducer's INSERT.
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_revoke(81, %s, %s, NULL) $$, :ma, :rpid),
+  'the host settles the seeded session as setjoin_app');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_prepare(81, %s, %s, %s, repeat('ef', 32)) $$,
+         :ma, :rnode, :rver),
+  'the host prepares a session through the real reducer as setjoin_app (ALLOW)');
+SELECT lives_ok(
+  format($$ INSERT INTO meeting_presentation_events
+       (presentation_id, meeting_id, checkpoint_seq, presenter_generation, kind, actor_user_id)
+     SELECT id, %s, 1, 1, 'ready', 81 FROM meeting_presentations
+      WHERE meeting_id = %s AND status = 'PREPARING' $$,
+         :ma, :ma),
+  'the host INSERTs a durable event as setjoin_app (ALLOW)');
+SELECT lives_ok(
+  format($$ UPDATE meeting_presentations SET page_index = 3 WHERE meeting_id = %s $$, :ma),
+  'the host''s own UPDATE survives FORCE (ALLOW)');
+
+SELECT * FROM finish();
+ROLLBACK;

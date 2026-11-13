@@ -1,0 +1,370 @@
+-- ════════════════════════════════════════════════════════════════════════
+-- pgTAP: bulk_role_job_apply.pg
+--
+-- Exercises the security-critical bulk-role apply reducer. Scenarios:
+--
+--   Case A — mixed assign batch over [t1, actor, t2] for a GLOBAL actor with
+--     等保三级 SoD mode OFF (the default): t1 → assigned, actor (self) →
+--     assigned (self-assign is NOT blocked outside 等保三级), t2 → assigned.
+--     Asserts the per-target results AND that all three persist in
+--     admin_role_assignments.
+--
+--   Case A2 — same GLOBAL non-Super-Admin actor self-assigning with
+--     dengbao.sod_mode ON: the self target is blocked:self (BZ066). Proves the
+--     SoD gate flips the self-assign policy.
+--
+--   Case A3 — a SUPER-ADMIN actor self-assigning with dengbao.sod_mode ON:
+--     assigned (Super Admin is exempt from the self-assign block — they may
+--     always self-assign).
+--
+--   Case B — resume-from-processed: a job pre-seeded with processed=1 and a
+--     partial results array (t1 already 'assigned') is applied. The loop MUST
+--     start at processed+1, append ONLY t2, and never re-stamp t1 (its
+--     granted_at must be unchanged — proves resume is append-only, not restart).
+--
+--   Case C — job-level error: the actor has lost one of the role's perms
+--     (its role assignment revoked before apply). status MUST become 'error'
+--     and ZERO new assignments are written (the loop never runs).
+--
+--   Case D — live-scope-narrowed: a DOMAIN-SCOPED actor applies to an
+--     out-of-domain target. Rule B (live scope) blocks it → blocked:out_of_scope,
+--     and no assignment persists for that target.
+--
+--   Case F — bulk REVOKE by an OU-confined actor (the reported bug). The job-level
+--     Rule A arms (perms-superset + scope-within) are GRANT-only; a revoke job from
+--     the /eng-confined actor (98040), no scope, must NOT whole-job-error. The loop
+--     runs, the per-target guards (admin_can_reach + admin_protection_check) pass,
+--     and the target's role is revoked. Mirrors the single-revoke handler, which
+--     applies NEITHER Rule A arm.
+--
+--   Case G — bulk REVOKE where the job-level perms arm WOULD have fired (actor holds
+--     fewer perms than the role being revoked). Post-fix the whole job no longer
+--     errors; instead the per-target admin_protection_check blocks THAT target with
+--     reason 'domination' (BZ065) — the correct, target-scoped guard.
+--
+-- A permanent Super-Admin keeper (98000, role 1) exists so the last-SA and SoD
+-- backstops never spuriously fire on the happy paths. The role under test (R,
+-- id 98001) carries a single non-sensitive perm (users.password_reset) so a
+-- global actor holding exactly that perm dominates equal-perm targets.
+--
+-- Self-assign policy (admin_protection_check): self-assigning a role is blocked
+-- (BZ066 → reason 'self') ONLY when 等保三级 SoD mode (dengbao.sod_mode) is ON
+-- AND the actor is NOT a Super Admin. Super Admin may always self-assign; outside
+-- 等保三级 anyone may self-assign. delete/suspend self stay always-blocked, and
+-- remove_role self stays allowed (constrained only by the last-usable-SA BZ064).
+-- ════════════════════════════════════════════════════════════════════════
+
+BEGIN;
+SELECT plan(50);
+
+-- ── Seed ──────────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (98001, 'bulk.test',  TRUE),
+  (98002, 'other.test', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98000, 'brj_keeper', 98001, 'keeper@bulk.test', 'Keeper', TRUE),   -- permanent Super-Admin keeper
+  (98010, 'brj_gactor', 98001, 'gactor@bulk.test', 'GActor', TRUE),   -- GLOBAL actor (role R, scope NULL)
+  (98011, 'brj_t1',     98001, 't1@bulk.test',     'T1',     TRUE),   -- in-domain non-admin target
+  (98012, 'brj_t2',     98001, 't2@bulk.test',     'T2',     TRUE),   -- in-domain non-admin target
+  (98020, 'brj_sactor', 98001, 'sactor@bulk.test', 'SActor', TRUE),   -- DOMAIN-SCOPED actor (role Rs, scope 98001)
+  (98030, 'brj_oos',    98002, 'oos@other.test',   'OOS',    TRUE);   -- out-of-domain target (domain 98002)
+
+-- Role R  (id 98001): the role being ASSIGNED — one non-sensitive perm, GLOBAL scope.
+-- Role Ra (id 98003): the global actor's AUTHORITY role — same single perm, GLOBAL.
+--                     Kept distinct from R so the actor's role-R membership can ONLY
+--                     come from the bulk apply (so the self-block is observable).
+-- Role Rs (id 98002): the scoped actor's AUTHORITY role — same perm, DOMAIN-scoped 98001.
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (98001, 'brj-role-global',  ARRAY['users.password_reset'], NULL),
+  (98003, 'brj-actor-global', ARRAY['users.password_reset'], NULL),
+  (98002, 'brj-role-scoped',  ARRAY['users.password_reset'], 98001);
+
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES
+  (98000, 1,     98000),   -- keeper is Super Admin
+  (98010, 98003, 98000),   -- global actor's authority is role Ra (NOT role R)
+  (98020, 98002, 98000);   -- scoped actor holds role Rs (scope 98001)
+
+-- ── Case A: mixed assign batch [t1, actor(self), t2], GLOBAL actor, SoD OFF ─────
+-- dengbao.sod_mode is OFF by default → self-assign is NOT blocked.
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98901, 'assign', 98001, 98010, ARRAY[98011, 98010, 98012], 3);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98901) $$, 'A: apply runs');
+SELECT is((SELECT processed FROM bulk_role_jobs WHERE id = 98901), 3, 'A: all 3 processed');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98901), 'assigned', 'A: t1 assigned');
+SELECT is((SELECT results->1->>'status' FROM bulk_role_jobs WHERE id = 98901), 'assigned', 'A: self target assigned (SoD OFF)');
+SELECT is((SELECT results->2->>'status' FROM bulk_role_jobs WHERE id = 98901), 'assigned', 'A: t2 assigned');
+-- All three persist; with SoD OFF the self target IS granted role R.
+SELECT bag_eq(
+  $$ SELECT user_id FROM admin_role_assignments WHERE role_group_id = 98001 AND user_id IN (98010,98011,98012) $$,
+  $$ VALUES (98010::bigint), (98011::bigint), (98012::bigint) $$,
+  'A: all three persist (self granted under SoD OFF)');
+-- Regression: a no-OU (scope_type=NULL) job from a GLOBAL actor stamps NULL scope.
+SELECT is(
+  (SELECT scope_type FROM admin_role_assignments WHERE user_id = 98011 AND role_group_id = 98001),
+  NULL,
+  'A: no-OU job leaves scope_type NULL on the grant (regression — unchanged path)');
+
+-- ── Case A2: same GLOBAL non-SA actor self-assigns with dengbao.sod_mode ON ─────
+-- Clean the prior grant so the self-assign attempt is observable, then flip SoD ON.
+DELETE FROM admin_role_assignments WHERE role_group_id = 98001 AND user_id = 98010;
+UPDATE feature_toggles SET enabled = true WHERE key = 'dengbao.sod_mode';
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98905, 'assign', 98001, 98010, ARRAY[98010], 1);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98905) $$, 'A2: apply runs');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98905), 'blocked', 'A2: self blocked (SoD ON, non-SA)');
+SELECT is((SELECT results->0->>'reason' FROM bulk_role_jobs WHERE id = 98905), 'self',    'A2: self reason');
+SELECT is(
+  (SELECT count(*) FROM admin_role_assignments WHERE user_id = 98010 AND role_group_id = 98001),
+  0::bigint,
+  'A2: self NOT granted under SoD ON');
+
+-- ── Case A3: a SUPER-ADMIN actor self-assigns with dengbao.sod_mode ON ──────────
+-- The keeper (98000, role 1) is a Super Admin → exempt from the self-assign block.
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98906, 'assign', 98001, 98000, ARRAY[98000], 1);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98906) $$, 'A3: apply runs');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98906), 'assigned',
+          'A3: Super Admin self-assign allowed (SoD ON)');
+
+-- Restore SoD OFF for the remaining cases (B/C/D assume the default).
+UPDATE feature_toggles SET enabled = false WHERE key = 'dengbao.sod_mode';
+
+-- ── Case B: resume — processed=1 with t1 already recorded; apply must NOT re-stamp t1 ──
+-- Pre-grant t1 with a granted_at fixed in the past, and a partial results row, so we can
+-- prove the resume loop neither re-inserts t1 nor touches its granted_at.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, granted_at)
+  VALUES (98011, 98002, 98000, '2000-01-01T00:00:00Z');
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total, processed, results) OVERRIDING SYSTEM VALUE
+  VALUES (98902, 'assign', 98002, 98020, ARRAY[98011, 98012], 2, 1,
+          '[{"userId": 98011, "status": "assigned", "reason": null}]'::jsonb);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98902) $$, 'B: resume apply runs');
+SELECT is((SELECT jsonb_array_length(results) FROM bulk_role_jobs WHERE id = 98902), 2,
+          'B: resume appended only t2 (no t1 re-stamp)');
+SELECT is(
+  (SELECT granted_at FROM admin_role_assignments WHERE user_id = 98011 AND role_group_id = 98002),
+  '2000-01-01T00:00:00Z'::timestamptz,
+  'B: t1 granted_at untouched (resume did not re-apply)');
+
+-- ── Case C: actor lost the role's perms → job error, zero new assignments ───────
+-- Revoke the scoped actor's role: now its effective perms are empty, but role R requires
+-- users.password_reset → Rule A fails job-level. Use a target list that, if the loop ran,
+-- WOULD grant — so a clean error proves the loop never executed.
+DELETE FROM admin_role_assignments WHERE user_id = 98020;
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98903, 'assign', 98001, 98020, ARRAY[98012], 1);
+
+SELECT bulk_role_job_apply(98903);
+SELECT is((SELECT status FROM bulk_role_jobs WHERE id = 98903), 'error', 'C: deauthorized actor → status error');
+SELECT is((SELECT processed FROM bulk_role_jobs WHERE id = 98903), 0, 'C: zero processed (loop never ran)');
+-- 98012 already holds role R from Case A; assert no DUPLICATE/extra row was written for this job's target.
+SELECT is(
+  (SELECT count(*) FROM admin_role_assignments WHERE user_id = 98012 AND role_group_id = 98001),
+  1::bigint,
+  'C: no new assignment written for the error job');
+
+-- ── Case D: live-scope-narrowed — domain-scoped actor, out-of-domain target ─────
+-- Re-grant the scoped actor (scope 98001) and target an out-of-domain user (domain 98002).
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (98020, 98002, 98000);
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98904, 'assign', 98002, 98020, ARRAY[98030], 1);
+
+SELECT bulk_role_job_apply(98904);
+SELECT is((SELECT results->0->>'reason' FROM bulk_role_jobs WHERE id = 98904), 'out_of_scope',
+          'D: out-of-domain target blocked:out_of_scope');
+
+-- ── Case E: OU-confined actor + a uniform OU scope (V040) ────────────────────────
+-- The actor (98040) is confined to /eng via an OU-scoped authority assignment
+-- (role Ra, same perm). admin_effective_authority → scope NULL (global domain),
+-- ou_reach ['/eng']. Job-level Rule A now feeds the JOB's real scope into
+-- admin_scope_within; the per-target INSERT stamps that scope onto each grant.
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (98101, 'Engineering', '/eng',         'ou=Engineering,dc=bulk,dc=test'),
+  (98102, 'Backend',     '/eng/backend', 'ou=Backend,ou=Engineering,dc=bulk,dc=test'),
+  (98103, 'Sales',       '/sales',       'ou=Sales,dc=bulk,dc=test');
+
+INSERT INTO users (id, username, domain_id, department_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98040, 'brj_ouactor', 98001, 98101, 'ouactor@bulk.test', 'OUActor', TRUE),   -- OU-confined to /eng
+  (98041, 'brj_e_in',    98001, 98102, 'ein@bulk.test',     'EIn',     TRUE),   -- in /eng/backend (within reach)
+  (98042, 'brj_e_out',   98001, 98103, 'eout@bulk.test',    'EOut',    TRUE);   -- in /sales (irrelevant — outside job never loops)
+
+-- OU actor's authority: role Ra (perm users.password_reset) scoped to OU /eng.
+INSERT INTO admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (98040, 98003, 'ou', 98101, 98000);
+
+-- E1: job carries an OU scope (/eng/backend) WITHIN the actor's /eng reach → assigned + stamped.
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total, scope_type, scope_id) OVERRIDING SYSTEM VALUE
+  VALUES (98907, 'assign', 98001, 98040, ARRAY[98041], 1, 'ou', 98102);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98907) $$, 'E1: in-reach OU job applies');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98907), 'assigned',
+          'E1: target assigned (job scope within actor reach)');
+SELECT is((SELECT scope_type FROM admin_role_assignments WHERE user_id = 98041 AND role_group_id = 98001),
+          'ou', 'E1: grant stamped scope_type=ou');
+SELECT is((SELECT scope_id FROM admin_role_assignments WHERE user_id = 98041 AND role_group_id = 98001),
+          98102::bigint, 'E1: grant stamped scope_id = job scope');
+
+-- E2: job carries an OU scope (/sales) OUTSIDE the actor's /eng reach → job-level
+-- Rule A self-broaden → status error, NO assignment written (loop never runs).
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total, scope_type, scope_id) OVERRIDING SYSTEM VALUE
+  VALUES (98908, 'assign', 98001, 98040, ARRAY[98042], 1, 'ou', 98103);
+
+SELECT bulk_role_job_apply(98908);
+SELECT is((SELECT status FROM bulk_role_jobs WHERE id = 98908), 'error',
+          'E2: out-of-reach OU scope → job error');
+SELECT is((SELECT error FROM bulk_role_jobs WHERE id = 98908),
+          'actor cannot grant a scope broader than their own reach',
+          'E2: broaden error message');
+SELECT is((SELECT count(*) FROM admin_role_assignments WHERE user_id = 98042 AND role_group_id = 98001),
+          0::bigint, 'E2: no assignment written for the broadening job');
+
+-- ── Case F: bulk REVOKE by the OU-confined actor (THE REPORTED BUG) ─────────────
+-- Actor 98040 is confined to /eng (role Ra, perm users.password_reset). A fresh
+-- target 98043 in /eng/backend holds ONLY role Ra, scoped to /eng/backend (within
+-- the actor's reach so per-target domination does NOT fire). The revoke job carries
+-- NO scope. Pre-fix the job-level scope arm — admin_scope_within(98040, NULL,NULL,…)
+-- → FALSE for an OU-confined actor making a no-OU "grant" — whole-job-errored, so an
+-- OU-confined actor could NOT bulk-revoke at all. Post-fix both Rule A arms are
+-- assign-only; the loop runs and the per-target guards (reach + protection) allow it.
+INSERT INTO users (id, username, domain_id, department_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98043, 'brj_revtgt', 98001, 98102, 'revtgt@bulk.test', 'RevTgt', TRUE);   -- in /eng/backend
+INSERT INTO admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (98043, 98003, 'ou', 98102, 98000);   -- holds Ra scoped to /eng/backend (within actor reach)
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98909, 'revoke', 98003, 98040, ARRAY[98043], 1);
+
+SELECT bulk_role_job_apply(98909);
+SELECT is((SELECT status FROM bulk_role_jobs WHERE id = 98909), 'queued',
+          'F: revoke job NOT whole-job-errored (Rule A arms are assign-only)');
+SELECT is((SELECT processed FROM bulk_role_jobs WHERE id = 98909), 1, 'F: loop ran, 1 processed');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98909), 'revoked',
+          'F: OU-confined actor revoked the in-reach target');
+SELECT is((SELECT count(*) FROM admin_role_assignments WHERE user_id = 98043 AND role_group_id = 98003),
+          0::bigint, 'F: assignment gone after revoke');
+
+-- ── Case G: bulk REVOKE where the job-level perms arm WOULD have fired ───────────
+-- Actor 98044 (domain 98001, no OU) holds role Ra (1 perm: users.password_reset).
+-- Target 98045 holds a RICHER role (2 perms) whose perms are NOT a subset of the
+-- actor's. Pre-fix the job-level perms-superset arm whole-job-errored. Post-fix the
+-- job runs and the per-target admin_protection_check blocks 98045 with 'domination'.
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (98004, 'brj-role-rich', ARRAY['users.password_reset','users.suspend'], NULL);   -- richer than Ra
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98044, 'brj_poor_actor', 98001, 'poor@bulk.test', 'PoorActor', TRUE),   -- holds Ra (fewer perms)
+  (98045, 'brj_rich_tgt',   98001, 'rich@bulk.test', 'RichTgt',   TRUE);   -- holds the richer role
+
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES
+  (98044, 98003, 98000),   -- actor authority: Ra (1 perm), global
+  (98045, 98004, 98000);   -- target holds the richer role (not a subset of actor's)
+
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98910, 'revoke', 98004, 98044, ARRAY[98045], 1);
+
+SELECT bulk_role_job_apply(98910);
+SELECT is((SELECT status FROM bulk_role_jobs WHERE id = 98910), 'queued',
+          'G: revoke job NOT whole-job-errored (perms arm is assign-only)');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98910), 'blocked',
+          'G: per-target guard blocked the richer target');
+SELECT is((SELECT results->0->>'reason' FROM bulk_role_jobs WHERE id = 98910), 'domination',
+          'G: blocked by per-target admin_protection_check (BZ065)');
+
+-- ── Case H: no-scope re-assign NULLs an existing OU scope (overwrite) ─────────
+-- A GLOBAL actor re-assigns a target who ALREADY holds role 98001 scoped to /eng.
+-- The no-scope (NULL) assign must ON CONFLICT DO UPDATE and overwrite scope_type +
+-- scope_id to NULL — broadening the target's assignment to the whole domain.
+-- (Case A only tests a FRESH no-OU INSERT; this tests the UPDATE/overwrite path.)
+UPDATE feature_toggles SET enabled = false WHERE key = 'dengbao.sod_mode';
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98050, 'brj_h_actor', 98001, 'hactor@bulk.test', 'HActor', TRUE),
+  (98051, 'brj_h_tgt',   98001, 'htgt@bulk.test',   'HTgt',   TRUE);
+
+-- Actor holds role 98001 (perm: users.password_reset), global scope.
+-- Rule A perms-superset: actor perms ⊇ role perms ✓. Rule A scope-within:
+-- global actor + no-scope job → admin_scope_within returns TRUE ✓.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (98050, 98001, 98000);
+
+-- Target pre-holds role 98001 scoped to /eng (dept 98101, seeded in Case E).
+INSERT INTO admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (98051, 98001, 'ou', 98101, 98000);
+
+-- Job: no-scope assign → the reducer's INSERT ON CONFLICT DO UPDATE sets scope_type=NULL, scope_id=NULL.
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98911, 'assign', 98001, 98050, ARRAY[98051], 1);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98911) $$, 'H: apply runs');
+SELECT is((SELECT processed FROM bulk_role_jobs WHERE id = 98911), 1, 'H: 1 processed');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98911), 'updated',
+          'H: status=updated (target was already a member with OU scope)');
+SELECT is(
+  (SELECT scope_type FROM admin_role_assignments WHERE user_id = 98051 AND role_group_id = 98001),
+  NULL,
+  'H: scope_type overwritten to NULL (OU scope broadened to whole-domain)');
+SELECT is(
+  (SELECT scope_id FROM admin_role_assignments WHERE user_id = 98051 AND role_group_id = 98001),
+  NULL::bigint,
+  'H: scope_id overwritten to NULL');
+
+-- ── Case I: eligible flag threads through bulk assign (JIT privilege path) ────────
+-- Proves v_job.eligible → admin_role_assignments.eligible for both true and false.
+-- Actor 98010 holds Ra (perm users.password_reset, global); role 98001 carries the
+-- same perm — Rule A satisfied. Targets are fresh so the INSERT (not UPDATE) path runs.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (98060, 'brj_jit_t1', 98001, 'jitt1@bulk.test', 'JITTgt1', TRUE),
+  (98061, 'brj_jit_t2', 98001, 'jitt2@bulk.test', 'JITTgt2', TRUE);
+
+-- I1: eligible=true → JIT-dormant assignment (eligible=true, activated_until NULL).
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total, eligible) OVERRIDING SYSTEM VALUE
+  VALUES (98912, 'assign', 98001, 98010, ARRAY[98060], 1, TRUE);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98912) $$, 'I1: eligible=true job applies');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98912), 'assigned',
+          'I1: target assigned');
+SELECT is(
+  (SELECT eligible FROM admin_role_assignments WHERE user_id = 98060 AND role_group_id = 98001),
+  TRUE,
+  'I1: assignment has eligible=true (JIT-dormant)');
+SELECT is(
+  (SELECT activated_until FROM admin_role_assignments WHERE user_id = 98060 AND role_group_id = 98001),
+  NULL::timestamptz,
+  'I1: activated_until IS NULL (dormant, not yet activated)');
+
+-- I2: eligible=false → standing assignment (eligible=false, not JIT).
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total, eligible) OVERRIDING SYSTEM VALUE
+  VALUES (98913, 'assign', 98001, 98010, ARRAY[98061], 1, FALSE);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98913) $$, 'I2: eligible=false job applies');
+SELECT is((SELECT results->0->>'status' FROM bulk_role_jobs WHERE id = 98913), 'assigned',
+          'I2: target assigned');
+SELECT is(
+  (SELECT eligible FROM admin_role_assignments WHERE user_id = 98061 AND role_group_id = 98001),
+  FALSE,
+  'I2: assignment has eligible=false (standing, not JIT)');
+
+-- ── Case J: the role is deleted after the job is enqueued (THE REPORTED BUG) ─────
+-- bulk_role_jobs.role_id has NO FK, so a job can outlive its role. Without the
+-- NOT-FOUND guard after the role-perms lookup, an 'assign' job's INSERT hit the
+-- assignments→role FK (SQLSTATE 23503), which the per-target handler does not classify,
+-- so it escaped the txn → the worker retried the same job forever. The guard now fails
+-- the job loudly. (role_id 99999999 stands in for a deleted role — same code path.)
+INSERT INTO bulk_role_jobs (id, op, role_id, actor_id, user_ids, total) OVERRIDING SYSTEM VALUE
+  VALUES (98914, 'assign', 99999999, 98010, ARRAY[98011], 1);
+
+SELECT lives_ok($$ SELECT bulk_role_job_apply(98914) $$, 'J: apply on a deleted role runs (no escaped raise → no infinite retry)');
+SELECT is((SELECT status FROM bulk_role_jobs WHERE id = 98914), 'error', 'J: deleted role → status error');
+SELECT is((SELECT error FROM bulk_role_jobs WHERE id = 98914), 'role no longer exists', 'J: role-gone error message');
+SELECT is((SELECT processed FROM bulk_role_jobs WHERE id = 98914), 0, 'J: zero processed (loop never ran)');
+
+SELECT * FROM finish();
+ROLLBACK;

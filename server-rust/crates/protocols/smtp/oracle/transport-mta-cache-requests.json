@@ -1,0 +1,242 @@
+[
+  {
+    "name": "cached-enforce-no-starttls",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-enforce-mx-mismatch",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"mx.other.test\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-wildcard-matches-only-literal",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"*.dest.test\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-testing-mx-mismatch-allows-plaintext",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"testing\", \"MX\": [\"mx.other.test\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-mode-none-does-not-enforce",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"none\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-unknown-mode-does-not-enforce",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"unknown\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-expired-policy-is-ignored",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '2 days');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-invalid-version-is-not-revalidated",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"invalid\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-case-and-dot-match",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"LOCALHOST.\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-enforce-overrides-admin-skip",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');\nINSERT INTO system_config(key,value) VALUES ('outbound_tls_skip_domains','\"[\\\"dest.test\\\"]\"') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": true,
+    "tls": true,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-enforce-tls-pooled",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": true,
+    "tls": true,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": true,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  },
+  {
+    "name": "cached-policy-feature-off",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','<outbound@smtp3.test>',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'<outbound@smtp3.test>','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);\nINSERT INTO mta_sts_policies(domain,policy_json,fetched_at) VALUES ('dest.test','{\"Version\": \"STSv1\", \"Mode\": \"enforce\", \"MX\": [\"localhost\"], \"MaxAge\": 86400}'::jsonb,now()-interval '0 seconds');",
+    "mx": {
+      "dest.test": [
+        "localhost."
+      ]
+    },
+    "ticks": 1,
+    "advertise_tls": false,
+    "tls": false,
+    "transport": {
+      "feature.dnssec": false,
+      "feature.dane": false,
+      "feature.mta_sts": false,
+      "feature.tls_rpt": false
+    },
+    "dns": {},
+    "teardown_sql": "DELETE FROM mta_sts_policies WHERE domain='dest.test';"
+  }
+]

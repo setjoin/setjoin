@@ -1,0 +1,81 @@
+-- chat_unfurl_bounds.pg — the unfurl metadata bound (occ_980dba9c476e43f3e6d8ef7e,
+-- unfurl-unbounded-title-description). og:title / og:description are parsed from
+-- attacker-controlled page bytes (up to maxHTMLBytes of HTML) into unbounded
+-- text columns, then duplicate into chat_messages.payload via
+-- chat_message_unfurl_apply. The bound is chat_unfurl_bound_text —
+-- truncation-with-marker (512 title / 1024 description CHARACTERS) applied at
+-- BOTH persistence writers this file owns: chat_link_preview_cache_write at
+-- ingress and chat_message_unfurl_apply at the payload merge (so cache rows
+-- written before the bound landed are bounded at duplication too). The file's
+-- silent-degradation posture holds: an over-bound fetch still caches status=ok
+-- — it just stores bounded metadata (no CHECK/RAISE; see chat_unfurl.sql's
+-- "Metadata bound" header section).
+--
+-- Requires: chat_channel.sql, chat_message.sql, notify_chat_state.sql,
+-- chat_unfurl.sql.
+BEGIN;
+SELECT plan(19);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- ── chat_unfurl_bound_text: the shared bound helper ───────────────────────
+SELECT is(chat_unfurl_bound_text(NULL, 512), NULL, 'bound of NULL is NULL (STRICT passthrough)');
+SELECT is(chat_unfurl_bound_text('under the cap', 512), 'under the cap', 'under-cap text passes through unmarked');
+SELECT is(chat_unfurl_bound_text(repeat('a', 512), 512), repeat('a', 512), 'at-cap text passes through unmarked');
+SELECT is(chat_unfurl_bound_text(repeat('a', 513), 512), repeat('a', 511) || '…',
+  'over-cap text truncates with the ellipsis marker occupying the final character');
+SELECT is(char_length(chat_unfurl_bound_text(repeat('a', 5000), 512)), 512,
+  'bound result never exceeds the cap');
+SELECT is(char_length(chat_unfurl_bound_text(repeat('好', 600), 512)), 512,
+  'bound counts characters, not bytes (CJK glyphs)');
+SELECT is(chat_unfurl_bound_text(repeat('好', 513), 512), repeat('好', 511) || '…',
+  'CJK truncation keeps whole glyphs and is marked');
+
+-- ── cache_write ingress bound: an over-bound fetch still succeeds, storing
+--    bounded metadata (silent degradation, never a raised failure) ───────────
+SELECT chat_channel_create(941, 'bounds-general') AS ch_id \gset
+SELECT chat_message_send(941, :ch_id, 'long one https://example.com/long') AS msg_json \gset
+SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS long_msg_id \gset
+
+SELECT chat_link_preview_claim('bounds-hash-a', 'https://example.com/long') AS won \gset
+SELECT is(:'won'::boolean, true, 'claim wins for the over-bound fixture');
+SELECT chat_link_preview_cache_write('bounds-hash-a', repeat('T', 5000), repeat('D', 9000), NULL, 'ok');
+SELECT is((SELECT title FROM chat_link_previews WHERE url_hash = 'bounds-hash-a'),
+  repeat('T', 511) || '…', 'cache_write truncates an over-long title with the marker');
+SELECT is((SELECT char_length(title) FROM chat_link_previews WHERE url_hash = 'bounds-hash-a'),
+  512, 'stored title is at the cap');
+SELECT is((SELECT char_length(description) FROM chat_link_previews WHERE url_hash = 'bounds-hash-a'),
+  1024, 'stored description is at the cap');
+SELECT is((SELECT status FROM chat_link_previews WHERE url_hash = 'bounds-hash-a'),
+  'ok', 'the over-bound fetch still caches status=ok (no raise)');
+
+-- ── at-cap write passes through unmarked ────────────────────────────────────
+SELECT chat_link_preview_claim('bounds-hash-b', 'https://example.com/cap') AS won2 \gset
+SELECT chat_link_preview_cache_write('bounds-hash-b', repeat('x', 512), repeat('y', 1024), NULL, 'ok');
+SELECT is((SELECT title FROM chat_link_previews WHERE url_hash = 'bounds-hash-b'),
+  repeat('x', 512), 'at-cap title is stored unmarked');
+SELECT is((SELECT description FROM chat_link_previews WHERE url_hash = 'bounds-hash-b'),
+  repeat('y', 1024), 'at-cap description is stored unmarked');
+
+-- ── apply merge bound: payload duplication of the bounded cache row ────────
+SELECT chat_message_unfurl_apply(:long_msg_id, 'bounds-hash-a');
+SELECT is(char_length((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :long_msg_id)),
+  512, 'apply merges a bounded title into the message payload');
+SELECT is(char_length((SELECT payload -> 'preview' ->> 'description' FROM chat_messages WHERE id = :long_msg_id)),
+  1024, 'apply merges a bounded description into the message payload');
+SELECT is((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :long_msg_id),
+  repeat('T', 511) || '…', 'the merged payload title carries the truncation marker');
+
+-- ── legacy leg: a cache row written BEFORE the bound (direct over-bound
+--    insert, the pre-fix storage shape) is still bounded at duplication time ─
+SELECT chat_message_send(941, :ch_id, 'legacy https://example.com/legacy') AS legacy_json \gset
+SELECT (:'legacy_json'::jsonb ->> 'messageId')::bigint AS legacy_msg_id \gset
+INSERT INTO chat_link_previews (url_hash, url, title, description, status)
+  VALUES ('bounds-hash-legacy', 'https://example.com/legacy', repeat('L', 4000), repeat('M', 4000), 'ok');
+SELECT chat_message_unfurl_apply(:legacy_msg_id, 'bounds-hash-legacy');
+SELECT is(char_length((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :legacy_msg_id)),
+  512, 'a pre-bound legacy cache row is bounded at the payload merge');
+SELECT is(char_length((SELECT payload -> 'preview' ->> 'description' FROM chat_messages WHERE id = :legacy_msg_id)),
+  1024, 'a pre-bound legacy description is bounded at the payload merge');
+
+SELECT * FROM finish();
+ROLLBACK;

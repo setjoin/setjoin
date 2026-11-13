@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "setjoin.exchange.a0.registry/v0",
+  "capabilities": [
+    {
+      "id": "EX-A0-TOPOLOGY",
+      "title": "Exchange topology and build inventory",
+      "outcome": "Identify the exact Exchange build and topology support cell.",
+      "commands": ["Get-ExchangeServer", "Get-OrganizationConfig"]
+    },
+    {
+      "id": "EX-A0-MAILBOX-DELEGATION",
+      "title": "Mailbox delegation",
+      "outcome": "Inventory explicit mailbox access and send delegation for migration planning.",
+      "commands": ["Get-Mailbox", "Get-MailboxPermission", "Get-RecipientPermission"]
+    },
+    {
+      "id": "EX-A0-CALENDAR-VISIBILITY",
+      "title": "Calendar visibility and delegation",
+      "outcome": "Assess default and explicit calendar-folder visibility without changing permissions.",
+      "commands": ["Get-Mailbox", "Get-MailboxFolderStatistics", "Get-MailboxFolderPermission"]
+    },
+    {
+      "id": "EX-A0-RESOURCE-BOOKING",
+      "title": "Room and equipment booking policy",
+      "outcome": "Inventory resource booking, approval and conflict policy.",
+      "commands": ["Get-Mailbox", "Get-CalendarProcessing", "Get-DistributionGroup", "Get-DistributionGroupMember"]
+    }
+  ]
+}

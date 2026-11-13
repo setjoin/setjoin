@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/people",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"items\": [\n    {\n      \"userId\": \"7\",\n      \"email\": \"a@example.test\",\n      \"enabled\": true,\n      \"lifecycleAuthority\": \"local\",\n      \"activeLinks\": 0,\n      \"detachedLinks\": 1\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

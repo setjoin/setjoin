@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -strict: parse error\nUsage of ca validate:\n  -strict\n    \ttreat warnings as errors\nError: invalid boolean value \"not-a-bool\" for -strict: parse error\n",
+  "exit": 1
+}

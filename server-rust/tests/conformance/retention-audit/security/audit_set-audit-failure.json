@@ -1,0 +1,127 @@
+{
+  "case": "audit_set-audit-failure",
+  "format": 1,
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "audit_policy": [
+            {
+              "id": 1,
+              "level": "lean",
+              "reason_required_areas": [
+                "audit"
+              ],
+              "updated_at": "<timestamp>",
+              "updated_by": null
+            }
+          ],
+          "policies": [
+            {
+              "action": "hold",
+              "created_at": "<timestamp>",
+              "description": "Forever",
+              "domain_id": null,
+              "id": 960001,
+              "is_default": true,
+              "name": "Global <policy>",
+              "retain_days": null
+            },
+            {
+              "action": "delete",
+              "created_at": "<timestamp>",
+              "description": "",
+              "domain_id": "<domain>",
+              "id": 960002,
+              "is_default": false,
+              "name": "Domain policy",
+              "retain_days": 30
+            }
+          ]
+        },
+        "before": {
+          "audit_policy": [
+            {
+              "id": 1,
+              "level": "lean",
+              "reason_required_areas": [
+                "audit"
+              ],
+              "updated_at": "<timestamp>",
+              "updated_by": null
+            }
+          ],
+          "policies": [
+            {
+              "action": "hold",
+              "created_at": "<timestamp>",
+              "description": "Forever",
+              "domain_id": null,
+              "id": 960001,
+              "is_default": true,
+              "name": "Global <policy>",
+              "retain_days": null
+            },
+            {
+              "action": "delete",
+              "created_at": "<timestamp>",
+              "description": "",
+              "domain_id": "<domain>",
+              "id": 960002,
+              "is_default": false,
+              "name": "Domain policy",
+              "retain_days": 30
+            }
+          ]
+        },
+        "table": "retention_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"level\":\"full\",\"reasonRequiredAreas\":[\"roles\",\"audit\"],\"reason\":\"Policy <change>\",\"updatedBy\":-42}",
+      "method": "PUT",
+      "path": "/admin/audit/policy"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"database error\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "108"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl2-oracle"
+        ]
+      },
+      "status": 500
+    }
+  }
+}

@@ -1,0 +1,223 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "assignments": [
+            {
+              "by": "<admin>",
+              "eligible": false,
+              "expires": null,
+              "override": null,
+              "role": "admin2-grant",
+              "scope_id": null,
+              "scope_type": null,
+              "user": "<admin>"
+            }
+          ],
+          "jobs": [],
+          "roles": [
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-domain-role",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-grant",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-high",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create",
+                "domains.write"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": "security",
+              "description": "",
+              "name": "admin2-sec",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": "system",
+              "description": "",
+              "name": "admin2-sys",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-target-role",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": "<target-domain>"
+            }
+          ]
+        },
+        "before": {
+          "assignments": [
+            {
+              "by": "<admin>",
+              "eligible": false,
+              "expires": null,
+              "override": null,
+              "role": "admin2-grant",
+              "scope_id": null,
+              "scope_type": null,
+              "user": "<admin>"
+            }
+          ],
+          "jobs": [],
+          "roles": [
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-domain-role",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-grant",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-high",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create",
+                "domains.write"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": "security",
+              "description": "",
+              "name": "admin2-sec",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": "system",
+              "description": "",
+              "name": "admin2-sys",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-target-role",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": "<target-domain>"
+            }
+          ]
+        },
+        "table": "roles"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/roles",
+      "method": "GET",
+      "path": "/admin/roles"
+    },
+    "response": {
+      "body": "[{\"id\":\"<domain-role>\",\"name\":\"admin2-domain-role\",\"description\":\"\",\"permissions\":[\"queue.read\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":0,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"},{\"id\":\"<admin-grant>\",\"name\":\"admin2-grant\",\"description\":\"\",\"permissions\":[\"roles.manage\",\"users.read\",\"users.create\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":1,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"},{\"id\":\"<high>\",\"name\":\"admin2-high\",\"description\":\"\",\"permissions\":[\"roles.manage\",\"users.read\",\"users.create\",\"domains.write\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":0,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"},{\"id\":\"<sec>\",\"name\":\"admin2-sec\",\"description\":\"\",\"permissions\":[\"users.read\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":0,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"},{\"id\":\"<sys>\",\"name\":\"admin2-sys\",\"description\":\"\",\"permissions\":[\"queue.read\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":0,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"},{\"id\":\"<target-role>\",\"name\":\"admin2-target-role\",\"description\":\"\",\"permissions\":[\"users.read\"],\"domainScope\":\"<target-domain>\",\"isBuiltin\":false,\"memberCount\":0,\"createdAt\":\"<timestamp>\",\"updatedAt\":\"<timestamp>\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1316"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/roles"
+}

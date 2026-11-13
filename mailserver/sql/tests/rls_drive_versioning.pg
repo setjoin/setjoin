@@ -1,0 +1,108 @@
+-- mailserver/sql/tests/rls_drive_versioning.pg — V115 schema + RLS (I-1 extension).
+-- Spec §2.2; genre: rls_drive.pg (P1) / rls_mailbox_delegates.pg.
+BEGIN;
+SELECT plan(31);
+
+SELECT has_table('public'::name, t, 'V115 table exists: ' || t)
+FROM unnest(ARRAY['drive_file_branches','drive_file_locks',
+                  'drive_version_labels','drive_folder_admins']) AS t;
+SELECT has_column('drive_file_versions', c, 'V115 column: ' || c)
+FROM unnest(ARRAY['merged_from_version_id','branch_id']) AS c;
+
+-- ENABLE + FORCE on all four (R4)
+SELECT is((SELECT relrowsecurity   FROM pg_class WHERE oid=('public.'||t)::regclass), TRUE, 'RLS ENABLED: '||t)
+FROM unnest(ARRAY['drive_file_branches','drive_file_locks',
+                  'drive_version_labels','drive_folder_admins']) AS t;
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid=('public.'||t)::regclass), TRUE, 'FORCE: '||t)
+FROM unnest(ARRAY['drive_file_branches','drive_file_locks',
+                  'drive_version_labels','drive_folder_admins']) AS t;
+
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='drive_subtree_admin'), TRUE, 'drive_subtree_admin is SECURITY DEFINER');
+
+-- Fixtures: space S owned by manager M, editor E, viewer V, outsider O; file F.
+SELECT mk_account('v115m') AS mbm \gset
+SELECT mk_account('v115e') AS mbe \gset
+SELECT mk_account('v115v') AS mbv \gset
+SELECT mk_account('v115o') AS mbo \gset
+SELECT user_id AS um FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS ue FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS uv FROM mailboxes WHERE id = :mbv \gset
+SELECT user_id AS uo FROM mailboxes WHERE id = :mbo \gset
+
+SELECT drive_space_create(:um, 'V115', 'regular') AS sid \gset
+SELECT drive_member_grant(:um, :sid, :ue, 'editor');
+SELECT drive_member_grant(:um, :sid, :uv, 'viewer');
+SELECT drive_node_create(:um, :sid, NULL, 'file', 'f.bin') AS nid \gset
+SELECT drive_chunk_register(:um, :sid, repeat('9',64), 10);
+SELECT (drive_file_put_version(:um, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('9',64))::jsonb, NULL, 'test')->>'versionId')::bigint AS v1 \gset
+
+-- a branch, a lock, a label, a folder admin as M/E
+SELECT drive_branch_create(:um, :nid, 'b1', :v1) AS bid \gset
+SELECT drive_file_lock(:ue, :nid, 'soft') AS lockres \gset
+INSERT INTO drive_version_labels (version_id, label, created_by) VALUES (:v1, 'Approved', :um);
+INSERT INTO drive_folder_admins (node_id, space_id, user_id, granted_by) VALUES (:nid, :sid, :ue, :um);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+-- non-member sees nothing
+SELECT set_config('app.current_user_id', :uo::text, true);
+SELECT is((SELECT count(*) FROM drive_file_branches WHERE space_id=:sid)::int, 0, 'branches invisible to non-member');
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE space_id=:sid)::int, 0, 'locks invisible to non-member');
+SELECT is((SELECT count(*) FROM drive_version_labels WHERE version_id=:v1)::int, 0, 'labels invisible to non-member');
+SELECT is((SELECT count(*) FROM drive_folder_admins WHERE space_id=:sid)::int, 0, 'folder admins invisible to non-member');
+
+-- member (viewer) sees rows but cannot write
+SELECT set_config('app.current_user_id', :uv::text, true);
+SELECT is((SELECT count(*) FROM drive_file_branches WHERE space_id=:sid)::int, 1, 'member reads branches (presence is a feature)');
+SELECT throws_like(
+  format($$ INSERT INTO drive_file_branches (file_node_id, space_id, name, head_version_id, forked_from_version_id, created_by)
+            VALUES (%s, %s, 'evil', %s, %s, %s) $$, :nid, :sid, :v1, :v1, :uv),
+  '%row-level security%', 'viewer cannot create branch rows');
+-- DELETE under RLS silently filters to 0 rows rather than raising (unlike
+-- INSERT's WITH CHECK) — assert the row survives, not an exception.
+SELECT lives_ok(format($$ DELETE FROM drive_file_locks WHERE node_id = %s $$, :nid),
+  'non-holder viewer DELETE is a no-op statement (RLS filters silently)');
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 1,
+  'non-holder viewer cannot actually delete another lock (row survives)');
+
+-- editor CAN insert their own lock row; another user's lock row insert fails WITH CHECK
+RESET ROLE;
+DELETE FROM drive_file_locks WHERE node_id = :nid;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :ue::text, true);
+SELECT lives_ok(
+  format($$ INSERT INTO drive_file_locks (node_id, space_id, user_id, version_id, expires_at)
+            VALUES (%s, %s, %s, %s, now() + interval '1 hour') $$, :nid, :sid, :ue, :v1),
+  'editor INSERT own lock row succeeds');
+SELECT throws_like(
+  format($$ INSERT INTO drive_file_locks (node_id, space_id, user_id, version_id, expires_at)
+            VALUES (%s, %s, %s, %s, now() + interval '1 hour') $$, 999999999, :sid, :um, :v1),
+  '%row-level security%', 'inserting a lock row for a DIFFERENT user_id fails WITH CHECK');
+
+-- drive_folder_admins: editor cannot INSERT (manager-only write); manager can
+SELECT throws_like(
+  format($$ INSERT INTO drive_folder_admins (node_id, space_id, user_id, granted_by)
+            VALUES (%s, %s, %s, %s) $$, :nid, :sid, :uv, :ue),
+  '%row-level security%', 'editor cannot grant folder-admin (manager-only write)');
+SELECT set_config('app.current_user_id', :um::text, true);
+SELECT lives_ok(
+  format($$ DELETE FROM drive_folder_admins WHERE node_id = %s AND user_id = %s $$, :nid, :ue),
+  'manager CAN write drive_folder_admins');
+
+-- Subtree helper
+RESET ROLE;
+SELECT drive_node_create(:um, :sid, NULL, 'folder', 'parent') AS pfid \gset
+SELECT drive_node_create(:um, :sid, :pfid, 'folder', 'child') AS cfid \gset
+SELECT drive_node_create(:um, :sid, NULL, 'folder', 'sibling') AS sibid \gset
+INSERT INTO drive_folder_admins (node_id, space_id, user_id, granted_by) VALUES (:pfid, :sid, :ue, :um);
+SELECT is(drive_subtree_admin(:ue, :cfid), TRUE,  'folder admin holds on descendant');
+SELECT is(drive_subtree_admin(:ue, :sibid), FALSE,'…and not outside the subtree');
+SELECT is(drive_subtree_admin(:uv, :cfid), FALSE, 'non-admin is false');
+
+-- non-vacuity control
+SELECT ok((SELECT count(*) FROM drive_file_branches) >= 1, 'non-vacuity: superuser sees branches');
+
+SELECT * FROM finish();
+ROLLBACK;

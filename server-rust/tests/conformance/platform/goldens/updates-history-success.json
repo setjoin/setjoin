@@ -1,0 +1,93 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "downtime": 120,
+            "id": 9201,
+            "status": "success"
+          },
+          {
+            "downtime": 0,
+            "id": 9202,
+            "status": "failed"
+          },
+          {
+            "downtime": 5,
+            "id": 9203,
+            "status": "rolled_back"
+          }
+        ],
+        "before": [
+          {
+            "downtime": 120,
+            "id": 9201,
+            "status": "success"
+          },
+          {
+            "downtime": 0,
+            "id": 9202,
+            "status": "failed"
+          },
+          {
+            "downtime": 5,
+            "id": 9203,
+            "status": "rolled_back"
+          }
+        ],
+        "table": "upgrade_history"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/system/upgrade/status",
+      "method": "GET",
+      "path": "/admin/system/upgrade/status"
+    },
+    "response": {
+      "body": "[{\"id\":9203,\"from_version\":\"v3\",\"to_version\":\"v4\",\"mode\":\"hot_reload\",\"ddl_classification\":\"additive_only\",\"status\":\"rolled_back\",\"started_at\":\"2026-10-03T08:30:00.5Z\",\"completed_at\":\"2026-10-03T10:00:00.5Z\",\"downtime_ms\":5},{\"id\":9202,\"from_version\":\"v2\",\"to_version\":\"v3\",\"mode\":\"full_restart\",\"ddl_classification\":\"has_breaking\",\"status\":\"failed\",\"started_at\":\"2026-10-02T09:00:00.123456Z\",\"completed_at\":null,\"downtime_ms\":0,\"error_message\":\"boom \\u003cx\\u003e \\u0026 y\"},{\"id\":9201,\"from_version\":\"v1\",\"to_version\":\"v2\",\"mode\":\"hot_reload\",\"ddl_classification\":\"additive_only\",\"status\":\"success\",\"started_at\":\"2026-10-01T10:00:00Z\",\"completed_at\":\"2026-10-01T10:00:05Z\",\"downtime_ms\":120}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "695"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/system/upgrade/status"
+}

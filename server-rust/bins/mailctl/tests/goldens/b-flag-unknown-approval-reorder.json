@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of approval reorder:\n  -consumer-type string\n    \tConsumer type (required)\n",
+  "exit": 2
+}

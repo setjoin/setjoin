@@ -1,0 +1,108 @@
+[
+  {
+    "baseline": "qualified/login-finish-counter-regression.json",
+    "sha256": "71870de8434a2d76eae04432c9f101c27005d97d29c0d6dfe359b3582c7e963a",
+    "expectation": "security/login-finish-counter-regression.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-counter-regression-rows.json",
+    "sha256": "90b1dea40e998b9354d9b88bade65fdacff2a9ddcea38ebfdfaa6e2584844788",
+    "expectation": "security/login-finish-counter-regression-rows.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-counter-regression-anonymous.json",
+    "sha256": "cad74a30c86abfb2dca99c64b4f3f9dfde185b7f701fade068acf37697bed565",
+    "expectation": "security/login-finish-counter-regression-anonymous.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-zero-count.json",
+    "sha256": "15238594fbc6b958531f4cd06585f44ddc076d0208817eaf1fd2e8a9a3a23319",
+    "expectation": "security/login-finish-zero-count.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-zero-count-rows.json",
+    "sha256": "2cc3d9ab0d9c7c40dce157f85dfe3d343f9ec4e248d1b8a2ba251803edac80aa",
+    "expectation": "security/login-finish-zero-count-rows.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-zero-count-anonymous.json",
+    "sha256": "857d8343c26374a821f1dd0dd91f741812b17c639218a67f4207cc4df3ec5854",
+    "expectation": "security/login-finish-zero-count-anonymous.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-repeat.json",
+    "sha256": "ec5bd6086c04cbf982c1b06d0897eada5e8ab79df6c09e5ec1a9d284ddaa819b",
+    "expectation": "security/login-finish-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-repeat-rows.json",
+    "sha256": "e1bac3c3ab2f6b679af080125bc3a741bfcfb8faabe55dca339ba5074f830582",
+    "expectation": "security/login-finish-repeat-rows.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/login-finish-repeat-anonymous.json",
+    "sha256": "dde7383c676cb6e4375a318cad65ae54320a4af2832c4334e46b4b98f6bc4a29",
+    "expectation": "security/login-finish-repeat-anonymous.json",
+    "reason": "owner-approved security fix 2026-11-05: reject counter regression and consume each verified login challenge once, including counterless authenticators.",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/register-finish-safetynet-anonymous.json",
+    "sha256": "5fa5b9fac9fa6f6b619da503924d88262242ad276b4d97f49eabb0ab81dc8e08",
+    "expectation": "security/register-finish-safetynet-anonymous.json",
+    "reason": "owner-approved security fix 2026-11-05 (#504: the recorded SafetyNet registration has a self-signed leaf and a stale timestamp and is refused).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/register-finish-safetynet-rows.json",
+    "sha256": "4bd96445c72b663d8e8c1862edbf5d363de185b94b2f979fa4b9083b31483f58",
+    "expectation": "security/register-finish-safetynet-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#504: the recorded SafetyNet registration has a self-signed leaf and a stale timestamp and is refused).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "qualified/register-finish-safetynet.json",
+    "sha256": "bf71fa1770fca241a9caa16ccb9b3253d38162a0bd464ee21bfcd969daccb9d7",
+    "expectation": "security/register-finish-safetynet.json",
+    "reason": "owner-approved security fix 2026-11-05 (#504: the recorded SafetyNet registration has a self-signed leaf and a stale timestamp and is refused).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "case": "safetynet-refused",
+    "issue": "#504",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#504): android-safetynet attestation is refused outright; the x5c leaf was never anchored (a self-signed leaf or a made-up CA passed) and Google shut SafetyNet down.",
+    "secure_test": "crates/domains/identity/src/webauthn.rs::secfix3_safetynet::a_fresh_chained_response_is_refused",
+    "mutant": "safetynet-accepted"
+  }
+]

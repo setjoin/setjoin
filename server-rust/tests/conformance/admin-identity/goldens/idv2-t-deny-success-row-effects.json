@@ -1,0 +1,285 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "approvals": [
+          {
+            "approver_ref": "<admin>",
+            "comment": "admin8 reason <&>",
+            "decided_by": "<admin>",
+            "requester_user_id": "<other>",
+            "status": "denied"
+          }
+        ],
+        "challenges": [
+          {
+            "actor_user_id": "<other>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 2,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 3,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000033",
+            "invalidated": false
+          }
+        ],
+        "effects": [],
+        "elevations": [
+          {
+            "acr": "aal2",
+            "actor_user_id": "<other>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest4>",
+            "generation": 2,
+            "idempotency_key": "95400000-0000-4000-8000-000000000513",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest6>",
+            "generation": 3,
+            "idempotency_key": "95400000-0000-4000-8000-000000000533",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          }
+        ],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": true
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_approval_requested",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>",
+              "transitionGeneration": 3
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_denied",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>",
+              "operation": "execute"
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 2,
+            "stage": "request",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<other>",
+            "approver_elevation": true,
+            "authorized_generation": null,
+            "boundary": "not_committed",
+            "committed": false,
+            "completed": true,
+            "decided_by": null,
+            "execution_elevation": false,
+            "failure": null,
+            "generation": 4,
+            "has_approval": true,
+            "has_rollback_approval": false,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest3>",
+            "protected": true,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": true,
+            "rollback_digest": null,
+            "rollback_execution_elevation": false,
+            "rollback_reason": null,
+            "rollback_requester_elevation": false,
+            "state": "cancelled",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "before": {
+        "approvals": [
+          {
+            "approver_ref": "<admin>",
+            "comment": null,
+            "decided_by": null,
+            "requester_user_id": "<other>",
+            "status": "pending"
+          }
+        ],
+        "challenges": [
+          {
+            "actor_user_id": "<other>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 2,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          },
+          {
+            "actor_user_id": "<admin>",
+            "completed": true,
+            "digest": "<digest3>",
+            "generation": 3,
+            "has_elevation": true,
+            "idempotency_key": "95400000-0000-4000-8000-000000000033",
+            "invalidated": false
+          }
+        ],
+        "effects": [],
+        "elevations": [
+          {
+            "acr": "aal2",
+            "actor_user_id": "<other>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": true,
+            "factor_digest": "<digest4>",
+            "generation": 2,
+            "idempotency_key": "95400000-0000-4000-8000-000000000513",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          },
+          {
+            "acr": "aal2",
+            "actor_user_id": "<admin>",
+            "amr": [
+              "mfa",
+              "otp",
+              "pwd"
+            ],
+            "consumed": false,
+            "factor_digest": "<digest6>",
+            "generation": 3,
+            "idempotency_key": "95400000-0000-4000-8000-000000000533",
+            "invalidated": false,
+            "session_digest": "<digest5>"
+          }
+        ],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": true
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          },
+          {
+            "action": "transition_approval_requested",
+            "actor_user_id": "<other>",
+            "metadata": {
+              "approvalRequestId": "<approvalRequestId>",
+              "transitionGeneration": 3
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          },
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 2,
+            "stage": "request",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<other>",
+            "approver_elevation": false,
+            "authorized_generation": null,
+            "boundary": "not_committed",
+            "committed": false,
+            "completed": false,
+            "decided_by": null,
+            "execution_elevation": false,
+            "failure": null,
+            "generation": 3,
+            "has_approval": true,
+            "has_rollback_approval": false,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest3>",
+            "protected": true,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": true,
+            "rollback_digest": null,
+            "rollback_execution_elevation": false,
+            "rollback_reason": null,
+            "rollback_requester_elevation": false,
+            "state": "awaiting_approval",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "table": "identity"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/identity/v2/transitions/{id}/deny"
+}

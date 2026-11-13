@@ -1,0 +1,37 @@
+[package]
+name = "setjoin-updater"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "=1.0.104"
+chrono = "=0.4.45"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+setjoin-release-format = { path = "../../crates/release-format" }
+
+setjoin-schema = { path = "../../crates/schema" }
+setjoin-backup = { path = "../../crates/backup" }
+base64 = "=0.22.1"
+libc = "=0.2.191"
+tar = "=0.4.46"
+sqlparser = { version = "=0.63.0", default-features = false, features = ["std"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "time", "process"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-uuid-1"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-postgres-rustls = { version = "=0.14.0", default-features = false, features = ["ring"] }
+rustls-native-certs = "=0.8.5"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[dev-dependencies]
+ring = "=0.17.14"
+tempfile = "=3.27.0"
+
+[features]
+# Test-only: restores each recorded security gap so a test must reject it
+# (scripts/test-updater-secfix-mutants.py). Never enabled in a shipped build.
+oracle-mutants = []

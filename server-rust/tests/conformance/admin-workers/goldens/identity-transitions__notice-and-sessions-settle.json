@@ -1,0 +1,78 @@
+{
+  "case": "notice-and-sessions-settle",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "effects": [
+          "bbbbbbbb-0000-4000-8000-000000000001:auth_sessions:completed:1::true:true",
+          "bbbbbbbb-0000-4000-8000-000000000001:subscriber_notice:completed:1::true:true",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_auth_sessions:completed:1::true:true",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_subscriber_notice:completed:1::true:true",
+          "bbbbbbbb-0000-4000-8000-000000000003:subscriber_notice:completed:1::true:true",
+          "bbbbbbbb-0000-4000-8000-000000000004:auth_sessions:completed:0::true:true"
+        ],
+        "events": [
+          "bbbbbbbb-0000-4000-8000-000000000001:transition_completed:identity transition effects converged",
+          "bbbbbbbb-0000-4000-8000-000000000002:transition_rolled_back:identity transition effects converged"
+        ],
+        "intents": [],
+        "steps": [
+          "bbbbbbbb-0000-4000-8000-000000000001:auth_sessions:completed:1:",
+          "bbbbbbbb-0000-4000-8000-000000000001:subscriber_notice:completed:1:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_auth_sessions:completed:1:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_subscriber_notice:completed:1:",
+          "bbbbbbbb-0000-4000-8000-000000000003:subscriber_notice:completed:1:",
+          "bbbbbbbb-0000-4000-8000-000000000004:auth_sessions:pending:0:"
+        ],
+        "targets": [],
+        "transitions": [
+          "bbbbbbbb-0000-4000-8000-000000000001:completed:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rolled_back:",
+          "bbbbbbbb-0000-4000-8000-000000000003:completed:",
+          "bbbbbbbb-0000-4000-8000-000000000004:effects_pending:"
+        ]
+      },
+      "sfu": []
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "effects": [
+          "bbbbbbbb-0000-4000-8000-000000000001:auth_sessions:pending:0::true:false",
+          "bbbbbbbb-0000-4000-8000-000000000001:subscriber_notice:pending:0::true:false",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_auth_sessions:pending:0::true:false",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_subscriber_notice:pending:0::true:false",
+          "bbbbbbbb-0000-4000-8000-000000000003:subscriber_notice:pending:0::true:false",
+          "bbbbbbbb-0000-4000-8000-000000000004:auth_sessions:completed:0::true:true"
+        ],
+        "events": [],
+        "intents": [],
+        "steps": [
+          "bbbbbbbb-0000-4000-8000-000000000001:auth_sessions:pending:0:",
+          "bbbbbbbb-0000-4000-8000-000000000001:subscriber_notice:pending:0:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_auth_sessions:pending:0:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rollback_subscriber_notice:pending:0:",
+          "bbbbbbbb-0000-4000-8000-000000000003:subscriber_notice:pending:0:",
+          "bbbbbbbb-0000-4000-8000-000000000004:auth_sessions:pending:0:"
+        ],
+        "targets": [],
+        "transitions": [
+          "bbbbbbbb-0000-4000-8000-000000000001:effects_pending:",
+          "bbbbbbbb-0000-4000-8000-000000000002:rolling_back:",
+          "bbbbbbbb-0000-4000-8000-000000000003:completed:",
+          "bbbbbbbb-0000-4000-8000-000000000004:effects_pending:"
+        ]
+      },
+      "sfu": []
+    },
+    "notifies": [
+      "{\"state\": \"committed\", \"transitionId\": \"bbbbbbbb-0000-4000-8000-000000000001\"}",
+      "{\"state\": \"committed\", \"transitionId\": \"bbbbbbbb-0000-4000-8000-000000000003\"}",
+      "{\"state\": \"rollback_committed\", \"transitionId\": \"bbbbbbbb-0000-4000-8000-000000000002\"}"
+    ]
+  },
+  "worker": "identity-transitions"
+}

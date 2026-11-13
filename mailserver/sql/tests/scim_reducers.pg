@@ -1,0 +1,190 @@
+-- pgTAP: SCIM provisioning reducers
+BEGIN;
+SELECT plan(26);
+
+-- Directory-sync (scim) provisions ONLY into an already-local domain — it no longer
+-- auto-mints one from the IdP-supplied email (trust-escalation fix). Pre-create it.
+INSERT INTO domains (name, is_local) VALUES ('example.com', TRUE) ON CONFLICT (name) DO NOTHING;
+CREATE TEMP TABLE _scim_source AS
+SELECT id,generation FROM identity_sources WHERE source_key='legacy:scim';
+
+-- 1. Schema: columns exist
+SELECT has_column('users', 'scim_external_id', 'users has scim_external_id column');
+SELECT has_column('distribution_groups', 'scim_external_id', 'distribution_groups has scim_external_id column');
+SELECT has_table('scim_tokens', 'scim_tokens table exists');
+SELECT has_column('scim_tokens', 'deletion_policy', 'scim_tokens has deletion_policy column');
+SELECT has_column('scim_tokens', 'attribute_mapping', 'scim_tokens has attribute_mapping column');
+
+-- 2. scim_upsert_user: create new user
+SELECT lives_ok(
+  $$SELECT scim_upsert_user('scim-test-001', 'scimtest@example.com', 'Test User',
+    'Test', 'User', 'Engineer', '+1555001', 'Engineering', NULL, TRUE, FALSE)$$,
+  'scim_upsert_user creates new user'
+);
+
+-- 3. scim_upsert_user: idempotent update on same externalId
+SELECT lives_ok(
+  $$SELECT scim_upsert_user('scim-test-001', 'scimtest@example.com', 'Test User Updated',
+    'Test', 'User', 'Senior Engineer', '+1555002', 'Engineering', NULL, TRUE, FALSE)$$,
+  'scim_upsert_user updates existing user (idempotent)'
+);
+
+-- 4. Verify the updated values
+SELECT is(
+  (SELECT display_name FROM users WHERE scim_external_id = 'scim-test-001'),
+  'Test User Updated',
+  'scim_upsert_user updated display_name'
+);
+SELECT is(
+  (SELECT job_title FROM users WHERE scim_external_id = 'scim-test-001'),
+  'Senior Engineer',
+  'scim_upsert_user updated job_title'
+);
+
+-- 4b. scim_upsert_user delegates primary-mailbox creation to provision_account.
+-- Guards the generalization: if that delegation breaks, the user has no inbox.
+SELECT is(
+  (SELECT count(*) FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.scim_external_id = 'scim-test-001' AND m.is_primary AND m.type = 'personal'),
+  1::BIGINT,
+  'scim_upsert_user provisions exactly one primary personal mailbox'
+);
+
+-- 5. scim_disable_user: soft disable
+SELECT lives_ok(
+  $$SELECT scim_disable_user('scim-test-001')$$,
+  'scim_disable_user executes without error'
+);
+SELECT is(
+  (SELECT enabled FROM users WHERE scim_external_id = 'scim-test-001'),
+  FALSE,
+  'scim_disable_user sets enabled=FALSE'
+);
+
+-- 6. scim_delete_user: soft delete (calls disable on already-disabled)
+SELECT lives_ok(
+  $$SELECT scim_delete_user('scim-test-001', FALSE)$$,
+  'scim_delete_user soft (FALSE) executes without error'
+);
+
+-- 7. scim_upsert_group: create group
+SELECT lives_ok(
+  $$SELECT scim_upsert_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),
+      'scim-group-001','Engineering Team'
+    )$$,
+  'scim_upsert_group creates new group'
+);
+
+-- 8. scim_upsert_group backing mailbox is personal type
+SELECT is(
+  (SELECT mb.type FROM distribution_groups dg
+   JOIN mailboxes mb ON mb.id = dg.mailbox_id
+   WHERE dg.scim_source_id=(SELECT id FROM _scim_source)
+     AND dg.scim_external_id='scim-group-001'),
+  'personal',
+  'scim_upsert_group backing mailbox is personal type'
+);
+
+-- 9. scim_upsert_group: idempotent update
+SELECT lives_ok(
+  $$SELECT scim_upsert_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),
+      'scim-group-001','Engineering Team Updated'
+    )$$,
+  'scim_upsert_group updates existing group (idempotent)'
+);
+
+-- 10. Verify group update
+SELECT is(
+  (SELECT mb.display_name FROM distribution_groups dg
+   JOIN mailboxes mb ON mb.id = dg.mailbox_id
+   WHERE dg.scim_source_id=(SELECT id FROM _scim_source)
+     AND dg.scim_external_id='scim-group-001'),
+  'Engineering Team Updated',
+  'scim_upsert_group updated group display_name'
+);
+
+-- 11. scim_delete_group: setup — create a group to delete, remember its mailbox
+SELECT lives_ok(
+  $$SELECT scim_upsert_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),
+      'scim-group-del','Group To Delete'
+    )$$,
+  'scim_delete_group setup: group created'
+);
+
+-- Capture the group id + backing mailbox id before deletion (single-txn, temp table)
+CREATE TEMP TABLE _del_grp AS
+  SELECT id AS group_id, mailbox_id
+  FROM distribution_groups
+  WHERE scim_source_id=(SELECT id FROM _scim_source)
+    AND scim_external_id='scim-group-del';
+
+-- 12. scim_delete_group returns TRUE for an existing group
+SELECT is(
+  (SELECT scim_delete_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),group_id
+   ) FROM _del_grp),
+  TRUE,
+  'scim_delete_group returns TRUE for existing group'
+);
+
+-- 13. distribution_groups row is gone
+SELECT is(
+  (SELECT count(*)::int FROM distribution_groups dg JOIN _del_grp d ON dg.id = d.group_id),
+  0,
+  'scim_delete_group removed the distribution_groups row'
+);
+
+-- 14. backing mailbox is gone (the orphan guard — this is the line that fails today)
+SELECT is(
+  (SELECT count(*)::int FROM mailboxes mb JOIN _del_grp d ON mb.id = d.mailbox_id),
+  0,
+  'scim_delete_group removed the orphaned backing mailbox'
+);
+
+-- 15. scim_delete_group returns FALSE for a missing group (idempotent/not-found path)
+SELECT is(
+  scim_delete_group(
+    (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),9999999
+  ),
+  FALSE,
+  'scim_delete_group returns FALSE for unknown group id'
+);
+
+SELECT throws_ok(
+  $$SELECT scim_upsert_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source)+1,
+      'stale-group','Stale Group'
+  )$$,
+  'BZ229','identity source generation is stale',
+  'group upsert rejects a stale authenticated source generation'
+);
+SELECT throws_ok(
+  $$SELECT scim_delete_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source)+1,9999999
+  )$$,
+  'BZ229','identity source generation is stale',
+  'group delete rejects a stale authenticated source generation'
+);
+UPDATE identity_sources SET state='paused'
+ WHERE id=(SELECT id FROM _scim_source);
+SELECT throws_ok(
+  $$SELECT scim_upsert_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),
+      'paused-group','Paused Group'
+  )$$,
+  'BZ224','SCIM source is not active',
+  'group upsert rejects a paused source'
+);
+SELECT throws_ok(
+  $$SELECT scim_delete_group(
+      (SELECT id FROM _scim_source),(SELECT generation FROM _scim_source),9999999
+  )$$,
+  'BZ224','SCIM source is not active',
+  'group delete rejects a paused source'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

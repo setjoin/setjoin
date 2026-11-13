@@ -1,0 +1,84 @@
+{
+  "case": "drive-maint-worm",
+  "format": 1,
+  "go_source": "2683b6ce8cd0a3eb88888117042a387ccdc25658",
+  "observation": {
+    "chunks": [
+      "g|<w-regular>|rc=1|applied=-|ref=drive/g/<w-regular>",
+      "s9400002|<w-applied>|rc=1|applied=2030-01-02T03:04:05.000000|ref=drive/s9400002/<w-applied>",
+      "s9400002|<w-null>|rc=1|applied=2030-01-02T03:04:05.123456|ref=drive/s9400002/<w-null>",
+      "s9400002|<w-stale>|rc=1|applied=2030-01-02T03:04:05.000000|ref=drive/s9400002/<w-stale>",
+      "s9400002|<w-rejected>|rc=1|applied=-|ref=drive/s9400002/<w-rejected>",
+      "s9400003|<w-default>|rc=1|applied=2032-03-04T05:06:07.000001|ref=drive/s9400003/<w-default>"
+    ],
+    "claims": [],
+    "journal": [],
+    "queue": [],
+    "s3": {
+      "keys": [],
+      "requests": [
+        {
+          "body": {
+            "mode": "COMPLIANCE",
+            "until": "2030-01-02T03:04:05.123456Z"
+          },
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/<w-null>",
+          "query": {
+            "retention": ""
+          }
+        },
+        {
+          "body": {
+            "mode": "COMPLIANCE",
+            "until": "2030-01-02T03:04:05Z"
+          },
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/<w-stale>",
+          "query": {
+            "retention": ""
+          }
+        },
+        {
+          "body": {
+            "mode": "COMPLIANCE",
+            "until": "2031-06-07T08:09:10.5Z"
+          },
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/<w-rejected>",
+          "query": {
+            "retention": ""
+          }
+        },
+        {
+          "body": {
+            "mode": "GOVERNANCE",
+            "until": "2032-03-04T05:06:07.000001Z"
+          },
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400003/<w-default>",
+          "query": {
+            "retention": ""
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "case": "strict-valid-bmp-subject-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBsTCCAVegAwIBAgIUTuQ6jw+e02xPBDwcnGc5XopjGA8wCgYIKoZIzj0EAwIw\nMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMMDnNtaW1lLW9yYWNs\nZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAoMRcwFQYDVQQK\nDA5TZXRqb2luIE9yYWNsZTENMAsGA1UEAx4Efsh67zBZMBMGByqGSM49AgEGCCqG\nSM49AwEHA0IABPh9v0mmMf/vR80aVp5KyV9mDkHJ0hbf/+AWgb3s4SFBXPN8fp8H\nSXAZ8Pxmka5Zflvj/I6nw8/HJAtxylG3VIWjUzBRMB0GA1UdDgQWBBS/dcj3uP0d\nVgWjJ23m/rQ5Ha68JTAfBgNVHSMEGDAWgBS/dcj3uP0dVgWjJ23m/rQ5Ha68JTAP\nBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIFwyktifiFsroMePBPPV\nyn2P0SX72s7WNEti46Zc4jvtAiEAs6S9be/qzqAszUDFwHhoVwrQj4RJgNXi7HJj\nOUhVrQI=\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "9c32884c51c56ebe51ee852e475b0da2493b51200374f4edd5333655d145724e",
+            "label": "imported",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "终端"
+          }
+        ]
+      },
+      "before": {
+        "anchors": []
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/smime/trust-anchors"
+}

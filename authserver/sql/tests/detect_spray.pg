@@ -1,0 +1,83 @@
+-- pgTAP test for detect_spray and lockout_escalate reducers
+BEGIN;
+SELECT plan(11);
+
+-- Setup: simulate failed auth attempts from one IP against 5 distinct usernames
+INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, failure_reason, occurred_at)
+VALUES
+    ('192.0.2.1', 'spray1@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute'),
+    ('192.0.2.1', 'spray2@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute'),
+    ('192.0.2.1', 'spray3@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute'),
+    ('192.0.2.1', 'spray4@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute'),
+    ('192.0.2.1', 'spray5@test.local', 'http', 'failure', 'bad_password', now() - interval '1 minute');
+
+SELECT ok(detect_spray('192.0.2.1'::INET, 300, 5),
+    'detect_spray returns TRUE with 5 distinct failures');
+SELECT ok(NOT detect_spray('192.0.2.1'::INET, 300, 10),
+    'detect_spray returns FALSE when below threshold');
+SELECT ok(NOT detect_spray('203.0.113.1'::INET, 300, 2),
+    'detect_spray returns FALSE for unrelated IP');
+
+-- Window expiry (LOW -005): the SAME spray volume, but every failure just
+-- OUTSIDE the 300s window. Pins the occurred_at clause — mutating it away
+-- turns this arm red (mutation-checked), so stale history cannot count.
+INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, failure_reason, occurred_at)
+VALUES
+    ('192.0.2.2', 'stale1@test.local', 'http', 'failure', 'bad_password', now() - interval '310 seconds'),
+    ('192.0.2.2', 'stale2@test.local', 'http', 'failure', 'bad_password', now() - interval '310 seconds'),
+    ('192.0.2.2', 'stale3@test.local', 'http', 'failure', 'bad_password', now() - interval '310 seconds'),
+    ('192.0.2.2', 'stale4@test.local', 'http', 'failure', 'bad_password', now() - interval '310 seconds'),
+    ('192.0.2.2', 'stale5@test.local', 'http', 'failure', 'bad_password', now() - interval '310 seconds');
+SELECT ok(NOT detect_spray('192.0.2.2'::INET, 300, 5),
+    'detect_spray ignores failures outside the 300s window');
+
+-- Outcome discrimination (LOW -005): a successful login burst is not spray.
+-- Pins `outcome = 'failure'` — dropping that predicate turns this arm red
+-- (mutation-checked).
+INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, occurred_at)
+VALUES
+    ('192.0.2.3', 'win1@test.local', 'http', 'success', now() - interval '1 minute'),
+    ('192.0.2.3', 'win2@test.local', 'http', 'success', now() - interval '1 minute'),
+    ('192.0.2.3', 'win3@test.local', 'http', 'success', now() - interval '1 minute'),
+    ('192.0.2.3', 'win4@test.local', 'http', 'success', now() - interval '1 minute'),
+    ('192.0.2.3', 'win5@test.local', 'http', 'success', now() - interval '1 minute');
+SELECT ok(NOT detect_spray('192.0.2.3'::INET, 300, 5),
+    'detect_spray ignores successes — only outcome=failure counts');
+
+-- Test lockout_escalate
+-- First failure: creates the row (failed_count=1, level 0) and returns 0.
+SELECT is(lockout_escalate('ip:203.0.113.50', 5), 0,
+    'lockout_escalate creates row on first call');
+-- Second call with threshold 1: failed_count (1) >= threshold, so the level
+-- escalates 0 -> 1 and locked_until moves into the future.
+SELECT is(lockout_escalate('ip:203.0.113.50', 1), 1,
+    'lockout_escalate escalates after threshold');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts
+            WHERE lockout_key = 'ip:203.0.113.50' AND locked_until > now()),
+    'lockout_escalate sets future locked_until');
+
+-- Backoff magnitude (D-AUTHSERVER-SQL-TESTS-008): "locked_until > now()" alone
+-- would accept ANY positive window, so a future edit weakening the 900s base
+-- or the POWER(2, level) doubling term would pass silently. Pin the exact
+-- windows: level 1 = 900s * 2^1 = 1800s, level 2 = 900s * 2^2 = 3600s.
+-- now() is transaction_timestamp, so this assertion and the reducer see the
+-- same clock inside this transaction; the ±15s band only tolerates a future
+-- refactor to clock_timestamp().
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts
+            WHERE lockout_key = 'ip:203.0.113.50'
+              AND locked_until BETWEEN now() + INTERVAL '1785 seconds'
+                                   AND now() + INTERVAL '1815 seconds'),
+    'level-1 lock window is 900s * 2^1 = 1800s (base duration pinned)');
+SELECT is(lockout_escalate('ip:203.0.113.50', 1), 2,
+    'lockout_escalate escalates 1 -> 2');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts
+            WHERE lockout_key = 'ip:203.0.113.50'
+              AND locked_until BETWEEN now() + INTERVAL '3585 seconds'
+                                   AND now() + INTERVAL '3615 seconds'),
+    'level-2 lock window is 900s * 2^2 = 3600s (exponential doubling pinned)');
+
+SELECT * FROM finish();
+ROLLBACK;

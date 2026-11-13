@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of office qualify:\n  -build-digest string\n    \tmanaged image digest when applicable\n  -generation int\n    \texpected provider generation\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -reason string\n    \taudit reason\n  -route-revision int\n    \tingress route revision (default 1)\n  -synthetic-receipt int\n    \taccepted synthetic Office save receipt ID\nError: usage: mailctl office qualify --generation N --synthetic-receipt ID --reason TEXT [--build-digest sha256:...]\n",
+  "exit": 1
+}

@@ -1,0 +1,47 @@
+// Recording-only overlay (#457): frozen Go's real health.Handler with its real webhook
+// Dispatcher runs GOFREE_HEALTH_STEPS (";"-separated): "public" (PublicCheck, the
+// unauthenticated /health), "admin" (Check, /admin/health) or "sql:<statement>" on the
+// seeded database. The verdict cache is off so every step evaluates; the transition
+// tracker is the handler's own, shared by both entry points.
+package health
+
+import (
+	"context"
+	"log/slog"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"setjoin.com/mailserver/internal/webhook"
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeHealthAlerts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	d := webhook.GoFreeDispatcher(ctx, pool)
+	h := NewHandler(pool, slog.Default(), d)
+	h.evalTTL = 0
+	for _, step := range strings.Split(os.Getenv("GOFREE_HEALTH_STEPS"), ";") {
+		switch {
+		case step == "public":
+			h.PublicCheck(httptest.NewRecorder(), httptest.NewRequest("GET", "/health", nil))
+		case step == "admin":
+			h.Check(httptest.NewRecorder(), httptest.NewRequest("GET", "/admin/health", nil))
+		case strings.HasPrefix(step, "sql:"):
+			if _, err := pool.Exec(ctx, strings.TrimPrefix(step, "sql:")); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatalf("unknown step %q", step)
+		}
+		webhook.GoFreeWait(d)
+	}
+	webhook.GoFreeSettle(d, cancel)
+}

@@ -1,0 +1,727 @@
+[
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-valid-global",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-valid-global@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCICrdmNBE1r8pNZcxD8Fn0zIin7mfYon2u26cNbc2\r\nqFkTAiEA8wXxj99+5/QMZJG1hlgrM+GQ7pd3q+Kxxc4dhnf8pUA=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',9348001);",
+    "name": "smime-valid-domain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-valid-domain@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQwYJKoZIhvcNAQcCoIIENDCCBDACAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH2MIHzAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRIMEYCIQCgCEgcA+mHtKFipMPCG31rk49M1JLUy9sHV5AH\r\nQrgNOAIhANSdCIsZeApYa10EPfO0Tkivx3FNqmgyXpO8AcDYkN7e\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',9348002);",
+    "name": "smime-foreign-domain-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-foreign-domain-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQwYJKoZIhvcNAQcCoIIENDCCBDACAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH2MIHzAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRIMEYCIQDxI9pGK2QjMj6AWSEyG0/Nem+tleUN+TbRIowE\r\nMJU39wIhALdJ932LBZKzwVnZe0d4pu18WQ+ZqZXX+06jlz1z+HtN\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "name": "smime-no-anchor-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-no-anchor-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCIHnIYx6gTDZS+9n++Pqis3vnj6RVW588NAkqC6YY\r\ntDHzAiEArSJ5jxOP8NbcWCUEYXxMAAABoibRDfdhlFBio01m/BA=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);UPDATE smime_trust_anchors SET fingerprint='wrong' WHERE label='smtp6-fixture';",
+    "name": "smime-wrong-fingerprint-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-wrong-fingerprint-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCIQC7QyzKQ/wW7xu3ai/ZDWeHPoMnydluvSH1gQdA\r\n6ZV5ZAIgYcQaQyF8XLy8Yy0cZk077/WORSLGy/Xh97Fp16IA+sM=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaDCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAASJVEihwshZyPL94T9cvhzXRHZf7vu39Myj03Wh698UJTZHS54Ko3V7UB8w+SwL\nEKaJ/V+KvOeVdkTGiC8AsNXuo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQU8gu6T55mNwHYnOVCsMgvnd3hfPYwCgYIKoZIzj0E\nAwIDSAAwRQIhAMwTCbbCJv1JLCMm/78QyENoH4+jwowntWioxMih42z1AiAIbUBv\nVh2VFFWRWlKOvoWb6tEibg6nwmYBEWME19D4TQ==\n-----END CERTIFICATE-----\n','d867b27b96aee8166d8b6edb7d33b6456c1fbf8244d3c44127f5502fd8b82126',NULL);",
+    "name": "smime-expired-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-expired-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEKAYJKoZIhvcNAQcCoIIEGTCCBBUCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC+zCCAWgwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEiVRIocLIWcjy/eE/XL4c10R2X+77t/TMo9N1oevfFCU2R0ue\r\nCqN1e1AfMPksCxCmif1firznlXZExogvALDV7qNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFPILuk+eZjcB2JzlQrDIL53d4Xz2\r\nMAoGCCqGSM49BAMCA0gAMEUCIQDMEwm2wib9SSwjJv+/EMhDaB+Po8KMJ7VoqMTI\r\noeNs9QIgCG1Ab1YdlRRVkVpSjr6Fm+rRIm4Op8JmARFjBNfQ+E0wggGLMIIBMaAD\r\nAgECAgICDzAKBggqhkjOPQQDAjAaMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3Qw\r\nHhcNMTAwMTAxMDAwMDAwWhcNMjAwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxTTVRQ\r\nNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARIrzcUCuLeHfZPvf4B\r\niomByvusPnAHUTYIB1kecRo2AIv5Sva0CiRSiok/WfhBckm+LxjLp6Xx9/MpE87O\r\nc7+Oo2owaDAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwQwHwYD\r\nVR0jBBgwFoAU8gu6T55mNwHYnOVCsMgvnd3hfPYwIAYDVR0RBBkwF4EVdmlzaXRv\r\nckBleHRlcm5hbC50ZXN0MAoGCCqGSM49BAMCA0gAMEUCIQDe2WDZKgA7AuFpMgYH\r\nxqP98lb8VmlasWM6biL/rqO7zgIgJycRsvcW0apx3S3BuXqRwB0YOmnN8ddDb0+k\r\nO88SwvkxgfQwgfECAQEwIDAaMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIP\r\nMAsGCWCGSAFlAwQCAaBpMBgGCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZI\r\nhvcNAQkFMQ8XDTI2MTEwNzIyNTY0MVowLwYJKoZIhvcNAQkEMSIEIFsq53D6xFu3\r\nNZL2yhQIw8Slo2TLp7KB2tKZWukCxLZ6MAoGCCqGSM49BAMCBEYwRAIgLrJWlKu5\r\nv0lDZCBu2mRMGb+fyUELREUzmYwiif4WE68CIEK40rbGHVc+tMOt4kcNnAiiMH16\r\nO2Xye0aAwUTocuUu\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBZzCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAATgksLXvHAyT5XiQ0OFfPWH9LeHqkDqEqDMtRXyGBLcejbg2QAGZdJZbPSHBf98\nAktJaSiNWT8XpPq1gz/K81Wbo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUjfazLj1va9A0IHIKTDqpVYEOL5EwCgYIKoZIzj0E\nAwIDRwAwRAIgBmvyc+7rcYAKxrCcJXcw4cE31ScAdXCzsJfGMwViQtoCIEzdjmyU\n7qLiDEMN6hHZU3SdZYZEh3ovmMlRZwBSJi/B\n-----END CERTIFICATE-----\n','6b6ff6529a3ffa9e4caadcae0820f005602954360472af286c91e18a9248aa11',NULL);",
+    "name": "smime-future-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-future-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEKwYJKoZIhvcNAQcCoIIEHDCCBBgCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC/TCCAWcwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAE4JLC17xwMk+V4kNDhXz1h/S3h6pA6hKgzLUV8hgS3Ho24NkA\r\nBmXSWWz0hwX/fAJLSWkojVk/F6T6tYM/yvNVm6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI32sy49b2vQNCByCkw6qVWBDi+R\r\nMAoGCCqGSM49BAMCA0cAMEQCIAZr8nPu63GACsawnCV3MOHBN9UnAHVws7CXxjMF\r\nYkLaAiBM3Y5slO6i4gxDDeoR2VN0nWWGRId6L5jJUWcAUiYvwTCCAY4wggE1oAMC\r\nAQICAgIPMAoGCCqGSM49BAMCMBoxGDAWBgNVBAMTD1NNVFA2IFRlc3QgUm9vdDAi\r\nGA8yMDgwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATxbuv8xZ1LVgRi\r\nDCzbbMoVfiwjj85sdD8sFuRuuYdgxmj1se52M4x+CfXA59W2GtRlvv2Yabk3Vcsr\r\nAXnhAKhwo2owaDAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwQw\r\nHwYDVR0jBBgwFoAUjfazLj1va9A0IHIKTDqpVYEOL5EwIAYDVR0RBBkwF4EVdmlz\r\naXRvckBleHRlcm5hbC50ZXN0MAoGCCqGSM49BAMCA0cAMEQCICFDCKYHEtKdc9M2\r\nuk594ZNx6zVd5TQND6PjxKwYDTfQAiB6G4DJTjPSd3NuRnFEjeAH4z8HRqeh3kCl\r\nfk7k1WfstzGB9TCB8gIBATAgMBoxGDAWBgNVBAMTD1NNVFA2IFRlc3QgUm9vdAIC\r\nAg8wCwYJYIZIAWUDBAIBoGkwGAYJKoZIhvcNAQkDMQsGCSqGSIb3DQEHATAcBgkq\r\nhkiG9w0BCQUxDxcNMjYxMTA3MjI1NjQxWjAvBgkqhkiG9w0BCQQxIgQgWyrncPrE\r\nW7c1kvbKFAjDxKWjZMunsoHa0pla6QLEtnowCgYIKoZIzj0EAwIERzBFAiEAjYBc\r\nxck1myFKckK8J4EFsbiM2PUmzXn0IeRGm9nlZcICIBOcY5h8HBcfijtPF8MCNly0\r\nT+RyD4AWJQH7Vyo251rP\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAARJkhZio2DZbIihf/5HI2Tl47NNOkO/v/Katgrd8RpanELJv8j6+AMwbKfa9D+u\nvrWIcdGlExF+KfQ6C/b7LQm1o0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUa8lwTsWB0DRKstCwEG374GsFoiYwCgYIKoZIzj0E\nAwIDSQAwRgIhAIRZ0lWKKbcTqL8Pl9uCNLe5twVZXCzO7sIOycxTaoarAiEAnyn4\nA5oki4Y45luSUmI3AtvvBZsc9uBQOyGPMwCeMJc=\n-----END CERTIFICATE-----\n','c14ac5f9120ebc0d8d0b17ba9161734de14ed24978cf5fc150472e0cc74ce9d2',NULL);",
+    "name": "smime-wrong-eku-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-wrong-eku-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIELAYJKoZIhvcNAQcCoIIEHTCCBBkCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC/jCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAESZIWYqNg2WyIoX/+RyNk5eOzTTpDv7/ymrYK3fEaWpxCyb/I\r\n+vgDMGyn2vQ/rr61iHHRpRMRfin0Ogv2+y0JtaNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFGvJcE7FgdA0SrLQsBBt++BrBaIm\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCEWdJViim3E6i/D5fbgjS3ubcFWVwszu7CDsnM\r\nU2qGqwIhAJ8p+AOaJIuGOOZbklJiNwLb7wWbHPbgUDshjzMAnjCXMIIBjTCCATOg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQcPnk+CuRTQZFR\r\nQOSkqOMA9pQUXB/0VudLoMoaVS2UTdRvhQ/nVNxHS+BBZazhg7t5py9GBjb55vfn\r\nwCf7euvwo2owaDAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEw\r\nHwYDVR0jBBgwFoAUa8lwTsWB0DRKstCwEG374GsFoiYwIAYDVR0RBBkwF4EVdmlz\r\naXRvckBleHRlcm5hbC50ZXN0MAoGCCqGSM49BAMCA0gAMEUCICHcMPbwOAEc00Zj\r\nPLoSmQ69CnbazoDl/sZUwDlKRwf7AiEA0yXeKzipXAChl4xFW+qhiKySpwqv3PAZ\r\naFne8Fg4F/AxgfUwgfICAQEwIDAaMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QC\r\nAgIPMAsGCWCGSAFlAwQCAaBpMBgGCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJ\r\nKoZIhvcNAQkFMQ8XDTI2MTEwNzIyNTY0MVowLwYJKoZIhvcNAQkEMSIEIFsq53D6\r\nxFu3NZL2yhQIw8Slo2TLp7KB2tKZWukCxLZ6MAoGCCqGSM49BAMCBEcwRQIgckYh\r\nDjpEU4SnmpFv5281T2CGxm3NN71Ewt3fNZNpjaICIQDMTwe2KXoVtzsk5iBLSyZS\r\nSC7gIt+UdRnFYikY2GGWng==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaDCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAATic9MWXaBuNk+T10Of5YgFI/cgtUjHZmKm7NFQaH9WVGMBMlGXKEmejQeKJG9A\nSl6OqNzhJ/NWDBl+ePfBqitQo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUR2QabKiWX5PqXtVPvFp6G9fxUeEwCgYIKoZIzj0E\nAwIDSAAwRQIgL89vyFN6Lgt/HYL26rG3MKyk2LL057sYS0HjNSYa2foCIQCKJmmm\nUwSwu8xfZamtNuPtHjU4gVG9BSaPhpLtdoDD8w==\n-----END CERTIFICATE-----\n','3e2090320b753719fdeae888c74a0c68cee56e83a9d534fbb190e0651f0edf44',NULL);",
+    "name": "smime-absent-eku",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-absent-eku@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEFwYJKoZIhvcNAQcCoIIECDCCBAQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC6DCCAWgwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAE4nPTFl2gbjZPk9dDn+WIBSP3ILVIx2ZipuzRUGh/VlRjATJR\r\nlyhJno0HiiRvQEpejqjc4SfzVgwZfnj3waorUKNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFEdkGmyoll+T6l7VT7xaehvX8VHh\r\nMAoGCCqGSM49BAMCA0gAMEUCIC/Pb8hTei4Lfx2C9uqxtzCspNiy9Oe7GEtB4zUm\r\nGtn6AiEAiiZpplMEsLvMX2WprTbj7R41OIFRvQUmj4aS7XaAw/MwggF4MIIBHqAD\r\nAgECAgICDzAKBggqhkjOPQQDAjAaMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3Qw\r\nIBcNMjAwMTAxMDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBaMBcxFTATBgNVBAMTDFNN\r\nVFA2IFNpZ25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFMTU/Psv7B0ZEeh\r\nq0d6gv/eJX1kYijLPipjnCY9mM0PWzBwq90xjUNCdLSSQb8FRtU/s1ljJUBdxWI4\r\n2w7WNZ+jVTBTMA4GA1UdDwEB/wQEAwIHgDAfBgNVHSMEGDAWgBRHZBpsqJZfk+pe\r\n1U+8Wnob1/FR4TAgBgNVHREEGTAXgRV2aXNpdG9yQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSAAwRQIgAt4L8ZREZm76eHt0OMuAXBguvqQ5a0XhDkvD/PqyyAwC\r\nIQCMKxa5KXWm9a+SfIKPEaraX6JT30yEskf/N4rOM1h5njGB9jCB8wIBATAgMBox\r\nGDAWBgNVBAMTD1NNVFA2IFRlc3QgUm9vdAICAg8wCwYJYIZIAWUDBAIBoGkwGAYJ\r\nKoZIhvcNAQkDMQsGCSqGSIb3DQEHATAcBgkqhkiG9w0BCQUxDxcNMjYxMTA3MjI1\r\nNjQxWjAvBgkqhkiG9w0BCQQxIgQgWyrncPrEW7c1kvbKFAjDxKWjZMunsoHa0pla\r\n6QLEtnowCgYIKoZIzj0EAwIESDBGAiEAjgpHzKqPlZbM7StuDSw75WeIWryKercV\r\npewErEJzKiICIQCQjviGwcGfeZjt8lnrRYDRhPWuBaQD8OQa3Yx91GSCeA==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-from-mismatch",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cdifferent@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cdifferent@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-from-mismatch@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQwYJKoZIhvcNAQcCoIIENDCCBDACAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH2MIHzAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRIMEYCIQCpF8danCGDZuQuHGW6cwWrINldFuVYNKcjkEsQ\r\n2/RFRgIhAN5jEreizPN/SjOTNl0Lk6Ap+5BP/v469c7MQotgJQv+\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-second-san-harvest",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csecond@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003csecond@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-second-san-harvest@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCIEHxIsbSXbUt3Am+ZbzHRgJzSorLvbDb/rrbeZye\r\ndv6PAiEAsM64d0ziEvkAOWoo3B3kGX4pCsAD5zu9M+qAkg9FFCg=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-direct-skips-harvest",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calice@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alice@smtp1.test\r\nMessage-ID: \u003csmime-direct-skips-harvest@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCICdYTE7JsfwXQn03+C9T4pEXi1OQjUrqvmsENx5P\r\nCNUPAiEAmM6t84dpPtopnO93tPv3sgSuCu30Ojt0sT5qzBbgKHo=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-tampered-invalid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-tampered-invalid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTAMPERED https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCIDbXEYOHmhvLrd5hiA62ylJtiHkYNUTBLhIQujCA\r\ndLgMAiEA7wNJyoxF9ct0SLwVUxK/rQcEReDGIpJUgk6DixROmTk=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-bad-der-invalid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-bad-der-invalid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\n\r\nbm90LWRlcg==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-bad-base64-nil",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-bad-base64-nil@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\n\r\n!!!\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-opaque-not-verified",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-opaque-not-verified@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: application/pkcs7-mime; smime-type=signed-data\r\n\r\nnot-detached\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-unsigned-nil",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-unsigned-nil@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: text/plain\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-x-protocol",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-x-protocol@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/x-pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/x-pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCID2dfxgwm5GjjTFQTKMc6juxheQ/cvhuQri7HK/b\r\nWUDyAiEA4ZKvgf72QWa/kPb5UzWekD88DLGWKyWhVa/NkUNR7Xc=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);INSERT INTO smime_revocation_blocklist(fingerprint,reason) VALUES('ab202c5c5ddddbbd60287c3e41f43921c603ed51d0a2683d79eb6fb8301688f1','smtp6-fixture');",
+    "name": "smime-revoked-untrusted",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-revoked-untrusted@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQwYJKoZIhvcNAQcCoIIENDCCBDACAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH2MIHzAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRIMEYCIQDAzvLuZwEP69HMgSOdVW9DCqTOffJJKHAIoT0v\r\n401OdgIhAJtU+5DaHje+I+FkV96TtTPWqFBrOZfdsJUn4l14NX3x\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    },
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.antiphish_display_name": true,
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-valid-skips-warning",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alic3 \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-valid-skips-warning@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCIQCFCip/nbca4DSvFeHZ+7a02yRMRJFZknBaTaG9\r\n4H/67wIgdTSfDpqaV1RmHYRoCUszH+j8+6gHVpsgD0/7oyBHbDw=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    },
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.antiphish_display_name": true,
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "name": "smime-untrusted-still-warns",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alic3 \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-untrusted-still-warns@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQQYJKoZIhvcNAQcCoIIEMjCCBC4CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH0MIHxAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRGMEQCIGlpNxQx2EhMeA+Fj+o+Y6iKCwz7dbqFfG89blNN\r\nkYMDAiBTvy7MrRm2a+j6HCs/sr0SkdXhkHdQ6iHMzRbnLLEO9w==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    },
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.antiphish_display_name": true,
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "name": "smime-valid-policy-reject-harvests",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alice \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-valid-policy-reject-harvests@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQQYJKoZIhvcNAQcCoIIEMjCCBC4CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH0MIHxAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRGMEQCIHvPlPfA6GWHOAehHpCaZoU7elWTPNGyUuH91EEK\r\n3dCuAiAL61sI4/5eob6TR/s1fOQUQbthpVXdwvNMHLUxPoIkdA==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  }
+]

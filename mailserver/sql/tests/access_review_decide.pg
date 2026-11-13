@@ -1,0 +1,63 @@
+-- access_review_decide.pg
+-- pgTAP tests for access_review_decide reducer.
+-- Verifies: keep records decision + audit row; SSO revoke blocked (BZ063);
+-- bad item id raises BZ060; scoped actor on global campaign raises BZ061.
+BEGIN;
+SELECT plan(7);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90301, 'arv-dec.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (90301, 'dec_act', 90301, 'act@arv-dec.test', 'Act', TRUE),
+  (90302, 'dec_u',   90301, 'u@arv-dec.test',   'U',   TRUE),
+  (90303, 'dec_sso', 90301, 'sso@arv-dec.test', 'S',   TRUE);
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (90301, 'dec-role', ARRAY['mail.pipeline'], NULL);
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by) OVERRIDING SYSTEM VALUE VALUES
+  (90301, 90302, 90301, 90301),  -- admin-granted (not SSO)
+  (90302, 90303, 90301, NULL),   -- SSO
+  (90303, 90301, 90301, 90301);  -- the ACTOR's own assignment (for the self-cert test)
+SELECT access_review_start(90301, 'dec recert', 0);  -- global campaign
+-- capture item ids
+CREATE TEMP TABLE _items AS
+  SELECT i.id, i.assignment_id FROM access_review_items i
+    JOIN access_review_campaigns c ON c.id=i.campaign_id WHERE c.name='dec recert';
+CREATE TEMP TABLE _cid AS SELECT id FROM access_review_campaigns WHERE name='dec recert';
+
+-- keep records the decision + audit row
+SELECT lives_ok(
+  $$ SELECT access_review_decide(90301, (SELECT id FROM _cid),
+       (SELECT id FROM _items WHERE assignment_id=90301), 'keep', NULL, 0) $$,
+  'keep on admin-granted item runs');
+SELECT is(
+  (SELECT decision FROM access_review_items WHERE id=(SELECT id FROM _items WHERE assignment_id=90301)),
+  'keep', 'decision recorded');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log WHERE action='access_review_decide'), 1,
+  'decide writes one audit row');
+
+-- revoke on an SSO item is blocked (BZ063)
+SELECT throws_ok(
+  $$ SELECT access_review_decide(90301, (SELECT id FROM _cid),
+       (SELECT id FROM _items WHERE assignment_id=90302), 'revoke', NULL, 0) $$,
+  'BZ063', NULL, 'revoke of SSO item raises BZ063');
+
+-- bad item id raises BZ060 (no silent no-op)
+SELECT throws_ok(
+  $$ SELECT access_review_decide(90301, (SELECT id FROM _cid), 99999999, 'keep', NULL, 0) $$,
+  'BZ060', NULL, 'decide on nonexistent item raises BZ060');
+
+-- out-of-scope actor (scope=12345) on a global campaign raises BZ061
+SELECT throws_ok(
+  $$ SELECT access_review_decide(90301, (SELECT id FROM _cid),
+       (SELECT id FROM _items WHERE assignment_id=90301), 'keep', NULL, 12345) $$,
+  'BZ061', NULL, 'scoped actor on global campaign raises BZ061');
+
+-- SoD: an actor may not certify their OWN access (self-review) — raises BZ069.
+-- Item assignment_id=90303 is the actor's (90301) own snapshotted assignment.
+SELECT throws_ok(
+  $$ SELECT access_review_decide(90301, (SELECT id FROM _cid),
+       (SELECT id FROM _items WHERE assignment_id=90303), 'keep', NULL, 0) $$,
+  'BZ069', NULL, 'actor cannot self-certify their own access (SoD, BZ069)');
+
+SELECT * FROM finish();
+ROLLBACK;

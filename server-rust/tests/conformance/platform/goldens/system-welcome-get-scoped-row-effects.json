@@ -1,0 +1,57 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": null,
+          "value": {
+            "default_locale": "zh",
+            "enabled": true,
+            "locales": {
+              "en": {
+                "body_html": "<p>x</p>",
+                "body_text": "x",
+                "subject": "Hello"
+              },
+              "zh": {
+                "body_html": "",
+                "body_text": "t & u",
+                "subject": "你好 <b>"
+              }
+            }
+          }
+        }
+      ],
+      "before": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": null,
+          "value": {
+            "default_locale": "zh",
+            "enabled": true,
+            "locales": {
+              "en": {
+                "body_html": "<p>x</p>",
+                "body_text": "x",
+                "subject": "Hello"
+              },
+              "zh": {
+                "body_html": "",
+                "body_text": "t & u",
+                "subject": "你好 <b>"
+              }
+            }
+          }
+        }
+      ],
+      "table": "system_config"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/system/welcome-email"
+}

@@ -1,0 +1,136 @@
+-- mailserver/sql/tests/drive_space_as_of.pg — P6 Task 8 "space as of T"
+BEGIN;
+SELECT plan(10);
+
+SELECT mk_account('dsoM') AS mbm \gset
+SELECT mk_account('dsoB') AS mbb \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+-- :b is never a space member
+SELECT user_id AS b FROM mailboxes WHERE id = :mbb \gset
+
+SELECT drive_space_create(:m, 'AsOfSpace', 'regular') AS sid \gset
+SELECT now() - interval '60 minutes' AS t0 \gset
+
+-- A: created 120m ago (before T), v1 backdated -110m (<=T), v2 backdated
+-- -30m (>T) -> as-of(T) must report v1.
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'a.bin') AS a_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :a_node, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't')->>'versionId')::bigint AS a_v1 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :a_node, repeat('b',64), 10, NULL, :a_v1,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't')->>'versionId')::bigint AS a_v2 \gset
+UPDATE drive_nodes SET created_at = now() - interval '120 minutes' WHERE id = :a_node;
+UPDATE drive_file_versions SET created_at = now() - interval '110 minutes' WHERE id = :a_v1;
+UPDATE drive_file_versions SET created_at = now() - interval '30 minutes'  WHERE id = :a_v2;
+
+-- B: created 30m ago (AFTER T) -> absent entirely.
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'b.bin') AS b_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('2',64), 10);
+SELECT drive_file_put_version(:m, :b_node, repeat('c',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 't');
+UPDATE drive_nodes SET created_at = now() - interval '30 minutes' WHERE id = :b_node;
+UPDATE drive_file_versions SET created_at = now() - interval '30 minutes' WHERE file_node_id = :b_node;
+
+-- C: created 120m ago, trashed 90m ago (BEFORE T) -> absent (didn't exist at T? no —
+-- it existed, but was ALREADY trashed by T, so temporally gone from the view).
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'c.bin') AS c_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('3',64), 10);
+SELECT drive_file_put_version(:m, :c_node, repeat('d',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, NULL, 't');
+UPDATE drive_nodes SET created_at = now() - interval '120 minutes' WHERE id = :c_node;
+UPDATE drive_file_versions SET created_at = now() - interval '110 minutes' WHERE file_node_id = :c_node;
+SELECT drive_node_trash(:m, :c_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '90 minutes' WHERE id = :c_node;
+
+-- D: created 120m ago, trashed 10m ago (AFTER T, still live AT T) -> present,
+-- liveNow = false (temporal existence at T, current state says trashed).
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'd.bin') AS d_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('4',64), 10);
+SELECT drive_file_put_version(:m, :d_node, repeat('e',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('4',64))::jsonb, NULL, 't');
+UPDATE drive_nodes SET created_at = now() - interval '120 minutes' WHERE id = :d_node;
+UPDATE drive_file_versions SET created_at = now() - interval '100 minutes' WHERE file_node_id = :d_node;
+SELECT drive_node_trash(:m, :d_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '10 minutes' WHERE id = :d_node;
+
+-- E: created 120m ago, trashed+destroyed+hard-destroyed -> gone from
+-- drive_nodes entirely; as-of must not error, node simply absent.
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'e.bin') AS e_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('5',64), 10);
+SELECT drive_file_put_version(:m, :e_node, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('5',64))::jsonb, NULL, 't');
+UPDATE drive_nodes SET created_at = now() - interval '120 minutes' WHERE id = :e_node;
+SELECT drive_node_trash(:m, :e_node);
+SELECT drive_node_destroy(:m, :e_node);
+SELECT drive_node_destroy_hard(:e_node);
+
+-- F (ceiling #4 probe): created 120m ago (<=T), destroyed now so purged_at
+-- is AFTER T -> the reducer's own predicate would show it (purged_at > T),
+-- but bound RLS (setjoin_app) hides EVERY tier-2 row unconditionally.
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'f.bin') AS f_node \gset
+SELECT drive_chunk_register(:m, :sid, repeat('6',64), 10);
+SELECT drive_file_put_version(:m, :f_node, repeat('9',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('6',64))::jsonb, NULL, 't');
+UPDATE drive_nodes SET created_at = now() - interval '120 minutes' WHERE id = :f_node;
+UPDATE drive_file_versions SET created_at = now() - interval '100 minutes' WHERE file_node_id = :f_node;
+SELECT drive_node_trash(:m, :f_node);
+SELECT drive_node_destroy(:m, :f_node);   -- purged_at = now(), i.e. AFTER :t0
+
+-- 1) file A reports v1 at T (v1 <= T < v2)
+SELECT is((SELECT (e->>'versionId')::bigint FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :a_node),
+          :a_v1::bigint, 'file A reports version v1 at T (v1<=T<v2)');
+
+-- 2) node created after T is absent
+SELECT is((SELECT count(*) FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :b_node)::int,
+          0, 'node created after T is absent');
+
+-- 3) node trashed before T is absent
+SELECT is((SELECT count(*) FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :c_node)::int,
+          0, 'node trashed before T is absent');
+
+-- 4) node still live at T but trashed now is present, liveNow=false
+SELECT is((SELECT (e->>'liveNow')::boolean FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :d_node),
+          false, 'node still live at T but trashed now: present, liveNow=false');
+
+-- 5) non-member -> BZ139
+SELECT throws_ok(format($$ SELECT drive_space_as_of(%s, %s, %L::timestamptz) $$, :b, :sid, :'t0'),
+  'BZ139', NULL, 'non-member -> BZ139');
+
+-- 6) hard-destroyed node causes no error, and is simply absent
+SELECT lives_ok(format($$ SELECT drive_space_as_of(%s, %s, now()) $$, :m, :sid),
+  'hard-destroyed node in the space causes no error');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(drive_space_as_of(:m, :sid, now())) e
+            WHERE (e->>'id')::bigint = :e_node)::int,
+          0, 'hard-destroyed node absent from as-of(now)');
+
+-- 7) p_at in the future -> BZ141
+SELECT throws_ok(format($$ SELECT drive_space_as_of(%s, %s, (now() + interval '1 hour')::timestamptz) $$, :m, :sid),
+  'BZ141', NULL, 'p_at in the future -> BZ141');
+
+-- 8) ceiling #4: superuser (bypasses RLS) sees F per the reducer's own
+-- temporal-existence predicate; under bound RLS (setjoin_app) it is hidden.
+SELECT is((SELECT count(*) FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :f_node)::int,
+          1, 'superuser: node purged after T still shows (reducer honors temporal existence)');
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :m::text, true);
+SELECT is((SELECT count(*) FROM jsonb_array_elements(
+             drive_space_as_of(:m, :sid, :'t0'::timestamptz)) e
+            WHERE (e->>'id')::bigint = :f_node)::int,
+          0, 'ceiling #4: under bound RLS, a node purged after T drops out of the as-of view (admin bin; restore reappears)');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

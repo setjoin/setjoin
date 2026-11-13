@@ -1,0 +1,12 @@
+{
+  "case": "unsubscribe-cross-tenant-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "5401e459c13f9847960747644c802b496caae35e",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /messages/{emailId}/unsubscribe"
+}

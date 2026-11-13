@@ -1,0 +1,68 @@
+{
+  "case": "retention-foreign",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture actor/channel IDs",
+    "audit chain checksum (verified independently)",
+    "generated timestamps"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after": null,
+        "before": {
+          "actor": "chat-oracle@test",
+          "missingPermission": "chat.compliance_manage",
+          "target": "/admin/chat-channels/{id}/retention"
+        },
+        "ip": null,
+        "notes": "/admin/chat-channels/23/retention",
+        "targetId": null,
+        "targetType": "console"
+      }
+    ],
+    "effects": {
+      "acts": [],
+      "chainValid": true,
+      "channel": {
+        "changeSeq": 0,
+        "classification": "regular",
+        "lastPurgedSeq": 0,
+        "legalHold": false,
+        "legalHoldReason": null,
+        "retentionDays": null,
+        "wormMode": null
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"retentionDays\":30}",
+      "method": "PUT",
+      "path": "/admin/chat-channels/{id}/retention"
+    },
+    "response": {
+      "body": {
+        "detail": "Forbidden",
+        "instance": "",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat1-oracle"
+      },
+      "status": 403
+    }
+  },
+  "route": "PUT /admin/chat-channels/{id}/retention"
+}

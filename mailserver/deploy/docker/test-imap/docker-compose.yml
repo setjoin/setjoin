@@ -1,0 +1,14 @@
+services:
+  imap-test:
+    build: .
+    ports:
+      # Loopback-pinned to match the parent runner (deploy/docker-compose.test.yml):
+      # an unpinned mapping binds 0.0.0.0 and exposes the test service on every
+      # host interface.
+      - "127.0.0.1:3143:143"
+    healthcheck:
+      test: ["CMD", "dovecot", "log", "test"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 3s

@@ -1,0 +1,235 @@
+{
+  "case": "managed",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "conflicts": [
+            {
+              "detected_at": "2026-10-01T12:00:01.25+00:00",
+              "field": "displayName",
+              "id": "<conflict-1>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<target>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:02.5+00:00",
+              "field": "title",
+              "id": "<conflict-2>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<other>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:03+00:00",
+              "field": "phone",
+              "id": "<conflict-3>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": "kept_local",
+              "resolved_at": "2026-10-01T12:30:00+00:00",
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<target>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:04+00:00",
+              "field": "mail",
+              "id": "<conflict-4>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ldap",
+              "user_id": "<target>"
+            }
+          ],
+          "policy": [
+            {
+              "field": "phone",
+              "policy": "local_only",
+              "set_at": "2026-10-01T12:00:00+00:00",
+              "set_by": null,
+              "user_id": "<target>"
+            }
+          ],
+          "principal": [
+            {
+              "id": "<admin>",
+              "krb5": null
+            },
+            {
+              "id": "<other>",
+              "krb5": null
+            },
+            {
+              "id": "<target>",
+              "krb5": "old@CORP.EXAMPLE"
+            }
+          ],
+          "state": [
+            {
+              "email": 0,
+              "mailbox": "<admin-mailbox>",
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<other-mailbox>",
+              "tags": 0
+            }
+          ]
+        },
+        "before": {
+          "conflicts": [
+            {
+              "detected_at": "2026-10-01T12:00:01.25+00:00",
+              "field": "displayName",
+              "id": "<conflict-1>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<target>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:02.5+00:00",
+              "field": "title",
+              "id": "<conflict-2>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<other>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:03+00:00",
+              "field": "phone",
+              "id": "<conflict-3>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": "kept_local",
+              "resolved_at": "2026-10-01T12:30:00+00:00",
+              "resolved_by": null,
+              "source": "ad",
+              "user_id": "<target>"
+            },
+            {
+              "detected_at": "2026-10-01T12:00:04+00:00",
+              "field": "mail",
+              "id": "<conflict-4>",
+              "local_value": "local <v>",
+              "remote_value": "remote & v",
+              "resolution": null,
+              "resolved_at": null,
+              "resolved_by": null,
+              "source": "ldap",
+              "user_id": "<target>"
+            }
+          ],
+          "policy": [
+            {
+              "field": "phone",
+              "policy": "local_only",
+              "set_at": "2026-10-01T12:00:00+00:00",
+              "set_by": null,
+              "user_id": "<target>"
+            },
+            {
+              "field": "title",
+              "policy": "local_only",
+              "set_at": "2026-10-01T12:00:00+00:00",
+              "set_by": null,
+              "user_id": "<target>"
+            }
+          ],
+          "principal": [
+            {
+              "id": "<admin>",
+              "krb5": null
+            },
+            {
+              "id": "<other>",
+              "krb5": null
+            },
+            {
+              "id": "<target>",
+              "krb5": "old@CORP.EXAMPLE"
+            }
+          ],
+          "state": [
+            {
+              "email": 0,
+              "mailbox": "<admin-mailbox>",
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<other-mailbox>",
+              "tags": 0
+            }
+          ]
+        },
+        "table": "directory"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"field\":\"title\",\"policy\":\"ad_managed\",\"userId\":<target>}",
+      "external_path": "/api/admin/ad/field-policy",
+      "method": "PUT",
+      "path": "/admin/ad/field-policy"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/ad/field-policy"
+}

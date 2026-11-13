@@ -1,0 +1,41 @@
+-- mailserver/sql/tests/drive_refcount.pg — I-6 refcount symmetry incl. the G7
+-- SECURITY-DEFINER proof: the increment fires under setjoin_app (non-owner).
+BEGIN;
+SELECT plan(8);
+SELECT mk_account('drc') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('rc', :u);
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES (:sid, :u, 'manager', :u);
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:sid, 'file', 'f.bin', :u);
+SELECT currval(pg_get_serial_sequence('drive_nodes','id')) AS nid \gset
+INSERT INTO drive_files (node_id, space_id) VALUES (:nid, :sid);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:nid, :sid, repeat('b',64), 10, :u), (:nid, :sid, repeat('c',64), 10, :u);
+SELECT id AS v1 FROM drive_file_versions WHERE content_sha256=repeat('b',64) \gset
+SELECT id AS v2 FROM drive_file_versions WHERE content_sha256=repeat('c',64) \gset
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, ref_count, storage_ref)
+  VALUES ('g', repeat('d',64), 10, 0, 'drive/g/'||repeat('d',64));
+INSERT INTO drive_upload_claims (scope_key, sha256, user_id) VALUES ('g', repeat('d',64), :u);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :u::text, true);
+SELECT lives_ok(format($$ INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256)
+  VALUES (%s, 0, 'g', %L) $$, :v1, repeat('d',64)),
+  'manifest INSERT as setjoin_app succeeds (G7: DEFINER trigger moves ref_count)');
+RESET ROLE;
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('d',64)), 1::bigint, 'increment under non-owner role (G7 proof)');
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256)
+  VALUES (:v2, 0, 'g', repeat('d',64));
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('d',64)), 2::bigint, 'shared chunk across two versions = 2');
+DELETE FROM drive_version_chunks WHERE version_id = :v2;
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('d',64)), 1::bigint, 'delete decrements');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE sha256=repeat('d',64))::int, 0, 'no GC row while referenced');
+DELETE FROM drive_version_chunks WHERE version_id = :v1;
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('d',64)), 0::bigint, 'zero on last deref');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE sha256=repeat('d',64))::int, 1, 'exactly one GC-queue row at zero');
+SELECT throws_like($$ UPDATE drive_chunks SET ref_count = -1 WHERE sha256=repeat('d',64) $$,
+  '%ref_count%', 'ref_count >= 0 CHECK holds');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --target is required or set STORAGE_PROVIDER\n",
+  "exit": 1
+}

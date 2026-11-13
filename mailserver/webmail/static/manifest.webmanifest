@@ -1,0 +1,14 @@
+{
+	"name": "setjoin",
+	"short_name": "setjoin",
+	"description": "setjoin mail, calendar, contacts and tasks",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#4A50D0",
+	"icons": [
+		{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+		{ "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+	]
+}

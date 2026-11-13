@@ -1,0 +1,22 @@
+{
+  "exit": 2,
+  "stdout": "",
+  "stderr": "Error: pre-upgrade recovery set is not eligible: recovery set timeline mismatch\n",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/recovery-context",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    }
+  ],
+  "operations": [
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/manifest.json"
+    ]
+  ]
+}

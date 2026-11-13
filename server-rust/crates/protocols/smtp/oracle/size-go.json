@@ -1,0 +1,88 @@
+[
+  {
+    "name": "spilled-truncation",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "repeat": "x",
+        "count": 1048576,
+        "timeout_ms": 30000,
+        "send": "",
+        "lines": 1,
+        "reply": "451 Error reading message\r\n",
+        "half_close": true
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "maximum-plus-one",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "repeat": "x",
+        "count": 157286401,
+        "timeout_ms": 30000,
+        "send": "",
+        "lines": 1,
+        "reply": "552 Message size exceeds fixed maximum message size\r\n",
+        "half_close": true
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

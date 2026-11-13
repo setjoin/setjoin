@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/conflicts",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"items\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000001\",\n      \"sourceKey\": \"directory\",\n      \"evidenceClass\": \"hard\",\n      \"state\": \"pending\",\n      \"generation\": \"1\",\n      \"explanation\": \"Review candidate\"\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

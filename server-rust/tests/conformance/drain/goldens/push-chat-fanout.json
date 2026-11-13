@@ -1,0 +1,401 @@
+{
+  "case": "push-chat-fanout",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "object_puts": [],
+    "requests": [
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJjaGFubmVsSWQiOjkxMDAwMDEsImNoYW5uZWxOYW1lIjoiZ2VuZXJhbCIsImRlZHVwZVRhZyI6ImNoYXQtOTEwMDAwMSIsIm1lbnRpb24iOnRydWUsIm1lc3NhZ2VJZCI6OTIwMDAwMiwic2VuZGVyIjoiVXNlciBTIE5hbWUiLCJzZXEiOjIsInR5cGUiOiJjaGF0In0="
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/ok-apns-a",
+        "status": 200
+      },
+      {
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "body_length": 4096,
+          "padding_length": 3841,
+          "payload": {
+            "channelId": 9100001,
+            "channelName": "general",
+            "dedupeTag": "chat-9100001",
+            "mention": true,
+            "messageId": 9200002,
+            "sender": "User S Name",
+            "seq": 2,
+            "type": "chat"
+          },
+          "record_size": 4096,
+          "vapid": {
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        },
+        "content_type": "application/octet-stream",
+        "method": "POST",
+        "path": "/webpush/capability",
+        "status": 200
+      },
+      {
+        "authorization": "",
+        "body": {
+          "assertion": {
+            "claims": {
+              "aud": "{HTTP}/oauth/fcm",
+              "exp": "{EXPIRY}",
+              "iat": "{IAT}",
+              "iss": "synthetic@fixture.invalid",
+              "lifetime": 3600,
+              "scope": "https://www.googleapis.com/auth/firebase.messaging"
+            },
+            "header": {
+              "alg": "RS256",
+              "kid": "fixture-key",
+              "typ": "JWT"
+            },
+            "signature_verified": true
+          },
+          "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        },
+        "content_type": "application/x-www-form-urlencoded",
+        "method": "POST",
+        "path": "/oauth/fcm"
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b226368616e6e656c4964223a393130303030312c226368616e6e656c4e616d65223a2267656e6572616c222c22646564757065546167223a22636861742d39313030303031222c226d656e74696f6e223a66616c73652c226d6573736167654964223a393230303030322c2273656e646572223a22557365722053204e616d65222c22736571223a322c2274797065223a2263686174227d"
+            },
+            "token": "fail-fcm-d"
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "status": 500
+      },
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJjaGFubmVsSWQiOjkxMDAwMDEsImNoYW5uZWxOYW1lIjoiZ2VuZXJhbCIsImRlZHVwZVRhZyI6ImNoYXQtOTEwMDAwMSIsIm1lbnRpb24iOmZhbHNlLCJtZXNzYWdlSWQiOjkyMDAwMDIsInNlbmRlciI6IlVzZXIgUyBOYW1lIiwic2VxIjoyLCJ0eXBlIjoiY2hhdCJ9"
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/gone-apns-e",
+        "status": 410
+      },
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJjaGFubmVsSWQiOjkxMDAwMDIsImNoYW5uZWxOYW1lIjoiIiwiZGVkdXBlVGFnIjoiY2hhdC05MTAwMDAyIiwibWVudGlvbiI6ZmFsc2UsIm1lc3NhZ2VJZCI6OTIwMDAwNCwic2VuZGVyIjoiVXNlciBTIE5hbWUiLCJzZXEiOjEsInR5cGUiOiJjaGF0In0="
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/ok-apns-a",
+        "status": 200
+      },
+      {
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "body_length": 4096,
+          "padding_length": 3847,
+          "payload": {
+            "channelId": 9100002,
+            "channelName": "",
+            "dedupeTag": "chat-9100002",
+            "mention": false,
+            "messageId": 9200004,
+            "sender": "User S Name",
+            "seq": 1,
+            "type": "chat"
+          },
+          "record_size": 4096,
+          "vapid": {
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        },
+        "content_type": "application/octet-stream",
+        "method": "POST",
+        "path": "/webpush/capability",
+        "status": 200
+      },
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJjaGFubmVsSWQiOjkxMDAwMDMsImNoYW5uZWxOYW1lIjoiVXNlciBDIE5hbWUsIFVzZXIgRCBOYW1lLCBVc2VyIFMgTmFtZSIsImRlZHVwZVRhZyI6ImNoYXQtOTEwMDAwMyIsIm1lbnRpb24iOmZhbHNlLCJtZXNzYWdlSWQiOjkyMDAwMDUsInNlbmRlciI6IlVzZXIgUyBOYW1lIiwic2VxIjoxLCJ0eXBlIjoiY2hhdCJ9"
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/ok-apns-a",
+        "status": 200
+      },
+      {
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "body_length": 4096,
+          "padding_length": 3810,
+          "payload": {
+            "channelId": 9100003,
+            "channelName": "User C Name, User D Name, User S Name",
+            "dedupeTag": "chat-9100003",
+            "mention": false,
+            "messageId": 9200005,
+            "sender": "User S Name",
+            "seq": 1,
+            "type": "chat"
+          },
+          "record_size": 4096,
+          "vapid": {
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        },
+        "content_type": "application/octet-stream",
+        "method": "POST",
+        "path": "/webpush/capability",
+        "status": 200
+      },
+      {
+        "authorization": "",
+        "body": {
+          "client_id": "fixture-app",
+          "client_secret": "synthetic-secret",
+          "grant_type": "client_credentials"
+        },
+        "content_type": "application/x-www-form-urlencoded",
+        "method": "POST",
+        "path": "/oauth2/v3/token"
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "urgency": "HIGH"
+            },
+            "data": "7b226368616e6e656c4964223a393130303030332c226368616e6e656c4e616d65223a22557365722041204e616d652c20557365722044204e616d652c20557365722053204e616d65222c22646564757065546167223a22636861742d39313030303033222c226d656e74696f6e223a66616c73652c226d6573736167654964223a393230303030352c2273656e646572223a22557365722053204e616d65222c22736571223a312c2274797065223a2263686174227d",
+            "token": [
+              "ok-hms-c"
+            ]
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v3/fixture-app/messages:send",
+        "status": 200
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b226368616e6e656c4964223a393130303030332c226368616e6e656c4e616d65223a22557365722041204e616d652c20557365722043204e616d652c20557365722053204e616d65222c22646564757065546167223a22636861742d39313030303033222c226d656e74696f6e223a66616c73652c226d6573736167654964223a393230303030352c2273656e646572223a22557365722053204e616d65222c22736571223a312c2274797065223a2263686174227d"
+            },
+            "token": "fail-fcm-d"
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "status": 500
+      },
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJjaGFubmVsSWQiOjkxMDAwMDEsImNoYW5uZWxOYW1lIjoiZ2VuZXJhbCIsImRlZHVwZVRhZyI6ImNoYXQtOTEwMDAwMSIsIm1lbnRpb24iOnRydWUsIm1lc3NhZ2VJZCI6OTIwMDAwNiwic2VuZGVyIjoiVXNlciBTIE5hbWUiLCJzZXEiOjQsInR5cGUiOiJjaGF0In0="
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/ok-apns-a",
+        "status": 200
+      },
+      {
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "body_length": 4096,
+          "padding_length": 3841,
+          "payload": {
+            "channelId": 9100001,
+            "channelName": "general",
+            "dedupeTag": "chat-9100001",
+            "mention": true,
+            "messageId": 9200006,
+            "sender": "User S Name",
+            "seq": 4,
+            "type": "chat"
+          },
+          "record_size": 4096,
+          "vapid": {
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        },
+        "content_type": "application/octet-stream",
+        "method": "POST",
+        "path": "/webpush/capability",
+        "status": 200
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b226368616e6e656c4964223a393130303030312c226368616e6e656c4e616d65223a2267656e6572616c222c22646564757065546167223a22636861742d39313030303031222c226d656e74696f6e223a747275652c226d6573736167654964223a393230303030362c2273656e646572223a22557365722053204e616d65222c22736571223a342c2274797065223a2263686174227d"
+            },
+            "token": "fail-fcm-d"
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "status": 500
+      }
+    ],
+    "rows": {
+      "chat_intents": [
+        "plain-older:done:1:",
+        "mention-a:done:1:",
+        "plain-newest:done:1:",
+        "dm-1:done:1:",
+        "groupdm-1:done:1:",
+        "broadcast-here:done:1:",
+        "gone-message:done:1:"
+      ],
+      "devices": [
+        "gofree-drain-a:apns:ok-apns-a:false",
+        "gofree-drain-a:webpush:{\"endpoint\":\"{PEER}/webpush/capability?d=ok-web-a\",\"keys\":{\"auth\":\"AQEBAQEBAQEBAQEBAQEBAQ\",\"p256dh\":\"BNad6px2O6Xv767O3aogsFIoDJJL8i4KITIRlnSVwRVYysoHkuUhI70bHMZIazFSqKdheJDzExwYuCdsNSf6owA\"}}:false",
+        "gofree-drain-c:hms:ok-hms-c:false",
+        "gofree-drain-d:fcm:fail-fcm-d:false",
+        "gofree-drain-e:apns:gone-apns-e:true"
+      ]
+    }
+  }
+}

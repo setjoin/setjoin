@@ -1,0 +1,12 @@
+{
+  "exit": 0,
+  "stdout": "Backup preview\n  Timestamp:    20260823T010000Z\n  Users:        3\n  Domains:      1\n  Config size:  42 bytes\n  Blobs:        2 (17 bytes total)\n  Warnings:\n    - fixture warning\n",
+  "stderr": "",
+  "requests": [
+    {
+      "path": "/setup/preflight",
+      "body": "{\"provider\":\"\",\"endpoint\":\"\",\"region\":\"\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"full\"}",
+      "content-type": "application/json"
+    }
+  ]
+}

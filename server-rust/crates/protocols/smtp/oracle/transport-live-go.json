@@ -1,0 +1,162 @@
+[
+  {
+    "blob_requests": null,
+    "case": {
+      "transport_from_db": true,
+      "between_ticks_sql": [
+        "UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.dnssec','feature.dane'); INSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,mailbox_id,message_pk) SELECT 9350012,'\u003clive-second@smtp3.test\u003e',from_addr,rcpt_addrs,raw_ref,mailbox_id,message_pk FROM outbound_queue WHERE id=9350011;"
+      ],
+      "transport": {
+        "feature.dane": true,
+        "feature.dnssec": true,
+        "feature.mta_sts": false,
+        "feature.tls_rpt": false
+      },
+      "tlsa": [
+        "error"
+      ],
+      "blob_headers": null,
+      "teardown_sql": "DO $$BEGIN IF to_regclass('public.gofree_smtp4_toggle_backup') IS NOT NULL THEN DELETE FROM feature_toggles WHERE key IN ('feature.dnssec','feature.dane','feature.mta_sts','feature.tls_rpt'); INSERT INTO feature_toggles SELECT * FROM public.gofree_smtp4_toggle_backup; DROP TABLE public.gofree_smtp4_toggle_backup; END IF; END$$;",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "dane-live-enable-closes-idle-plaintext",
+      "sql": "CREATE TABLE public.gofree_smtp4_toggle_backup AS SELECT * FROM feature_toggles WHERE key IN ('feature.dnssec','feature.dane','feature.mta_sts','feature.tls_rpt'); UPDATE feature_toggles SET enabled=false WHERE key IN ('feature.dnssec','feature.dane','feature.mta_sts','feature.tls_rpt');\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        },
+        {
+          "id": 9350012,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to two@dest.test failed: DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "outcome": "error",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        },
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "two@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 2,
+            "delivered": 2
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA",
+          "RSET",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003ctwo@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K",
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"description\":\"Example\",\"name\":\"New\",\"permissions\":[\"mail.read\"]}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/roles/7/members",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"userId\":9}"
+    }
+  ],
+  "stdout": "+ created role \"New\" (id=7)\n+ granted a@example.test -> \"New\"\nApply complete.\n",
+  "stderr": "",
+  "exit": 0
+}

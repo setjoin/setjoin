@@ -1,0 +1,165 @@
+{
+  "case": "push-mail-matrix",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "object_puts": [],
+    "requests": [
+      {
+        "authorization": "",
+        "body": {
+          "aps": {
+            "alert": {
+              "body": "You have a new notification",
+              "title": "SetJoin"
+            },
+            "content-available": 1,
+            "mutable-content": 1
+          },
+          "data": "eyJhY3Rpb25zIjpbImFyY2hpdmUiLCJyZXBseSJdLCJtYWlsYm94IjoiZ29mcmVlLWRyYWluLWFAZ29mcmVlLWRyYWluLnRlc3QiLCJtZXNzYWdlSWQiOiJcdTAwM2NtMUBnb2ZyZWUtZHJhaW4udGVzdFx1MDAzZSIsInNlbmRlciI6eyJlbWFpbCI6InNlbmRlckB4LnRlc3QiLCJuYW1lIjoiWm/DqyBcdTAwM2PDnG7Dr1x1MDAzZSBcdTAwMjYgXCJDb1wiIn0sInN1YmplY3QiOiJIZWxsbyBcdTAwM2NiXHUwMDNleFx1MDAzYy9iXHUwMDNlIFx1MDAyNiBtb3JlIiwidHlwZSI6Im1haWwifQ=="
+        },
+        "client_certificate_sha256": "19fd7eb8c44c2673ca611ac845ef17a44a0a55278371b2a8b3fbf956ae9d5956",
+        "content_type": "application/json; charset=utf-8",
+        "headers": {
+          "apns-expiration": null,
+          "apns-priority": "10",
+          "apns-push-type": "alert",
+          "apns-topic": "test.fixture.app"
+        },
+        "method": "POST",
+        "path": "/3/device/ok-apns-a",
+        "status": 200
+      },
+      {
+        "authorization": "",
+        "body": {
+          "assertion": {
+            "claims": {
+              "aud": "{HTTP}/oauth/fcm",
+              "exp": "{EXPIRY}",
+              "iat": "{IAT}",
+              "iss": "synthetic@fixture.invalid",
+              "lifetime": 3600,
+              "scope": "https://www.googleapis.com/auth/firebase.messaging"
+            },
+            "header": {
+              "alg": "RS256",
+              "kid": "fixture-key",
+              "typ": "JWT"
+            },
+            "signature_verified": true
+          },
+          "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        },
+        "content_type": "application/x-www-form-urlencoded",
+        "method": "POST",
+        "path": "/oauth/fcm"
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b22616374696f6e73223a5b2261726368697665222c227265706c79225d2c226d61696c626f78223a22676f667265652d647261696e2d6140676f667265652d647261696e2e74657374222c226d6573736167654964223a225c75303033636d3140676f667265652d647261696e2e746573745c7530303365222c2273656e646572223a7b22656d61696c223a2273656e64657240782e74657374222c226e616d65223a225a6fc3ab205c7530303363c39c6ec3af5c7530303365205c7530303236205c22436f5c22227d2c227375626a656374223a2248656c6c6f205c7530303363625c7530303365785c75303033632f625c7530303365205c7530303236206d6f7265222c2274797065223a226d61696c227d"
+            },
+            "token": "ok-fcm-a"
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "status": 200
+      },
+      {
+        "authorization": "",
+        "body": {
+          "client_id": "fixture-app",
+          "client_secret": "synthetic-secret",
+          "grant_type": "client_credentials"
+        },
+        "content_type": "application/x-www-form-urlencoded",
+        "method": "POST",
+        "path": "/oauth2/v3/token"
+      },
+      {
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "urgency": "HIGH"
+            },
+            "data": "7b22616374696f6e73223a5b2261726368697665222c227265706c79225d2c226d61696c626f78223a22676f667265652d647261696e2d6140676f667265652d647261696e2e74657374222c226d6573736167654964223a225c75303033636d3140676f667265652d647261696e2e746573745c7530303365222c2273656e646572223a7b22656d61696c223a2273656e64657240782e74657374222c226e616d65223a225a6fc3ab205c7530303363c39c6ec3af5c7530303365205c7530303236205c22436f5c22227d2c227375626a656374223a2248656c6c6f205c7530303363625c7530303365785c75303033632f625c7530303365205c7530303236206d6f7265222c2274797065223a226d61696c227d",
+            "token": [
+              "ok-hms-a"
+            ]
+          }
+        },
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/v3/fixture-app/messages:send",
+        "status": 200
+      },
+      {
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "body_length": 4096,
+          "padding_length": 3716,
+          "payload": {
+            "actions": [
+              "archive",
+              "reply"
+            ],
+            "mailbox": "gofree-drain-a@gofree-drain.test",
+            "messageId": "<m1@gofree-drain.test>",
+            "sender": {
+              "email": "sender@x.test",
+              "name": "Zoë <Ünï> & \"Co\""
+            },
+            "subject": "Hello <b>x</b> & more",
+            "type": "mail"
+          },
+          "record_size": 4096,
+          "vapid": {
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        },
+        "content_type": "application/octet-stream",
+        "method": "POST",
+        "path": "/webpush/capability",
+        "status": 200
+      }
+    ],
+    "rows": {
+      "devices": [
+        "gofree-drain-a:apns:ok-apns-a:false",
+        "gofree-drain-a:apns:ok-revoked:true",
+        "gofree-drain-a:fcm::false",
+        "gofree-drain-a:fcm:ok-fcm-a:false",
+        "gofree-drain-a:fcm:<undecryptable>:false",
+        "gofree-drain-a:hms:ok-hms-a:false",
+        "gofree-drain-a:webpush:{\"endpoint\":\"{PEER}/webpush/capability?d=ok-web-a\",\"keys\":{\"auth\":\"AQEBAQEBAQEBAQEBAQEBAQ\",\"p256dh\":\"BNad6px2O6Xv767O3aogsFIoDJJL8i4KITIRlnSVwRVYysoHkuUhI70bHMZIazFSqKdheJDzExwYuCdsNSf6owA\"}}:false",
+        "gofree-drain-b:fcm:ok-fcm-b:false"
+      ],
+      "intents": [
+        "<gone>:done:1::false",
+        "Hello <b>x</b> & more:done:1::false",
+        "no-devices:done:1::false",
+        "not-due:pending:0::true",
+        "prefs-off:done:1::false"
+      ]
+    }
+  }
+}

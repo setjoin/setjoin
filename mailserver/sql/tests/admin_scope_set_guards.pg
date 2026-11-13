@@ -1,0 +1,181 @@
+-- pgTAP: admin_scope_set_guards.pg — the Task-4 P0 cases (spec §10).
+--
+-- Closes the v1/v2 privilege-escalation P0: a 'set'-confined actor has
+-- ou_reach=NULL, and the OLD guards read NULL/empty ou_reach as "unconfined →
+-- whole domain". The fix is an explicit is_unconfined boolean (NEVER inferred
+-- from a NULL/empty array) + per-user-union containment for domination.
+--
+-- Covers:
+--   1. set-only actor is NOT unconfined (the is_unconfined flag)
+--   2. admin_scope_member_users('set',S) covers the set's users
+--   3. consistency invariant: member_users('set',S) ⊆ admin_set_reaches(S,·)
+--   4. THE P0: a set-only (ou_reach NULL) actor CANNOT grant unrestricted
+--   5. set-only actor cannot grant an OU outside the set's reach (EMPTY /z —
+--      structural, does NOT rely on the OU having current members)
+--   6. set-only actor CAN grant an OU inside the set's reach
+--   6b. set-only actor CAN grant an OU UNDER its set's OU member (/a/sub)
+--   6c. mixed actor {ou /b, set{ou /c}} CAN grant ou /c (set-OU member; the
+--       over-block fix — ou_reach alone previously rejected it)
+--   7. cross-axis domination: /a-actor blocked from a target reaching /c (BZ065)
+--   8. union domination: actor {/a,/b} CAN manage a target spanning /a+/b
+--   9. empty-set target is manageable (reaches nobody, NOT unconfined)
+--  10. set-only target NOT treated as unconfined; manageable when actor covers it
+--  11. object-confined actor BLOCKED from a NULL-scope (is_unconfined) target (BZ065)
+--
+-- Seed ids: 99xxx (avoids conflicts with other admin_* test files).
+-- Non-super roles 99400/99401 share one perm so the perms-subset arm (BZ065)
+-- never pre-empts the SCOPE arm under test.
+
+BEGIN;
+SELECT plan(14);
+
+-- ── Domain ────────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (99000, 'sset.test', TRUE);
+
+-- ── Departments — /a /b /c (siblings); /z empty sibling; /a/sub under /a ───────
+--   /z      (99003) — EMPTY (no users): the vacuous-empty-OU escalation probe.
+--   /a/sub  (99004) — EMPTY, under /a: structural-containment positive probe.
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (99000, 'A',   '/a',     'ou=A,dc=sset,dc=test'),
+  (99001, 'B',   '/b',     'ou=B,dc=sset,dc=test'),
+  (99002, 'C',   '/c',     'ou=C,dc=sset,dc=test'),
+  (99003, 'Z',   '/z',     'ou=Z,dc=sset,dc=test'),
+  (99004, 'Sub', '/a/sub', 'ou=Sub,ou=A,dc=sset,dc=test');
+
+-- ── Users ─────────────────────────────────────────────────────────────────────
+--   99100/99101/99102  members of /a, /b, /c (the targets a scope reaches)
+--   99200  set-only actor (confined to set-A → /a; ou_reach NULL — the P0 shape)
+--   99201  ou-actor (confined to /a, later gains a second /b grant — union case)
+--   99202  set-target (reaches /c, later mutated to set-AB)
+--   99203  empty-set target (reaches nobody)
+--   99204  covered set-target (reaches /a only)
+--   99205  mixed actor   (ou /b grant + set-C grant → set's OU member /c)
+--   99206  unconfined target (NULL-scope admin grant → is_unconfined)
+--   99207  confined actor (ou /a grant; holds users.password_reset, scope NULL)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (99100, 'sset_a',      99000, 99000, 'a-user@sset.test',     'A',  TRUE),
+  (99101, 'sset_b',      99000, 99001, 'b-user@sset.test',     'B',  TRUE),
+  (99102, 'sset_c',      99000, 99002, 'c-user@sset.test',     'C',  TRUE),
+  (99200, 'sset_actor',  99000, NULL,  'set-actor@sset.test',  'SA', TRUE),
+  (99201, 'sset_ouact',  99000, NULL,  'ou-actor@sset.test',   'OA', TRUE),
+  (99202, 'sset_target', 99000, NULL,  'set-target@sset.test', 'ST', TRUE),
+  (99203, 'sset_empty',  99000, NULL,  'empty-target@sset.test','ET', TRUE),
+  (99204, 'sset_cover',  99000, NULL,  'cover-target@sset.test','CT', TRUE),
+  (99205, 'sset_mixed',  99000, NULL,  'mixed-actor@sset.test', 'MA', TRUE),
+  (99206, 'sset_unconf', 99000, NULL,  'unconf-target@sset.test','UT',TRUE),
+  (99207, 'sset_confact',99000, NULL,  'conf-actor@sset.test',  'CA', TRUE);
+
+-- ── Scope sets ────────────────────────────────────────────────────────────────
+INSERT INTO public.admin_scope_sets (id, name) VALUES
+  (99300, 'set-A'), (99301, 'set-AB'), (99302, 'set-C'), (99303, 'set-empty');
+INSERT INTO public.admin_scope_set_members (set_id, member_type, member_id) VALUES
+  (99300, 'ou', 99000),                       -- set-A  → /a
+  (99301, 'ou', 99000), (99301, 'ou', 99001), -- set-AB → /a + /b
+  (99302, 'ou', 99002);                       -- set-C  → /c
+-- set-empty (99303) has no members.
+
+-- ── Non-super roles (global domain so the domain axis stays inert; identical
+--    single perm so the perms-subset arm never pre-empts the SCOPE arm) ────────
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (99400, 'sset-low-A', ARRAY['users.password_reset'], NULL),
+  (99401, 'sset-low-B', ARRAY['users.password_reset'], NULL);
+
+-- ── is_unconfined flag ────────────────────────────────────────────────────────
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99200, 99400, 'set', 99300);        -- set-only actor (NOT unconfined)
+
+-- 1. THE P0 FLAG: a set-only actor must NOT read as unconfined.
+SELECT ok(NOT (SELECT is_unconfined FROM admin_effective_authority(99200)),
+  'set-only actor is NOT unconfined (the P0 flag)');
+
+-- 2. member_users enumerates the set's users.
+SELECT ok(EXISTS(SELECT 1 FROM admin_scope_member_users('set', 99300) u WHERE u = 99100),
+  'set-A covers the /a user via admin_scope_member_users');
+
+-- 3. consistency invariant: every member_users row is reached by admin_set_reaches.
+SELECT is(
+  (SELECT bool_and(admin_set_reaches(99300, u)) FROM admin_scope_member_users('set', 99300) u),
+  true, 'admin_scope_member_users(set) ⊆ admin_set_reaches (consistency invariant)');
+
+-- ── admin_scope_within: a set-only actor may grant ONLY within the set's reach ──
+-- 4. THE P0: granting unrestricted (NULL scope) from a set-only actor → FALSE.
+SELECT ok(NOT admin_scope_within(99200, NULL, NULL, NULL),
+  'P0: set-only actor CANNOT grant unrestricted (no empty-array → true)');
+-- 5. granting a NON-empty OU outside the set's reach → FALSE (/b has user 99101).
+SELECT ok(NOT admin_scope_within(99200, 'ou', 99001, NULL),
+  'set-only actor (set-A) CANNOT grant /b (non-empty, out of reach)');
+-- 5b. granting an EMPTY OU outside the set's reach → FALSE. The /z department has
+--     NO users, so the OLD per-user path (resolve scope to CURRENT members) was
+--     VACUOUSLY TRUE here — the escalation hole. Structural containment rejects it
+--     regardless of membership (set-A covers /a, never /z, forever).
+SELECT ok(NOT admin_scope_within(99200, 'ou', 99003, NULL),
+  'set-only actor CANNOT grant an EMPTY sibling OU (/z) — no vacuous-empty hole');
+-- 6. granting an OU inside the set's reach → TRUE.
+SELECT ok(admin_scope_within(99200, 'ou', 99000, NULL),
+  'set-only actor (set-A) CAN grant /a (within reach)');
+-- 6b. granting an OU UNDER the set's OU member (/a/sub ⊂ /a) → TRUE. Structural:
+--     covers the subtree's FUTURE members (the dept is empty today).
+SELECT ok(admin_scope_within(99200, 'ou', 99004, NULL),
+  'set-only actor CAN grant an OU under its set''s OU member (/a/sub)');
+-- 6c. OVER-BLOCK FIX: a mixed actor {ou /b grant, set-C grant (→ ou /c member)}
+--     CAN grant ou /c — previously rejected because only ou_reach (=/b) was
+--     consulted, ignoring the set's OU coverage.
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id) VALUES
+  (99205, 99400, 'ou',  99001),    -- ou /b grant
+  (99205, 99401, 'set', 99302);    -- set-C grant (member ou /c)
+SELECT ok(admin_scope_within(99205, 'ou', 99002, NULL),
+  'mixed actor {ou /b, set{ou /c}} CAN grant ou /c (set-OU member, prev over-rejected)');
+
+-- ── admin_protection_check domination (per-user union) ────────────────────────
+-- 7. cross-axis: actor OU-confined to /a, target set-reaches /c → BLOCK (BZ065).
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99201, 99400, 'ou', 99000);         -- ou-actor confined to /a
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99202, 99400, 'set', 99302);        -- set-target reaches /c
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(99201, 99202, 'assign_role', 99400) $$,
+  'BZ065', NULL, 'cross-axis: /a-actor blocked from a target reaching /c');
+
+-- 8. union: actor {ou /a, ou /b}, target set spanning /a+/b → ALLOW.
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99201, 99401, 'ou', 99001);         -- second grant: /b (role 99401)
+UPDATE public.admin_role_assignments
+   SET scope_id = 99301
+ WHERE user_id = 99202 AND role_group_id = 99400;  -- target → set-AB
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(99201, 99202, 'assign_role', 99400) $$,
+  'union: actor {/a,/b} CAN manage a target spanning /a+/b');
+
+-- 9. empty-set target is manageable (reaches nobody; NOT unconfined).
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99203, 99400, 'set', 99303);        -- target reaches nobody
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(99201, 99203, 'assign_role', 99400) $$,
+  'empty-set target is manageable (reaches nobody, NOT unconfined)');
+
+-- 10. set-only target NOT treated as unconfined: a confined actor whose reach
+--     covers the target's full reach CAN manage it (ou_reach NULL ≠ broader).
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (99204, 99400, 'set', 99300);        -- target reaches /a (covered by actor)
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(99201, 99204, 'assign_role', 99400) $$,
+  'set-only target NOT treated as unconfined; manageable when actor covers its reach');
+
+-- 11. (Minor #2) the IF v_target.is_unconfined ⇒ BLOCK branch: an object-confined
+--     actor (ou /a, NOT unconfined, scope NULL so the domain/scope arms stay inert)
+--     acting on a target holding a NULL-scope (is_unconfined) admin grant with the
+--     SAME perm (so the perms-subset arm passes) → BZ065 on the OU-reach arm.
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id) VALUES
+  (99207, 99400, 'ou', 99000);                 -- confined actor (ou /a, scope NULL)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id) VALUES
+  (99206, 99400);                              -- NULL-scope grant → is_unconfined target
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(99207, 99206, 'assign_role', 99400) $$,
+  'BZ065', NULL,
+  'object-confined actor BLOCKED from a NULL-scope (is_unconfined) target');
+
+SELECT * FROM finish();
+ROLLBACK;

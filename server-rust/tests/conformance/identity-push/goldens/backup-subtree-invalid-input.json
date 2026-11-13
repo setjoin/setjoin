@@ -1,0 +1,25 @@
+{
+  "case": "backup-subtree-invalid-input",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "{",
+      "method": "DELETE",
+      "path": "/auth/backup-codes/verify"
+    },
+    "response": {
+      "body": "Method Not Allowed\n",
+      "headers": {
+        "allow": "POST",
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 405
+    }
+  },
+  "route": "* /auth/backup-codes/"
+}

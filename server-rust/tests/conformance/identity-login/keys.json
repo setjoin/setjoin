@@ -1,0 +1,27 @@
+{
+  "clock": 1793811032,
+  "envelope": "454b303100000000200000000c6a1ead3bae1a306ef88619a3a186d1534412b2e8a7be6db2e28cd34672508604c995254cd1588d73f197cba2fefef04f8dc6b80785fc1f33aaca9e5c8bad417826cbb8112d8d3e0d7cebce894cb9b3de3485dfcb183f3687159a7103322cae32c8b6055259df3f7af3422ed02f8c6d3c03b6ca77448a6fd1e0ffed68b553f2ec526de88f99dcd462a55880b3dc4ad9f94b526c47c25cace103f5b2755d84ed964f68d3daa09e",
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "jwks": {
+    "keys": [
+      {
+        "use": "sig",
+        "kty": "EC",
+        "kid": "es256-e8caf769a177f0c3",
+        "crv": "P-256",
+        "alg": "ES256",
+        "x": "72ZJwzScIqZcvenz225qslm6aSoxxBrEju7J_lZgDp0",
+        "y": "JgYPkaK8ET4sX8e0pl5iS_5zNqVXvPpORaMLf6J9ghg"
+      }
+    ]
+  },
+  "kid": "es256-e8caf769a177f0c3",
+  "secret": "idlogin1-fixture-secret-at-least-32-bytes",
+  "sm2_pem": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEICCJvJ1IFuf3B505/kfuS1jYwTZl5OTJQ6kCcEErujaKoAoGCCqBHM9V\nAYItoUQDQgAEQwJ5Yk77IvgdIpF2mKnEXnOrQGoKA4VuDkLqUTggLb1nAoyFS+pz\naV0kAILqsz8hTHEec7uBns/HgEcQcE8Jlg==\n-----END EC PRIVATE KEY-----\n",
+  "sm2_point": "04430279624efb22f81d22917698a9c45e73ab406a0a03856e0e42ea5138202dbd67028c854bea73695d240082eab33f214c711e73bb819ecfc7804710704f0996",
+  "tokens": {
+    "ES256": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImVzMjU2LWU4Y2FmNzY5YTE3N2YwYzMiLCJ0eXAiOiJKV1QifQ.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwidHlwIjoiYWNjZXNzIiwianRpIjoiZTI2NjlkZDBmY2FmZjQyMDVjMTcwM2IxOTc0YmVkMGQiLCJpc3MiOiJtYWlsc2VydmVyIiwic3ViIjoiNDIiLCJhdWQiOlsibWFpbHNlcnZlci1nYXRld2F5Il0sImV4cCI6MTc5MzgxNDYzMiwibmJmIjoxNzkzODExMDMyLCJpYXQiOjE3OTM4MTEwMzJ9.bOzZpnNd56XmqHoWe-LrRD2lLt2o19CEgSZ7hqkKA1QEUpQYkW1xqakAYJ3YS4ZhDcua7kuUTPzM9-LNolibZw",
+    "HS256": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImF1dGhzZXJ2ZXItaG1hYy0xIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwidHlwIjoiYWNjZXNzIiwianRpIjoiZTEwZWE2MzA3ZmY1NGE5YTEyOGNkNjA0OTU1Y2FkZDEiLCJpc3MiOiJtYWlsc2VydmVyIiwic3ViIjoiNDIiLCJhdWQiOlsibWFpbHNlcnZlci1nYXRld2F5Il0sImV4cCI6MTc5MzgxNDYzMiwibmJmIjoxNzkzODExMDMyLCJpYXQiOjE3OTM4MTEwMzJ9.K3qrsXNFdHTUVyycHIISlV6jk2UhpXu6grQlxmnawHg",
+    "SM2": "eyJhbGciOiJTTTIiLCJraWQiOiJhdXRoc2VydmVyLXNtMi0xIiwidHlwIjoiSldUIn0.eyJ1aWQiOjQyLCJlbWFpbCI6ImZpeHR1cmVAZXhhbXBsZS50ZXN0IiwidHlwIjoiYWNjZXNzIiwianRpIjoiMmIyZGYwNTA0MWM5ZDM4ZTVkZGExMzE2ODQyZDk3YzYiLCJpc3MiOiJtYWlsc2VydmVyIiwic3ViIjoiNDIiLCJhdWQiOlsibWFpbHNlcnZlci1nYXRld2F5Il0sImV4cCI6MTc5MzgxNDYzMiwibmJmIjoxNzkzODExMDMyLCJpYXQiOjE3OTM4MTEwMzJ9.MEUCIQD15u_LTbNZn9k6DD0OgfIOKWxP1P2DYNTGfIEnIiC60wIgea3iPBhzhLOulf1ghvFBSQJr5qxsP7NTICN4SBjFX6g"
+  }
+}

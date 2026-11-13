@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --pre-upgrade is required\n",
+  "exit": 1
+}

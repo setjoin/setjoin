@@ -1,0 +1,178 @@
+[
+  {
+    "name": "first-completed-BZ001-precedes-XX000-slow-bob@smtp1-other.test",
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<bob@smtp1-other.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ],
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN IF p_envelope_to='bob@smtp1-other.test' THEN PERFORM pg_sleep(0.5); RAISE EXCEPTION USING MESSAGE='private slow diagnostic', ERRCODE='XX000', HINT='{\"type\":\"over_quota\"}'; END IF; RAISE EXCEPTION USING MESSAGE='private first diagnostic', ERRCODE='BZ001', HINT='{\"type\":\"over_quota\"}'; END $smtp1$;",
+    "restore_reducer": true
+  },
+  {
+    "name": "first-completed-XX000-precedes-BZ001-slow-bob@smtp1-other.test",
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<bob@smtp1-other.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ],
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN IF p_envelope_to='bob@smtp1-other.test' THEN PERFORM pg_sleep(0.5); RAISE EXCEPTION USING MESSAGE='private slow diagnostic', ERRCODE='BZ001', HINT='{\"type\":\"over_quota\"}'; END IF; RAISE EXCEPTION USING MESSAGE='private first diagnostic', ERRCODE='XX000', HINT='{\"type\":\"over_quota\"}'; END $smtp1$;",
+    "restore_reducer": true
+  },
+  {
+    "name": "first-completed-BZ001-precedes-XX000-slow-alice@smtp1.test",
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<bob@smtp1-other.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ],
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN IF p_envelope_to='alice@smtp1.test' THEN PERFORM pg_sleep(0.5); RAISE EXCEPTION USING MESSAGE='private slow diagnostic', ERRCODE='XX000', HINT='{\"type\":\"over_quota\"}'; END IF; RAISE EXCEPTION USING MESSAGE='private first diagnostic', ERRCODE='BZ001', HINT='{\"type\":\"over_quota\"}'; END $smtp1$;",
+    "restore_reducer": true
+  },
+  {
+    "name": "first-completed-XX000-precedes-BZ001-slow-alice@smtp1.test",
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<bob@smtp1-other.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ],
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN IF p_envelope_to='alice@smtp1.test' THEN PERFORM pg_sleep(0.5); RAISE EXCEPTION USING MESSAGE='private slow diagnostic', ERRCODE='BZ001', HINT='{\"type\":\"over_quota\"}'; END IF; RAISE EXCEPTION USING MESSAGE='private first diagnostic', ERRCODE='XX000', HINT='{\"type\":\"over_quota\"}'; END $smtp1$;",
+    "restore_reducer": true
+  }
+]

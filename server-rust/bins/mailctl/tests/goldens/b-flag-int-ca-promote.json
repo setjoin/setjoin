@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -id: parse error\nUsage of ca promote:\n  -id int\n    \tPolicy ID (required)\n  -yes\n    \tSkip would-block confirmation\nError: invalid value \"not-an-integer\" for flag -id: parse error\n",
+  "exit": 1
+}

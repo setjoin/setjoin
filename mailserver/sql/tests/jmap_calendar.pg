@@ -1,0 +1,553 @@
+-- pgTAP: jmap_calendar.sql — event set_create/update/destroy with divergent ids.
+-- DIVERGENT IDS (regression guard): users.id (4301) != mailbox id (5301). The JMAP accountId
+-- is the primary MAILBOX id, so p_account_id is a mailbox id — an ownership join that used
+-- mailboxes.user_id = p_account_id would mis-resolve and is caught here. set_update/set_destroy
+-- both bump calendar jmap_state scoped by the account; coincident ids would mask the bug where
+-- that bump (or the destroy itself) was scoped by user_id instead of mailbox_id.
+BEGIN;
+SELECT plan(58);
+
+INSERT INTO domains (name, is_local) VALUES ('cal2.test', TRUE), ('cal2-sister.test', TRUE);
+-- ADR-004: the owner carries a sister-domain alias + a UPN; a delegate naming the
+-- owner via either address as delegatedFrom must still resolve them.
+INSERT INTO users (id, username, domain_id, email, display_name, ad_upn) VALUES (4301, 'calowner', (SELECT id FROM domains WHERE name='cal2.test'), 'owner@cal2.test', 'Owner', 'owner.upn@corp.local');
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (4302, 'delegate', (SELECT id FROM domains WHERE name='cal2.test'), 'delegate@cal2.test', 'Delegate');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5301, 4301, (SELECT id FROM domains WHERE name='cal2.test'), 'owner@cal2.test', 'Owner', 'personal', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5302, 4302, (SELECT id FROM domains WHERE name='cal2.test'), 'delegate@cal2.test', 'Delegate', 'personal', TRUE);
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES (5301, 'owner.exec@cal2-sister.test', (SELECT id FROM domains WHERE name='cal2-sister.test'), FALSE);
+INSERT INTO calendars (id, mailbox_id, name) VALUES (5301, 5301, 'Default');
+-- The delegate holds a send_as grant on the owner's mailbox (calendar delegation).
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by) VALUES (5301, 4302, 'send_as', 4301);
+
+-- Test 1: create event succeeds (p_account_id = MAILBOX 5301, p_actor_id = USER 4301).
+SELECT ok(
+  (SELECT jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test', '{"k1":{"calendarId":"5301","title":"Meeting","start":"2026-01-01T09:00:00Z","end":"2026-01-01T10:00:00Z"}}'::JSONB)->>'created' IS NOT NULL),
+  'create calendar event succeeds'
+);
+
+-- Test 2: query returns events
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_calendar_event_query(5301)->'ids') > 0),
+  'query returns created events'
+);
+
+-- JMAP Id[] elements are STRINGS (numeric ids 400 in CalendarEvent/get, Go Ids []string).
+SELECT is(
+  (SELECT jsonb_typeof(jmap_calendar_event_query(5301)->'ids'->0)),
+  'string',
+  'calendar event query ids are JMAP Id strings, not numbers'
+);
+
+-- Test 3: get returns event details
+SELECT ok(
+  (SELECT jsonb_array_length(jmap_calendar_event_get(5301, ARRAY(SELECT (x.val)::BIGINT FROM jsonb_array_elements_text(jmap_calendar_event_query(5301)->'ids') AS x(val) LIMIT 1))->'list') > 0),
+  'get returns event details'
+);
+
+-- Resolve the created event id for the update/destroy tests.
+CREATE TEMP TABLE _evt AS
+  SELECT (x.val)::BIGINT AS id FROM jsonb_array_elements_text(jmap_calendar_event_query(5301)->'ids') AS x(val) LIMIT 1;
+
+-- Test 4: set_update applies the patch (title changes) under the MAILBOX-id account scope.
+SELECT is(
+  (jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _evt)::TEXT, '{"title":"Renamed"}'::JSONB))->'updated')::TEXT,
+  to_jsonb(ARRAY[(SELECT id FROM _evt)])::TEXT,
+  'set_update reports the event as updated'
+);
+
+SELECT is(
+  (SELECT title FROM calendar_events WHERE id = (SELECT id FROM _evt)),
+  'Renamed',
+  'set_update actually persists the new title'
+);
+
+-- Test 5: set_update bumped the calendar jmap_state (the mailbox-id-scoped state bump fired).
+-- Was 1 at create; the main UPDATE bumps the event then the calendar state bump fires.
+SELECT cmp_ok(
+  (SELECT jmap_state FROM calendars WHERE id = 5301), '>', 1::BIGINT,
+  'set_update bumped the calendar jmap_state (mailbox-scoped bump fired)'
+);
+
+-- Test 6: set_destroy removes the event row AND reports it destroyed (mailbox-id scope).
+SELECT is(
+  (jmap_calendar_event_set_destroy(5301, ARRAY[(SELECT id FROM _evt)])->'destroyed')::TEXT,
+  to_jsonb(ARRAY[(SELECT id FROM _evt)])::TEXT,
+  'set_destroy reports the event destroyed'
+);
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM calendar_events WHERE id = (SELECT id FROM _evt)),
+  0,
+  'set_destroy actually deletes the row (not just reported destroyed)'
+);
+
+-- ============================================================
+-- Tests 7-8: ADR-004 — delegatedFrom resolves the delegator by alias/UPN.
+-- The delegate (account = MAILBOX 5302, actor = USER 4302) creates an event on
+-- their own default calendar naming the owner as delegatedFrom. The owner is
+-- addressed by their SISTER-DOMAIN ALIAS / UPN, not their primary email — which
+-- previously failed as "Delegator not found" (lookup matched users.email only).
+-- ============================================================
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (5302, 5302, 'Delegate Default', TRUE);
+
+-- Test 7: delegatedFrom = owner's sister-domain ALIAS → created (delegator resolved + grant honored).
+SELECT ok(
+  (jmap_calendar_event_set_create(
+     5302, 4302, 'delegate@cal2.test',
+     '{"d1":{"calendarId":"5302","title":"On behalf","start":"2026-02-01T09:00:00Z","end":"2026-02-01T10:00:00Z","delegatedFrom":"owner.exec@cal2-sister.test"}}'::JSONB
+   )->'created') ? 'd1',
+  'delegatedFrom resolves the delegator by a sister-domain alias (ADR-004)'
+);
+
+-- Test 8: delegatedFrom = owner's UPN → also created.
+SELECT ok(
+  (jmap_calendar_event_set_create(
+     5302, 4302, 'delegate@cal2.test',
+     '{"d2":{"calendarId":"5302","title":"On behalf 2","start":"2026-02-02T09:00:00Z","end":"2026-02-02T10:00:00Z","delegatedFrom":"owner.upn@corp.local"}}'::JSONB
+   )->'created') ? 'd2',
+  'delegatedFrom resolves the delegator by UPN (ADR-004)'
+);
+
+-- ── GOLDEN ENVELOPE (seam adoption — jmap_calendar_event_get + jmap_calendar_get) ──
+-- jmap_calendar_event_get (already scoped) + jmap_calendar_get (the FIX) both route
+-- through build_jmap_get_response. Seed one event in the owner's calendar (5301).
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+  VALUES (5390, 5301, 'gevt', 'Golden', '2030-01-01T00:00:00Z', '2030-01-01T01:00:00Z');
+
+-- Test 9 (event_get GOLDEN, scoped/unchanged): envelope keys + list length pinned
+-- (the event projection carries timestamps, so pin keys byte-for-byte).
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[5390::BIGINT, 999999999::BIGINT])->'notFound',
+  jsonb_build_array('999999999'),
+  'event_get golden notFound: missing id present (own id absent), scoped unchanged');
+SELECT is(
+  jsonb_array_length(jmap_calendar_event_get(5301, ARRAY[5390::BIGINT, 999999999::BIGINT])->'list'),
+  1,
+  'event_get golden: list has exactly the owned event');
+
+-- Test 10 (calendar_get GOLDEN, the FIX): [own_calendar, missing] → notFound has
+-- only the missing id.
+SELECT is(
+  jmap_calendar_get(5301, ARRAY[5301::BIGINT, 999999999::BIGINT])->'notFound',
+  jsonb_build_array('999999999'),
+  'calendar_get golden notFound: missing id present, own id absent'
+);
+
+-- ── DIVERGENT-ID notFound FIX (jmap_calendar_get) ─────────────────────────────
+-- BEFORE the seam, jmap_calendar_get probed `calendars WHERE id = x` ORG-WIDE: a
+-- FOREIGN-OWNED calendar id was neither in list nor notFound (a cross-mailbox
+-- existence oracle). mk_account gives disjoint user/mailbox ranges.
+-- (Fails on the old org-wide probe — that's the fix landing.)
+CREATE TEMP TABLE _ca AS SELECT mk_account('calA') AS mb;
+CREATE TEMP TABLE _cb AS SELECT mk_account('calB') AS mb;
+INSERT INTO calendars (id, mailbox_id, name) VALUES (5380, (SELECT mb FROM _ca), 'A cal');
+INSERT INTO calendars (id, mailbox_id, name) VALUES (5381, (SELECT mb FROM _cb), 'B cal (foreign)');
+
+-- Test 11: request [own_id, foreign_id] from A → foreign id IS in notFound, own
+-- id is NOT.
+SELECT ok(
+  (jmap_calendar_get((SELECT mb FROM _ca), ARRAY[5380::BIGINT, 5381::BIGINT])->'notFound') ? '5381'
+  AND NOT ((jmap_calendar_get((SELECT mb FROM _ca), ARRAY[5380::BIGINT, 5381::BIGINT])->'notFound') ? '5380'),
+  'calendar_get: a foreign-owned calendar id appears in notFound; own id absent (oracle fixed)'
+);
+
+-- ── PER-EVENT COLOR (V081) ────────────────────────────────────────────────
+-- Gmail model: one free-form color per event, stored verbatim, surfaced by
+-- event_get. A null/absent color = inherit the calendar's color (unchanged).
+CREATE TEMP TABLE _cevt AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"ck":{"calendarId":"5301","title":"Colored","start":"2031-01-01T09:00:00Z","end":"2031-01-01T10:00:00Z","color":"#ff0000"}}'::JSONB
+  )->'created'->>'ck')::BIGINT AS id;
+
+-- Test 15: create with color → event_get returns it.
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _cevt)])->'list'->0->>'color',
+  '#ff0000',
+  'event created with color → event_get returns that color'
+);
+
+-- Test 16: set_update the color → reflected in event_get.
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _cevt)::TEXT, '{"color":"#00ff00"}'::JSONB));
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _cevt)])->'list'->0->>'color',
+  '#00ff00',
+  'set_update persists the new color (reflected in event_get)'
+);
+
+-- Test 17: create WITHOUT color → color is null (colored-by-calendar fallback, no error).
+CREATE TEMP TABLE _nevt AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"nk":{"calendarId":"5301","title":"Uncolored","start":"2031-02-01T09:00:00Z","end":"2031-02-01T10:00:00Z"}}'::JSONB
+  )->'created'->>'nk')::BIGINT AS id;
+
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _nevt)])->'list'->0->>'color',
+  NULL,
+  'event created without color → color is null (calendar fallback, no error)'
+);
+
+-- ── freeBusyStatus / Show As (transp) ─────────────────────────────────────
+-- RFC 8984: free ↔ transp=TRANSPARENT, busy ↔ transp=OPAQUE (default). A
+-- tentative-status event reports 'tentative' (status wins, mirrors freebusy).
+-- The transp column already exists (baseline; from archived V061); only the
+-- JMAP exposure is added here.
+
+-- Test 18-19: create with freeBusyStatus:'free' → get returns 'free' AND transp='TRANSPARENT'.
+CREATE TEMP TABLE _fbfree AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"fb":{"calendarId":"5301","title":"Free","start":"2032-01-01T09:00:00Z","end":"2032-01-01T10:00:00Z","freeBusyStatus":"free"}}'::JSONB
+  )->'created'->>'fb')::BIGINT AS id;
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _fbfree)])->'list'->0->>'freeBusyStatus',
+  'free',
+  'freeBusyStatus:free → event_get returns free');
+SELECT is(
+  (SELECT transp FROM calendar_events WHERE id = (SELECT id FROM _fbfree)),
+  'TRANSPARENT',
+  'freeBusyStatus:free → stored transp=TRANSPARENT');
+
+-- Test 20-21: create WITHOUT freeBusyStatus → get returns 'busy' AND transp='OPAQUE' (default).
+CREATE TEMP TABLE _fbdef AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"fd":{"calendarId":"5301","title":"Default","start":"2032-02-01T09:00:00Z","end":"2032-02-01T10:00:00Z"}}'::JSONB
+  )->'created'->>'fd')::BIGINT AS id;
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _fbdef)])->'list'->0->>'freeBusyStatus',
+  'busy',
+  'freeBusyStatus absent → event_get returns busy (default)');
+SELECT is(
+  (SELECT transp FROM calendar_events WHERE id = (SELECT id FROM _fbdef)),
+  'OPAQUE',
+  'freeBusyStatus absent → stored transp=OPAQUE (default)');
+
+-- Test 22: a tentative-status event → get returns 'tentative' (status wins over transp).
+CREATE TEMP TABLE _fbtent AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"ft":{"calendarId":"5301","title":"Tentative","start":"2032-03-01T09:00:00Z","end":"2032-03-01T10:00:00Z","status":"tentative"}}'::JSONB
+  )->'created'->>'ft')::BIGINT AS id;
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _fbtent)])->'list'->0->>'freeBusyStatus',
+  'tentative',
+  'tentative-status event → event_get freeBusyStatus=tentative (status wins)');
+
+-- Test 23-24: update free↔busy flips transp (both directions).
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _fbfree)::TEXT, '{"freeBusyStatus":"busy"}'::JSONB));
+SELECT is(
+  (SELECT transp FROM calendar_events WHERE id = (SELECT id FROM _fbfree)),
+  'OPAQUE',
+  'set_update freeBusyStatus:busy flips transp TRANSPARENT→OPAQUE');
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _fbfree)::TEXT, '{"freeBusyStatus":"free"}'::JSONB));
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _fbfree)])->'list'->0->>'freeBusyStatus',
+  'free',
+  'set_update freeBusyStatus:free flips back → event_get returns free');
+
+-- Test 25: patch-present guard — an unrelated update keeps the existing transp.
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _fbfree)::TEXT, '{"title":"Renamed again"}'::JSONB));
+SELECT is(
+  (SELECT transp FROM calendar_events WHERE id = (SELECT id FROM _fbfree)),
+  'TRANSPARENT',
+  'unrelated update keeps existing transp (patch-present guard)');
+
+-- ── Attendee role default (root-cause fix) ─────────────────────────────────
+-- Creating an event with an attendees array (no explicit role) must succeed and
+-- default role to 'required'. Before the fix the reducer wrote the invalid literal
+-- 'attendee', which violates event_attendees_role_check → the per-key create was
+-- caught by EXCEPTION WHEN OTHERS and routed to notCreated (created->>'ak' = NULL).
+CREATE TEMP TABLE _aevt AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"ak":{"calendarId":"5301","title":"With guests","start":"2033-01-01T09:00:00Z","end":"2033-01-01T10:00:00Z","attendees":[{"email":"guest@ext.test"}]}}'::JSONB
+  )->'created'->>'ak')::BIGINT AS id;
+
+-- Test 26: the create succeeded (a non-null event id was returned, not notCreated).
+SELECT isnt(
+  (SELECT id FROM _aevt), NULL,
+  'create event with an attendee (no role) succeeds (role-literal fix)');
+
+-- Test 27: the attendee row persisted with role='required' (corrected default literal).
+SELECT is(
+  (SELECT role FROM event_attendees WHERE event_id = (SELECT id FROM _aevt) AND email = 'guest@ext.test'),
+  'required',
+  'attendee with no explicit role defaults to required (valid CHECK literal)');
+
+-- ── VALARM / reminders (absolute-trigger alerts) ──────────────────────────
+-- The client sends valarm=[{trigger:<ISO>, action:'DISPLAY'}] with an ABSOLUTE
+-- instant (start − N, computed client-side); scan_due_reminders() enqueues each
+-- element whose trigger has passed. create/get round-trip it; update recomputes.
+CREATE TEMP TABLE _vevt AS
+  SELECT (jmap_calendar_event_set_create(5301, 4301, 'owner@cal2.test',
+    '{"vk":{"calendarId":"5301","title":"Reminded","start":"2035-01-01T09:00:00Z","end":"2035-01-01T10:00:00Z","valarm":[{"trigger":"2035-01-01T08:45:00Z","action":"DISPLAY"}]}}'::JSONB
+  )->'created'->>'vk')::BIGINT AS id;
+
+-- Test 28: create with valarm → event_get returns the trigger.
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _vevt)])->'list'->0->'valarm'->0->>'trigger',
+  '2035-01-01T08:45:00Z',
+  'event created with valarm → event_get returns the absolute trigger');
+
+-- Test 29: set_update rewrites valarm (a moved start recomputes the reminder).
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _vevt)::TEXT,
+  '{"valarm":[{"trigger":"2035-01-01T08:30:00Z","action":"DISPLAY"}]}'::JSONB));
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _vevt)])->'list'->0->'valarm'->0->>'trigger',
+  '2035-01-01T08:30:00Z',
+  'set_update with valarm rewrites the trigger');
+
+-- Test 30: an unrelated update keeps the existing valarm (patch-present guard).
+SELECT jmap_calendar_event_set_update(5301, jsonb_build_object((SELECT id FROM _vevt)::TEXT, '{"title":"Renamed once more"}'::JSONB));
+SELECT is(
+  jmap_calendar_event_get(5301, ARRAY[(SELECT id FROM _vevt)])->'list'->0->'valarm'->0->>'trigger',
+  '2035-01-01T08:30:00Z',
+  'unrelated update keeps existing valarm (patch-present guard)');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- A4 wave 2: real Calendar + CalendarEvent /changes deltas. trg_journal_calendar /
+-- trg_journal_calendar_event (V097) record created/updated/destroyed into
+-- jmap_changes_journal at each bump of the per-datatype entity_state counter;
+-- jmap_calendar_changes / jmap_calendar_event_changes delegate to the shared reader.
+-- Both trigger fns are SECURITY DEFINER (F5: cross-mailbox resource bookings +
+-- no-GUC raw calendar/iMIP writes must not be rejected by FORCE RLS). Fresh
+-- mk_account mailboxes give a predictable baseline; raw INSERT/UPDATE/DELETE fire
+-- the row triggers directly (same as jmap_task.pg / jmap_contact.pg A4 blocks).
+-- ════════════════════════════════════════════════════════════════════════
+
+-- ── CalendarEvent ─────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _ce4 AS SELECT mk_account('ceA4') AS mb;
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (58100, (SELECT mb FROM _ce4), 'A4 cal', TRUE);
+CREATE TEMP TABLE _ces4 (label text PRIMARY KEY, st text);
+
+-- fresh mailbox: creating the calendar bumped Calendar, NOT CalendarEvent → 0.
+SELECT is(jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->>'newState', '0',
+  'A4 CalendarEvent: fresh mailbox /changes state is 0 (decoupled from Calendar)');
+
+-- two creates (raw INSERT fires trg_journal_calendar_event per row → 2 'created')
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at) VALUES
+  (58101, 58100, 'a4e1', 'A4 E1', '2040-01-01T09:00:00Z', '2040-01-01T10:00:00Z'),
+  (58102, 58100, 'a4e2', 'A4 E2', '2040-01-02T09:00:00Z', '2040-01-02T10:00:00Z');
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->'created') @> '[58101, 58102]'::jsonb
+  AND (jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->'destroyed') = '[]'::jsonb,
+  'A4 CalendarEvent: two creates return both ids in created, none destroyed');
+
+INSERT INTO _ces4 VALUES ('s1', jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->>'newState');
+
+-- update e1 only (non-max row) — surfaces precisely (the MAX(jmap_state) token would
+-- have missed a below-max update; the monotonic journal does not).
+UPDATE calendar_events SET title = 'A4 E1x' WHERE id = 58101;
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _ce4), (SELECT st FROM _ces4 WHERE label='s1'))->'updated') = '[58101]'::jsonb
+  AND (jmap_calendar_event_changes((SELECT mb FROM _ce4), (SELECT st FROM _ces4 WHERE label='s1'))->'created') = '[]'::jsonb,
+  'A4 CalendarEvent: a non-max-row update surfaces precisely');
+
+INSERT INTO _ces4 VALUES ('s2', jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->>'newState');
+
+-- destroy e2 (direct delete, calendar still present → mailbox resolves → 'destroyed')
+DELETE FROM calendar_events WHERE id = 58102;
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _ce4), (SELECT st FROM _ces4 WHERE label='s2'))->'destroyed') @> '[58102]'::jsonb,
+  'A4 CalendarEvent: a direct delete surfaces in destroyed (no ghost row)');
+
+-- from 0: e2 created AND destroyed in-window → collapses to noop; e1 stays created
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->'created') @> '[58101]'::jsonb
+  AND NOT ((jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->'created') @> '[58102]'::jsonb)
+  AND NOT ((jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->'destroyed') @> '[58102]'::jsonb),
+  'A4 CalendarEvent: created+destroyed in one window collapses to noop (RFC 8620 §5.2)');
+
+-- up-to-date client (since == current) → empty delta
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _ce4), jmap_calendar_event_changes((SELECT mb FROM _ce4), '0')->>'newState')->'created') = '[]'::jsonb,
+  'A4 CalendarEvent: up-to-date client gets an empty delta');
+
+-- coarse resync sentinel in-window → BZ011
+SELECT append_change((SELECT mb FROM _ce4), 'CalendarEvent', bump_entity_state((SELECT mb FROM _ce4), 'CalendarEvent'), NULL, 'resync');
+SELECT throws_ok(
+  format('SELECT jmap_calendar_event_changes(%s, %L)', (SELECT mb FROM _ce4), (SELECT st FROM _ces4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 CalendarEvent: a resync sentinel forces cannotCalculateChanges');
+
+-- ── Calendar ──────────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _cal4 AS SELECT mk_account('calA4') AS mb;
+CREATE TEMP TABLE _cals4 (label text PRIMARY KEY, st text);
+
+SELECT is(jmap_calendar_changes((SELECT mb FROM _cal4), '0')->>'newState', '0',
+  'A4 Calendar: fresh mailbox /changes state is 0');
+
+-- two creates (raw INSERT fires trg_journal_calendar per row)
+INSERT INTO calendars (id, mailbox_id, name) VALUES
+  (58201, (SELECT mb FROM _cal4), 'A4 Cal1'), (58202, (SELECT mb FROM _cal4), 'A4 Cal2');
+SELECT ok(
+  (jmap_calendar_changes((SELECT mb FROM _cal4), '0')->'created') @> '[58201, 58202]'::jsonb
+  AND (jmap_calendar_changes((SELECT mb FROM _cal4), '0')->'destroyed') = '[]'::jsonb,
+  'A4 Calendar: two creates return both ids in created, none destroyed');
+
+INSERT INTO _cals4 VALUES ('s1', jmap_calendar_changes((SELECT mb FROM _cal4), '0')->>'newState');
+
+-- update cal1 via the reducer (jmap_calendar_set_update fires the row UPDATE +
+-- notify_calendar_state's own UPDATE — both journal 'updated', collapsed to one).
+SELECT jmap_calendar_set_update((SELECT mb FROM _cal4), '{"58201":{"name":"A4 Cal1x"}}'::JSONB);
+SELECT ok(
+  (jmap_calendar_changes((SELECT mb FROM _cal4), (SELECT st FROM _cals4 WHERE label='s1'))->'updated') @> '[58201]'::jsonb
+  AND NOT ((jmap_calendar_changes((SELECT mb FROM _cal4), (SELECT st FROM _cals4 WHERE label='s1'))->'updated') @> '[58202]'::jsonb),
+  'A4 Calendar: a set_update surfaces only the updated calendar');
+
+INSERT INTO _cals4 VALUES ('s2', jmap_calendar_changes((SELECT mb FROM _cal4), '0')->>'newState');
+
+-- ── F1: deleting a calendar cascades its events away; trg_journal_calendar emits a
+--    CalendarEvent resync sentinel (the cascaded event deletes cannot resolve their
+--    now-gone parent's mailbox) so a client syncing CalendarEvent across the deletion
+--    gets BZ011 (no ghost events); the calendar itself surfaces as destroyed. ───────
+CREATE TEMP TABLE _cd4 AS SELECT mk_account('cdA4') AS mb;
+INSERT INTO calendars (id, mailbox_id, name) VALUES (58300, (SELECT mb FROM _cd4), 'Doomed cal');
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+  VALUES (58301, 58300, 'cdu', 'Doomed evt', '2041-01-01T09:00:00Z', '2041-01-01T10:00:00Z');
+CREATE TEMP TABLE _cd4s AS SELECT
+  jmap_calendar_changes((SELECT mb FROM _cd4), '0')->>'newState'       AS calS,
+  jmap_calendar_event_changes((SELECT mb FROM _cd4), '0')->>'newState' AS ceS;
+-- raw DELETE FROM calendars (mirrors the cascade behind calendar_subscriptions.go:221)
+DELETE FROM calendars WHERE id = 58300;
+SELECT ok(
+  (jmap_calendar_changes((SELECT mb FROM _cd4), (SELECT calS FROM _cd4s))->'destroyed') @> '[58300]'::jsonb,
+  'A4 F1: deleting a calendar surfaces it in Calendar/changes destroyed');
+SELECT throws_ok(
+  format('SELECT jmap_calendar_event_changes(%s, %L)', (SELECT mb FROM _cd4), (SELECT ceS FROM _cd4s)),
+  'BZ011', NULL,
+  'A4 F1: deleting a calendar makes CalendarEvent/changes spanning it return BZ011 (sentinel, no ghost events)');
+
+-- ── F3: an event RSVP flips attendee status via an UPDATE → the row trigger journals
+--    'updated', so an RSVP/cancellation surfaces in CalendarEvent/changes. ──────────
+CREATE TEMP TABLE _rs4 AS SELECT mk_account('rsA4') AS mb;
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (58400, (SELECT mb FROM _rs4), 'RSVP cal', TRUE);
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, is_meeting)
+  VALUES (58401, 58400, 'rsu', 'RSVP evt', '2042-01-01T09:00:00Z', '2042-01-01T10:00:00Z', TRUE);
+INSERT INTO event_attendees (event_id, email, name, role, status, rsvp)
+  VALUES (58401, 'guest@ext.test', 'Guest', 'required', 'needs-action', TRUE);
+CREATE TEMP TABLE _rs4s AS SELECT jmap_calendar_event_changes((SELECT mb FROM _rs4), '0')->>'newState' AS ceS;
+SELECT jmap_calendar_event_rsvp((SELECT mb FROM _rs4), 58401, 'guest@ext.test', 'accepted');
+SELECT ok(
+  (jmap_calendar_event_changes((SELECT mb FROM _rs4), (SELECT ceS FROM _rs4s))->'updated') @> '[58401]'::jsonb,
+  'A4 F3: an RSVP (attendee status flip → event UPDATE) surfaces the event as updated');
+
+-- ── F4: calendar_import_ics emits a CalendarEvent resync sentinel → a client spanning
+--    the bulk import gets BZ011 (coarse replace, old ids destroyed under new). ───────
+CREATE TEMP TABLE _ii4 AS SELECT mk_account('iiA4') AS mb;
+SELECT (SELECT mb FROM _ii4) AS ii_mb \gset
+SELECT user_id AS ii_uid, email AS ii_email FROM mailboxes WHERE id = :ii_mb \gset
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (58500, :ii_mb, 'Import cal', TRUE);
+CREATE TEMP TABLE _ii4s AS SELECT jmap_calendar_event_changes(:ii_mb, '0')->>'newState' AS ceS;
+SELECT calendar_import_ics(:ii_mb, :ii_uid, :'ii_email', 58500,
+  '[{"uid":"imp1","title":"Imported","start":"2043-01-01T09:00:00Z","end":"2043-01-01T10:00:00Z"}]'::JSONB, 'skip');
+SELECT throws_ok(
+  format('SELECT jmap_calendar_event_changes(%s, %L)', :ii_mb, (SELECT ceS FROM _ii4s)),
+  'BZ011', NULL, 'A4 F4: calendar_import_ics emits a CalendarEvent resync sentinel → BZ011');
+
+-- ── F4: calendar_subscription_refresh emits a CalendarEvent resync sentinel → BZ011. ─
+CREATE TEMP TABLE _sr4 AS SELECT mk_account('srA4') AS mb;
+SELECT (SELECT mb FROM _sr4) AS sr_mb \gset
+INSERT INTO calendars (id, mailbox_id, name) VALUES (58600, :sr_mb, 'Sub cal');
+INSERT INTO calendar_subscriptions (user_id, calendar_id, url, last_status)
+  VALUES ((SELECT user_id FROM mailboxes WHERE id = :sr_mb), 58600, 'https://feed.test/x.ics', 'pending')
+  RETURNING id AS sr_sub \gset
+CREATE TEMP TABLE _sr4s AS SELECT jmap_calendar_event_changes(:sr_mb, '0')->>'newState' AS ceS;
+SELECT calendar_subscription_refresh(:sr_sub, 58600,
+  '[{"uid":"sub1","title":"Feed evt","start":"2044-01-01T09:00:00Z","end":"2044-01-01T10:00:00Z"}]'::JSONB);
+SELECT throws_ok(
+  format('SELECT jmap_calendar_event_changes(%s, %L)', :sr_mb, (SELECT ceS FROM _sr4s)),
+  'BZ011', NULL, 'A4 F4: calendar_subscription_refresh emits a CalendarEvent resync sentinel → BZ011');
+
+-- ── pruned window → BZ011 (global prune LAST; s2>0, since=0 is never "pruned") ──────
+SELECT prune_changes_journal(0, 0);
+SELECT throws_ok(
+  format('SELECT jmap_calendar_event_changes(%s, %L)', (SELECT mb FROM _ce4), (SELECT st FROM _ces4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 CalendarEvent: sinceState past the pruned window → cannotCalculateChanges');
+SELECT throws_ok(
+  format('SELECT jmap_calendar_changes(%s, %L)', (SELECT mb FROM _cal4), (SELECT st FROM _cals4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 Calendar: sinceState past the pruned window → cannotCalculateChanges');
+
+-- ── Task 5: real RFC 8984 recurrenceOverrides on the master (read path) ────────────
+CREATE TEMP TABLE _ov5 AS SELECT mk_account('ovA5') AS mb;
+SELECT (SELECT mb FROM _ov5) AS ov_mb \gset
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (59000, :ov_mb, 'Ov cal', TRUE);
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule, timezone)
+VALUES (59001, 59000, 'ov-master', 'Weekly', '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY', 'UTC');
+
+-- one occurrence patched (override), one occurrence pure-excluded.
+SELECT (jmap_calendar_event_set_occurrence(:ov_mb, 59001, '2026-08-10 10:00:00+00'::timestamptz, 'this', '{"title":"Once"}'::jsonb));
+SELECT (jmap_calendar_event_set_occurrence(:ov_mb, 59001, '2026-08-17 10:00:00+00'::timestamptz, 'this', '{"excluded":true}'::jsonb));
+
+SELECT is(
+  (jmap_calendar_event_get(:ov_mb, ARRAY[59001]::BIGINT[])->'list'->0->'recurrenceOverrides'
+    -> '2026-08-10T10:00:00' ->> 'title'),
+  'Once',
+  'Task5: master emits the override patch keyed by LocalDateTime'
+);
+SELECT is(
+  (jmap_calendar_event_get(:ov_mb, ARRAY[59001]::BIGINT[])->'list'->0->'recurrenceOverrides'
+    -> '2026-08-17T10:00:00' ->> 'excluded'),
+  'true',
+  'Task5: a pure exdate (no override row) emits excluded:true'
+);
+SELECT ok(
+  (SELECT (jmap_calendar_event_get(:ov_mb,
+     ARRAY[(SELECT id FROM calendar_events WHERE calendar_id = 59000 AND recurrence_override IS NOT NULL)]::BIGINT[]
+   )->'list'->0) ? 'recurrenceId'),
+  'Task5: the override row itself exposes recurrenceId (not a bogus overrides map)'
+);
+
+-- Meet B1 Task 16 calendar hook: isMeeting/meetingUrl projection + the
+-- isMeeting:false clear-only patch (design #15). meeting_create.sql's own
+-- stamp is exercised end-to-end by mailserver/sql/tests/meet_create.pg —
+-- this file only proves the JMAP-facing projection/patch contract.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+VALUES (59100, 5301, 'meet-hook-evt', 'Standup', '2026-08-20 09:00:00+00', '2026-08-20 09:15:00+00');
+
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'isMeeting'),
+  'false',
+  'isMeeting defaults false for a plain event'
+);
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->'meetingUrl'),
+  'null'::jsonb,
+  'meetingUrl defaults null for a plain event'
+);
+
+-- Simulate meeting_create.sql's own stamp (that reducer's own pgTAP owns the
+-- create path itself) — this file only proves the read/clear contract on top.
+UPDATE calendar_events SET is_meeting = true, meeting_url = '/meet/join/abc123' WHERE id = 59100;
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'isMeeting'),
+  'true',
+  'isMeeting projects true once a meeting is attached'
+);
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'meetingUrl'),
+  '/meet/join/abc123',
+  'meetingUrl projects the stamped join link'
+);
+
+-- design #15: unchecking the toggle sends {"isMeeting":false} — clears BOTH
+-- columns; the meeting row itself is untouched (no delete route exists).
+SELECT (jmap_calendar_event_set_update(5301, jsonb_build_object(59100::TEXT, '{"isMeeting":false}'::jsonb)));
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'isMeeting'),
+  'false',
+  'an {isMeeting:false} patch clears is_meeting'
+);
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->'meetingUrl'),
+  'null'::jsonb,
+  'an {isMeeting:false} patch clears meeting_url too'
+);
+
+-- A client can never spoof {"isMeeting":true} into a real stamp — the patch
+-- route only ever CLEARS, matching the comment on jmap_calendar_event_set_update.
+UPDATE calendar_events SET is_meeting = false, meeting_url = NULL WHERE id = 59100;
+SELECT (jmap_calendar_event_set_update(5301, jsonb_build_object(59100::TEXT, '{"isMeeting":true}'::jsonb)));
+SELECT is(
+  (jmap_calendar_event_get(5301, ARRAY[59100]::BIGINT[])->'list'->0->>'isMeeting'),
+  'false',
+  'an {isMeeting:true} patch is a no-op — only meeting_create.sql may set it true'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

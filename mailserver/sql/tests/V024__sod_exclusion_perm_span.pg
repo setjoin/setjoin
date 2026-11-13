@@ -1,0 +1,107 @@
+-- pgTAP: V024__sod_exclusion_perm_span.pg — SoD trigger rejects perm-spanning roles
+--
+-- Tests four scenarios for the new exclusive-class-span check in sod_exclusion_guard():
+--
+--   Case 1 (BUG FIX — RED before V024 migration):
+--     With SoD ON, assigning Super Admin (id=1, sod_class=NULL) RAISES BZ001
+--     because Super Admin's permissions span ≥2 exclusive SoD classes.
+--
+--   Case 2 (false-positive guard):
+--     With SoD ON, assigning a single-class 等保 preset (系统管理员, sod_class='system')
+--     SUCCEEDS — no false positive.
+--
+--   Case 3 (existing cross-class check unchanged):
+--     With SoD ON, a user holding a system-class role being assigned an audit-class
+--     role RAISES BZ001 (existing assigned-class union path still works).
+--
+--   Case 4 (OFF no-op):
+--     With SoD OFF, assigning Super Admin SUCCEEDS.
+--
+-- Fixtures reuse the same domain / user ID namespace as trg_sod_exclusion.pg
+-- but use disjoint IDs (79101–79103) to avoid conflicts.
+BEGIN;
+SELECT plan(4);
+
+-- ── Fixtures ─────────────────────────────────────────────────────────────────
+
+INSERT INTO domains (name, is_local) VALUES ('sodspan.test', TRUE) ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE v_domain_id BIGINT;
+BEGIN
+  SELECT id INTO v_domain_id FROM domains WHERE name = 'sodspan.test';
+
+  -- u1: used for Case 1 (Super Admin blocked) and Case 4 (OFF no-op)
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79101, 'sodspan_u1', v_domain_id, 'sodspan_u1@sodspan.test', 'SodSpan U1', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- u2: used for Case 2 (single-class preset succeeds)
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79102, 'sodspan_u2', v_domain_id, 'sodspan_u2@sodspan.test', 'SodSpan U2', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- u3: used for Case 3 (cross-class via assigned classes still raises)
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79103, 'sodspan_u3', v_domain_id, 'sodspan_u3@sodspan.test', 'SodSpan U3', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- keeper: a persistent enabled Super Admin so this test's role-1 fixture deletes
+  -- (line below) are never "the last" — V035's trg_protect_last_super_admin (BEFORE
+  -- DELETE on admin_role_assignments) raises BZ064 when removing the sole enabled SA.
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (79104, 'sodspan_keeper', v_domain_id, 'sodspan_keeper@sodspan.test', 'SodSpan Keeper', 'x')
+    ON CONFLICT (id) DO NOTHING;
+END;
+$$;
+
+-- ── Case 4: toggle OFF → Super Admin assignment succeeds ─────────────────────
+-- Do this first so the fixture state is predictable.
+UPDATE feature_toggles SET enabled = false WHERE key = 'dengbao.sod_mode';
+
+-- Seed the keeper Super Admin while SoD is OFF (trigger no-op) so it persists through
+-- the ON cases and keeps the role-1 fixture deletes from tripping the last-SA guard.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (79104, 1, 79104);
+
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79101, 1, 79101$$,
+  'toggle OFF: assigning Super Admin (id=1, NULL sod_class, multi-class perms) SUCCEEDS — trigger is a no-op');
+
+-- Clean up u1 before the ON tests.
+DELETE FROM admin_role_assignments WHERE user_id = 79101;
+
+-- ── Enable SoD for the remaining cases ───────────────────────────────────────
+UPDATE feature_toggles SET enabled = true WHERE key = 'dengbao.sod_mode';
+
+-- ── Case 1: toggle ON → Super Admin (id=1, perm-span ≥2 classes) RAISES BZ001 ─
+-- This is the bug: before V024 the trigger passes because sod_class IS NULL.
+-- After V024 the new perm-span check must catch it.
+SELECT throws_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79101, 1, 79101$$,
+  'BZ001',
+  NULL,
+  'toggle ON: assigning Super Admin (id=1, sod_class=NULL, perms span system+security+audit) RAISES BZ001');
+
+-- ── Case 2: toggle ON → single-class 系统管理员 SUCCEEDS ──────────────────────
+-- 系统管理员 has sod_class=''system'' and only system-class perms — no false positive.
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79102, g.id, 79102 FROM admin_role_groups g WHERE g.name = '系统管理员'$$,
+  'toggle ON: assigning 系统管理员 (single system-class role) SUCCEEDS — no false positive from perm-span check');
+
+-- ── Case 3: toggle ON → user holding system role gets audit role → RAISES BZ001 ─
+-- Tests the existing assigned-class union path still works independently.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 79103, g.id, 79103 FROM admin_role_groups g WHERE g.name = '系统管理员';
+
+SELECT throws_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 79103, g.id, 79103 FROM admin_role_groups g WHERE g.name = '审计管理员'$$,
+  'BZ001',
+  NULL,
+  'toggle ON: user holding system role being assigned audit role RAISES BZ001 (assigned-class union path)');
+
+SELECT * FROM finish();
+ROLLBACK;

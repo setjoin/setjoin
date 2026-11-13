@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/roles/9007199254740993",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"name\":\"Big\"}"
+    }
+  ],
+  "stdout": "Role 9007199254740993 updated.\n",
+  "stderr": "",
+  "exit": 0
+}

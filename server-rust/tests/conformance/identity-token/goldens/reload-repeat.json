@@ -1,0 +1,45 @@
+{
+  "case": "reload-repeat",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [
+        {
+          "client": "idlogin3-client-a",
+          "hash": "59f009f73636306c5c791ed1c06dba9c8e06c8841a1a429b734dbc96d672891b",
+          "owner": "actor",
+          "revoked": false
+        },
+        {
+          "client": "idlogin3-client-b",
+          "hash": "e3737412dde79fc881a3a543db2472bab5eb45436ab2b139bbc06fff0e7a8b1e",
+          "owner": "foreign",
+          "revoked": false
+        }
+      ]
+    },
+    "notify": [],
+    "repeat_response": {
+      "body": "{\"rearmed\":[\"internal_api_key\"],\"restart_required\":[\"threat_settings\",\"jwt_secret_derived_material\",\"sso_and_authn_boot_options\"]}",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "",
+      "method": "POST",
+      "path": "/admin/reload"
+    },
+    "response": {
+      "body": "{\"rearmed\":[\"internal_api_key\"],\"restart_required\":[\"threat_settings\",\"jwt_secret_derived_material\",\"sso_and_authn_boot_options\"]}",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/reload"
+}

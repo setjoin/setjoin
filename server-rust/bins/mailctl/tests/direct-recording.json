@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "source_commit": "c9f0428c16c76edca717bf2adf5afb8d3e34de74",
+  "mailctl_tree": "3bda2378d2e7b6edfc2761dd19477908f3204ef5",
+  "shared_tree": "b0c5ba6da744f88a4fe7835b43d7640c6f6dc68c",
+  "sql_tree": "e51e6e8f6cba3483013778e12555f8036b4176cb",
+  "go_version": "go1.26.6",
+  "goos": "linux",
+  "goarch": "amd64",
+  "CGO_ENABLED": "0",
+  "image": "setjoin-ci-linux-tc:local-amd64",
+  "image_id": "sha256:b5c41404ac8126e7d2ab4c7f8c7d45d926f165425d589d197f497313410511b6",
+  "binary_sha256": "086674d1933bf0929bf8d15147479427c4b04ef35a46ff14d24c4144cdff634d",
+  "recording_binary_sha256": "4a696913b009366ad8ced32947b0335c21cbc962f2e375040620b593aa94f2bb",
+  "build_command": "CGO_ENABLED=0 go build -o <oracle> . (cwd mailctl/)",
+  "recording_build_command": "CGO_ENABLED=0 go build -overlay /out/record-overlay/overlay.json -o <recording-oracle> . (cwd /src/mailctl)",
+  "overlay_inputs": {
+    "main.go": "012a3c83537bf19feca7ea1c703ef7d358fa9d4e030da76407895e2346c6e8de",
+    "push.go": "7c32d7f5856b37adc8eca2837b1f8f59765d36fed7286339a5630e4a6d1f42b7",
+    "overlay.json": "6813f11582084944d6b95c8f49f8a4942561c78e12d3fc54e41495d651a5c3a5"
+  },
+  "cases": 121,
+  "cases_sha256": "af6b11a8fc7cea4f75ba55c38cfae07d2bb4f7bef87bdc6100af6910b245e089",
+  "goldens_sha256": "64d6528ec274e6cbb66fc1ad1061a2c23c1ca3a95a5c55f39166ea2c89996f9d",
+  "goldens_digest_format": "sha256(concat(sorted filename + NUL + exact file bytes))",
+  "normalization": "owned temp root/loopback URL; random token only after bcrypt+SHA256 verification; password verifier only after bcrypt/SM3 verification; encryption only after decrypt comparison; generated FK IDs, clocks and UIDVALIDITY; signed/encrypted push only after peer verification; generated-ID labels canonicalized bijectively by row content with every FK retained; initial quota date checked against database CURRENT_DATE",
+  "recording_hooks": "APNs literal-loopback dial and Web Push injected loopback transport only; canonical Go source remains unmodified; production SSRF-denial case has no injected transport",
+  "harness_sha256": {
+    "direct_db.py": "ecd8ce23d1ec3378838f1fd25fd93edeca6813858867bddbc5c428785da6b80a",
+    "db_snapshot.py": "9f77641f50c13be146199455202dace1c53b2c690db1196a3262d0e1ac962977",
+    "push_service.py": "9b064e056eaa2c5605698771ddc1e5c31737fec3226e1ece46b918dbd4213ec3",
+    "push_wire.py": "60e47c4475da385bbba616d68b4fbaa5864e008f999435d31a9301e097d5b2b3",
+    "record_overlay.py": "fb632bf8ed58f0399c8ee936022f543f2d93f616b4af79c108b8ed0fb37ac827"
+  }
+}

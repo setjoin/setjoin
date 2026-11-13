@@ -1,0 +1,113 @@
+{
+  "case": "consumer-mail-deny",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [
+      {
+        "action": "approval_denied",
+        "after_state": null,
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit-id>",
+        "ip": null,
+        "notes": "<trip>",
+        "occurred_at": "<timestamp>",
+        "target_id": "<request>",
+        "target_type": "approval_request",
+        "user_id": "<approver>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "mail.external_send",
+          "created_at": "<timestamp>",
+          "decided_at": "<timestamp>",
+          "decided_by_user_id": "<approver>",
+          "decision_comment": "<trip>",
+          "domain_id": "<requester-domain>",
+          "expires_at": "2099-11-01T12:00:00+00:00",
+          "id": "<request>",
+          "payload": {},
+          "policy_id": null,
+          "requester_user_id": "<requester>",
+          "status": "denied",
+          "subject": "Leave <one>"
+        },
+        "before": {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "mail.external_send",
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by_user_id": null,
+          "decision_comment": null,
+          "domain_id": "<requester-domain>",
+          "expires_at": "2099-11-01T12:00:00+00:00",
+          "id": "<request>",
+          "payload": {},
+          "policy_id": null,
+          "requester_user_id": "<requester>",
+          "status": "pending",
+          "subject": "Leave <one>"
+        },
+        "table": "approval_requests"
+      }
+    ],
+    "notify": [
+      {
+        "request_id": "<request>",
+        "status": "denied"
+      }
+    ],
+    "request": {
+      "body": "{\"decision\":\"deny\",\"comment\":\"<trip>\"}",
+      "external_path": "/api/me/approvals/{id}/decide",
+      "method": "POST",
+      "path": "/me/approvals/{id}/decide"
+    },
+    "response": {
+      "body": "{\"status\":\"denied\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "20"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /me/approvals/{id}/decide"
+}

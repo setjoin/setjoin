@@ -1,0 +1,10 @@
+{
+  "stdout": "  [1] alice@gofree-mctl3.test: OK (dry-run) cert={ROOT}/cert.pem label=\"pkcs1\"\n  [2] bob@gofree-mctl3.test: WARN \u2014 cert SAN/CN does not include bob@gofree-mctl3.test\n  [2] bob@gofree-mctl3.test: OK (dry-run) cert={ROOT}/cert.pem label=\"sec1\"\n  [3] alice@gofree-mctl3.test: SKIP \u2014 read cert {ROOT}/missing.pem: open {ROOT}/missing.pem: no such file or directory\n  [4] alice@gofree-mctl3.test: SKIP \u2014 invalid private key: not PEM-encoded\nsmime import: 2 validated, 2 skipped (of 4 rows)\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

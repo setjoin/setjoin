@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown spam action: bogus (try: status, reset)\n",
+  "exit": 1
+}

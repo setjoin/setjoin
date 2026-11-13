@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/spam",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Status:     enabled\nModels:     3 users trained (1 opted out)\nSamples:    300 total (100 avg/user)\nActive:     2 users this week\nAccuracy:   0.40% FP rate (2 rescues / 500 classified)\n",
+  "stderr": "",
+  "exit": 0
+}

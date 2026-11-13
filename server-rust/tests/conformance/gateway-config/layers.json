@@ -1,0 +1,165 @@
+[
+  {
+    "name": "defaults",
+    "yaml": "",
+    "env": {},
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "yaml",
+    "yaml": "network:\n  mode: china\nwebsite:\n  dir: /operator/web\nscim:\n  enabled: true\nad:\n  sync_enabled: true\nldap:\n  sync_enabled: true\nimap:\n  tls_addr: \"\"\nauth:\n  login_field: upn\n  login_domain_hint: example.test\n",
+    "env": {},
+    "expected": {
+      "ad.sync_enabled": "true",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": "",
+      "ldap.sync_enabled": "true",
+      "network.mode": "china",
+      "scim.enabled": "true",
+      "website.dir": "/operator/web"
+    }
+  },
+  {
+    "name": "environment-over-file",
+    "yaml": "network:\n  mode: china\nscim:\n  enabled: true\nad:\n  sync_enabled: true\n",
+    "env": {
+      "AD_SYNC_ENABLED": "false",
+      "NETWORK_MODE": "airgap",
+      "SCIM_ENABLED": "false"
+    },
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "airgap",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "empty-environment-over-file",
+    "yaml": "network:\n  mode: china\nimap:\n  tls_addr: :9993\n",
+    "env": {
+      "IMAP_TLS_ADDR": "",
+      "NETWORK_MODE": ""
+    },
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": "",
+      "ldap.sync_enabled": "false",
+      "network.mode": "",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "unknown-env-ignored",
+    "yaml": "",
+    "env": {
+      "AUTH_LOGIN_DOMAIN_HINT": "ignored.test",
+      "AUTH_LOGIN_FIELD": "upn"
+    },
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "file-introduced-env-key",
+    "yaml": "auth:\n  login_field: email\n  login_domain_hint: file.test\n",
+    "env": {
+      "AUTH_LOGIN_DOMAIN_HINT": "env.test",
+      "AUTH_LOGIN_FIELD": "upn"
+    },
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "double-underscore",
+    "yaml": "",
+    "env": {
+      "NETWORK__MODE": "global"
+    },
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "global",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "boolean-spellings",
+    "yaml": "",
+    "env": {
+      "AD_SYNC_ENABLED": "1",
+      "LDAP_SYNC_ENABLED": "t",
+      "SCIM_ENABLED": "TRUE"
+    },
+    "expected": {
+      "ad.sync_enabled": "true",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "true",
+      "network.mode": "",
+      "scim.enabled": "true",
+      "website.dir": ""
+    }
+  },
+  {
+    "name": "flat-file-keys",
+    "yaml": "network.mode: china\nscim.enabled: true\n",
+    "env": {},
+    "expected": {
+      "ad.sync_enabled": "false",
+      "auth.login_domain_hint": "",
+      "auth.login_field": "",
+      "crypto.algorithm_profile": "standard",
+      "imap.tls_addr": ":993",
+      "ldap.sync_enabled": "false",
+      "network.mode": "",
+      "scim.enabled": "false",
+      "website.dir": ""
+    }
+  }
+]

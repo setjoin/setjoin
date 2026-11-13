@@ -1,0 +1,55 @@
+{
+  "case": "acme-http80-https-redirect",
+  "format": 1,
+  "go_source": "3490f2b4fbddc34164d3ed7aa129fd446599a226",
+  "observation": [
+    {
+      "body": "<a href=\"https://mail.example.test/a?b=c\">Moved Permanently</a>.\n\n",
+      "content_type": "text/html; charset=utf-8",
+      "location": "https://mail.example.test/a?b=c",
+      "method": "GET",
+      "path": "/a?b=c",
+      "status": 301
+    },
+    {
+      "body": "",
+      "content_type": "text/html; charset=utf-8",
+      "location": "https://mail.example.test/x",
+      "method": "HEAD",
+      "path": "/x",
+      "status": 301
+    },
+    {
+      "body": "",
+      "content_type": "",
+      "location": "https://mail.example.test/p?q=1",
+      "method": "POST",
+      "path": "/p?q=1",
+      "status": 301
+    },
+    {
+      "body": "<a href=\"https://mail.example.test/a%20b/c%2Fd?x=1&amp;y=%3Cz%3E\">Moved Permanently</a>.\n\n",
+      "content_type": "text/html; charset=utf-8",
+      "location": "https://mail.example.test/a%20b/c%2Fd?x=1&y=%3Cz%3E",
+      "method": "GET",
+      "path": "/a%20b/c%2Fd?x=1&y=%3Cz%3E",
+      "status": 301
+    },
+    {
+      "body": "<a href=\"https://mail.example.test/\">Moved Permanently</a>.\n\n",
+      "content_type": "text/html; charset=utf-8",
+      "location": "https://mail.example.test/",
+      "method": "GET",
+      "path": "/",
+      "status": 301
+    },
+    {
+      "body": "<a href=\"https://mail.example.test/q\">Moved Permanently</a>.\n\n",
+      "content_type": "text/html; charset=utf-8",
+      "location": "https://mail.example.test/q",
+      "method": "GET",
+      "path": "/q?",
+      "status": 301
+    }
+  ]
+}

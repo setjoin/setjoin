@@ -1,0 +1,58 @@
+{
+  "case": "get-foreign",
+  "format": 1,
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/meet/{id}"
+    },
+    "response": {
+      "body": {
+        "attendance": [],
+        "banned": [],
+        "breakouts": [],
+        "breakoutsEnabled": false,
+        "calendarEventId": null,
+        "captionsEnabled": false,
+        "captionsOn": false,
+        "chatChannelId": null,
+        "chatChannelMember": false,
+        "createdAt": "<timestamp>",
+        "endedAt": null,
+        "guestAllowed": false,
+        "locked": false,
+        "meetingId": "<meeting-foreign-1>",
+        "myBreakoutId": null,
+        "myRole": null,
+        "ownerUserId": null,
+        "pendingJoinRequests": [],
+        "presentation": null,
+        "presentationEnabled": false,
+        "recordingActive": false,
+        "recordingEnabled": false,
+        "recordings": [],
+        "roomName": null,
+        "scheduledEnd": null,
+        "scheduledStart": null,
+        "slug": null,
+        "state": "scheduled",
+        "title": "Meet1 seed foreign"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "meet1-oracle"
+      },
+      "status": 200
+    }
+  }
+}

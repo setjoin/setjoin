@@ -1,0 +1,32 @@
+-- pgTAP: email_header_value() — the RFC 5322 header-injection sanitizer wrapped around
+-- every user-controlled value in the raw-message builders (jmap_email_set_create compose
+-- send + send.sql MDN echo). A bare CR/LF in a header value would otherwise terminate the
+-- header and inject arbitrary headers / split the message. The vote-response path is the
+-- sharpest vector: it can carry attacker CR/LF copied from a received X-Mailserver-Voting
+-- header. These builders never fold headers, so no legitimate CR/LF exists inside a value.
+BEGIN;
+SELECT plan(8);
+
+-- The function exists (so the send/MDN builders resolve it at load time; a typo'd
+-- call-site name would fail the reducer load, not reach here).
+SELECT has_function('email_header_value', ARRAY['text'], 'email_header_value(text) exists');
+
+-- Core invariant: the result NEVER contains CR or LF, whatever the input.
+SELECT is(position(chr(10) IN email_header_value(E'a\nb')), 0, 'strips LF');
+SELECT is(position(chr(13) IN email_header_value(E'a\rb')), 0, 'strips CR');
+SELECT is(position(chr(10) IN email_header_value(E'Standup\r\nBcc: evil@x.com')), 0,
+  'CRLF Subject-injection payload has no LF (header cannot be split)');
+
+-- Injected header text survives only as inert inline value text (folded to one space).
+SELECT is(email_header_value(E'Standup\r\nBcc: evil@x.com'), 'Standup Bcc: evil@x.com',
+  'CRLF collapses to a single space, injected Bcc stays inside the value');
+SELECT is(email_header_value(E'Approve;Reject\r\nX-Evil: 1'), 'Approve;Reject X-Evil: 1',
+  'vote-option CRLF injection neutralized');
+SELECT is(email_header_value(E'a\r\n\r\n\nb'), 'a b',
+  'runs of CR/LF collapse to one space (no empty-line body split)');
+
+-- NULL is safe (COALESCE to empty) — some header values are optional.
+SELECT is(email_header_value(NULL), '', 'NULL → empty string');
+
+SELECT * FROM finish();
+ROLLBACK;

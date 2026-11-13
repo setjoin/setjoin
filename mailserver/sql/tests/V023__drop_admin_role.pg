@@ -1,0 +1,38 @@
+-- pgTAP: V023__drop_admin_role.pg — the legacy users.admin_role enum is dropped.
+--
+-- The RBAC cut-over made governed admin_role_assignments the single authority
+-- axis; every read of users.admin_role was removed first, then the column
+-- dropped (V023). This pins the post-drop schema:
+--   * users.admin_role is GONE (column + its CHECK constraint).
+--   * users.is_admin is RETAINED (still feeds Claims.IsAdmin + impersonate DiD).
+--   * the V023 migration is recorded.
+BEGIN;
+SELECT plan(4);
+
+-- 1. The dropped column is gone (the load-bearing assertion).
+SELECT hasnt_column(
+  'users', 'admin_role',
+  'users.admin_role column dropped by V023 (governed assignments are the only authority axis)');
+
+-- 2. is_admin is RETAINED — it is authn context, not an authority axis, and must
+--    survive the cut-over (it feeds Claims.IsAdmin + the impersonate guard).
+SELECT has_column(
+  'users', 'is_admin',
+  'users.is_admin retained — authn context survives the admin_role drop');
+
+-- 3. The admin_role CHECK constraint is gone with the column.
+SELECT ok(
+  NOT EXISTS(
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'users_admin_role_check'
+       AND conrelid = 'public.users'::regclass
+  ),
+  'users_admin_role_check CHECK constraint dropped with the column');
+
+-- 4. The V023 migration is recorded in schema_migrations.
+SELECT ok(
+  EXISTS(SELECT 1 FROM schema_migrations WHERE version = 23),
+  'V023 recorded in schema_migrations');
+
+SELECT * FROM finish();
+ROLLBACK;

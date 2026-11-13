@@ -1,0 +1,75 @@
+-- pgTAP: V263__push_decrypt_token.pg — debt plan D-6 (push.ResolveDevices
+-- per-row decrypt contract gap). The migration installs push_decrypt_token,
+-- the exception-isolated per-token decrypt helper: it returns the plaintext
+-- under the session's app.encryption_key, reports the UNDECRYPTABLE-token
+-- outcome (pgcrypto "Wrong key or corrupt data", SQLSTATE 39000) as NULL for
+-- the reader to skip and aggregate-log, and propagates everything else — so a
+-- single bad row can neither sink the resolve nor poison a caller's
+-- transaction, while real query/configuration/cancellation errors still fail
+-- loudly. The Astra r2 empty-key regression pins the configuration guard: an
+-- EMPTY app.encryption_key (pgcrypto's "Illegal argument to function" raises
+-- the same 39000) fails LOUDLY with 42704 instead of a silent NULL skip.
+--
+-- Pure function test: no fixtures needed. The end-to-end reader contract
+-- (mixed/all-good/all-bad resolves, log without token/key contents, and a
+-- transaction caller staying usable afterward) is pinned by the Go
+-- integration test shared/push/resolve_devices_db_test.go against the real
+-- database.
+--
+-- Requires: V263 (this migration), pgcrypto.
+BEGIN;
+SELECT plan(8);
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 263),
+          1, 'schema_migrations records version 263');
+SELECT has_function('public', 'push_decrypt_token', ARRAY['bytea'],
+          'push_decrypt_token(bytea) is installed');
+
+-- ── The session key the reader pools set (AfterConnect GUC convention) ──────
+SELECT set_config('app.encryption_key', 'v263-resolve-key', true);
+
+-- ── Good decrypt: the helper is the reader's decrypt seam ───────────────────
+SELECT is(push_decrypt_token(pgp_sym_encrypt('v263-readable-token', 'v263-resolve-key')),
+          'v263-readable-token',
+          'a token encrypted under the session key decrypts to its plaintext');
+
+-- ── Undecryptable token → NULL (the skip arm), never an error ───────────────
+SELECT is(push_decrypt_token(pgp_sym_encrypt('v263-undecryptable', 'v263-OTHER-key')),
+          NULL,
+          'a wrong-key ciphertext reports NULL (the reader skips + aggregate-logs it), never an error');
+
+-- ── Empty-token handling stays DISTINCT from undecryptable ──────────────────
+SELECT is(push_decrypt_token(pgp_sym_encrypt('', 'v263-resolve-key')),
+          '',
+          'an empty plaintext decrypts to the empty string (reader silent-skip), not NULL (undecryptable arm)');
+
+-- ── Transaction usability: the isolated failure must not poison the caller ──
+-- The NULL-returning call above ran in a subtransaction that the helper's
+-- EXCEPTION block rolled back internally; the surrounding transaction (this
+-- pgTAP BEGIN) must still be fully usable afterward.
+SELECT lives_ok('SELECT push_decrypt_token(pgp_sym_encrypt(''v263-after'', ''v263-resolve-key''))',
+          'the transaction is still usable after the isolated undecryptable-token failure');
+SELECT is(push_decrypt_token(pgp_sym_encrypt('v263-after', 'v263-resolve-key')),
+          'v263-after',
+          'the transaction still decrypts correctly after the isolated failure');
+
+-- ── EMPTY configured key → LOUD configuration error, never a silent NULL ────
+-- (Astra r2, D-6 regression.) pgcrypto raises the SAME SQLSTATE 39000
+-- ("Illegal argument to function") for an empty key as it does for a
+-- wrong-key token, so a blanket 39000 handler reported the misconfiguration
+-- as a NULL skip — the reader then resolved ZERO devices and pushjobs marked
+-- the dispatch intent done. The key is validated OUTSIDE the protected
+-- block, so an empty app.encryption_key must surface as the configuration
+-- error 42704 exactly like the missing-GUC case.
+SELECT set_config('app.encryption_key', '', true);
+-- throws_ok's third argument is the EXPECTED ERROR MESSAGE (NULL = any), the
+-- description comes fourth — the two-arg-plus-description overload used here
+-- previously matched the description against the helper's actual exception
+-- text and failed. (Astra r3, D-6.)
+SELECT throws_ok('SELECT push_decrypt_token(pgp_sym_encrypt(''v263-emptykey'', ''v263-resolve-key''))',
+          '42704', NULL,
+          'an EMPTY app.encryption_key raises the loud configuration error (42704), never the silent NULL skip');
+
+SELECT * FROM finish();
+ROLLBACK;

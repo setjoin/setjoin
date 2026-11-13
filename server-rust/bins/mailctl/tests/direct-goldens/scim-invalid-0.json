@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: --name is required\n",
+  "exit": 1,
+  "database_effects": {
+    "tokens": [],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

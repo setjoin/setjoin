@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --consumer-type is required\n",
+  "exit": 1
+}

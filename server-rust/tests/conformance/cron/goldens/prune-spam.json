@@ -1,0 +1,31 @@
+{
+  "case": "prune-spam",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "models": [
+              "model:false"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "models": []
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

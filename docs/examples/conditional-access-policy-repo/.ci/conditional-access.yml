@@ -1,0 +1,127 @@
+# .ci/conditional-access.yml
+# CI runbook for the setjoin Conditional Access policy repo.
+#
+# Compatible with GitHub Actions and Gitea Actions (identical syntax).
+# Triggered on: push to any branch (validate + diff), merge to main (apply).
+#
+# Required secrets:
+#   MAILCTL_SERVER  — e.g. https://mail.corp.example
+#   MAILCTL_TOKEN   — admin JWT from `mailctl login`
+#
+# Required tools: mailctl (available in PATH on the runner)
+
+name: Conditional Access Policy CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  MAILCTL_SERVER: ${{ secrets.MAILCTL_SERVER }}
+  MAILCTL_TOKEN: ${{ secrets.MAILCTL_TOKEN }}
+  POLICY_FILE: .policy/cookbook.json
+
+jobs:
+  validate:
+    name: Validate policy documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate all policy documents (strict mode)
+        # --strict makes warnings non-zero; catches shadowed grants and other
+        # non-fatal issues before they reach the server.
+        run: |
+          for f in .policy/*.json; do
+            echo "Validating $f ..."
+            mailctl ca validate --strict "$f"
+          done
+
+      - name: Format check (no uncommitted fmt drift)
+        # Ensures policy files are canonically formatted (stable key order).
+        # Authors must run `mailctl ca fmt <file> > <file>` before committing.
+        run: |
+          for f in .policy/*.json; do
+            mailctl ca fmt "$f" > /tmp/fmt-check.json
+            if ! diff -q "$f" /tmp/fmt-check.json > /dev/null 2>&1; then
+              echo "ERROR: $f is not canonically formatted."
+              echo "Run: mailctl ca fmt $f > $f"
+              exit 1
+            fi
+          done
+
+  diff:
+    name: Diff against live server
+    runs-on: ubuntu-latest
+    needs: validate
+    # Only diff when server credentials are available (skip on forks).
+    if: ${{ secrets.MAILCTL_SERVER != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diff policy document against live server
+        # Exit 0 = no drift; exit 2 = changes present (mirrors terraform plan).
+        # On pull requests this is informational; the apply step is gated to main.
+        run: |
+          mailctl ca diff -f "$POLICY_FILE" || true
+          # Capture exit code explicitly for reporting.
+          mailctl ca diff -f "$POLICY_FILE"
+          echo "Diff exit code: $?"
+        continue-on-error: true
+
+      - name: Run simulate smoke-test
+        # Verify that a known-safe user is still allowed after the proposed changes.
+        # Set CA_SMOKE_TEST_USER in repo variables to a real test account email.
+        run: |
+          if [ -n "${{ vars.CA_SMOKE_TEST_USER }}" ]; then
+            mailctl ca simulate \
+              --user "${{ vars.CA_SMOKE_TEST_USER }}" \
+              --expect allow
+          else
+            echo "CA_SMOKE_TEST_USER not configured; skipping simulate smoke-test."
+          fi
+
+  coverage:
+    name: Coverage check
+    runs-on: ubuntu-latest
+    needs: validate
+    if: ${{ secrets.MAILCTL_SERVER != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check CA coverage (fail on gaps)
+        run: mailctl ca coverage --fail-on-gap
+
+      - name: Run CA doctor
+        run: mailctl ca doctor
+        # doctor exits 1 when any check fails; gates CI on policy hygiene.
+
+  apply:
+    name: Apply policy to server
+    runs-on: ubuntu-latest
+    needs: [validate, coverage]
+    # Only apply on merge to main (not on PRs or other branches).
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply policy document (replace mode)
+        # replace mode is idempotent: re-applying the same document is a no-op.
+        # Use merge mode if you want to preserve policies not in the document:
+        #   mailctl ca import -f "$POLICY_FILE" --mode merge
+        run: mailctl ca apply -f "$POLICY_FILE"
+
+      - name: Post-apply coverage check
+        run: mailctl ca coverage --fail-on-gap
+
+      - name: Post-apply doctor
+        run: mailctl ca doctor
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::CA policy apply failed. Review doctor output above."
+          echo "To investigate: mailctl ca signin-log --limit 20"
+          echo "To rollback: mailctl ca import -f <previous-export>.json --mode replace"

@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/conflicts/00000000-0000-4000-8000-000000000001/decision",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"1\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"decision\":\"reject\",\"expectedGeneration\":\"1\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "{\n  \"id\": \"00000000-0000-4000-8000-000000000001\",\n  \"state\": \"rejected\",\n  \"generation\": \"2\",\n  \"personId\": null,\n  \"linkId\": null,\n  \"replayed\": false\n}\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000002\n",
+  "exit": 0
+}

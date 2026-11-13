@@ -1,0 +1,117 @@
+{
+  "case": "reauth-invalid-input-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [
+          {
+            "action": "mfa_reauth_refused",
+            "ip": "127.0.0.1/32",
+            "notes": "missing password",
+            "owner": "actor",
+            "target_type": "user"
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "table": "possession"
+    }
+  ],
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "route": "POST /auth/mfa/reauth"
+}

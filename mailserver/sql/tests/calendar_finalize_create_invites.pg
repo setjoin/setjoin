@@ -1,0 +1,146 @@
+-- pgTAP: calendar_finalize_create_invites.sql — the CalendarEvent/set create-path invite
+-- DECISION (recipient set + organizer + event fields), moved from the Go gateway into a
+-- reducer. The gateway now only serializes the payloads this returns.
+--
+-- DIVERGENT IDS (user 72001 != mailbox 92001). The reducer is mailbox-keyed (ownership
+-- R1). Behavior-preservation notes asserted here:
+--   * It does NOT gate on calendar_events.is_meeting — a created event is is_meeting=FALSE
+--     (jmap_calendar_event_set_create never sets it), so a meeting-gate would suppress every
+--     create-path invite. The fixture event is is_meeting=FALSE yet still yields a payload.
+--   * start/end are emitted Z-normalized (the gateway's time.Parse needs an instant the
+--     client sent, not a session-offset timestamp).
+--   * ALL stored attendees are emitted in insertion order (organizer-role + resource rows
+--     included) — the old Go path serialized every attendee; the organizer is excluded only
+--     from the recipient envelope, in the Go worker.
+--   * An event with no non-organizer attendee is SKIPPED (no row).
+--   * A foreign event id is SKIPPED (ownership).
+--   * CREATE-PATH PARTSTAT/RSVP CARRY-THROUGH (RFC 5546 §3.2.2): the create event is built
+--     through jmap_calendar_event_set_create with a REALISTIC client attendee
+--     (participationStatus only — NO status/rsvp keys, exactly src/lib/types/jmap.ts's
+--     EventAttendee), so the create reducer stores the row's status
+--     (participationStatus→status, e.g. 'accepted'/'needs-action') and DEFAULTS rsvp=TRUE.
+--     The emitted create-path payload carries those STORED values under the canonical JMAP
+--     keys participationStatus/expectReply (the shape the JSON-tagged caldav.Attendee reads),
+--     so a fresh invitee's iMIP ATTENDEE line gets PARTSTAT=NEEDS-ACTION;RSVP=TRUE. This
+--     reverts the wave-6 byte-preservation blanking. The test asserts the stored value rides
+--     the wire (the guest's stored needs-action / rsvp=true) — NOT a hardcoded constant.
+BEGIN;
+SELECT plan(16);
+
+INSERT INTO domains (name, is_local) VALUES ('inv.test', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (72001, 'organizer', (SELECT id FROM domains WHERE name='inv.test'), 'org@inv.test', 'Org'),
+  (72002, 'other',     (SELECT id FROM domains WHERE name='inv.test'), 'other@inv.test', 'Other');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (92001, 72001, (SELECT id FROM domains WHERE name='inv.test'), 'org@inv.test', 'personal', 'Org Mbox', TRUE),
+  (92009, 72002, (SELECT id FROM domains WHERE name='inv.test'), 'other@inv.test', 'personal', 'Other Mbox', TRUE);
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (92001, 92001, 'Org Cal', TRUE),
+  (92009, 92009, 'Other Cal', TRUE);
+
+-- Create the meeting event through the REAL create reducer with a REALISTIC client payload:
+-- attendees carry `participationStatus` only (no status/rsvp keys) — exactly the webmail
+-- EventAttendee wire shape. The reducer fabricates event_attendees.status (from
+-- participationStatus) and defaults rsvp=TRUE. is_meeting stays FALSE (create never sets it).
+SELECT jmap_calendar_event_set_create(
+  92001, 72001, 'org@inv.test',
+  jsonb_build_object('c1', jsonb_build_object(
+    'calendarId', '92001',
+    'uid', 'inv-evt-1',
+    'title', 'Quarterly Sync',
+    'description', 'Plan it',
+    'location', 'HQ',
+    'start', '2026-07-01T15:00:00+00',
+    'end',   '2026-07-01T16:00:00+00',
+    'isAllDay', false,
+    'timeZone', 'UTC',
+    'status', 'confirmed',
+    'attendees', jsonb_build_array(
+      jsonb_build_object('email','org@inv.test',   'name','Org',    'role','organizer', 'participationStatus','accepted'),
+      jsonb_build_object('email','guest@ext.com',  'name','Guest',  'role','required',  'participationStatus','needs-action'),
+      jsonb_build_object('email','roomZ@inv.test', 'name','Room Z', 'role','resource',  'participationStatus','needs-action')
+    )
+  ))
+) AS created_evt \gset
+
+-- Recover the created event id from the {createKey: eventId} created map.
+SELECT (:'created_evt'::jsonb #>> '{created,c1}')::bigint AS evt_id \gset
+
+-- Sanity: the create reducer really stored the row's status/rsvp from the realistic client
+-- payload (so the carry-through below asserts a real stored value, not a no-op).
+SELECT is(
+  (SELECT status FROM event_attendees WHERE event_id = :evt_id AND email='org@inv.test'),
+  'accepted',
+  'create reducer fabricated stored status from participationStatus (accepted)');
+SELECT is(
+  (SELECT rsvp FROM event_attendees WHERE event_id = :evt_id AND email='guest@ext.com'),
+  TRUE,
+  'create reducer defaulted stored rsvp=TRUE (no expectReply key sent)');
+
+-- An event with ONLY the organizer as attendee (no recipient) → must be skipped.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status, etag, jmap_state)
+VALUES (92002, 92001, 'inv-evt-2', 'Solo', now(), now()+'1h'::INTERVAL, 'confirmed', generate_etag(), 1);
+INSERT INTO event_attendees (event_id, email, role) VALUES (92002, 'org@inv.test', 'organizer');
+
+-- A foreign event (other account) → must be skipped (ownership).
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status, etag, jmap_state)
+VALUES (92009, 92009, 'inv-foreign', 'Foreign', now(), now()+'1h'::INTERVAL, 'confirmed', generate_etag(), 1);
+INSERT INTO event_attendees (event_id, email, role) VALUES (92009, 'guest@ext.com', 'required');
+
+-- Capture the single eligible payload once.
+CREATE TEMP TABLE _p AS
+  SELECT calendar_finalize_create_invites(92001, ARRAY[:evt_id,92002]::bigint[], 'org@inv.test', '') AS j;
+
+-- (1) Exactly one payload (the created event eligible; 92002 skipped — organizer-only).
+SELECT is((SELECT count(*)::int FROM _p), 1, 'one payload (recipient-less event skipped)');
+
+-- (2) eventId is the created event id.
+SELECT is((SELECT (j->>'eventId')::bigint FROM _p), :evt_id::bigint, 'payload carries the event id');
+
+-- (3) organizer comes from the PARAMETER (stored organizer_email is NULL on create).
+SELECT is((SELECT j->>'organizerEmail' FROM _p), 'org@inv.test', 'organizerEmail from the param, not the (NULL) stored row');
+SELECT is((SELECT j->>'organizerName' FROM _p), '', 'organizerName from the param (empty, like the gateway)');
+
+-- (4) start/end are Z-normalized RFC3339 (UTC instant the client sent).
+SELECT is((SELECT j->>'start' FROM _p), '2026-07-01T15:00:00Z', 'start is Z-normalized');
+SELECT is((SELECT j->>'end'   FROM _p), '2026-07-01T16:00:00Z', 'end is Z-normalized');
+
+-- (5) ALL three stored attendees are emitted, in insertion order.
+SELECT is((SELECT jsonb_array_length(j->'attendees') FROM _p), 3, 'all stored attendees emitted (organizer + resource included)');
+SELECT is((SELECT j#>>'{attendees,0,email}' FROM _p), 'org@inv.test',   'attendee order preserved [0] organizer');
+SELECT is((SELECT j#>>'{attendees,1,email}' FROM _p), 'guest@ext.com',  'attendee order preserved [1] guest');
+SELECT is((SELECT j#>>'{attendees,2,role}'  FROM _p), 'resource',       'attendee order preserved [2] resource');
+
+-- (6) CREATE-PATH PARTSTAT/RSVP CARRY-THROUGH (RFC 5546 §3.2.2): each emitted attendee
+-- carries the STORED participation status under the canonical JMAP keys
+-- participationStatus/expectReply (the shape the JSON-tagged caldav.Attendee reads), NOT a
+-- blanked ''/false. The guest is a fresh invitee → stored needs-action / rsvp=TRUE rides the
+-- wire so the iMIP ATTENDEE line gets PARTSTAT=NEEDS-ACTION;RSVP=TRUE. Asserts the STORED
+-- value, not a hardcoded constant.
+SELECT is(
+  (SELECT a->>'participationStatus' FROM _p, jsonb_array_elements((SELECT j->'attendees' FROM _p)) a
+   WHERE a->>'email' = 'guest@ext.com'),
+  'needs-action',
+  'guest carries stored participationStatus=needs-action (→ PARTSTAT=NEEDS-ACTION on the wire)');
+SELECT is(
+  (SELECT (a->>'expectReply')::bool FROM _p, jsonb_array_elements((SELECT j->'attendees' FROM _p)) a
+   WHERE a->>'email' = 'guest@ext.com'),
+  TRUE,
+  'guest carries stored expectReply=TRUE (→ RSVP=TRUE on the wire)');
+-- And the organizer-role row carries its OWN stored status verbatim (accepted), not blanked.
+SELECT is(
+  (SELECT a->>'participationStatus' FROM _p, jsonb_array_elements((SELECT j->'attendees' FROM _p)) a
+   WHERE a->>'email' = 'org@inv.test'),
+  'accepted',
+  'organizer row carries its stored participationStatus verbatim (accepted), not force-blanked');
+
+-- (7) A foreign event id yields NO payload (ownership skip).
+SELECT is(
+  (SELECT count(*)::int FROM calendar_finalize_create_invites(92001, ARRAY[92009]::bigint[], 'org@inv.test', '')),
+  0,
+  'a foreign event id yields no payload'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

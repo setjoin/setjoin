@@ -1,0 +1,149 @@
+-- meet_control.pg — Meet B1 Task 4: lock/set_guest_allowed/set_role/
+-- kick(ban)/end control reducers.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 4.
+BEGIN;
+SELECT plan(23);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('host2@meet-control.test') AS host_id \gset
+SELECT mk_auth_user('cohost2@meet-control.test') AS cohost_id \gset
+SELECT mk_auth_user('member2@meet-control.test') AS member_id \gset
+
+SELECT (meeting_create(:host_id, 'Control test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (meeting_join(:cohost_id, :meeting_id)) AS j1 \gset
+SELECT (meeting_join(:member_id, :meeting_id)) AS j2 \gset
+SELECT meeting_set_role(:host_id, :meeting_id, 'u:' || :cohost_id, 'cohost');
+
+-- ── lock: host/cohost only ────────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_lock(%s, %s, true) $$, :member_id, :meeting_id),
+  'BZ186', NULL, 'a plain member cannot lock the meeting'
+);
+SELECT lives_ok(
+  format($$ SELECT meeting_lock(%s, %s, true) $$, :cohost_id, :meeting_id),
+  'a cohost can lock the meeting'
+);
+SELECT is((SELECT locked FROM meetings WHERE id = :meeting_id), true, 'meeting is now locked');
+SELECT meeting_lock(:host_id, :meeting_id, false);
+
+-- ── set_guest_allowed: host/cohost only; future knocks only ─────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_set_guest_allowed(%s, %s, true) $$, :member_id, :meeting_id),
+  'BZ186', NULL, 'a plain member cannot flip guest access'
+);
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+SELECT is((SELECT settings ->> 'guestAllowed' FROM meetings WHERE id = :meeting_id), 'true',
+  'settings.guestAllowed flipped true');
+
+-- ── set_role: host only; only cohost|member assignable; no guest promotion ──
+SELECT throws_ok(
+  format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'cohost') $$, :cohost_id, :meeting_id, :member_id),
+  'BZ186', NULL, 'a cohost cannot assign roles (host only)'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_set_role(%s, %s, 'u:%s', 'host') $$, :host_id, :meeting_id, :member_id),
+  'BZ188', NULL, 'host is not an assignable role'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_set_role(%s, %s, 'g:1', 'member') $$, :host_id, :meeting_id),
+  'BZ188', NULL, 'a guest identity cannot be promoted'
+);
+
+-- ── kick(ban) → rejoin BZ186 → set_role re-admit clears ban → rejoin OK ──
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :member_id);
+SELECT is((SELECT left_at FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id) IS NOT NULL, true,
+  'kick stamps left_at');
+SELECT is((SELECT banned_at FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id) IS NOT NULL, true,
+  'kick of a u:-identity bans (banned_at stamped)');
+SELECT throws_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :member_id, :meeting_id),
+  'BZ186', NULL, 'a kicked member cannot rejoin while banned'
+);
+SELECT meeting_set_role(:host_id, :meeting_id, 'u:' || :member_id, 'member');
+SELECT is((SELECT banned_at FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id), NULL,
+  'set_role re-admit clears banned_at');
+SELECT lives_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :member_id, :meeting_id),
+  'the re-admitted member can rejoin'
+);
+
+-- ── kick of a guest identity flips its join_request to denied ───────────
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:meeting_id, 'Guest User', 'admitted') RETURNING id AS guest_req_id \gset
+INSERT INTO meeting_participants (meeting_id, guest_display_name, identity, role)
+  VALUES (:meeting_id, 'Guest User', 'g:' || :guest_req_id, 'guest');
+SELECT meeting_kick(:host_id, :meeting_id, 'g:' || :guest_req_id);
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :guest_req_id), 'denied',
+  'kicking a guest identity flips its join_request to denied');
+
+-- ── end: host only; expires pending requests + stamps every open participant ──
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:meeting_id, 'Pending Guest', 'pending') RETURNING id AS pending_req_id \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_end(%s, %s) $$, :cohost_id, :meeting_id),
+  'BZ186', NULL, 'a cohost cannot end the meeting (host only)'
+);
+SELECT (meeting_end(:host_id, :meeting_id)) AS room_name \gset
+SELECT is(:'room_name', (SELECT room_name::text FROM meetings WHERE id = :meeting_id),
+  'meeting_end returns the room_name');
+SELECT is((SELECT state FROM meetings WHERE id = :meeting_id), 'ended', 'meeting state is ended');
+-- ── blocker: the 'ended' push must reach the still-live cohost, not
+-- ZERO recipients — notify_meet_state's fan-out filters WHERE
+-- left_at IS NULL, so emitting AFTER the mass left_at stamp below would
+-- reach nobody by construction (the identical ordering bug fixed in
+-- meeting_participant_event's room_finished arm).
+SELECT is(last_notify_event(format('meet:%s', :cohost_id)), 'meeting_state',
+  'meeting_end''s terminal push reaches the still-live cohost (emitted BEFORE left_at is stamped)');
+SELECT is((SELECT count(*)::int FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND left_at IS NULL), 0,
+  'every participant is stamped left_at on end');
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :pending_req_id), 'expired',
+  'end expires pending join requests');
+
+-- ── audit-chain coverage (pipeline review fix): kicking a member from a
+-- meeting whose bound chat channel it PROVISIONED writes a member.remove
+-- act when feature.chat_compliance is ON (the D13 chat_channel_members
+-- DELETE previously bypassed the A4a chain entirely). ────────────────────
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT (meeting_create(:host_id, 'Kick audit test meeting')) AS am \gset
+SELECT (:'am'::jsonb ->> 'meetingId')::bigint AS audit_meeting_id \gset
+SELECT (:'am'::jsonb ->> 'chatChannelId')::bigint AS audit_channel_id \gset
+SELECT (meeting_join(:member_id, :audit_meeting_id)) AS ignore_audit_join \gset
+SELECT meeting_kick(:host_id, :audit_meeting_id, 'u:' || :member_id);
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_audit_log
+     WHERE channel_id = :audit_channel_id AND action = 'member.remove' AND target_id = :member_id
+  ), 'kicking a member from a meeting with a bound (provisioned) chat channel writes a member.remove act');
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_compliance';
+
+-- ── FIX 1 regression (confirmation review, D13 huddle access-loss): a kick
+-- against a HUDDLE-bound (chat_channel_provisioned=false) meeting must NOT
+-- delete the target's PRE-EXISTING chat_channel_members row. V131's
+-- invariant is that every member of a provisioned=false channel pre-dates
+-- the meeting, so the D13 delete is never correct on this path — and since
+-- the re-INSERT paths (meeting_join/meeting_admit) are ALSO provisioned-
+-- gated, nothing would ever restore access lost here. ───────────────────
+SELECT chat_channel_create(:host_id, 'pre-existing-huddle-channel') AS huddle_channel_id \gset
+SELECT chat_member_add(:host_id, :huddle_channel_id, :member_id);
+SELECT (meeting_create(:host_id, 'Huddle kick test', NULL, NULL, :huddle_channel_id)) AS hm \gset
+SELECT (:'hm'::jsonb ->> 'meetingId')::bigint AS huddle_kick_meeting_id \gset
+SELECT (meeting_join(:member_id, :huddle_kick_meeting_id)) AS ignore_huddle_join \gset
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT meeting_kick(:host_id, :huddle_kick_meeting_id, 'u:' || :member_id);
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_channel_members
+     WHERE channel_id = :huddle_channel_id AND user_id = :member_id
+  ), 'kicking a member from a HUDDLE-bound (provisioned=false) meeting does NOT delete their pre-existing channel membership');
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM chat_audit_log
+     WHERE channel_id = :huddle_channel_id AND action = 'member.remove' AND target_id = :member_id
+  ), 'no member.remove act is written for a huddle-bound kick — nothing was destroyed (self-suppressing FOUND guard)');
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_compliance';
+
+SELECT * FROM finish();
+ROLLBACK;

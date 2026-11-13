@@ -1,0 +1,51 @@
+-- pgTAP: eval_conditions() OR/AND/NOT grouping
+BEGIN;
+SELECT plan(7);
+
+CREATE TEMP TABLE test_msg AS SELECT 'invoice'::TEXT AS subject, 'billing@acme.com'::TEXT AS from_addr, 'body'::TEXT AS body_text, TRUE::BOOL AS has_attachments, 2048::BIGINT AS size_bytes, 0.5::REAL AS spam_score;
+
+CREATE OR REPLACE FUNCTION test_eval(c JSONB) RETURNS BOOL AS $$
+DECLARE v RECORD;
+BEGIN
+    SELECT * INTO v FROM test_msg;
+    RETURN eval_conditions(v, c);
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT ok(
+    test_eval('{"operator":"OR","conditions":[{"field":"from_addr","op":"contains","value":"acme"},{"field":"subject","op":"contains","value":"xyzzy"}]}'),
+    'OR: one true condition succeeds'
+);
+
+SELECT ok(
+    NOT test_eval('{"operator":"OR","conditions":[{"field":"subject","op":"contains","value":"xyzzy"},{"field":"from_addr","op":"contains","value":"nope"}]}'),
+    'OR: all false conditions fails'
+);
+
+SELECT ok(
+    test_eval('{"operator":"AND","conditions":[{"field":"from_addr","op":"contains","value":"acme"},{"field":"subject","op":"contains","value":"invoice"}]}'),
+    'AND: all true conditions succeeds'
+);
+
+SELECT ok(
+    NOT test_eval('{"operator":"AND","conditions":[{"field":"from_addr","op":"contains","value":"acme"},{"field":"subject","op":"contains","value":"xyzzy"}]}'),
+    'AND: one false condition fails'
+);
+
+SELECT ok(
+    test_eval('{"operator":"NOT","conditions":[{"field":"subject","op":"contains","value":"xyzzy"}]}'),
+    'NOT: condition does not match, NOT succeeds'
+);
+
+SELECT ok(
+    NOT test_eval('{"operator":"NOT","conditions":[{"field":"subject","op":"contains","value":"invoice"}]}'),
+    'NOT: condition matches, NOT fails'
+);
+
+SELECT ok(
+    test_eval('{"field":"has_attachments","op":"equals","value":"true"}'),
+    'flat condition evaluates directly'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

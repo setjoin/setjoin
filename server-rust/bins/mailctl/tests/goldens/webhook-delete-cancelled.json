@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Delete webhook 7 — are you sure? (type 'yes' to confirm): Error: cancelled\n",
+  "exit": 1
+}

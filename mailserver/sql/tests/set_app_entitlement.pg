@@ -1,0 +1,69 @@
+-- pgTAP: set_app_entitlement reducer test (B8.5)
+-- Asserts admin CRUD for per-user app entitlements with audit logging.
+-- ADR-003: set_app_entitlement(p_target_user_id, app, enabled, p_admin_user_id)
+-- is genuinely USER-keyed (not mailbox-keyed). The target's mailbox comes from
+-- mk_account() so the owning user_id is DIVERGENT from the mailbox id (was
+-- coincident 7621/7621) — a stray mailbox/user confusion in the reducer would no
+-- longer be masked. The user-keyed args carry the owning USER id, not the mailbox id.
+BEGIN;
+SELECT plan(5);
+
+INSERT INTO domains (name, is_local) VALUES ('b85set.test', TRUE);
+
+-- Admin user (no mailbox needed — never a mailbox-keyed arg).
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (7620, 'b85set_admin', (SELECT id FROM domains WHERE name = 'b85set.test'),
+          'b85set_admin@b85set.test', 'B85 Admin', TRUE);
+
+-- Target account: mk_account() gives a divergent owning user id.
+CREATE TEMP TABLE _t AS SELECT mk_account('b85set_target') AS mb;
+CREATE TEMP TABLE _tu AS
+  SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _t)) AS uid;
+
+-- 1. Set contacts=false for the target user; assert row exists with correct values.
+SELECT set_app_entitlement((SELECT uid FROM _tu), 'contacts', FALSE, 7620);
+
+SELECT is(
+  (SELECT enabled FROM user_app_entitlements WHERE user_id = (SELECT uid FROM _tu) AND app = 'contacts'),
+  FALSE,
+  'set_app_entitlement inserts row with enabled=false'
+);
+
+-- 2. Assert the audit log row has correct fields.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM admin_audit_log
+    WHERE action = 'set_app_entitlement'
+      AND target_type = 'user'
+      AND target_id = (SELECT uid FROM _tu)
+      AND after_state->>'app' = 'contacts'),
+  1,
+  'set_app_entitlement writes one admin_audit_log row'
+);
+
+-- 3. Upsert to true: assert enabled=true and second audit row appears.
+SELECT set_app_entitlement((SELECT uid FROM _tu), 'contacts', TRUE, 7620);
+
+SELECT is(
+  (SELECT enabled FROM user_app_entitlements WHERE user_id = (SELECT uid FROM _tu) AND app = 'contacts'),
+  TRUE,
+  'set_app_entitlement upserts to enabled=true'
+);
+
+SELECT is(
+  (SELECT COUNT(*)::INT FROM admin_audit_log
+    WHERE action = 'set_app_entitlement'
+      AND target_id = (SELECT uid FROM _tu)),
+  2,
+  'upsert appends second audit row'
+);
+
+-- 4. Throws BZ033 when target user does not exist.
+SELECT throws_ok(
+  $$SELECT set_app_entitlement(99999, 'contacts', TRUE, 7620)$$,
+  'BZ033',
+  NULL,
+  'set_app_entitlement raises BZ033 for nonexistent user'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

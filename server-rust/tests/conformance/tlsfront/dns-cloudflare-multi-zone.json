@@ -1,0 +1,103 @@
+{
+  "go_source": "7f2633f3388c6ed525a905eed70f0ae46c56ed4e",
+  "observation": {
+    "events": [
+      {
+        "api": "cf",
+        "name": "example.test",
+        "op": "zone"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.alt.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id-alt"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.alt.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id-alt"
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.alt.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "present",
+        "record": {
+          "content": "\"$CHALLENGE\"",
+          "name": "_acme-challenge.example.test",
+          "ttl": 120,
+          "type": "TXT"
+        }
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id-alt"
+      },
+      {
+        "api": "cf",
+        "op": "cleanup",
+        "path": "/client/v4/zones/zone-id/dns_records/record-id"
+      }
+    ],
+    "published": false
+  }
+}

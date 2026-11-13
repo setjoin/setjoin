@@ -1,0 +1,535 @@
+[
+  {
+    "case": {
+      "name": "deferred-1",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "450 mailbox temporarily unavailable"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 450,
+          "smtp_text": "450 mailbox temporarily unavailable",
+          "outcome": "deferred",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "deferred-2",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',1,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "450 mailbox temporarily unavailable"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 2,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable",
+          "delivered": false,
+          "backoff_minutes": 15
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 2,
+          "smtp_code": 450,
+          "smtp_text": "450 mailbox temporarily unavailable",
+          "outcome": "deferred",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "deferred-5",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',4,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "450 mailbox temporarily unavailable"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 5,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable",
+          "delivered": false,
+          "backoff_minutes": 240
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 5,
+          "smtp_code": 450,
+          "smtp_text": "450 mailbox temporarily unavailable",
+          "outcome": "deferred",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "deferred-10",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',9,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "450 mailbox temporarily unavailable"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 10,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable",
+          "delivered": false,
+          "backoff_minutes": 1440
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 10,
+          "smtp_code": 450,
+          "smtp_text": "450 mailbox temporarily unavailable",
+          "outcome": "deferred",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "deferred-20",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',19,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "450 mailbox temporarily unavailable"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "bounced",
+          "attempt_count": 20,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable",
+          "delivered": false,
+          "backoff_minutes": 1440
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 20,
+          "smtp_code": 450,
+          "smtp_text": "450 mailbox temporarily unavailable",
+          "outcome": "deferred",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "bounced",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": null,
+          "details": {
+            "error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 450 mailbox temporarily unavailable"
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "permanent-1",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "550 no such user"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 550 no such user",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 550,
+          "smtp_text": "550 no such user",
+          "outcome": "rejected",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "name": "permanent-20",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',19,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": {
+        "RCPT TO:\u003cone@dest.test\u003e": "550 no such user"
+      },
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "bounced",
+          "attempt_count": 20,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 550 no such user",
+          "delivered": false,
+          "backoff_minutes": 1440
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 20,
+          "smtp_code": 550,
+          "smtp_text": "550 no such user",
+          "outcome": "rejected",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "bounced",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": null,
+          "details": {
+            "error": "all recipients failed: delivery to one@dest.test failed: rcpt to rejected: 550 no such user"
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e"
+        ],
+        "data": []
+      }
+    ]
+  }
+]

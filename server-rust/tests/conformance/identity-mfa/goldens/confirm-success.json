@@ -1,0 +1,72 @@
+{
+  "case": "confirm-success",
+  "format": 1,
+  "go_source": "db12f37ff",
+  "observation": {
+    "effects": {
+      "active_secrets": [
+        {
+          "owner": "actor",
+          "secret": "JBSWY3DPEHPK3PXP"
+        },
+        {
+          "owner": "foreign",
+          "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        }
+      ],
+      "audit": [
+        {
+          "action": "totp_confirmed",
+          "ip": "127.0.0.1/32",
+          "notes": null,
+          "owner": "actor",
+          "target_type": "user"
+        }
+      ],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "mfa_reauth_step_ups": [],
+      "totp_pending_enrollments": [],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 3,
+          "locked": false,
+          "owner": "actor",
+          "secret": true,
+          "used": true
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": true,
+          "used": false
+        }
+      ]
+    },
+    "response": {
+      "body": "",
+      "headers": {},
+      "status": 204
+    }
+  },
+  "route": "POST /auth/totp/confirm"
+}

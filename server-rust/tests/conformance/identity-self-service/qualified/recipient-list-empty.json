@@ -1,0 +1,94 @@
+{
+  "case": "empty",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "recipient_smime_certs": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+              "email": "person@example.net",
+              "fingerprint": "c56e63bb49aff93a16b6f233fde4327ec0cead77dab5046aa431de1711ea8a2f",
+              "first_seen": "2026-10-01T10:00:00+00:00",
+              "id": "<recipient-b>",
+              "label": "recipient-b",
+              "last_seen": "2026-10-01T11:00:00+00:00",
+              "not_after": "2095-10-01T00:00:00+00:00",
+              "not_before": "2026-10-01T00:00:00+00:00",
+              "owner_user_id": "<b>",
+              "source": "harvested"
+            }
+          ],
+          "user_smime_certs": []
+        },
+        "before": {
+          "app_passwords": [],
+          "recipient_smime_certs": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+              "email": "person@example.net",
+              "fingerprint": "c56e63bb49aff93a16b6f233fde4327ec0cead77dab5046aa431de1711ea8a2f",
+              "first_seen": "2026-10-01T10:00:00+00:00",
+              "id": "<recipient-b>",
+              "label": "recipient-b",
+              "last_seen": "2026-10-01T11:00:00+00:00",
+              "not_after": "2095-10-01T00:00:00+00:00",
+              "not_before": "2026-10-01T00:00:00+00:00",
+              "owner_user_id": "<b>",
+              "source": "harvested"
+            }
+          ],
+          "user_smime_certs": []
+        }
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/me/smime/recipient-certs",
+      "wire_path": "/auth/me/smime/recipient-certs"
+    },
+    "response": {
+      "body": "{\"certs\":null}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "15"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/me/smime/recipient-certs"
+}

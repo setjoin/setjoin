@@ -1,0 +1,142 @@
+{
+  "case": "backup-generate-unused-target-rows",
+  "effects": [
+    {
+      "after": {
+        "audit": [
+          {
+            "action": "backup_codes_regenerated",
+            "ip": "127.0.0.1/32",
+            "notes": null,
+            "owner": "actor",
+            "target_type": "user"
+          }
+        ],
+        "backups": [
+          {
+            "hashes": [
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$",
+              "$2a$10$"
+            ],
+            "owner": "actor"
+          },
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "foreign"
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 3,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "backups": [
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "actor"
+          },
+          {
+            "hashes": [
+              "$2b$04$"
+            ],
+            "owner": "foreign"
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": "unused-target"
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "table": "possession"
+    }
+  ],
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "route": "POST /auth/backup-codes/generate"
+}

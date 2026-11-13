@@ -1,0 +1,19 @@
+[package]
+name = "setjoin-admin-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-config-secret = { path = "../../config-secret" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+sha2 = "=0.10.9"
+serde = "=1.0.229"
+base64 = "=0.22.1"
+unicode-properties = { version = "=0.1.4", default-features = false, features = ["general-category"] }
+mailparse = "=0.16.1"

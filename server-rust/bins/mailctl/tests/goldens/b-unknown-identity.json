@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown identity action \"unsupported\"; run 'mailctl identity --help'\n",
+  "exit": 1
+}

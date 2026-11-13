@@ -1,0 +1,39 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "encrypted": false,
+          "key": "jit.default_max_minutes",
+          "updated_by": null,
+          "value": 45
+        },
+        {
+          "encrypted": false,
+          "key": "jit.default_require_justification",
+          "updated_by": null,
+          "value": true
+        }
+      ],
+      "before": [
+        {
+          "encrypted": false,
+          "key": "jit.default_max_minutes",
+          "updated_by": null,
+          "value": 45
+        },
+        {
+          "encrypted": false,
+          "key": "jit.default_require_justification",
+          "updated_by": null,
+          "value": true
+        }
+      ],
+      "table": "system_config"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/system/jit-defaults"
+}

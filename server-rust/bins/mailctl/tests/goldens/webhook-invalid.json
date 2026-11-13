@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown webhook action: bogus (try: list, create, delete, rotate-secret, deliveries, events)\n",
+  "exit": 1
+}

@@ -1,0 +1,23 @@
+// Recording-only overlay (#324): runs one pass of frozen Go's real DMARC aggregate report
+// worker (`sendReports`, unexported, hence the in-package test) against the assigned database.
+package smtp
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeDMARCReportTick(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	NewDMARCReportWorker(pool, os.Getenv("GOFREE_DMARC_HOSTNAME"), slog.Default()).sendReports(ctx)
+}

@@ -1,0 +1,24 @@
+-- Public reducer seam: a verified organization-wide grant owns policy + audit.
+BEGIN;
+SELECT plan(9);
+CREATE TEMP TABLE compl3_actor AS SELECT mk_account('compl3-sql') AS mailbox_id;
+ALTER TABLE compl3_actor ADD COLUMN user_id bigint;
+UPDATE compl3_actor a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE compl3_role AS WITH x AS (INSERT INTO admin_role_groups(name,permissions)
+ VALUES ('compl3-sql',ARRAY['chat.compliance_manage']) RETURNING id) SELECT id FROM x;
+INSERT INTO admin_role_assignments(role_group_id,user_id) SELECT r.id,a.user_id FROM compl3_role r CROSS JOIN compl3_actor a;
+CREATE TEMP TABLE compl3_policy AS SELECT rust_compliance_chat_policy((SELECT user_id FROM compl3_actor),false,'create',0,
+ '{"name":"SQL policy","appliesTo":"all","durationDays":30,"enabled":true}', '', '127.0.0.1') AS result;
+SELECT is((SELECT (result->>'status')::int FROM compl3_policy),201,'authorized create succeeds');
+SELECT is((SELECT name FROM chat_retention_policies WHERE id=(SELECT (result->'body'->>'id')::bigint FROM compl3_policy)),'SQL policy','policy is persisted');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='chat_retention_policy_create' AND user_id=(SELECT user_id FROM compl3_actor)),1,'policy create has exactly one global audit');
+SELECT is((rust_compliance_chat_policy(0,false,'create',0,'{"name":"No actor","appliesTo":"all","durationDays":30,"enabled":true}', '', '127.0.0.1')->>'status')::int,403,'absent verified actor cannot create');
+SELECT is((rust_compliance_chat_policy((SELECT user_id FROM compl3_actor),false,'update',(SELECT (result->'body'->>'id')::bigint FROM compl3_policy),'{"name":"Updated","appliesTo":"all","durationDays":15,"enabled":true}', '', '127.0.0.1')->>'status')::int,200,'policy update succeeds');
+SELECT is((SELECT (after_state->>'moreDestructive')::boolean FROM admin_audit_log WHERE user_id=(SELECT user_id FROM compl3_actor) AND action='chat_retention_policy_update' ORDER BY id DESC LIMIT 1),true,'shortening retention is audited as destructive');
+DELETE FROM admin_role_assignments WHERE role_group_id=(SELECT id FROM compl3_role);
+SELECT is((rust_compliance_chat_policy((SELECT user_id FROM compl3_actor),false,'create',0,'{"name":"Revoked","appliesTo":"all","durationDays":30,"enabled":true}', '', '127.0.0.1')->>'status')::int,403,'revoked live grant cannot create');
+SELECT is((rust_compliance_chat_policy((SELECT user_id FROM compl3_actor),false,'delete',(SELECT (result->'body'->>'id')::bigint FROM compl3_policy),'{}','','127.0.0.1')->>'status')::int,403,'revoked live grant cannot delete');
+INSERT INTO admin_role_assignments(role_group_id,user_id) SELECT r.id,a.user_id FROM compl3_role r CROSS JOIN compl3_actor a;
+SELECT is((rust_compliance_chat_policy((SELECT user_id FROM compl3_actor),false,'delete',(SELECT (result->'body'->>'id')::bigint FROM compl3_policy),'{}','','127.0.0.1')->>'status')::int,204,'permitted delete succeeds');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,37 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "hr.leave",
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by_user_id": null,
+          "decision_comment": null,
+          "domain_id": "<domain>",
+          "expires_at": "<timestamp>",
+          "id": "<request>",
+          "payload": {
+            "days": 2,
+            "end_date": "2026-11-02",
+            "leave_type": "annual",
+            "reason": "Trip <two>",
+            "start_date": "2026-11-01"
+          },
+          "policy_id": "<policy>",
+          "requester_user_id": "<requester>",
+          "status": "pending",
+          "subject": "Leave: annual 2026-11-01 → 2026-11-02 (2d)"
+        }
+      ],
+      "before": [],
+      "table": "approval_requests"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /me/approvals/hr"
+}

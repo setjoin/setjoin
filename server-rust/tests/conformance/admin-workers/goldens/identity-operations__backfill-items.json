@@ -1,0 +1,31 @@
+{
+  "case": "backfill-items",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "artifacts": [],
+      "audit": [],
+      "rows": {
+        "jobs": [
+          "aaaaaaaa-0000-4000-8000-000000000001:upgrade_backfill:completed:1:0:true:none:{\"items\": null, \"complete\": true, \"processed\": 1, \"linksObserved\": 1, \"nextAfterUserId\": \"<person>\", \"conflictsRecorded\": 0}:false:::true"
+        ],
+        "results": [
+          "aaaaaaaa-0000-4000-8000-000000000001:1:<person>:completed:{\"linksObserved\": 1, \"conflictsRecorded\": 0}"
+        ]
+      }
+    },
+    "before": {
+      "artifacts": [],
+      "audit": [],
+      "rows": {
+        "jobs": [
+          "aaaaaaaa-0000-4000-8000-000000000001:upgrade_backfill:queued:0:0:true:wait:{\"processed\": 0, \"linksObserved\": 0, \"nextAfterUserId\": \"<t3>\", \"conflictsRecorded\": 0}:false:::false"
+        ],
+        "results": []
+      }
+    },
+    "notifies": []
+  },
+  "worker": "identity-operations"
+}

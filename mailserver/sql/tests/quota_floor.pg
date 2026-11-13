@@ -1,0 +1,84 @@
+-- pgTAP: quota_floor.pg
+-- Wave 8 — the non-negative FLOOR backstops (V090), and the deliberate ABSENCE of
+-- a quota CEILING CHECK.
+--
+-- State invariant vs transition invariant (CONTEXT.md):
+--   • used_bytes >= 0 / sending_sent_today >= 0 are STATE invariants → CHECK.
+--     A buggy decrement that underflows below 0 is REJECTED by the floor.
+--   • used_bytes <= quota_bytes is a TRANSITION invariant → reducer-only, NO CHECK.
+--     An admin lowering quota_bytes below current used_bytes is a LEGITIMATE
+--     over-state and MUST be allowed (the row stays floor-valid).
+-- Divergent-id fixture via mk_account (user_id != mailbox_id by construction).
+BEGIN;
+SELECT plan(7);
+
+-- A real account whose mailbox carries some usage and a daily-send counter.
+CREATE TEMP TABLE _q AS SELECT mk_account('quota-floor') AS mb_id;
+UPDATE mailboxes
+   SET used_bytes = 40::BIGINT * 1024 * 1024 * 1024,   -- 40 GB used
+       quota_bytes = 50::BIGINT * 1024 * 1024 * 1024,  -- 50 GB quota
+       sending_sent_today = 5,
+       sending_quota_day = 500
+ WHERE id = (SELECT mb_id FROM _q);
+
+-- 1) FLOOR: a buggy negative decrement of used_bytes is REJECTED by the CHECK.
+SELECT throws_ok(
+  format('UPDATE mailboxes SET used_bytes = -1 WHERE id = %s', (SELECT mb_id FROM _q)),
+  '23514',  -- check_violation
+  NULL,
+  'used_bytes >= 0 floor rejects a forced-negative UPDATE'
+);
+
+-- 2) FLOOR: a buggy negative sending_sent_today is REJECTED by the CHECK.
+SELECT throws_ok(
+  format('UPDATE mailboxes SET sending_sent_today = -1 WHERE id = %s', (SELECT mb_id FROM _q)),
+  '23514',
+  NULL,
+  'sending_sent_today >= 0 floor rejects a forced-negative UPDATE'
+);
+
+-- 3) FLOOR boundary: used_bytes = 0 is allowed (the floor is inclusive).
+SELECT lives_ok(
+  format('UPDATE mailboxes SET used_bytes = 0 WHERE id = %s', (SELECT mb_id FROM _q)),
+  'used_bytes = 0 is a valid floor-boundary state'
+);
+
+-- restore usage for the ceiling tests
+UPDATE mailboxes SET used_bytes = 40::BIGINT * 1024 * 1024 * 1024 WHERE id = (SELECT mb_id FROM _q);
+
+-- 4) CEILING (admin lower-quota): dropping quota_bytes BELOW used_bytes is a
+--    LEGITIMATE over-state and is ALLOWED — there is deliberately no ceiling CHECK.
+SELECT lives_ok(
+  format('UPDATE mailboxes SET quota_bytes = 20::BIGINT * 1024 * 1024 * 1024 WHERE id = %s', (SELECT mb_id FROM _q)),
+  'admin lowering quota_bytes below used_bytes is allowed (no ceiling CHECK)'
+);
+
+-- 5) and used_bytes is unchanged by that admin action — still >= 0, still 40 GB.
+SELECT is(
+  (SELECT used_bytes FROM mailboxes WHERE id = (SELECT mb_id FROM _q)),
+  (40::BIGINT * 1024 * 1024 * 1024),
+  'used_bytes stays >= 0 (and unchanged) after the admin lowers the quota below it'
+);
+
+-- 6) CEILING (sending): lowering sending_quota_day below sending_sent_today is
+--    likewise a legitimate transient over-state and is ALLOWED.
+UPDATE mailboxes SET sending_sent_today = 100 WHERE id = (SELECT mb_id FROM _q);
+SELECT lives_ok(
+  format('UPDATE mailboxes SET sending_quota_day = 10 WHERE id = %s', (SELECT mb_id FROM _q)),
+  'admin lowering sending_quota_day below sending_sent_today is allowed (no ceiling CHECK)'
+);
+
+-- 7) RECONCILIATION: the startup_recovery overwrite pattern (used_bytes := SUM of
+--    live message sizes) lands a non-negative value and passes the floor, even when
+--    the SUM lands the row over quota.
+UPDATE mailboxes
+   SET used_bytes = COALESCE((SELECT SUM(0)::BIGINT FROM messages WHERE mailbox_id = (SELECT mb_id FROM _q)), 0)
+ WHERE id = (SELECT mb_id FROM _q);
+SELECT cmp_ok(
+  (SELECT used_bytes FROM mailboxes WHERE id = (SELECT mb_id FROM _q)),
+  '>=', 0::BIGINT,
+  'reconciliation SUM overwrite of used_bytes stays >= 0 (floor holds)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

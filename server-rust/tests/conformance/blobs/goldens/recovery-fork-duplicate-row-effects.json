@@ -1,0 +1,23 @@
+{
+  "case": "duplicate-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "fork_consented_at": {
+          "after": "<timestamp>",
+          "before": null
+        },
+        "fork_consented_by": {
+          "after": "<actor>",
+          "before": null
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_quarantine_artifacts"
+    }
+  ],
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "route": "POST /recovery/artifacts/{id}/fork-consent"
+}

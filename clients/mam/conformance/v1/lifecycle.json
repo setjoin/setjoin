@@ -1,0 +1,153 @@
+{
+  "contract": "setjoin.mam.lifecycle",
+  "version": 1,
+  "rollout_modes": ["off", "observe", "execute"],
+  "default_rollout_mode": "off",
+  "security_notes": {
+    "authentication_asymmetry": "The X-Device-HMAC header authenticates the device->server check-in request only. Server->device policy responses carry no HMAC or other integrity representation; their integrity rests on the TLS transport. This asymmetry is acknowledged contract-wide: do not cite the request HMAC as protecting policy payloads.",
+    "policy_normalization": "Normalization is fail-open by design: unknown policy keys are silently ignored (see the future_key vector), and an all-empty policy yields permissive defaults, indistinguishable in outcome from a legitimate pre-enrollment state. The wipe latch dominates every policy outcome, so the worst state reachable through normalization alone is permissive enforcement, not persisted data access."
+  },
+  "periodic_interval_ms": 900000,
+  "signing_vectors": [
+    {
+      "name": "canonical-device-proof",
+      "secret": "test-only-secret",
+      "device_id": 42,
+      "timestamp": "1700000000",
+      "challenge": "42:1700000000",
+      "hmac_sha256_hex": "0ba1202d1d2ac1f14e8c3790a64ef709de4189949277e7be138493b91988156c"
+    },
+    {
+      "name": "large-device-id",
+      "secret": "test-only-mam-key",
+      "device_id": 900719,
+      "timestamp": "1735689600",
+      "challenge": "900719:1735689600",
+      "hmac_sha256_hex": "7e12d8ff12033917f62e6662898102cda8c854fd88c2f124c1b518c205893939"
+    }
+  ],
+  "request_vectors": [
+    {
+      "name": "signed-checkin-with-cached-version",
+      "server_url": "https://mam.example.test/",
+      "device_id": 42,
+      "known_policy_version": 41,
+      "timestamp": "1700000000",
+      "secret": "test-only-secret",
+      "expected_url": "https://mam.example.test/device/checkin",
+      "expected_headers": {
+        "Content-Type": "application/json",
+        "X-Device-HMAC": "0ba1202d1d2ac1f14e8c3790a64ef709de4189949277e7be138493b91988156c",
+        "X-Device-Timestamp": "1700000000",
+        "If-None-Match": "41"
+      },
+      "expected_body": {
+        "device_id": 42,
+        "policy_version": 41
+      }
+    }
+  ],
+  "response_vectors": [
+    {
+      "name": "not-modified-keeps-cache",
+      "status": 304,
+      "known_policy_version": 41,
+      "body": null,
+      "expected": {
+        "policy_version": 41,
+        "wiped": false,
+        "effect_intents": []
+      }
+    },
+    {
+      "name": "changed-policy-normalizes-flat-map",
+      "status": 200,
+      "known_policy_version": 41,
+      "body": {
+        "policy_version": 73,
+        "policy": {
+          "copy_paste": "block_external",
+          "screen_capture": "block",
+          "encryption": "required",
+          "watermark": "true",
+          "notification_profile": "silent",
+          "max_offline_days": "7",
+          "future_key": "ignored"
+        },
+        "wipe_requested": false
+      },
+      "expected": {
+        "policy_version": 73,
+        "wiped": false,
+        "normalized_policy": {
+          "policy_version": 73,
+          "copy_paste": "block_external",
+          "screen_capture": "block",
+          "encryption": "required",
+          "watermark": true,
+          "notification_profile": "silent",
+          "max_offline_days": 7
+        },
+        "effect_intents": [
+          "cache_device",
+          "cache_policy",
+          "enforce_policy"
+        ]
+      }
+    },
+    {
+      "name": "empty-policy-uses-permissive-defaults",
+      "status": 200,
+      "known_policy_version": 0,
+      "body": {
+        "policy_version": 1,
+        "policy": {},
+        "wipe_requested": false
+      },
+      "expected": {
+        "policy_version": 1,
+        "wiped": false,
+        "normalized_policy": {
+          "policy_version": 1,
+          "copy_paste": "",
+          "screen_capture": "",
+          "encryption": "",
+          "watermark": false,
+          "notification_profile": "",
+          "max_offline_days": 0
+        },
+        "effect_intents": [
+          "cache_device",
+          "cache_policy",
+          "enforce_policy"
+        ]
+      }
+    },
+    {
+      "name": "wipe-precedes-policy",
+      "status": 200,
+      "known_policy_version": 73,
+      "body": {
+        "policy_version": 74,
+        "policy": {
+          "screen_capture": "allow",
+          "copy_paste": "allow"
+        },
+        "wipe_requested": true
+      },
+      "expected": {
+        "policy_version": 74,
+        "wiped": true,
+        "effect_intents": [
+          "latch_wipe",
+          "clear_web_storage"
+        ],
+        "forbidden_effect_intents": [
+          "cache_device",
+          "cache_policy",
+          "enforce_policy"
+        ]
+      }
+    }
+  ]
+}

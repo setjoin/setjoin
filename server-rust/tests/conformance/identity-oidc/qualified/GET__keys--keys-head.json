@@ -1,0 +1,26 @@
+{
+  "case": "keys-head",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/keys",
+      "wire_method": "HEAD",
+      "wire_path": "/keys"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "content-length": "463",
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /keys"
+}

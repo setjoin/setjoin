@@ -1,0 +1,113 @@
+{
+  "case": "callback-link-success",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "actor_identity": {
+          "events": [
+            "auth_linked",
+            "entitlements_reconciled"
+          ],
+          "grants": 0,
+          "links": [
+            {
+              "generation": 1,
+              "state": "active",
+              "subject": "linked-subject"
+            }
+          ]
+        },
+        "foreign_identity": {
+          "events": [],
+          "grants": 0,
+          "links": []
+        },
+        "store": {
+          "actor_anchors": 0,
+          "actor_elevations": [
+            true
+          ],
+          "actor_sessions": 1,
+          "foreign_anchors": 0,
+          "foreign_elevations": 0
+        }
+      },
+      "before": {
+        "actor_identity": {
+          "events": [],
+          "grants": 0,
+          "links": []
+        },
+        "foreign_identity": {
+          "events": [],
+          "grants": 0,
+          "links": []
+        },
+        "store": {
+          "actor_anchors": 0,
+          "actor_elevations": [
+            false
+          ],
+          "actor_sessions": 1,
+          "foreign_anchors": 0,
+          "foreign_elevations": 0
+        }
+      }
+    },
+    "notify": [
+      {
+        "channel": "identity_link",
+        "payload": {
+          "action": "linked",
+          "userId": "_actor"
+        }
+      }
+    ],
+    "outbound": [
+      {
+        "authorization": "Basic c2V0am9pbi1jbGllbnQtMzQwOg==",
+        "form": {
+          "code": "_code",
+          "code_verifier": "_verifier",
+          "grant_type": "authorization_code",
+          "redirect_uri": "https://auth.idfed2.test/auth/oidc/callback"
+        },
+        "method": "POST",
+        "path": "/token"
+      },
+      {
+        "authorization": "",
+        "form": {},
+        "method": "GET",
+        "path": "/keys"
+      }
+    ],
+    "request": {
+      "cookie": "_bound-link-flow",
+      "method": "GET",
+      "path": "/auth/oidc/callback",
+      "query": "code=_code&state=_state",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/callback"
+    },
+    "response": {
+      "body": "<a href=\"/settings?identity=linked\">See Other</a>.\n\n",
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "location": "/settings?identity=linked",
+        "set-cookie": [
+          "oidc_state=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_verifier=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_nonce=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_provider=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "identity_link_flow=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+        ]
+      },
+      "status": 303
+    }
+  },
+  "route": "GET /auth/oidc/callback"
+}

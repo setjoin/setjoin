@@ -1,0 +1,26 @@
+{
+  "case": "backup-s3-env-region-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed": true,
+          "error": null,
+          "id": 9700,
+          "last": null,
+          "migrated": 0,
+          "source": "s3",
+          "started": true,
+          "status": "failed",
+          "target": "s3",
+          "total": 0
+        }
+      ],
+      "before": [],
+      "table": "storage_migrations"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/storage/migrate"
+}

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "rust/capability-session",
+    "rust/guard-core",
+    "rust/offline-core",
+    "rust/desktop-native",
+    "rust/ohos-native",
+    "rust/native-shared",
+]
+exclude = [
+    "desktop/src-tauri",
+]

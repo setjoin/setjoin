@@ -1,0 +1,168 @@
+{
+  "case": "query-failure",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "ediscovery_release",
+        "after_state": null,
+        "before_state": [
+          "<message-a>",
+          "<message-b>"
+        ],
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "message",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "cases": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "held": true,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox>"
+            },
+            {
+              "held": true,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox>"
+            }
+          ],
+          "results": [],
+          "searches": []
+        },
+        "before": {
+          "cases": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "held": true,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox>"
+            },
+            {
+              "held": true,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox>"
+            }
+          ],
+          "results": [],
+          "searches": []
+        },
+        "table": "ediscovery_cases"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"ids\":[\"<message-a>\",\"<message-b>\"]}",
+      "method": "POST",
+      "path": "/admin/ediscovery/release"
+    },
+    "response": {
+      "body": "{\"released\":0,\"total\":2}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "25"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/ediscovery/release"
+}

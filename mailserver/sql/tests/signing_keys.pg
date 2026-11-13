@@ -1,0 +1,73 @@
+-- pgTAP: signing_keys keystore (ADR-005, authserver V009)
+--
+-- Proves the structural contract the KeySet module (authserver/internal/token/
+-- keyset.go) leans on:
+--   * the columns + types exist as declared;
+--   * the status CHECK rejects an out-of-set value;
+--   * the partial unique index admits exactly ONE 'active' key (a second 'active'
+--     throws 23505) — the constraint that makes generate-on-first-boot race-safe
+--     and rotation a transaction;
+--   * 'retiring' / 'retired' keys coexist freely (overlap window for rotation).
+BEGIN;
+SELECT plan(18);
+
+-- Isolate from any pre-existing rows (the authserver KeySet generate-on-boot, or
+-- the DB-gated Go tests, may have committed an active key into this shared test
+-- DB). TRUNCATE inside the test transaction is rolled back at ROLLBACK, so the
+-- one-active-key assertions below test the constraint, not the DB's prior state.
+TRUNCATE signing_keys;
+
+-- ── 1. Table + columns present with the declared types ──
+SELECT has_table('signing_keys', 'signing_keys table exists');
+
+SELECT has_column('signing_keys', 'id',              'has id');
+SELECT col_type_is('signing_keys', 'id',              'bigint',                     'id is bigint');
+SELECT col_is_pk('signing_keys', 'id',               'id is the primary key');
+
+SELECT has_column('signing_keys', 'kid',             'has kid');
+SELECT col_type_is('signing_keys', 'kid',            'text',                       'kid is text');
+
+SELECT has_column('signing_keys', 'alg',             'has alg');
+SELECT col_type_is('signing_keys', 'alg',            'text',                       'alg is text');
+
+SELECT has_column('signing_keys', 'public_jwk',      'has public_jwk');
+SELECT col_type_is('signing_keys', 'public_jwk',     'jsonb',                      'public_jwk is jsonb');
+
+SELECT has_column('signing_keys', 'private_key_enc', 'has private_key_enc');
+SELECT col_type_is('signing_keys', 'private_key_enc', 'bytea',                     'private_key_enc is bytea');
+
+SELECT has_column('signing_keys', 'status',          'has status');
+SELECT col_type_is('signing_keys', 'rotated_at',     'timestamp with time zone',   'rotated_at is timestamptz');
+
+-- ── 2. status CHECK rejects an out-of-set value ──
+SELECT throws_ok(
+  $$ INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc, status)
+     VALUES ('bad-status', 'ES256', '{}'::jsonb, '\x00'::bytea, 'bogus') $$,
+  '23514', NULL,
+  'status CHECK rejects a value outside active/retiring/retired'
+);
+
+-- ── 3. Exactly one ACTIVE key: first lives, second throws on the partial index ──
+SELECT lives_ok(
+  $$ INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc, status)
+     VALUES ('es256-active-1', 'ES256', '{"kty":"EC","crv":"P-256"}'::jsonb, '\x01'::bytea, 'active') $$,
+  'first active key inserts cleanly'
+);
+
+SELECT throws_ok(
+  $$ INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc, status)
+     VALUES ('es256-active-2', 'ES256', '{"kty":"EC","crv":"P-256"}'::jsonb, '\x02'::bytea, 'active') $$,
+  '23505', NULL,
+  'a SECOND active key is rejected by the partial unique index'
+);
+
+-- ── 4. retiring / retired keys coexist with the active key (rotation overlap) ──
+SELECT lives_ok(
+  $$ INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc, status, rotated_at)
+     VALUES
+       ('es256-retiring-1', 'ES256', '{"kty":"EC","crv":"P-256"}'::jsonb, '\x03'::bytea, 'retiring', now()),
+       ('es256-retired-1',  'ES256', '{"kty":"EC","crv":"P-256"}'::jsonb, '\x04'::bytea, 'retired',  now()) $$,
+  'retiring + retired keys coexist alongside the active key'
+);
+
+ROLLBACK;

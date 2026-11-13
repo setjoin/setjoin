@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/auto-update",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Enabled:       true\nChannel:       stable\nInterval:      daily\nAuto-apply:    false\n",
+  "stderr": "",
+  "exit": 0
+}

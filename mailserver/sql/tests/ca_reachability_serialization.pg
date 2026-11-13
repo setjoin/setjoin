@@ -1,0 +1,201 @@
+-- CA reachability is one serialized transaction invariant across policy writes,
+-- break-glass, admin authority, user-group exclusions, and user enablement.
+BEGIN;
+SELECT plan(37);
+
+SELECT has_function('public', 'ca_reachability_fence', ARRAY[]::text[],
+  'CA reachability advisory-fence helper is loaded');
+SELECT has_function('public', 'ca_revalidate_active_lockout_policies', ARRAY[]::text[],
+  'active-policy final-state revalidator is loaded');
+SELECT is((SELECT p.provolatile::text FROM pg_proc p
+           WHERE p.oid='public.ca_grant_discriminators_valid(jsonb)'::regprocedure),
+  'i', 'grant discriminator predicate remains pure and immutable');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='admin_role_deactivate(bigint,bigint)'::regprocedure))
+  < position('UPDATE admin_role_assignments' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='admin_role_deactivate(bigint,bigint)'::regprocedure)),
+  'role deactivation fences before assignment mutation');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='admin_role_window_open(bigint,bigint,integer)'::regprocedure))
+  < position('SELECT max_duration_minutes' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='admin_role_window_open(bigint,bigint,integer)'::regprocedure)),
+  'JIT role window fences before authority reads and mutation');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='ca_break_glass_set(bigint,inet,bigint[])'::regprocedure))
+  < position('SELECT value INTO v_before' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='ca_break_glass_set(bigint,inet,bigint[])'::regprocedure)),
+  'break-glass writer fences before configuration access');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='scim_disable_user(text)'::regprocedure))
+  < position('SELECT id INTO v_user_id' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='scim_disable_user(text)'::regprocedure)),
+  'SCIM disable fences before resolving the user');
+SELECT ok(position('PERFORM admin_authority_fence()' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='scim_delete_user(text,boolean)'::regprocedure))
+  < position('SELECT id INTO v_user_id' IN
+    (SELECT prosrc FROM pg_proc WHERE oid='scim_delete_user(text,boolean)'::regprocedure)),
+  'SCIM delete fences before resolving the user');
+
+SELECT has_trigger('public', 'admin_role_assignments',
+  'trg_ca_reachability_assignments_fence', 'assignment writes acquire the CA fence');
+SELECT has_trigger('public', 'admin_role_assignments',
+  'trg_ca_reachability_assignments_validate', 'assignment writes queue CA revalidation');
+SELECT has_trigger('public', 'system_config',
+  'trg_ca_reachability_break_glass_fence', 'break-glass writes acquire the CA fence');
+SELECT has_trigger('public', 'system_config',
+  'trg_ca_reachability_break_glass_validate', 'break-glass writes queue CA revalidation');
+SELECT has_trigger('public', 'user_group_members',
+  'trg_ca_reachability_user_groups_fence', 'user-group writes acquire the CA fence');
+SELECT has_trigger('public', 'user_group_members',
+  'trg_ca_reachability_user_groups_validate', 'user-group writes queue CA revalidation');
+SELECT has_trigger('public', 'users',
+  'trg_ca_reachability_users_fence', 'user enable/delete writes acquire the CA fence');
+SELECT has_trigger('public', 'users',
+  'trg_ca_reachability_users_validate', 'user enable/delete writes queue CA revalidation');
+SELECT ok(pg_get_triggerdef(oid) LIKE '%UPDATE OF enabled%'
+          AND pg_get_triggerdef(oid) LIKE '%DELETE%',
+  'user fence ignores ordinary profile updates')
+FROM pg_trigger WHERE tgrelid='public.users'::regclass
+  AND tgname='trg_ca_reachability_users_fence';
+SELECT ok(pg_get_triggerdef(oid) LIKE '%UPDATE OF enabled%'
+          AND pg_get_triggerdef(oid) LIKE '%DELETE%',
+  'user deferred validation ignores ordinary profile updates')
+FROM pg_trigger WHERE tgrelid='public.users'::regclass
+  AND tgname='trg_ca_reachability_users_validate';
+
+SELECT ok(tgdeferrable AND tginitdeferred,
+  'assignment validation observes final transaction state')
+FROM pg_trigger WHERE tgrelid='public.admin_role_assignments'::regclass
+  AND tgname='trg_ca_reachability_assignments_validate';
+SELECT ok(tgdeferrable AND tginitdeferred,
+  'break-glass validation observes final transaction state')
+FROM pg_trigger WHERE tgrelid='public.system_config'::regclass
+  AND tgname='trg_ca_reachability_break_glass_validate';
+SELECT ok(tgdeferrable AND tginitdeferred,
+  'user-group validation observes final transaction state')
+FROM pg_trigger WHERE tgrelid='public.user_group_members'::regclass
+  AND tgname='trg_ca_reachability_user_groups_validate';
+SELECT ok(tgdeferrable AND tginitdeferred,
+  'user enable/delete validation observes final transaction state')
+FROM pg_trigger WHERE tgrelid='public.users'::regclass
+  AND tgname='trg_ca_reachability_users_validate';
+
+INSERT INTO domains(id,name,is_local) VALUES(95220,'ca-reachability.test',true);
+INSERT INTO users(id,username,domain_id,email,display_name,enabled) VALUES
+  (81221,'ca_reach_a',95220,'a@ca-reachability.test','Reach A',true),
+  (81222,'ca_reach_b',95220,'b@ca-reachability.test','Reach B',true),
+  (81223,'ca_reach_finite',95220,'finite@ca-reachability.test','Finite',true),
+  (81224,'ca_reach_jit',95220,'jit@ca-reachability.test','JIT',true),
+  (81225,'ca_reach_disabled',95220,'disabled@ca-reachability.test','Disabled',false);
+INSERT INTO admin_role_groups(id,name) VALUES(91221,'CA reachability fixture');
+INSERT INTO admin_role_assignments(user_id,role_group_id,expires_at,eligible,activated_until) VALUES
+  (81221,91221,NULL,false,NULL),
+  (81222,91221,NULL,false,NULL),
+  (81223,91221,now()+interval '1 hour',false,NULL),
+  (81224,91221,NULL,true,now()+interval '1 hour'),
+  (81225,91221,NULL,false,NULL);
+INSERT INTO user_group_members(user_id,group_id) VALUES(81221,51221);
+UPDATE system_config SET value='[]'::jsonb WHERE key='ca_break_glass_user_ids';
+
+SELECT throws_ok(
+  $$SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,
+      '[81223]'::jsonb,'[]'::jsonb)$$,
+  'BZ080', NULL,
+  'finite-expiry assignment cannot be the sole durable escape path');
+SELECT throws_ok(
+  $$SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,
+      '[81224]'::jsonb,'[]'::jsonb)$$,
+  'BZ080', NULL,
+  'eligible time-boxed assignment cannot be the sole durable escape path');
+SELECT throws_ok(
+  $$SELECT ca_lockout_guard('on','global','{"action":"block"}'::jsonb,
+      '[81225]'::jsonb,'[]'::jsonb)$$,
+  'BZ080', NULL,
+  'disabled admin cannot be the sole reachable escape path');
+
+-- V222 invokes this exact revalidator before recording the migration. A row
+-- admitted by the old finite-expiry rule therefore makes upgrade fail closed.
+INSERT INTO conditional_access_policies
+  (priority,name,state,scope_type,conditions,actions,exclude_users,exclude_groups)
+VALUES
+  (99220,'unsafe pre-V222 fixture','on','global','{}','{"action":"block"}',
+   '[81223]','[]');
+SELECT throws_ok(
+  $$SELECT ca_revalidate_active_lockout_policies()$$,
+  'BZ080', NULL,
+  'upgrade revalidation rejects a preexisting unsafe active policy');
+DELETE FROM conditional_access_policies WHERE priority=99220;
+
+CREATE TEMP TABLE ca_reachability_fixture(id bigint PRIMARY KEY);
+INSERT INTO ca_reachability_fixture
+SELECT (ca_policy_upsert(
+  81221, '203.0.113.222'::inet, NULL,
+  $policy${"priority":99221,"name":"reachability-serialization","state":"on",
+  "scope_type":"global","conditions":{},"actions":{"action":"block"},
+  "exclude_users":[],"exclude_groups":[51221]}$policy$::jsonb
+)->>'id')::bigint;
+
+SET CONSTRAINTS trg_ca_reachability_user_groups_validate IMMEDIATE;
+SELECT throws_ok(
+  $$DELETE FROM user_group_members WHERE user_id=81221 AND group_id=51221$$,
+  'BZ080', NULL,
+  'removing the last excluded admin-group membership fails closed');
+SELECT is((SELECT count(*)::int FROM user_group_members
+           WHERE user_id=81221 AND group_id=51221), 1,
+  'failed group removal leaves membership unchanged');
+
+-- A remove-then-add replacement is legal because validation is deferred and
+-- observes the final graph rather than the transient midpoint.
+SET CONSTRAINTS trg_ca_reachability_user_groups_validate DEFERRED;
+DELETE FROM user_group_members WHERE user_id=81221 AND group_id=51221;
+INSERT INTO user_group_members(user_id,group_id) VALUES(81222,51221);
+SET CONSTRAINTS trg_ca_reachability_user_groups_validate IMMEDIATE;
+SELECT pass('deferred group replacement validates its safe final state');
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM user_group_members WHERE user_id=81221 AND group_id=51221)
+  AND EXISTS (SELECT 1 FROM user_group_members WHERE user_id=81222 AND group_id=51221),
+  'group replacement persisted exactly the final reachable member');
+
+-- Restore A as the sole group escape for the remaining mutation checks.
+INSERT INTO user_group_members(user_id,group_id) VALUES(81221,51221);
+DELETE FROM user_group_members WHERE user_id=81222 AND group_id=51221;
+
+SET CONSTRAINTS trg_ca_reachability_assignments_validate IMMEDIATE;
+SELECT throws_ok(
+  $$UPDATE admin_role_assignments SET expires_at=now()+interval '1 hour'
+      WHERE user_id=81221 AND role_group_id=91221$$,
+  'BZ080', NULL,
+  'making the sole reachable assignment finite fails closed');
+SELECT ok((SELECT expires_at IS NULL FROM admin_role_assignments
+           WHERE user_id=81221 AND role_group_id=91221),
+  'failed expiry change leaves the durable assignment unchanged');
+
+SET CONSTRAINTS trg_ca_reachability_users_validate IMMEDIATE;
+SELECT throws_ok(
+  $$UPDATE users SET enabled=false WHERE id=81221$$,
+  'BZ080', NULL,
+  'disabling the sole reachable admin fails closed');
+SELECT ok((SELECT enabled FROM users WHERE id=81221),
+  'failed disable leaves the reachable admin enabled');
+
+-- Move the policy escape from group membership to the break-glass set.
+SELECT lives_ok(
+  $$SELECT ca_break_glass_set(81221,'203.0.113.222'::inet,ARRAY[81221]::bigint[])$$,
+  'break-glass reducer accepts a durable enabled admin');
+SELECT ca_policy_upsert(
+  81221, '203.0.113.222'::inet, (SELECT id FROM ca_reachability_fixture),
+  $policy${"priority":99221,"name":"reachability-serialization","state":"on",
+  "scope_type":"global","conditions":{},"actions":{"action":"block"},
+  "exclude_users":[],"exclude_groups":[]}$policy$::jsonb
+);
+SET CONSTRAINTS trg_ca_reachability_break_glass_validate IMMEDIATE;
+SELECT throws_ok(
+  $$SELECT ca_break_glass_set(81221,'203.0.113.222'::inet,ARRAY[81999]::bigint[])$$,
+  'BZ080', NULL,
+  'replacing the last reachable break-glass admin fails closed');
+SELECT is((SELECT value FROM system_config WHERE key='ca_break_glass_user_ids'),
+  '[81221]'::jsonb,
+  'failed break-glass replacement leaves the prior set unchanged');
+
+SELECT finish();
+ROLLBACK;

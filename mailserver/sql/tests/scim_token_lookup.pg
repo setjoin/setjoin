@@ -1,0 +1,151 @@
+-- pgTAP: SCIM bearer-token INDEXED lookup boundary (V238).
+-- scim_token_lookup(sha256-hex) is the modern SCIM auth path: it resolves at
+-- most ONE candidate row through the partial unique index on
+-- scim_tokens.token_lookup_hash, and the gateway then bcrypt-verifies that
+-- single row. The function MUST apply the same liveness gates as the legacy
+-- scan (revocation, expiry, active SCIM source) — a revoked/expired/
+-- paused-source token must never resolve as a candidate. Creation must reject
+-- malformed lookup hashes and duplicate keys. Zero prior coverage on this path.
+BEGIN;
+SELECT plan(14);
+
+-- Fixture: one active SCIM source + one paused sibling (state gate).
+INSERT INTO identity_sources (
+  source_key, display_name, kind, capabilities, state
+) VALUES
+  ('scim:pgtap-token-lookup', 'pgTAP SCIM token lookup source', 'scim',
+   '{"provision_lifecycle": true, "stable_immutable_subject": true}'::jsonb,
+   'active'),
+  ('scim:pgtap-token-lookup-paused', 'pgTAP paused SCIM lookup source', 'scim',
+   '{"provision_lifecycle": true, "stable_immutable_subject": true}'::jsonb,
+   'paused');
+
+-- 1. Creation stores the exact lookup hash next to the bcrypt verifier.
+SELECT lives_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-lookup',
+    'scimtok-lu-active-87201',
+    '$2a$10$luactiveluactiveluactivelu',
+    now() + interval '1 day',
+    'soft',
+    'pgtap',
+    repeat('ab', 32)
+  )$$,
+  'indexed token creation accepts a 64-hex lookup hash'
+);
+SELECT is(
+  (SELECT token_lookup_hash FROM scim_tokens WHERE name = 'scimtok-lu-active-87201'),
+  repeat('ab', 32),
+  'created token stores the exact lookup hash'
+);
+
+-- 2-4. Malformed lookup hashes fail closed with BZ228.
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-lookup', 'scimtok-lu-null-87202',
+    '$2a$10$nullhashnullhashnullhashn', NULL, 'soft', 'pgtap', NULL
+  )$$,
+  'BZ228',
+  'invalid SCIM token request',
+  'NULL lookup hash is rejected — every new token must be indexable'
+);
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-lookup', 'scimtok-lu-upper-87203',
+    '$2a$10$upperhashupperhashupperh', NULL, 'soft', 'pgtap', repeat('AB', 32)
+  )$$,
+  'BZ228',
+  'invalid SCIM token request',
+  'uppercase lookup hash is rejected (canonical lowercase hex only)'
+);
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-lookup', 'scimtok-lu-short-87204',
+    '$2a$10$shorthashshorthashshorth', NULL, 'soft', 'pgtap', repeat('ab', 16)
+  )$$,
+  'BZ228',
+  'invalid SCIM token request',
+  'truncated lookup hash is rejected'
+);
+
+-- 5. Lookup hashes are unique across tokens.
+SELECT throws_ok(
+  $$SELECT scim_token_create(
+    'scim:pgtap-token-lookup', 'scimtok-lu-dup-87205',
+    '$2a$10$duphashduphashduphashdup', NULL, 'soft', 'pgtap', repeat('ab', 32)
+  )$$,
+  '23505',
+  NULL,
+  'duplicate lookup hash violates the partial unique index'
+);
+
+-- 6. The indexed lookup resolves the active token by its hash.
+SELECT is(
+  (SELECT name FROM scim_token_lookup(repeat('ab', 32))),
+  'scimtok-lu-active-87201',
+  'indexed lookup resolves exactly the active matching token'
+);
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup(repeat('ef', 32))),
+  0::BIGINT,
+  'unknown lookup hash resolves no candidate row'
+);
+
+-- Seeded adversarial rows: revoked, expired (both on the active source, hashed)
+-- and a live hashed token on the paused source.
+INSERT INTO scim_tokens (id, name, token_hash, token_lookup_hash, expires_at, revoked_at, source_id) VALUES
+  (87206, 'scimtok-lu-revoked-87206', '$2a$10$lurevokedlurevokedlurevok', repeat('cd', 32),
+   now() + interval '1 day', now() - interval '1 hour',
+   (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-lookup')),
+  (87207, 'scimtok-lu-expired-87207', '$2a$10$luexpiredluexpiredluexpi', repeat('ef', 32),
+   now() - interval '1 day', NULL,
+   (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-lookup')),
+  (87208, 'scimtok-lu-paused-87208',  '$2a$10$lupausedlupausedlupaused', repeat('12', 32),
+   now() + interval '1 day', NULL,
+   (SELECT id FROM identity_sources WHERE source_key = 'scim:pgtap-token-lookup-paused'));
+
+-- 7-9. The auth liveness gates hold on the indexed path too.
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup(repeat('cd', 32))),
+  0::BIGINT,
+  'revoked token is NOT resolved by the indexed lookup'
+);
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup(repeat('ef', 32))),
+  0::BIGINT,
+  'expired token is NOT resolved by the indexed lookup'
+);
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup(repeat('12', 32))),
+  0::BIGINT,
+  'token on a paused source is NOT resolved by the indexed lookup'
+);
+
+-- 10. Exactly one candidate row resolves for the one live hash.
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup(repeat('ab', 32))),
+  1::BIGINT,
+  'indexed lookup returns at most one candidate row'
+);
+
+-- 11. The lookup is index-backed: a unique index exists on token_lookup_hash.
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE tablename = 'scim_tokens'
+       AND indexname = 'scim_tokens_token_lookup_hash_key'
+       AND indexdef LIKE '%UNIQUE%'
+  ),
+  'a UNIQUE index backs the token_lookup_hash equality lookup'
+);
+
+-- 12. Malformed (empty) lookup input resolves nothing — the equality key is
+-- the canonical 64-hex form only.
+SELECT is(
+  (SELECT count(*) FROM scim_token_lookup('' )),
+  0::BIGINT,
+  'empty lookup hash resolves nothing'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/system/stop",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"drain_timeout_sec\":30}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 denied: outside scope (remediation: use scoped token)\n",
+  "exit": 1
+}

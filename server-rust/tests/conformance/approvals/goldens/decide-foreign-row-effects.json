@@ -1,0 +1,7 @@
+{
+  "case": "foreign-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /me/approvals/{id}/decide"
+}

@@ -1,0 +1,21 @@
+/* setjoin base element defaults — minimal, token-driven. */
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+/* Links — visited keeps ≥4.5:1 contrast on page+card via --link-visited
+   (a11y: visited state must stay legible, not just decorative). */
+a { color: var(--link); }
+a:visited { color: var(--link-visited); }
+::selection { background: var(--indigo-100); }
+html { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+[data-theme="dark"] ::selection { background: var(--indigo-800); }
+/* Ink-drawn logo SVGs need inverting on dark surfaces */
+[data-theme="dark"] img.sj-ink { filter: invert(0.92) hue-rotate(180deg); }

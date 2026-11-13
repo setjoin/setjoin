@@ -1,0 +1,198 @@
+-- pgTAP: jmap_mailbox.sql — Mailbox/set create + destroy (RFC 8621 §2.5).
+-- A "mailbox" here is a TAG (a folder is a tag): create inserts a user tag,
+-- destroy removes one (only when empty + childless + not a system tag).
+--
+-- Divergent ids via mk_account (user 70000+ != mailbox 90000+, ADR-003): the
+-- reducers take the MAILBOX id as the account slot. A foreign mailbox is used to
+-- prove R3 scoping (a foreign tag id is notFound, never destroyed cross-tenant).
+BEGIN;
+SELECT plan(22);
+
+SELECT mk_account('mbset')    AS mb  \gset
+SELECT mk_account('mbsetfgn') AS fmb \gset
+
+-- ── CREATE ────────────────────────────────────────────────────────────────────
+-- Test 1: creating a user mailbox returns a created entry with a new tag id.
+SELECT ok(
+  (jmap_mailbox_set_create(:mb, '{"k1":{"name":"Projects"}}'::JSONB)
+     -> 'created' -> 'k1' ? 'id'),
+  'create: a user mailbox is created and its new id echoed under created.k1.id'
+);
+
+-- Test 2: the created tag actually exists as a user tag in the caller's mailbox.
+SELECT ok(
+  EXISTS (SELECT 1 FROM tags WHERE mailbox_id = :mb AND name = 'Projects'
+          AND tag_type = 'user' AND imap_expose),
+  'create: the new tag is a user tag (imap_expose) in the right mailbox'
+);
+
+-- Test 3: created id is the row's real id (the gateway maps it for the client).
+SELECT (jmap_mailbox_set_create(:mb, '{"k2":{"name":"Receipts"}}'::JSONB)
+          -> 'created' -> 'k2' ->> 'id') AS k2_id \gset
+SELECT is(
+  :'k2_id',
+  (SELECT id::TEXT FROM tags WHERE mailbox_id = :mb AND name = 'Receipts'),
+  'create: created.id equals the inserted tags.id'
+);
+
+-- Test 4: creating a system-named mailbox (Inbox) is rejected as notCreated.
+SELECT is(
+  (jmap_mailbox_set_create(:mb, '{"sys":{"name":"Inbox"}}'::JSONB)
+     -> 'notCreated' -> 'sys' ->> 'type'),
+  'forbidden',
+  'create: a system mailbox name (Inbox) is forbidden, not created'
+);
+
+-- Test 5: a duplicate name is rejected (unique (mailbox_id, name)).
+SELECT is(
+  (jmap_mailbox_set_create(:mb, '{"dup":{"name":"Projects"}}'::JSONB)
+     -> 'notCreated' -> 'dup' ->> 'type'),
+  'invalidProperties',
+  'create: a duplicate mailbox name is notCreated (invalidProperties)'
+);
+
+-- Test 6: a missing name is rejected.
+SELECT is(
+  (jmap_mailbox_set_create(:mb, '{"noname":{"sortOrder":5}}'::JSONB)
+     -> 'notCreated' -> 'noname' ->> 'type'),
+  'invalidProperties',
+  'create: a missing name is notCreated (invalidProperties)'
+);
+
+-- Test 7: create bumps jmap_mailbox_state (oldState != newState).
+SELECT isnt(
+  (jmap_mailbox_set_create(:mb, '{"bump":{"name":"Bumped"}}'::JSONB) ->> 'oldState'),
+  (jmap_mailbox_set_create(:mb, '{"bump":{"name":"Bumped"}}'::JSONB) ->> 'newState')::TEXT,
+  'create: a successful create advances jmap_mailbox_state'
+);
+
+-- ── DESTROY ─────────────────────────────────────────────────────────────────────
+-- An empty user tag to destroy.
+INSERT INTO tags (mailbox_id, name, tag_type) VALUES (:mb, 'ToDelete', 'user');
+SELECT id AS empty_id FROM tags WHERE mailbox_id = :mb AND name = 'ToDelete' \gset
+
+-- Test 8: destroying an empty user mailbox returns it under destroyed.
+SELECT ok(
+  (jmap_mailbox_set_destroy(:mb, ARRAY[:empty_id]::BIGINT[]) -> 'destroyed')
+    ? (:empty_id)::TEXT,
+  'destroy: an empty user mailbox is destroyed'
+);
+
+-- Test 9: the tag row is actually gone.
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM tags WHERE id = :empty_id),
+  'destroy: the destroyed tag row is removed'
+);
+
+-- A NON-empty user tag: holds one message, so it must NOT be destroyed.
+INSERT INTO tags (mailbox_id, name, tag_type) VALUES (:mb, 'HasMail', 'user');
+SELECT id AS full_id FROM tags WHERE mailbox_id = :mb AND name = 'HasMail' \gset
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at)
+  VALUES (:mb, get_tag_id('Inbox', :mb), '<hasmail@set.test>', 'a@b.com', '[]'::JSONB, 'M', 'raw', 'thr-hm', now());
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+  SELECT id, received_at, :full_id, 'test', FALSE FROM messages WHERE message_id = '<hasmail@set.test>';
+
+-- Test 10: a non-empty mailbox is notDestroyed with mailboxHasEmail.
+SELECT is(
+  (jmap_mailbox_set_destroy(:mb, ARRAY[:full_id]::BIGINT[])
+     -> 'notDestroyed' -> (:full_id)::TEXT ->> 'type'),
+  'mailboxHasEmail',
+  'destroy: a non-empty mailbox is notDestroyed (mailboxHasEmail)'
+);
+
+-- Test 11: and the non-empty tag (and its label) is NOT cascade-deleted.
+SELECT ok(
+  EXISTS (SELECT 1 FROM tags WHERE id = :full_id)
+  AND EXISTS (SELECT 1 FROM message_tags WHERE tag_id = :full_id),
+  'destroy: the non-empty mailbox + its message label survive (no cascade strip)'
+);
+
+-- Test 12: a system mailbox cannot be destroyed (forbidden).
+SELECT is(
+  (jmap_mailbox_set_destroy(:mb, ARRAY[(SELECT id FROM tags WHERE mailbox_id = :mb AND name = 'Inbox')]::BIGINT[])
+     -> 'notDestroyed' -> (SELECT id FROM tags WHERE mailbox_id = :mb AND name = 'Inbox')::TEXT ->> 'type'),
+  'forbidden',
+  'destroy: a system mailbox (Inbox) is notDestroyed (forbidden)'
+);
+
+-- Test 13: a parent with a child cannot be destroyed (mailboxHasChild).
+INSERT INTO tags (mailbox_id, name, tag_type) VALUES (:mb, 'Parent', 'user');
+SELECT id AS parent_id FROM tags WHERE mailbox_id = :mb AND name = 'Parent' \gset
+INSERT INTO tags (mailbox_id, name, tag_type, parent_id) VALUES (:mb, 'Child', 'user', :parent_id);
+SELECT is(
+  (jmap_mailbox_set_destroy(:mb, ARRAY[:parent_id]::BIGINT[])
+     -> 'notDestroyed' -> (:parent_id)::TEXT ->> 'type'),
+  'mailboxHasChild',
+  'destroy: a mailbox with a child is notDestroyed (mailboxHasChild)'
+);
+
+-- ── R3 SCOPING (divergent ids) ──────────────────────────────────────────────────
+-- A user tag in the FOREIGN mailbox; the caller (:mb) must not be able to touch it.
+INSERT INTO tags (mailbox_id, name, tag_type) VALUES (:fmb, 'ForeignTag', 'user');
+SELECT id AS foreign_id FROM tags WHERE mailbox_id = :fmb AND name = 'ForeignTag' \gset
+
+-- Test 14: destroying a foreign tag id from :mb is notFound (scoped, no cross-tenant delete).
+SELECT is(
+  (jmap_mailbox_set_destroy(:mb, ARRAY[:foreign_id]::BIGINT[])
+     -> 'notDestroyed' -> (:foreign_id)::TEXT ->> 'type'),
+  'notFound',
+  'destroy: a foreign mailbox tag id is notFound from another account (R3)'
+);
+
+-- Test 15: the foreign tag still exists (it was never destroyed cross-tenant).
+SELECT ok(
+  EXISTS (SELECT 1 FROM tags WHERE id = :foreign_id AND mailbox_id = :fmb),
+  'destroy: the foreign tag survives (no cross-tenant destroy)'
+);
+
+-- Test 16: creating a child under a foreign parentId is rejected (R3 parent scope).
+SELECT is(
+  (jmap_mailbox_set_create(:mb, ('{"badparent":{"name":"X","parentId":"' || :foreign_id || '"}}')::JSONB)
+     -> 'notCreated' -> 'badparent' ->> 'type'),
+  'invalidProperties',
+  'create: a parentId in another mailbox is notCreated (invalidProperties)'
+);
+
+-- ── UPDATE parentId validation (set_update mirrors create + rejects cycles) ──────
+-- Test 17: set_update rejects a parentId in another mailbox (R3, like create).
+SELECT is(
+  (jmap_mailbox_set_update(:mb, ('{"' || :full_id || '":{"parentId":"' || :foreign_id || '"}}')::JSONB)
+     -> 'notUpdated' -> (:full_id)::TEXT ->> 'type'),
+  'invalidProperties',
+  'update: a foreign parentId is notUpdated (invalidProperties)');
+
+-- Test 18: set_update rejects self-parent.
+SELECT is(
+  (jmap_mailbox_set_update(:mb, ('{"' || :parent_id || '":{"parentId":"' || :parent_id || '"}}')::JSONB)
+     -> 'notUpdated' -> (:parent_id)::TEXT ->> 'type'),
+  'invalidProperties',
+  'update: self-parent is notUpdated (invalidProperties)');
+
+-- Test 19: set_update rejects a cycle (reparent a tag under its own descendant).
+SELECT id AS child_id FROM tags WHERE mailbox_id = :mb AND name = 'Child' \gset
+SELECT is(
+  (jmap_mailbox_set_update(:mb, ('{"' || :parent_id || '":{"parentId":"' || :child_id || '"}}')::JSONB)
+     -> 'notUpdated' -> (:parent_id)::TEXT ->> 'type'),
+  'invalidProperties',
+  'update: a parentId that would create a cycle is notUpdated (invalidProperties)');
+
+-- ── STATE BUMP ⇒ PUSH ───────────────────────────────────────────────────────────
+SET LOCAL app.capture_notify = 'on';
+
+-- Test 20: a successful create pushes on tag:{mailbox} exactly once.
+SELECT mk_account('mbpush') AS pmb \gset
+SELECT jmap_mailbox_set_create(:pmb, '{"p":{"name":"Pushed"}}'::JSONB);
+SELECT is(notify_count('tag:' || :pmb), 1,
+  'create: a successful create pushes on tag:{mailbox} exactly once');
+
+-- Test 21: the push carries the mailbox_created event.
+SELECT is(last_notify_event('tag:' || :pmb), 'mailbox_created',
+  'create: the push carries the mailbox_created event');
+
+-- Test 22: parentId:null un-parents the folder to root (JSON null vs absent key).
+SELECT jmap_mailbox_set_update(:mb, ('{"' || :child_id || '":{"parentId":null}}')::JSONB);
+SELECT is((SELECT parent_id FROM tags WHERE id = :child_id), NULL,
+  'update: parentId:null un-parents the folder to root');
+
+SELECT * FROM finish();
+ROLLBACK;

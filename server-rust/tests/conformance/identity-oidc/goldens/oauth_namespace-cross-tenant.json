@@ -1,0 +1,32 @@
+{
+  "case": "oauth_namespace-cross-tenant",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "auth_attempts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/oauth",
+      "wire_method": "GET",
+      "wire_path": "/oauth"
+    },
+    "response": {
+      "body": "404 page not found\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 404
+    }
+  },
+  "route": "* /oauth"
+}

@@ -1,0 +1,119 @@
+{
+  "case": "bad-signature",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "n": 0
+          }
+        ],
+        "before": [
+          {
+            "n": 0
+          }
+        ],
+        "table": "upgrade_history"
+      },
+      {
+        "after": [
+          {
+            "json": {
+              "expires_at": "<expiry>",
+              "filename": "bundle.bin",
+              "key_id": "offline-oracle",
+              "metadata_version": 1,
+              "platform": "desktop",
+              "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+              "size_bytes": 31,
+              "slug": "linux-amd64",
+              "target_metadata": "<verified-signed-target>",
+              "uploaded_at": "2026-10-01T00:00:00Z",
+              "version": "1.2.3"
+            },
+            "name": "linux-amd64.json"
+          },
+          {
+            "name": "linux-amd64_bundle.bin",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size": 31
+          }
+        ],
+        "before": [
+          {
+            "json": {
+              "expires_at": "<expiry>",
+              "filename": "bundle.bin",
+              "key_id": "offline-oracle",
+              "metadata_version": 1,
+              "platform": "desktop",
+              "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+              "size_bytes": 31,
+              "slug": "linux-amd64",
+              "target_metadata": "<verified-signed-target>",
+              "uploaded_at": "2026-10-01T00:00:00Z",
+              "version": "1.2.3"
+            },
+            "name": "linux-amd64.json"
+          },
+          {
+            "name": "linux-amd64_bundle.bin",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size": 31
+          }
+        ],
+        "table": "airgap_files"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "--gofree-plat2b-boundary\r\nContent-Disposition: form-data; name=\"slug\"\r\n\r\nlinux-amd64\r\n--gofree-plat2b-boundary\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n{{offline-metadata}}\r\n--gofree-plat2b-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"bundle-v2.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nSetjoin offline update replacement\n\r\n--gofree-plat2b-boundary--\r\n",
+      "external_path": "/api/admin/updates/airgap/upload",
+      "method": "POST",
+      "path": "/admin/updates/airgap/upload"
+    },
+    "response": {
+      "body": "offline target signature verification failed\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "45"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/plain; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /admin/updates/airgap/upload"
+}

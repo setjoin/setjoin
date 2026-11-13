@@ -1,0 +1,60 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "description": "等保三级 三权分立 mode. When ON: super-admin is unassignable, every role must carry a non-NULL sod_class, and the trg_sod_exclusion trigger enforces hard mutual exclusion across system/security/audit classes. Flip via the dedicated gated endpoint (security.write required); the OFF→ON flip runs admin_sod_precheck() in the same transaction. DEFAULT OFF — fully inert until deliberately enabled by a qualified security administrator.",
+          "enabled": false,
+          "key": "dengbao.sod_mode"
+        },
+        {
+          "description": "IMAP4rev2 server on ports 143 and 993",
+          "enabled": true,
+          "key": "feature.imap"
+        },
+        {
+          "description": "Background-detected stale-thread / no-reply-in-3-days inbox nudges. Seeded OFF.",
+          "enabled": false,
+          "key": "feature.stale_nudges"
+        }
+      ],
+      "before": [
+        {
+          "description": "等保三级 三权分立 mode. When ON: super-admin is unassignable, every role must carry a non-NULL sod_class, and the trg_sod_exclusion trigger enforces hard mutual exclusion across system/security/audit classes. Flip via the dedicated gated endpoint (security.write required); the OFF→ON flip runs admin_sod_precheck() in the same transaction. DEFAULT OFF — fully inert until deliberately enabled by a qualified security administrator.",
+          "enabled": false,
+          "key": "dengbao.sod_mode"
+        },
+        {
+          "description": "IMAP4rev2 server on ports 143 and 993",
+          "enabled": true,
+          "key": "feature.imap"
+        },
+        {
+          "description": "Background-detected stale-thread / no-reply-in-3-days inbox nudges. Seeded OFF.",
+          "enabled": false,
+          "key": "feature.stale_nudges"
+        }
+      ],
+      "table": "feature_toggles"
+    },
+    {
+      "after": [
+        {
+          "mode": "observe",
+          "registry_digest": "0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf"
+        }
+      ],
+      "before": [
+        {
+          "mode": "observe",
+          "registry_digest": "0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf"
+        }
+      ],
+      "table": "feature_toggle_registry_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "DELETE /admin/features/{key}"
+}

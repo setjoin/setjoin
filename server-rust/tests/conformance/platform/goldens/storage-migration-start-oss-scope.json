@@ -1,0 +1,84 @@
+{
+  "case": "oss-scope",
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "completed": false,
+            "error": null,
+            "id": 9700,
+            "last": null,
+            "migrated": 1,
+            "source": "s3",
+            "started": true,
+            "status": "cutover",
+            "target": "oss",
+            "total": 1
+          }
+        ],
+        "before": [],
+        "table": "storage_migrations"
+      }
+    ],
+    "notify": [],
+    "outbound": [
+      {
+        "credential_scope": "test-access/<date>//oss/aliyun_v4_request",
+        "operation": "get",
+        "path": "/mailblobs/fa2c8cc4f28176bbeed4b736df569a34c79cd3723e9ec42f9674b4d46ac6b8b8"
+      }
+    ],
+    "request": {
+      "body": "{\"actor_id\":196,\"mailbox_id\":196}",
+      "external_path": "/api/admin/storage/migrate",
+      "method": "POST",
+      "path": "/admin/storage/migrate",
+      "query": "?target=oss"
+    },
+    "response": {
+      "body": "{\"id\":9700,\"status\":\"started\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "31"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 202
+    },
+    "target_objects": []
+  },
+  "route": "POST /admin/storage/migrate"
+}

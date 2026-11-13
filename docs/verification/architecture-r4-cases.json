@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"lane":"ldap","caseId":"R4-LDAP-BOUND-VISIBILITY"},
+    {"lane":"config","caseId":"R4-CONFIG-COMMON-PROJECTION"},
+    {"lane":"native","caseId":"R4-NATIVE-CAPABILITY-SESSION"},
+    {"lane":"webdav","caseId":"R4-WEBDAV-PROPERTY-SEMANTICS"},
+    {"lane":"jmap","caseId":"R4-JMAP-EXECUTION-ENVELOPE"},
+    {"lane":"toggle","caseId":"R4-TOGGLE-NOTIFICATION-LIFECYCLE"},
+    {"lane":"asr","caseId":"R4-ASR-ROOM-REGISTRY"},
+    {"lane":"units","caseId":"R4-UNITS-FIXED-CATALOG"},
+    {"lane":"gomods","caseId":"R4-GOMODS-CAPABILITY-CATALOG"},
+    {"lane":"tasks","caseId":"R4-TASKS-ACTION-COORDINATOR"},
+    {"lane":"sw","caseId":"R4-SW-NOTIFICATION-COMMAND"},
+    {"lane":"cron","caseId":"R4-CRON-SCHEDULER"},
+    {"lane":"features","caseId":"R4-FEATURES-OPERATOR-SEMANTICS"}
+  ]
+}

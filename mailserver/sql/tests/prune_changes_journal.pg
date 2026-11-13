@@ -1,0 +1,62 @@
+-- prune_changes_journal.pg: pgTAP for the journal retention-prune reducer (offline #3 Task 9).
+-- GT+pattern: mk_account() for FK-safe seeds (disjoint id sequences, no FK violations).
+-- Three independent mailboxes: arm-1/2 (basic prune), arm-3/4 (F7 boundary),
+-- arm-5 (F7 clamp — 30d RFC floor overrides a too-small p_max_window_days).
+BEGIN;
+SELECT plan(5);
+
+CREATE TEMP TABLE _mb AS
+  SELECT mk_account('pj1') AS mb1,
+         mk_account('pj2') AS mb2,
+         mk_account('pj3') AS mb3;
+
+-- ── Arm 1+2: time-based prune at 30 days ─────────────────────────────────────
+-- mb1: one row 40 days old (→ pruned), one fresh (→ kept).
+INSERT INTO jmap_changes_journal(mailbox_id, state_seq, entity_id, op, created_at)
+  SELECT mb1, 1, 30, 'updated', now() - interval '40 days' FROM _mb
+  UNION ALL
+  SELECT mb1, 2, 31, 'updated', now()                       FROM _mb;
+
+SELECT ok(
+  prune_changes_journal(30, 50000) >= 1,
+  'prune deletes at least the 40d-old row');
+
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal WHERE mailbox_id = (SELECT mb1 FROM _mb)),
+  1::bigint,
+  'only the fresh row remains after prune(30)');
+
+-- ── Arm 3+4: F7 retention-invariant BOUNDARY ─────────────────────────────────
+-- mb2: row at 89 days (INSIDE 90d window → must survive),
+--       row at 120 days (outside → pruned).
+INSERT INTO jmap_changes_journal(mailbox_id, state_seq, entity_id, op, created_at)
+  SELECT mb2, 1, 40, 'updated', now() - interval '89 days'  FROM _mb
+  UNION ALL
+  SELECT mb2, 2, 41, 'updated', now() - interval '120 days' FROM _mb;
+
+SELECT lives_ok(
+  $$SELECT prune_changes_journal(90, 50000)$$,
+  'prune at 90d window runs without error');
+
+-- F7: a change INSIDE the configured window must be retained (delta always computable).
+-- prune_changes_journal(90,...) was called above; only state_seq=1 (89d) should remain.
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal
+    WHERE mailbox_id = (SELECT mb2 FROM _mb) AND state_seq = 1),
+  1::bigint,
+  'F7: change inside the 90d window is retained (delta always computable)');
+
+-- ── Arm 5: F7 clamp — too-small window is raised to the 30d RFC floor ────────
+-- mb3: one row 20 days old. prune(5,...) must NOT prune it: 5d < 30d floor.
+INSERT INTO jmap_changes_journal(mailbox_id, state_seq, entity_id, op, created_at)
+  SELECT mb3, 1, 50, 'updated', now() - interval '20 days' FROM _mb;
+
+SELECT prune_changes_journal(5, 50000);  -- execute (not a tap assertion)
+
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal WHERE mailbox_id = (SELECT mb3 FROM _mb)),
+  1::bigint,
+  'F7 clamp: too-small window (5d) clamped to the 30d RFC floor — 20d-old row retained');
+
+SELECT finish();
+ROLLBACK;

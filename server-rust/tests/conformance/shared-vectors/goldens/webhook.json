@@ -1,0 +1,53 @@
+{
+  "contract": "webhook",
+  "cases": [
+    {
+      "input": {
+        "body": "{\"event\":\"mail.received\"}",
+        "secret": "0123456789abcdef0123456789abcdef",
+        "unix": 1257894000
+      },
+      "name": "normal",
+      "output": {
+        "error": "",
+        "signature": "v1,t=1257894000,sig=1bd16b2699b4690dad0f1b5a749b0f2e4ad833173d8d393fbb5f5bad4830600c"
+      }
+    },
+    {
+      "input": {
+        "body": "",
+        "secret": "0123456789abcdef0123456789abcdef",
+        "unix": 1257894000
+      },
+      "name": "empty_body",
+      "output": {
+        "error": "",
+        "signature": "v1,t=1257894000,sig=66cd8e719e389c04adcfea04471db8dabf03feb39ace260a256aa7164292f7b9"
+      }
+    },
+    {
+      "input": {
+        "body": "测试\n",
+        "secret": "0123456789abcdef0123456789abcdef",
+        "unix": 1257894000
+      },
+      "name": "unicode_body",
+      "output": {
+        "error": "",
+        "signature": "v1,t=1257894000,sig=f64e6c5693a99da8bd3650e2f8e19e5b95324d31f559a7ad92af7431219de9ff"
+      }
+    },
+    {
+      "input": {
+        "body": "x",
+        "secret": "short",
+        "unix": 1257894000
+      },
+      "name": "short_secret",
+      "output": {
+        "error": "webhook: signing secret must be at least 32 bytes (got 5)",
+        "signature": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+{
+  "case": "cap",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [
+            {
+              "expires": false,
+              "id": "<app-a>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "app-a",
+              "revoked": false,
+              "token_hash": "seed-app-a",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<app-b>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "app-b",
+              "revoked": false,
+              "token_hash": "seed-app-b",
+              "user_id": "<b>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-0>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-0",
+              "revoked": false,
+              "token_hash": "seed-cap-0",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-1>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-1",
+              "revoked": false,
+              "token_hash": "seed-cap-1",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-2>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-2",
+              "revoked": false,
+              "token_hash": "seed-cap-2",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-3>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-3",
+              "revoked": false,
+              "token_hash": "seed-cap-3",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-4>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-4",
+              "revoked": false,
+              "token_hash": "seed-cap-4",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-5>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-5",
+              "revoked": false,
+              "token_hash": "seed-cap-5",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-6>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-6",
+              "revoked": false,
+              "token_hash": "seed-cap-6",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-7>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-7",
+              "revoked": false,
+              "token_hash": "seed-cap-7",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-8>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-8",
+              "revoked": false,
+              "token_hash": "seed-cap-8",
+              "user_id": "<a>"
+            }
+          ]
+        },
+        "before": {
+          "app_passwords": [
+            {
+              "expires": false,
+              "id": "<app-a>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "app-a",
+              "revoked": false,
+              "token_hash": "seed-app-a",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<app-b>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "app-b",
+              "revoked": false,
+              "token_hash": "seed-app-b",
+              "user_id": "<b>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-0>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-0",
+              "revoked": false,
+              "token_hash": "seed-cap-0",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-1>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-1",
+              "revoked": false,
+              "token_hash": "seed-cap-1",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-2>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-2",
+              "revoked": false,
+              "token_hash": "seed-cap-2",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-3>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-3",
+              "revoked": false,
+              "token_hash": "seed-cap-3",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-4>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-4",
+              "revoked": false,
+              "token_hash": "seed-cap-4",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-5>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-5",
+              "revoked": false,
+              "token_hash": "seed-cap-5",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-6>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-6",
+              "revoked": false,
+              "token_hash": "seed-cap-6",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-7>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-7",
+              "revoked": false,
+              "token_hash": "seed-cap-7",
+              "user_id": "<a>"
+            },
+            {
+              "expires": false,
+              "id": "<cap-8>",
+              "label": "fixture",
+              "last_used": false,
+              "name": "cap-8",
+              "revoked": false,
+              "token_hash": "seed-cap-8",
+              "user_id": "<a>"
+            }
+          ]
+        }
+      }
+    ],
+    "notify": {
+      "config_changed": [],
+      "critical_events": [],
+      "state_change": []
+    },
+    "request": {
+      "body": "{\"name\":\"Desktop <&>\",\"label\":\"desk\"}",
+      "method": "POST",
+      "path": "/auth/me/app-passwords"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"maximum 10 app passwords reached\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "113"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 409
+    }
+  },
+  "route": "POST /auth/me/app-passwords"
+}

@@ -1,0 +1,262 @@
+-- pgTAP: calendar_sharing.sql — ACL-scoped shared reads, freebusy redaction, share CRUD.
+BEGIN;
+SELECT plan(24);
+
+INSERT INTO domains (name, is_local) VALUES ('share.test', TRUE), ('share-sister.test', TRUE);
+
+-- alice (owner) and bob (viewer). Divergent user/mailbox ids so the ACL viewer key
+-- (users.id) is never confused with a mailbox id. ADR-004: alice also carries a
+-- sister-domain alias + a UPN, so an owner addressed by either must still resolve.
+INSERT INTO users (id, username, domain_id, email, display_name, ad_upn) VALUES
+  (8101, 'alice', (SELECT id FROM domains WHERE name = 'share.test'), 'alice@share.test', 'Alice', 'alice.upn@corp.local'),
+  (8102, 'bob',   (SELECT id FROM domains WHERE name = 'share.test'), 'bob@share.test',   'Bob',   NULL),
+  (8103, 'carol', (SELECT id FROM domains WHERE name = 'share.test'), 'carol@share.test', 'Carol', NULL);
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (8201, 8101, (SELECT id FROM domains WHERE name = 'share.test'), 'alice@share.test', 'personal', 'Alice Mbox', TRUE),
+  (8202, 8102, (SELECT id FROM domains WHERE name = 'share.test'), 'bob@share.test',   'personal', 'Bob Mbox',   TRUE),
+  (8203, 8103, (SELECT id FROM domains WHERE name = 'share.test'), 'carol@share.test', 'personal', 'Carol Mbox', TRUE);
+
+-- Alice's sister-domain alias on her primary mailbox; Bob has one too (grant target).
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (8201, 'alice.exec@share-sister.test', (SELECT id FROM domains WHERE name = 'share-sister.test'), FALSE),
+  (8202, 'bob.sales@share-sister.test',  (SELECT id FROM domains WHERE name = 'share-sister.test'), FALSE);
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (8301, 8201, 'Alice Calendar', TRUE),
+  (8302, 8202, 'Bob Calendar',   TRUE);
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, location, description, start_at, end_at)
+VALUES
+  (8401, 8301, 'alice-evt-1', 'Secret Strategy', 'Boardroom', 'Q3 plans', '2026-06-15 14:00:00+00', '2026-06-15 15:00:00+00');
+
+-- Grant bob 'read' on alice's calendar.
+INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (8301, 8102, 'read');
+
+-- ============================================================
+-- jmap_calendar_get_shared
+-- ============================================================
+
+-- (1) bob (read grant) sees alice's calendar in the shared list.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(
+     (jmap_calendar_get_shared(8102, 'alice@share.test'))->'list') e
+   WHERE e->>'id' = '8301'),
+  1,
+  'viewer with read grant sees the owner calendar'
+);
+
+-- (2) carol (no grant) gets an empty list — no leak.
+SELECT is(
+  jsonb_array_length((jmap_calendar_get_shared(8103, 'alice@share.test'))->'list'),
+  0,
+  'viewer without a grant sees no shared calendars (no leak)'
+);
+
+-- (3) read grant exposes the full event (title visible).
+SELECT is(
+  (SELECT e->>'title' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8401'),
+  'Secret Strategy',
+  'read grant returns the full event title'
+);
+
+-- (3a) ADR-004 address-aware owner resolution: bob opens Alice's calendar by her
+-- SISTER-DOMAIN ALIAS — previously empty (owner matched by users.email only).
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(
+     (jmap_calendar_get_shared(8102, 'alice.exec@share-sister.test'))->'list') e
+   WHERE e->>'id' = '8301'),
+  1,
+  'shared calendar resolves the owner by a sister-domain alias (ADR-004)'
+);
+
+-- (3b) …and by Alice's UPN (commonly differs from the SMTP primary).
+SELECT is(
+  (SELECT e->>'title' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice.upn@corp.local', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8401'),
+  'Secret Strategy',
+  'shared events resolve the owner by UPN (ADR-004)'
+);
+
+-- ============================================================
+-- SECURITY: a PRIVATE event is redacted for a NON-freebusy (read) viewer
+-- ============================================================
+-- A PRIVATE event on alice's calendar. Bob holds a READ grant (the LEAK case —
+-- NOT freebusy). Before the classification redaction-gate widen he sees the full
+-- title/location/description (assertions 3c-3e FAIL); after, only a Busy block.
+INSERT INTO calendar_events (id, calendar_id, uid, title, location, description, classification, start_at, end_at)
+VALUES (8402, 8301, 'alice-evt-2', 'Therapy', 'Clinic', 'Weekly session', 'PRIVATE',
+        '2026-06-16 09:00:00+00', '2026-06-16 10:00:00+00');
+
+-- Guarantee bob holds a READ grant (independent of prior test state).
+UPDATE calendar_acls SET permission = 'read' WHERE calendar_id = 8301 AND user_id = 8102;
+
+-- (3c) read grant redacts a PRIVATE event's title to Busy.
+SELECT is(
+  (SELECT e->>'title' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8402'),
+  'Busy',
+  'read grant on a PRIVATE event redacts the title to Busy (security)'
+);
+
+-- (3d) read grant strips a PRIVATE event's location.
+SELECT is(
+  (SELECT e->>'location' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8402'),
+  NULL,
+  'read grant on a PRIVATE event strips the location (security)'
+);
+
+-- (3e) read grant strips a PRIVATE event's description.
+SELECT is(
+  (SELECT e->>'description' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8402'),
+  NULL,
+  'read grant on a PRIVATE event strips the description (security)'
+);
+
+-- (3f) the busy time block still survives (a PRIVATE event is not hidden entirely).
+SELECT isnt(
+  (SELECT e->>'start' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e
+   WHERE e->>'id' = '8402'),
+  NULL,
+  'PRIVATE event keeps its busy time block for a read viewer'
+);
+
+-- (3g) the OWNER (alice, mailbox 8201) sees full detail…
+SELECT is(
+  (SELECT e->>'title' FROM jsonb_array_elements(
+     (jmap_calendar_event_get(8201, ARRAY[8402]::BIGINT[]))->'list') e),
+  'Therapy',
+  'owner sees the full PRIVATE event title'
+);
+
+-- (3h) …and its privacy field maps CLASS PRIVATE → JSCalendar 'private'.
+SELECT is(
+  (SELECT e->>'privacy' FROM jsonb_array_elements(
+     (jmap_calendar_event_get(8201, ARRAY[8402]::BIGINT[]))->'list') e),
+  'private',
+  'owner sees privacy=private on the PRIVATE event'
+);
+
+-- Drop the PRIVATE event so the single-event freebusy assertions below (which
+-- read the list without an id filter) still see exactly one row.
+DELETE FROM calendar_events WHERE id = 8402;
+
+-- (4) downgrade bob to freebusy; the event is redacted to a Busy block.
+UPDATE calendar_acls SET permission = 'freebusy' WHERE calendar_id = 8301 AND user_id = 8102;
+
+SELECT is(
+  (SELECT e->>'title' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e),
+  'Busy',
+  'freebusy grant redacts the event title to Busy'
+);
+
+SELECT is(
+  (SELECT e->>'location' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e),
+  NULL,
+  'freebusy grant strips the location'
+);
+
+SELECT is(
+  (SELECT e->>'description' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e),
+  NULL,
+  'freebusy grant strips the description'
+);
+
+-- freebusy still exposes the time block (start present).
+SELECT isnt(
+  (SELECT e->>'start' FROM jsonb_array_elements(
+     (jmap_calendar_event_get_shared(8102, 'alice@share.test', NULL, NULL))->'list') e),
+  NULL,
+  'freebusy grant keeps the start time'
+);
+
+-- (5) shared reads do not bump the owner calendar jmap_state (read-only).
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 8301),
+  0::BIGINT,
+  'shared reads do not bump the owner calendar state'
+);
+
+-- ============================================================
+-- jmap_calendar_share_set / _get  (CRUD)
+-- ============================================================
+
+-- Owner alice (account = her mailbox 8201) grants bob 'write'.
+SELECT is(
+  (jmap_calendar_share_set(8201, 8301,
+     '[{"userEmail":"bob@share.test","level":"write"}]'::jsonb, '[]'::jsonb))->>'ok',
+  'true',
+  'owner can grant a share'
+);
+
+SELECT is(
+  (SELECT permission FROM calendar_acls WHERE calendar_id = 8301 AND user_id = 8102),
+  'write',
+  'share_set upserts the grant to write'
+);
+
+-- share_set routes its jmap_state bump + push through notify_calendar_state (the
+-- calendar seam) — the owner calendar's state advanced (was 0; read-only shared
+-- reads above did not touch it). Locks the Wave-3 seam routing.
+SELECT cmp_ok(
+  (SELECT jmap_state FROM calendars WHERE id = 8301),
+  '>', 0::BIGINT,
+  'share_set bumped the owner calendar jmap_state via the calendar seam'
+);
+
+-- share_get lists the grant with email + level.
+SELECT is(
+  (SELECT g->>'level' FROM jsonb_array_elements(
+     (jmap_calendar_share_get(8201, 8301))->'list') g
+   WHERE g->>'userEmail' = 'bob@share.test'),
+  'write',
+  'share_get lists the grant level'
+);
+
+-- Revoke bob's grant, then confirm the row is gone.
+SELECT is(
+  (jmap_calendar_share_set(8201, 8301, '[]'::jsonb,
+     '[{"userEmail":"bob@share.test"}]'::jsonb))->>'ok',
+  'true',
+  'share_set revoke returns ok'
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM calendar_acls WHERE calendar_id = 8301 AND user_id = 8102),
+  0,
+  'share_set removes the revoked grant row'
+);
+
+-- ADR-004: granting by the grantee's ALIAS resolves the right person (Bob, 8102) —
+-- previously a grant addressed by an alias silently no-op'd (matched users.email only).
+SELECT jmap_calendar_share_set(8201, 8301,
+  '[{"userEmail":"bob.sales@share-sister.test","level":"read"}]'::jsonb, '[]'::jsonb);
+SELECT is(
+  (SELECT permission FROM calendar_acls WHERE calendar_id = 8301 AND user_id = 8102),
+  'read',
+  'share_set grants to a grantee addressed by an alias (ADR-004)'
+);
+
+-- A non-owner / non-admin caller is forbidden (BZ001).
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_share_set(8203, 8301,
+       '[{"userEmail":"carol@share.test","level":"read"}]'::jsonb, '[]'::jsonb) $$,
+  'BZ001',
+  NULL,
+  'non-owner share_set raises BZ001'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

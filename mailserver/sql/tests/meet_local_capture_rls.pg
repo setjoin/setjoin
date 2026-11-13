@@ -1,0 +1,123 @@
+-- meet_local_capture_rls.pg — MEET plan M5 slice 2: the V268 lease table's
+-- FORCE-RLS proof (the meet_semantic_recording_rls.pg genre,
+-- participant-scoped). Two orthogonal arms, both driven as the constrained
+-- non-owner runtime role setjoin_app with a SECOND tenant's rows present:
+--   · DENIAL — a foreign meeting's participant (and a GUC-less session)
+--     sees no lease rows; their UPDATE no-ops; their INSERT 42501s.
+--   · ALLOW — the meeting's own host drives the REAL reducer write path
+--     (meeting_local_capture_lease_acquire) as setjoin_app under FORCE:
+--     the legitimate writer is never locked out (the V125/V134
+--     flip-blocker class, arch review #A4).
+-- COVERED entries: scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
+BEGIN;
+SELECT plan(9);
+
+-- ── Fixtures as superuser: two disjoint meetings (two tenants). ──
+INSERT INTO domains (name, is_local) VALUES ('m5-rls.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id, 'm5-rls-' || id::text,
+       (SELECT id FROM domains WHERE name = 'm5-rls.test'),
+       'm5-rls-' || id::text || '@m5-rls.test', 'M5 RLS ' || id::text, 'x'
+  FROM generate_series(95, 98) AS ids(id)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m5-a', 95, 'live')
+  RETURNING id AS ma \gset
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m5-b', 97, 'live')
+  RETURNING id AS mb \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ma, 95, 'u:95', 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:mb, 97, 'u:97', 'host', now());
+
+-- Tenant A's local capture recording + live lease, seeded directly.
+INSERT INTO meeting_semantic_recordings
+  (meeting_id, capture_mode, rec_state, package_state, profile_class, local_only, started_by)
+VALUES (:ma, 'local_registered', 'active', 'ACTIVE', 'evidence_pending', true, 95)
+RETURNING id AS ra \gset
+INSERT INTO meeting_local_capture_leases
+  (meeting_id, recording_id, device_id, lease_state, generation, surfaces, producer,
+   heartbeat_seconds, expires_at, started_by)
+VALUES (:ma, :ra, 'dev-a', 'live', 1, '["microphone"]'::jsonb,
+        '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10, now() + interval '30 seconds', 95)
+RETURNING id AS la \gset
+
+-- Tenant B seeds its own lease (the cross-tenant presence the denial arms
+-- require to be meaningful).
+INSERT INTO meeting_semantic_recordings
+  (meeting_id, capture_mode, rec_state, package_state, profile_class, local_only, started_by)
+VALUES (:mb, 'local_registered', 'active', 'ACTIVE', 'evidence_pending', true, 97)
+RETURNING id AS rb \gset
+INSERT INTO meeting_local_capture_leases
+  (meeting_id, recording_id, device_id, lease_state, generation, surfaces, producer,
+   heartbeat_seconds, expires_at, started_by)
+VALUES (:mb, :rb, 'dev-b', 'live', 1, '["systemAudio"]'::jsonb,
+        '{"platform":"win32","captureApiVersion":"e2"}'::jsonb, 10, now() + interval '30 seconds', 97);
+
+-- FORCE state, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_local_capture_leases'::regclass),
+  TRUE, 'meeting_local_capture_leases RLS FORCED');
+
+GRANT SELECT, INSERT, UPDATE ON public.meeting_local_capture_leases TO setjoin_app;
+GRANT SELECT, UPDATE ON public.meetings, public.meeting_participants TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_local_capture_lease_acquire(bigint, bigint, text, jsonb, jsonb, integer)
+  TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_semantic_recording_start(bigint, bigint, text, jsonb) TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- DENIAL: load-bearing first — the policies MUST NOT recurse (the
+-- ARCH-018 scope-helper dodge; this table's policies read the helper
+-- directly, no recursion depth).
+SELECT set_config('app.current_user_id', '95', true);
+SELECT lives_ok($$ SELECT count(*) FROM meeting_local_capture_leases $$,
+  'participant policy does not recurse');
+
+-- Positive control: tenant A's host sees exactly their own lease.
+SELECT is((SELECT count(*)::int FROM meeting_local_capture_leases), 1,
+  'tenant A sees exactly their own lease');
+
+-- DENIAL: tenant B's host sees none of tenant A's lease rows.
+SELECT set_config('app.current_user_id', '97', true);
+SELECT is((SELECT count(*)::int FROM meeting_local_capture_leases WHERE meeting_id = :ma), 0,
+  'a foreign participant sees no lease rows (cross-tenant denial)');
+
+-- A foreign UPDATE no-ops (same-statement ownership posture, R3).
+UPDATE meeting_local_capture_leases SET lease_state = 'stopped', stop_reason = 'user_stop'
+ WHERE meeting_id = :ma;
+SELECT set_config('app.current_user_id', '95', true);
+SELECT is((SELECT lease_state FROM meeting_local_capture_leases WHERE id = :la), 'live',
+  'a foreign participant''s UPDATE no-ops (tenant A lease untouched)');
+SELECT set_config('app.current_user_id', '97', true);
+
+-- A foreign INSERT 42501s (WITH CHECK denies the not-a-participant arm).
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_local_capture_leases
+              (meeting_id, recording_id, device_id, lease_state, generation, surfaces, producer,
+               heartbeat_seconds, expires_at, started_by)
+            VALUES (%s, %s, 'dev-x', 'live', 1, '["microphone"]'::jsonb,
+                    '{"platform":"x"}'::jsonb, 10, now() + interval '30 seconds', 97) $$, :ma, :rb),
+  '42501', NULL, 'a foreign participant''s INSERT is denied (WITH CHECK)');
+
+-- Fail-closed: no GUC at all.
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM meeting_local_capture_leases), 0,
+  'no GUC is fail-closed (no rows)');
+
+SELECT set_config('app.current_user_id', '95', true);
+
+-- ALLOW: the meeting's OWN host drives the REAL acquire path as setjoin_app
+-- under FORCE — the reattach returns the live lease (the recording-start
+-- INSERT arm is already proven live in meet_local_capture.pg; a second live
+-- recording is refused by single-primary-mode).
+SELECT lives_ok(
+  format($$ SELECT meeting_local_capture_lease_acquire(95, %s, 'dev-a', '["microphone"]'::jsonb,
+              '{"platform":"darwin","captureApiVersion":"e1"}'::jsonb, 10) $$, :ma),
+  'the host reattaches through the real reducer as setjoin_app (ALLOW)');
+SELECT is((SELECT COUNT(*) FROM meeting_local_capture_leases
+            WHERE meeting_id = :ma AND lease_state = 'live'), 1::bigint,
+  'the host''s own live lease is visible back under their GUC (one live lease)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,82 @@
+{
+  "case": "subscription-sync-guarded",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "requests": [],
+    "subscriptions": [
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://127.0.0.1:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://localhost:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://[::1]:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://2130706433:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://0.0.0.0:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://169.254.169.254:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "http://[::ffff:127.0.0.1]:<port>/ok"
+      },
+      {
+        "claimed": true,
+        "error": "couldn't reach that URL",
+        "etag": null,
+        "events": [],
+        "last_modified": null,
+        "status": "error",
+        "url": "webcal://127.0.0.1:<port>/ok"
+      }
+    ]
+  }
+}

@@ -1,0 +1,333 @@
+-- pgTAP: ca_policy_import.pg — CA-1 C6: bulk import (merge/replace/prune).
+-- Tests: clean import → report_only; idempotent re-import (no dup); prune
+-- soft-deletes absent-by-name; schemaVersion 99 → BZ088; bad grant → BZ090;
+-- unknown location slug → BZ091; bad p_mode → BZ092; ca_notify_policy_change fires.
+BEGIN;
+SELECT plan(30);
+SET app.capture_notify = 'on';
+
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('ca_policy_import(jsonb,bigint,text)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM ca_reachability_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('ca_policy_import(jsonb,bigint,text)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM ca_reachability_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('ca_policy_import(jsonb,bigint,text)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'FOR UPDATE'),
+  'loaded import reducer takes the reachability fence before its policy row lock');
+
+INSERT INTO domains (id, name, is_local) VALUES (97300, 'pi.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (84001, 'pi_actor', 97300, 'actor@pi.test', 'Actor', TRUE);
+INSERT INTO admin_role_groups (id, name, sod_class)
+  VALUES (984001, 'pi-admin-role', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at)
+  VALUES (84001, 984001, NULL) ON CONFLICT DO NOTHING;
+INSERT INTO system_config (key, value) VALUES ('ca_break_glass_user_ids', '[]'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = '[]'::jsonb;
+
+-- Insert a live policy to test prune removing it later.
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+  VALUES (900101, 990, 'pi-prune-victim', 'report_only', 'global',
+          '{}'::jsonb, '{"operator":"all","grants":[{"action":"allow"}]}'::jsonb);
+
+-- (1) Clean import in 'merge' mode → policies born report_only.
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-alpha","description":"d1","scope_type":"global","scope_target":"",
+            "conditions":{"geo_risk_tier":"critical"},
+            "actions":{"operator":"all","grants":[{"action":"block"}],"reason":"r"},
+            "priority":510,"exclude_users":[],"exclude_groups":[]}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'merge import with valid policy succeeds');
+
+-- Born report_only (never enforcing on import).
+SELECT is(
+  (SELECT state FROM conditional_access_policies WHERE name = 'pi-alpha'),
+  'report_only',
+  'imported policy is born report_only');
+
+-- (2) Re-import same slug (name) → idempotent, no duplicate.
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-alpha","description":"d1-updated","scope_type":"global","scope_target":"",
+            "conditions":{"geo_risk_tier":"critical"},
+            "actions":{"operator":"all","grants":[{"action":"block"}],"reason":"r"},
+            "priority":510,"exclude_users":[],"exclude_groups":[]}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  're-import same name is idempotent (no dup)');
+
+SELECT is(
+  (SELECT COUNT(*)::int FROM conditional_access_policies WHERE name = 'pi-alpha'),
+  1,
+  'no duplicate row after re-import — exactly 1 row named pi-alpha');
+
+-- (3) Prune mode: pi-prune-victim is absent from doc → should be soft-deleted.
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[]}'::jsonb,
+       84001,
+       'prune') $$,
+  'prune mode with empty policies array succeeds');
+
+SELECT ok(
+  (SELECT deleted_at IS NOT NULL FROM conditional_access_policies WHERE id = 900101),
+  'prune mode soft-deletes live policy absent from the import doc');
+
+-- (4) schemaVersion 99 → BZ088 (unsupported schemaVersion).
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":99,"policies":[]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ088', NULL,
+  'schemaVersion 99 raises BZ088');
+
+-- (5) Bad grant type ("frobnicate") → BZ090 (invalid grant/condition shape).
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-bad-grant","description":"","scope_type":"global","scope_target":"",
+            "conditions":{},
+            "actions":{"operator":"all","grants":[{"action":"frobnicate"}],"reason":"r"},
+            "priority":520,"exclude_users":[],"exclude_groups":[]}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'invalid grant type raises BZ090');
+
+-- Canonical grant discriminator parity. Import accepts canonical `type`, keeps
+-- schema-v1 `action`, and rejects documents whose two spellings disagree.
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-canonical-type","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"block"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'import accepts canonical grants[].type');
+
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-matching-dual","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"notify","action":"notify"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'import accepts matching canonical and schema-v1 discriminators');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-conflicting-dual","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"allow","action":"block"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects conflicting non-empty grant discriminators');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-empty-grants","conditions":{},
+            "actions":{"operator":"all","grants":[]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects an empty grants array');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-unknown-type","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"frobnicate"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects an unknown canonical grant discriminator');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-malformed-type","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":true,"action":"allow"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects a malformed canonical discriminator even with a legacy fallback');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-empty-type","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"","action":"allow"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects an empty canonical discriminator even with a legacy fallback');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-nested-remediation-type","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"require_terms"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects canonical top-level-only remediation verb in grants array');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-nested-remediation-action","conditions":{},
+            "actions":{"operator":"all","grants":[{"action":"require_risk_remediation"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects schema-v1 top-level-only remediation verb in grants array');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-nested-remediation-dual","conditions":{},
+            "actions":{"operator":"all","grants":[{"type":"require_terms","action":"require_terms"}]}}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ090', NULL,
+  'import rejects matching dual top-level-only remediation verb in grants array');
+
+-- Updating an existing on-policy preserves state, so proposed enforcement
+-- fields must pass the lockout guard before any overwrite occurs.
+INSERT INTO conditional_access_policies
+    (id, priority, name, description, state, scope_type, scope_target,
+     conditions, actions, exclude_users, exclude_groups)
+  VALUES (900102, 991, 'pi-live-guard', 'before', 'on', 'global', 'before-target',
+          '{"client_type":"smtp"}'::jsonb, '{"action":"allow"}'::jsonb,
+          '[]'::jsonb, '[]'::jsonb);
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+          {"name":"pi-live-guard","description":"canonical-danger",
+           "scope_type":"global","scope_target":"changed",
+           "conditions":{},
+           "actions":{"operator":"all","grants":[{"type":"block"}]},
+           "exclude_users":[],"exclude_groups":[]}
+       ]}'::jsonb, 84001, 'merge') $$,
+  'BZ080', NULL,
+  'canonical on-policy import update runs lockout guard');
+SELECT ok(
+  (SELECT description = 'before'
+          AND scope_target = 'before-target'
+          AND conditions = '{"client_type":"smtp"}'::jsonb
+          AND actions = '{"action":"allow"}'::jsonb
+          AND exclude_users = '[]'::jsonb
+          AND exclude_groups = '[]'::jsonb
+     FROM conditional_access_policies WHERE id = 900102),
+  'canonical BZ080 leaves the existing row unchanged');
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+          {"name":"pi-live-guard","description":"legacy-danger",
+           "scope_type":"global","scope_target":"changed",
+           "conditions":{},
+           "actions":{"operator":"all","grants":[{"action":"step_up"}]},
+           "exclude_users":[],"exclude_groups":[]}
+       ]}'::jsonb, 84001, 'merge') $$,
+  'BZ080', NULL,
+  'schema-v1 on-policy import update runs lockout guard');
+SELECT ok(
+  (SELECT description = 'before'
+          AND scope_target = 'before-target'
+          AND actions = '{"action":"allow"}'::jsonb
+          AND state = 'on'
+     FROM conditional_access_policies WHERE id = 900102),
+  'schema-v1 BZ080 leaves state and content unchanged');
+
+SELECT lives_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+          {"name":"pi-live-guard","description":"excluded-safe",
+           "scope_type":"global","scope_target":"changed",
+           "conditions":{},
+           "actions":{"operator":"all","grants":[{"type":"block"}]},
+           "exclude_users":[84001],"exclude_groups":[]}
+       ]}'::jsonb, 84001, 'merge') $$,
+  'canonical dangerous update succeeds with a reachable excluded admin');
+SELECT ok(
+  (SELECT state = 'on'
+          AND description = 'excluded-safe'
+          AND actions = '{"operator":"all","grants":[{"type":"block"}]}'::jsonb
+          AND exclude_users = '[84001]'::jsonb
+     FROM conditional_access_policies WHERE id = 900102),
+  'valid exclusion update preserves on state and applies proposed fields');
+
+-- (6) Unknown named-location slug → BZ091.
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[
+           {"name":"pi-bad-loc","description":"","scope_type":"global","scope_target":"",
+            "conditions":{},
+            "actions":{"operator":"all","grants":[{"action":"allow"}],"reason":"r"},
+            "priority":530,"exclude_users":[],"exclude_groups":[],
+            "location_slug":"nonexistent-corp-network"}
+       ]}'::jsonb,
+       84001,
+       'merge') $$,
+  'BZ091', NULL,
+  'unknown named-location slug raises BZ091');
+
+-- (7) Invalid p_mode → BZ092 (distinct from BZ088 schemaVersion).
+SELECT throws_ok(
+  $$ SELECT ca_policy_import(
+       '{"schemaVersion":1,"policies":[]}'::jsonb,
+       84001,
+       'splat') $$,
+  'BZ092', NULL,
+  'invalid p_mode raises BZ092 (not BZ088)');
+
+-- (8) Audit row written (action = ca_policy_import).
+SELECT ok(
+  EXISTS (SELECT 1 FROM admin_audit_log
+           WHERE action = 'ca_policy_import'
+             AND target_type = 'conditional_access_policy'),
+  'ca_policy_import writes an audit row with action=ca_policy_import');
+
+-- (9) Return value carries applied/created/updated/pruned counts.
+SELECT ok(
+  (SELECT ca_policy_import(
+     '{"schemaVersion":1,"policies":[]}'::jsonb, 84001, 'merge')
+   ? 'applied'),
+  'return JSONB has applied key');
+
+-- (10) F2 notify: ca_notify_policy_change fires on conditional_access channel.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'ca_policy_import fires ca_notify_policy_change → conditional_access channel');
+
+SELECT finish();
+ROLLBACK;

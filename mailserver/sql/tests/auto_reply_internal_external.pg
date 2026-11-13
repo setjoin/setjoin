@@ -1,0 +1,126 @@
+-- pgTAP: A5 Out-of-Office — deliver() selects the internal vs external auto-reply body,
+-- and ENFORCES every external_audience value (all | contacts | none) — one assertion per value.
+--
+-- The vacation reply is emitted via send(), which always lands a Sent copy in `messages`
+-- (mailbox_id = the OOF mailbox, body_text = the chosen reply body). We assert on that Sent
+-- copy — observable state, not reducer internals.
+--
+-- Fixtures use DIVERGENT user_id != mailbox_id (regression guard for the
+-- p_mailbox_id-is-a-mailbox-id confusion class).
+BEGIN;
+SELECT plan(9);
+
+-- Keep send()/deliver() side-channels quiet so the only Sent copies are the auto-replies.
+SET LOCAL app.skip_rules       = 'true';
+SET LOCAL app.skip_retention   = 'true';
+SET LOCAL app.skip_journaling  = 'true';
+SET LOCAL app.skip_dlp         = 'true';
+
+-- ── Local domain + OOF mailbox (divergent ids: user 8201 != mailbox 8902) ───
+INSERT INTO domains (name, is_local) VALUES ('oof2.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (8201, 'oof2usr', (SELECT id FROM domains WHERE name='oof2.test'), 'boss@oof2.test', 'Boss');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8902, 8201, (SELECT id FROM domains WHERE name='oof2.test'), 'boss@oof2.test', 'Boss', 'personal', TRUE);
+
+-- A second LOCAL mailbox = the "internal sender" (divergent ids too).
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (8202, 'colleague', (SELECT id FROM domains WHERE name='oof2.test'), 'colleague@oof2.test', 'Colleague');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (8903, 8202, (SELECT id FROM domains WHERE name='oof2.test'), 'colleague@oof2.test', 'Colleague', 'personal', TRUE);
+
+-- An address book + saved contact for the OOF owner (used by audience='contacts').
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (8900, 8902, 'Contacts', TRUE);
+INSERT INTO contacts (addressbook_id, vcard_uid, display_name, emails)
+  VALUES (8900, 'uid-knownext', 'Known External',
+          '[{"type":"work","address":"known@partner.example","is_primary":true}]'::jsonb);
+
+-- ── Case 1: internal sender → INTERNAL body, audience='all' ─────────────────
+SELECT set_vacation(8902, TRUE, 'Away', 'INTERNAL-REPLY', NULL,
+                    'EXTERNAL-REPLY', NULL, NULL, NULL, 'all');
+
+SELECT lives_ok(
+  $$ SELECT deliver('r1','<m1@x>', 'colleague@oof2.test', 'Colleague', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Hi', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL) $$,
+  'deliver from internal sender succeeds');
+SELECT ok(
+  EXISTS(SELECT 1 FROM messages WHERE mailbox_id = 8902 AND body_text = 'INTERNAL-REPLY'),
+  'internal sender receives the INTERNAL body');
+
+-- ── Case 2: external sender → EXTERNAL body, audience='all' ─────────────────
+SELECT deliver('r2','<m2@x>', 'someone@external.example', 'Someone', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Hi', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL);
+SELECT ok(
+  EXISTS(SELECT 1 FROM messages WHERE mailbox_id = 8902 AND body_text = 'EXTERNAL-REPLY'),
+  'external sender (audience=all) receives the EXTERNAL body');
+
+-- ── Case 3: audience='none' → NO reply to external senders ──────────────────
+SELECT set_vacation(8902, TRUE, 'Away', 'INTERNAL-REPLY', NULL,
+                    'EXTERNAL-NONE', NULL, NULL, NULL, 'none');
+SELECT deliver('r3','<m3@x>', 'stranger@external.example', 'Stranger', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Hi', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL);
+SELECT ok(
+  NOT EXISTS(SELECT 1 FROM messages WHERE mailbox_id = 8902 AND body_text = 'EXTERNAL-NONE'),
+  'audience=none suppresses the auto-reply to external senders');
+
+-- ── Case 4: audience='contacts' → reply ONLY to external senders in contacts ──
+SELECT set_vacation(8902, TRUE, 'Away', 'INTERNAL-REPLY', NULL,
+                    'EXTERNAL-CONTACTS', NULL, NULL, NULL, 'contacts');
+
+-- 4a. external sender that IS a saved contact → gets the external body
+SELECT deliver('r4','<m4@x>', 'known@partner.example', 'Known', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Hi', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL);
+SELECT ok(
+  EXISTS(SELECT 1 FROM messages WHERE mailbox_id = 8902 AND body_text = 'EXTERNAL-CONTACTS'),
+  'audience=contacts replies to an external sender who IS a contact');
+
+-- 4b. external sender that is NOT a contact → no reply (must NOT behave like all)
+SELECT deliver('r5','<m5@x>', 'nobody@partner.example', 'Nobody', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Hi', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL);
+SELECT ok(
+  NOT EXISTS(
+    SELECT 1 FROM messages m
+    WHERE m.mailbox_id = 8902 AND m.body_text = 'EXTERNAL-CONTACTS'
+      AND m.to_addrs @> '[{"email":"nobody@partner.example"}]'::jsonb),
+  'audience=contacts does NOT reply to an external non-contact');
+
+-- ── Finding [8]: RFC 3834 backscatter guards (audience='all', so absent the guard a
+-- reply WOULD be sent to each of these). ────────────────────────────────────────────
+SELECT set_vacation(8902, TRUE, 'Away', 'INTERNAL-REPLY', NULL,
+                    'EXTERNAL-BS', NULL, NULL, NULL, 'all');
+
+-- 5: a SPAM-scored message (>= threshold 5.0) must NOT trigger an auto-reply.
+SELECT deliver('r6','<m6@x>', 'spammer@external.example', 'Spammer', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Cheap', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 9.0, NULL);
+SELECT ok(
+  NOT EXISTS(SELECT 1 FROM messages
+             WHERE mailbox_id = 8902 AND to_addrs @> '[{"email":"spammer@external.example"}]'::jsonb),
+  'no auto-reply to a spam-scored message (backscatter)');
+
+-- 6: mailing-list traffic (List-Id present) must NOT trigger an auto-reply.
+SELECT deliver('r7','<m7@x>', 'list@external.example', 'List', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Digest', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL,
+       p_list_id => '<announce.external.example>');
+SELECT ok(
+  NOT EXISTS(SELECT 1 FROM messages
+             WHERE mailbox_id = 8902 AND to_addrs @> '[{"email":"list@external.example"}]'::jsonb),
+  'no auto-reply to mailing-list traffic (List-Id present)');
+
+-- 7: an empty Return-Path (null sender / bounce) must NOT trigger an auto-reply.
+SELECT deliver('r8','<m8@x>', '', 'Bounce', 'boss@oof2.test',
+       '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'Bounce', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass','pass','pass', 0.0, NULL);
+SELECT ok(
+  NOT EXISTS(SELECT 1 FROM messages
+             WHERE mailbox_id = 8902 AND to_addrs @> '[{"email":""}]'::jsonb),
+  'no auto-reply to an empty return-path (null sender)');
+
+SELECT * FROM finish();
+ROLLBACK;

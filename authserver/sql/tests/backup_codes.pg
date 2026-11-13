@@ -1,0 +1,168 @@
+-- pgTAP test: backup-code verification contract for the Go consumer
+-- (internal/authn/backup_codes.go VerifyBackupCode).
+-- (D-AUTHSERVER-SQL-TESTS-006): earlier revisions shadow-implemented the Go
+-- verification loop with test-local crypt() round-trips that production
+-- regressions could not fail. These tests now pin the DB-side contract the
+-- production path depends on, against the REAL stored column:
+--   • totp_backup_codes_enc is TEXT[] (what pgx scans into []string),
+--   • every stored element is a bcrypt-format hash (what
+--     bcrypt.CompareHashAndPassword can verify),
+--   • the correct code matches EXACTLY one stored hash, a wrong code matches
+--     none,
+--   • the single-use consume rides array_remove + `= ANY` so a replay of an
+--     already-consumed hash mutates nothing.
+BEGIN;
+SELECT plan(10);
+
+-- Test 1: pgcrypto crypt() verifies a bcrypt hash generated with gen_salt('bf')
+-- (supporting: proves the DB itself can verify the hash format we store).
+SELECT ok(
+    (SELECT crypt('a1b2c3d4', h) = h
+     FROM (SELECT crypt('a1b2c3d4', gen_salt('bf'))) AS s(h)),
+    'pgcrypto crypt() verifies bcrypt hash correctly');
+
+-- Test 2: Wrong code does NOT match the hash
+SELECT ok(
+    (SELECT crypt('ffffffff', h) <> h
+     FROM (SELECT crypt('a1b2c3d4', gen_salt('bf'))) AS s(h)),
+    'wrong code does not match bcrypt hash');
+
+-- Test 3: storage shape — the column Go scans into []string is TEXT[].
+SELECT col_type_is('users', 'totp_backup_codes_enc', 'text[]',
+    'totp_backup_codes_enc is TEXT[] (the shape VerifyBackupCode scans)');
+
+-- Test 4: seed a real row through the same shape production writes.
+DO $$
+DECLARE
+    v_uid       BIGINT;
+    v_plain     TEXT := 'test1234';
+    v_hash1     TEXT;
+    v_hash2     TEXT;
+    v_hash3     TEXT;
+    v_codes     TEXT[];
+BEGIN
+    v_uid := mk_auth_user('backup-match@test.local', 'x', 'Backup Match');
+
+    v_hash1 := crypt(v_plain, gen_salt('bf'));
+    v_hash2 := crypt('other1', gen_salt('bf'));
+    v_hash3 := crypt('other2', gen_salt('bf'));
+    v_codes := ARRAY[v_hash1, v_hash2, v_hash3];
+
+    UPDATE users SET totp_backup_codes_enc = v_codes WHERE id = v_uid;
+
+    PERFORM set_config('app.bc_match_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+
+-- Test 5: the correct plaintext matches EXACTLY ONE stored hash (the old
+-- EXISTS arm accepted at-least-one; VerifyBackupCode consumes exactly one).
+SELECT is(
+    (SELECT count(*)
+       FROM users u, unnest(u.totp_backup_codes_enc) AS c
+      WHERE u.id = current_setting('app.bc_match_uid')::BIGINT
+        AND crypt('test1234', c) = c)::int,
+    1,
+    'correct code matches exactly one stored hash');
+
+-- Test 6: a wrong plaintext matches ZERO of the STORED hashes (previously the
+-- negative arm only exercised a test-local hash, never the stored column).
+SELECT is(
+    (SELECT count(*)
+       FROM users u, unnest(u.totp_backup_codes_enc) AS c
+      WHERE u.id = current_setting('app.bc_match_uid')::BIGINT
+        AND crypt('ffffffff', c) = c)::int,
+    0,
+    'wrong code matches zero stored hashes');
+
+-- Test 7: every stored element is bcrypt-format, so Go's
+-- bcrypt.CompareHashAndPassword can verify it (a silent format change would
+-- make every verification miss).
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1
+          FROM users u, unnest(u.totp_backup_codes_enc) AS c
+         WHERE u.id = current_setting('app.bc_match_uid')::BIGINT
+           AND c !~ '^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$'
+    ),
+    'all stored codes are bcrypt-format hashes');
+
+-- Test 8: Empty array means no codes available
+DO $$
+DECLARE
+    v_uid   BIGINT;
+BEGIN
+    v_uid := mk_auth_user('backup-empty@test.local', 'x', 'Empty Codes');
+    UPDATE users SET totp_backup_codes_enc = '{}' WHERE id = v_uid;
+    PERFORM set_config('app.bc_empty_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT COALESCE(array_length(totp_backup_codes_enc, 1), 0)
+     FROM users WHERE id = current_setting('app.bc_empty_uid')::BIGINT),
+    0,
+    'empty TEXT[] array treated as no codes available');
+
+-- Test 9: NULL totp_backup_codes_enc handled correctly
+DO $$
+BEGIN
+    PERFORM set_config('app.bc_null_uid',
+        mk_auth_user('backup-null@test.local', 'x', 'Null Codes')::TEXT, TRUE);
+END;
+$$;
+SELECT ok(
+    (SELECT totp_backup_codes_enc IS NULL
+     FROM users WHERE id = current_setting('app.bc_null_uid')::BIGINT),
+    'NULL totp_backup_codes_enc handled correctly');
+
+-- Test 10: single-use consume rides the production predicate — the MATCHED
+-- HASH is removed via array_remove guarded by `= ANY` (not removed by index,
+-- as the previous shadow rewrite did), and replaying the already-consumed
+-- hash mutates nothing (the guard refuses, so a code can never be used twice).
+DO $$
+DECLARE
+    v_uid      BIGINT;
+    v_matched  TEXT;
+    v_claims   INT;
+BEGIN
+    v_uid := mk_auth_user('backup-consume@test.local', 'x', 'Consume');
+    UPDATE users SET totp_backup_codes_enc =
+        ARRAY[crypt('code1', gen_salt('bf')), crypt('code2', gen_salt('bf')), crypt('code3', gen_salt('bf'))]
+        WHERE id = v_uid;
+
+    SELECT c INTO v_matched
+      FROM users u, unnest(u.totp_backup_codes_enc) AS c
+     WHERE u.id = v_uid AND crypt('code2', c) = c;
+
+    -- First claim (production predicate) must win exactly once.
+    WITH claim AS (
+        UPDATE users
+           SET totp_backup_codes_enc = array_remove(totp_backup_codes_enc, v_matched)
+         WHERE id = v_uid
+           AND v_matched = ANY(totp_backup_codes_enc)
+        RETURNING 1
+    )
+    SELECT count(*)::int INTO v_claims FROM claim;
+    PERFORM set_config('app.bc_first_claims', v_claims::TEXT, TRUE);
+    PERFORM set_config('app.bc_consumed_hash', v_matched, TRUE);
+    PERFORM set_config('app.bc_consume_uid', v_uid::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    (SELECT current_setting('app.bc_first_claims'))::INT,
+    1,
+    'matched-hash claim via array_remove + = ANY wins exactly once');
+WITH replay AS (
+    UPDATE users
+       SET totp_backup_codes_enc = array_remove(totp_backup_codes_enc,
+            (SELECT current_setting('app.bc_consumed_hash')))
+     WHERE id = current_setting('app.bc_consume_uid')::BIGINT
+       AND (SELECT current_setting('app.bc_consumed_hash')) = ANY(totp_backup_codes_enc)
+    RETURNING 1
+)
+SELECT is(
+    (SELECT count(*) FROM replay)::int,
+    0,
+    'replay of the consumed hash mutates nothing (single-use guard)');
+
+SELECT * FROM finish();
+ROLLBACK;

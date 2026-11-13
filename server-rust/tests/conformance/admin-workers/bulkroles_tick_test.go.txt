@@ -1,0 +1,35 @@
+// Recording-only overlay (#412): one tick of frozen Go's real bulk-role-jobs worker
+// (startup reclaim, then the drain loop of one ticker iteration).
+package bulkroles
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeAdminJobsTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_JOBS_DSN"), 4, "", os.Getenv("GOFREE_JOBS_HMAC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	w := NewWorker(pgxutil.WorkerPool{Pool: pool}, slog.Default())
+	if err := w.reclaim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		claimed, err := w.processOnce(ctx)
+		if err != nil {
+			t.Logf("processOnce: %v", err)
+			break
+		}
+		if !claimed {
+			break
+		}
+	}
+}

@@ -1,0 +1,72 @@
+{
+  "case": "seed-plus-one-tick",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": [
+    {
+      "after": {
+        "audit_count": 0,
+        "devices": [
+          "{\"id\": 987501, \"user_id\": \"<owner>\", \"device_name\": \"Observer phone\", \"enroll_state\": \"unenrolled\"}"
+        ]
+      },
+      "before": {
+        "audit_count": 0,
+        "devices": [
+          "{\"id\": 987501, \"user_id\": \"<owner>\", \"device_name\": \"Observer phone\", \"enroll_state\": \"unenrolled\"}"
+        ]
+      },
+      "go_worker_enabled": true,
+      "inputs": [
+        "{\"device_id\":987501,\"version\":2,\"action\":\"wipe_armed\"}",
+        "{\"device_id\":0,\"version\":3,\"action\":\"policy_updated\"}",
+        "not JSON"
+      ],
+      "messages": [
+        {
+          "error": "channel \"device_policy\" is not in the dispatcher's NOTIFY channel grammar",
+          "level": "WARN",
+          "msg": "mam: failed to subscribe to device_policy channel"
+        },
+        {
+          "level": "INFO",
+          "msg": "mam: device_policy notification subscription active (logged, not WS-pushed)"
+        }
+      ],
+      "outbound": 0
+    },
+    {
+      "after": {
+        "audit_count": 0,
+        "devices": [
+          "{\"id\": 987501, \"user_id\": \"<owner>\", \"device_name\": \"Observer phone\", \"enroll_state\": \"unenrolled\"}"
+        ]
+      },
+      "before": {
+        "audit_count": 0,
+        "devices": [
+          "{\"id\": 987501, \"user_id\": \"<owner>\", \"device_name\": \"Observer phone\", \"enroll_state\": \"unenrolled\"}"
+        ]
+      },
+      "go_worker_enabled": false,
+      "inputs": [
+        "{\"device_id\":987501,\"version\":2,\"action\":\"wipe_armed\"}",
+        "{\"device_id\":0,\"version\":3,\"action\":\"policy_updated\"}",
+        "not JSON"
+      ],
+      "messages": [
+        {
+          "error": "channel \"device_policy\" is not in the dispatcher's NOTIFY channel grammar",
+          "level": "WARN",
+          "msg": "mam: failed to subscribe to device_policy channel"
+        },
+        {
+          "level": "INFO",
+          "msg": "mam: device_policy notification subscription active (logged, not WS-pushed)"
+        }
+      ],
+      "outbound": 0
+    }
+  ],
+  "route": "worker mdm-notify"
+}

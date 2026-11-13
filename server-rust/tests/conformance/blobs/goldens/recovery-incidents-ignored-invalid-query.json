@@ -1,0 +1,48 @@
+{
+  "case": "recovery-incidents-ignored-invalid-query",
+  "format": 1,
+  "go_source": "4f4f0b24a",
+  "normalization": [
+    "response date: timestamp",
+    "generated incident id, mailbox id and expiry; content-length adjusted to normalized body"
+  ],
+  "observation": {
+    "body": "{\"list\": [{\"id\": \"<incident>\", \"reason\": \"oracle incident\", \"expiresAt\": \"<expires>\", \"mailboxId\": \"<mailbox>\", \"maximumTimeline\": \"2\", \"minimumTimeline\": \"1\"}]}",
+    "headers": {
+      "cache-control": [
+        "no-store"
+      ],
+      "content-length": [
+        "161"
+      ],
+      "content-security-policy": [
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+      ],
+      "content-type": [
+        "application/json"
+      ],
+      "cross-origin-opener-policy": [
+        "same-origin"
+      ],
+      "date": [
+        "<timestamp>"
+      ],
+      "permissions-policy": [
+        "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+      ],
+      "referrer-policy": [
+        "strict-origin-when-cross-origin"
+      ],
+      "x-content-type-options": [
+        "nosniff"
+      ],
+      "x-frame-options": [
+        "DENY"
+      ],
+      "x-request-id": [
+        "gofree-blobs1-recovery-oracle"
+      ]
+    },
+    "status": 200
+  }
+}

@@ -1,0 +1,69 @@
+[package]
+name = "setjoin-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+oracle-mutants = ["dep:aes", "dep:cfb-mode", "setjoin-contracts/oracle-mutants"]
+
+[dependencies]
+base64 = "=0.22.1"
+setjoin-config-secret = { path = "../../config-secret" }
+setjoin-authz = { path = "../../authz" }
+setjoin-pg = { path = "../../pg" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+ring = "=0.17.14"
+uuid = { version = "=1.29.0", features = ["v4"] }
+tokio = { version = "=1.54.1", features = ["rt", "sync"] }
+
+form_urlencoded = "=1.2.2"
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+
+subtle = "=2.6.1"
+bcrypt = "=0.17.1"
+data-encoding = "=2.11.1"
+p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std"] }
+
+rand = "=0.10.3"
+setjoin-push = { path = "../../push" }
+webauthn-rs-core = "=0.6.2"
+serde_cbor_2 = {version="=0.13.0",features=["tags"]}
+serde = "=1.0.229"
+p521 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "sha512", "std"] }
+rsa = { version = "=0.10.0-rc.19", default-features = false, features = ["std", "sha2"] }
+url = "=2.5.8"
+
+x509-parser = {version="=0.18.1",default-features=false}
+webpki = {package="rustls-webpki",version="=0.103.16",default-features=false,features=["std","ring"]}
+
+# Test-only restoration of the removed legacy CFB token acceptance (#523).
+aes = { version = "=0.8.4", optional = true }
+cfb-mode = { version = "=0.8.2", optional = true }
+
+# Existing Go RSA key profiles unsupported by ring, never a Go transport.
+openssl = {version="=0.10.82",features=["vendored"]}
+
+# RP client/verifier only; request I/O uses the SSRF-guarded embedding seam.
+openidconnect = { version = "=4.1.0", default-features = false, features = ["accept-string-booleans"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots"] }
+
+mailparse = "=0.16.1"
+
+# SAML metadata parsing and HTTP-Redirect AuthnRequests.
+roxmltree = "=0.21.1"
+flate2 = "=1.1.9"
+
+# XML-DSig canonicalization/digests only; private RSA operations use ring.
+bergshamra-dsig = { version = "=0.11.1", default-features = false, features = ["rustcrypto"] }
+bergshamra-keys = { version = "=0.11.1", default-features = false, features = ["rustcrypto"] }
+kryptering = { version = "=0.7.0", default-features = false, features = ["rustcrypto"] }
+
+# SAML ACS (#546): exclusive C14N only. Signature and digest checks are ring and
+# sha2; no XML-DSig verification or RustCrypto RSA is used for inbound assertions.
+bergshamra-c14n = "=0.11.1"
+bergshamra-xml = "=0.11.1"

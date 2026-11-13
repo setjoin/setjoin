@@ -1,0 +1,63 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "id": 9101,
+          "name": "a",
+          "platform": "ios",
+          "version": "v1.0"
+        },
+        {
+          "id": 9102,
+          "name": "b",
+          "platform": "android",
+          "version": "v2.0"
+        },
+        {
+          "id": 9103,
+          "name": "c",
+          "platform": "macos",
+          "version": "v1.0"
+        },
+        {
+          "id": 9104,
+          "name": "d",
+          "platform": "ios",
+          "version": "v1.0"
+        }
+      ],
+      "before": [
+        {
+          "id": 9101,
+          "name": "a",
+          "platform": "ios",
+          "version": "v1.0"
+        },
+        {
+          "id": 9102,
+          "name": "b",
+          "platform": "android",
+          "version": "v2.0"
+        },
+        {
+          "id": 9103,
+          "name": "c",
+          "platform": "macos",
+          "version": "v1.0"
+        },
+        {
+          "id": 9104,
+          "name": "d",
+          "platform": "ios",
+          "version": "v1.0"
+        }
+      ],
+      "table": "devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/updates/devices"
+}

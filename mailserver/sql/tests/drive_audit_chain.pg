@@ -1,0 +1,33 @@
+-- mailserver/sql/tests/drive_audit_chain.pg — I-8 (spec §10, §9.3). Genre: V087 verify shape.
+BEGIN;
+SELECT plan(10);
+SELECT set_config('app.audit_hmac_key', 'test-hmac-key-32-bytes-aaaaaaaaaa', true);
+SELECT mk_account('dac') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('A1', :u), ('A2', :u);
+SELECT id AS s1 FROM drive_spaces WHERE name='A1' \gset
+SELECT id AS s2 FROM drive_spaces WHERE name='A2' \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+  VALUES (:s1, :u, 'manager', :u), (:s2, :u, 'manager', :u);
+
+-- interleave writes across two spaces: chains are independent, ids per-space monotonic
+SELECT is(drive_access_audit(:u, :s1, 'space.create', 'space', :s1, NULL, '{"name":"A1"}', NULL, NULL), 1::bigint, 'first row of space 1 has id 1');
+SELECT is(drive_access_audit(:u, :s2, 'space.create', 'space', :s2, NULL, '{"name":"A2"}', NULL, NULL), 1::bigint, 'first row of space 2 has id 1 (per-space chain)');
+SELECT is(drive_access_audit(:u, :s1, 'node.create', 'node', 7, NULL, '{"name":"f"}', NULL, NULL), 2::bigint, 'second row of space 1 has id 2');
+SELECT ok((SELECT after_state->>'_checksum' LIKE 'v3:%' FROM drive_audit_log WHERE space_id=:s1 AND id=1), 'checksum is V3 HMAC when the session key is set');
+SELECT ok((SELECT bool_and(valid) FROM verify_drive_audit_chain(:s1)), 'space-1 chain verifies green');
+SELECT ok((SELECT bool_and(valid) FROM verify_drive_audit_chain(:s2)), 'space-2 chain verifies green');
+SELECT throws_ok($$ SELECT drive_access_audit(1, 1, 'not.an.event', NULL, NULL, NULL, NULL, NULL, NULL) $$,
+  'BZ141', NULL, 'unknown action rejected (closed catalog)');
+
+-- tamper: the append-only trigger blocks even superuser, so a realistic tamper
+-- actor disables it (DDL access) — I-8's "mutate via superuser" clause.
+ALTER TABLE drive_audit_log DISABLE TRIGGER trg_drive_audit_immutable;
+UPDATE drive_audit_log SET after_state = jsonb_set(after_state, '{name}', '"EVIL"') WHERE space_id=:s1 AND id=1;
+ALTER TABLE drive_audit_log ENABLE TRIGGER trg_drive_audit_immutable;
+SELECT is((SELECT valid FROM verify_drive_audit_chain(:s1) WHERE row_id=1), FALSE, 'tampered row reported broken');
+SELECT is((SELECT valid FROM verify_drive_audit_chain(:s2) WHERE row_id=1), TRUE, 'sibling space chain unaffected');
+SELECT throws_ok(format($$ DELETE FROM drive_audit_log WHERE space_id=%s AND id=2 $$, :s1),
+  'BZ145', NULL, 'audit DELETE blocked (append-only trigger)');
+SELECT * FROM finish();
+ROLLBACK;

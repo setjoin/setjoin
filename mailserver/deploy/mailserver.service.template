@@ -1,0 +1,95 @@
+[Unit]
+Description=Mailserver Gateway
+Documentation=https://github.com/setjoin/setjoin
+# setjoin-auth.service (authserverd) — ordering only (Wants, not Requires):
+# every /auth/* route proxies to it (internal/authproxy), so start it first,
+# but a restart of this unit must never hard-fail just because auth is down.
+# setjoin-sfu.service (LiveKit) — same rationale (Meet B1 Task 14): the
+# gateway proxies /rtc to it and the health probe wants it up before the
+# first meeting, but the SFU holds no authority (spike §2) — a dead SFU
+# degrades meetings, never mail, so this stays Wants, not Requires.
+After=network.target postgresql.service minio.service clamav@scan.service setjoin-auth.service setjoin-sfu.service
+Wants=postgresql.service minio.service clamav@scan.service setjoin-auth.service setjoin-sfu.service
+# StartLimit* live in [Unit] (systemd ignores them under [Service]) — the
+# 25bef473 lesson; this unit and authserver.service were the two stragglers,
+# caught by systemd-analyze verify on the 2026-07-16 fresh-VM gate.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{RUNTIME_DIR}}
+ExecStart={{RUNTIME_DIR}}/mailserverd
+
+# Pre-start health validation — wait for the database to be ready.
+# No blob-store probe here: the old `until curl /minio/health/live` line was
+# MinIO-specific (SeaweedFS doesn't serve that path) and blocked startup
+# FOREVER when the blob store was down — while the gateway itself treats S3
+# as non-fatal at startup (startup.PingMinIO logs a warning and continues).
+# Found by the G1 fresh-container install smoke, 2026-07-04.
+ExecStartPre=/bin/sh -c 'until pg_isready -U mail -d mailserver -h 127.0.0.1; do sleep 2; done'
+
+# Restart policy (StartLimit* are in [Unit], above)
+Restart=always
+RestartSec=5
+# The gateway's own drain budget is 30s (+5s teardown bound in main) — cap
+# systemd's escalation just above it so a stuck stop can't hold a deploy for
+# the 90s default before SIGKILL (2026-07-16 fresh-VM gate finding).
+TimeoutStopSec=40
+
+# Resource limits. MemoryMax=512M OOM-killed the gateway on the 2026-07-16
+# fresh-VM gate (systemd: "kernel OOM killer killed some processes in this
+# unit", 512M peak at near-idle boot + first page loads) — the full gateway
+# (all workers + webmail serving) needs real headroom on the 8GB single-node
+# floor.
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=1024
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# /var/lib/setjoin is mutable application data. The active release under
+# {{RUNTIME_DIR}} is intentionally absent from ReadWritePaths.
+ReadWritePaths={{DATA_DIR}} /tmp
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mailserver
+
+# Environment
+EnvironmentFile={{CONFIG_ENV}}
+# Privileged DB tiers (DEPLOY-004 split): the worker- and owner-tier DSN
+# variables live ONLY in this root-owned 0600 credential file below
+# the root-owned config directory — config.env intentionally no longer carries
+# them (it is readable by the runtime account running this internet-facing
+# service). EnvironmentFile order is precedence order (later wins) and this
+# file is read AFTER config.env; {{DB_CREDENTIALS_FILE}} renders from the same
+# install.sh namespace that guards the credential store's ownership chain.
+EnvironmentFile={{DB_CREDENTIALS_FILE}}
+# CONFIG_PATH: where startup.BootstrapSecrets looks for the config file. Without
+# it the gateway falls back to the platform default /etc/mail/config.env, which
+# install.sh never creates — first boot then dies with "secret bootstrap failed"
+# (found by the G1 fresh-container install smoke, 2026-07-04). Must equal
+# EnvironmentFile; both render from the SAME {{CONFIG_ENV}} token.
+Environment=CONFIG_PATH={{CONFIG_ENV}}
+Environment=WEBSITE_DIR={{RUNTIME_DIR}}/webmail
+
+[Install]
+WantedBy=multi-user.target

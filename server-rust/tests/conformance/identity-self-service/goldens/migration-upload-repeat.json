@@ -1,0 +1,290 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "migration_jobs": [
+            {
+              "completed_at": "2026-10-01T10:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T10:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-a>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T10:00:00+00:00",
+              "status": "failed",
+              "target_mailbox_id": "<a>",
+              "user_id": "<a>"
+            },
+            {
+              "completed_at": "2026-10-01T11:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T11:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-b>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T11:00:00+00:00",
+              "status": "cancelled",
+              "target_mailbox_id": "<b>",
+              "user_id": "<b>"
+            },
+            {
+              "completed_at": "2026-10-01T12:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-completed>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T12:00:00+00:00",
+              "status": "completed",
+              "target_mailbox_id": "<a>",
+              "user_id": "<a>"
+            }
+          ],
+          "storage": {
+            "attempts": [
+              {
+                "body": {
+                  "length": 32,
+                  "sha256": "215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/ics"
+              },
+              {
+                "body": {
+                  "length": 49,
+                  "sha256": "5e05530fe342276367afd0cdf97649c999a45dc0b665e0735614845ec8b07023"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/vcf"
+              },
+              {
+                "body": {
+                  "length": 32,
+                  "sha256": "215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/ics"
+              },
+              {
+                "body": {
+                  "length": 49,
+                  "sha256": "5e05530fe342276367afd0cdf97649c999a45dc0b665e0735614845ec8b07023"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/vcf"
+              }
+            ],
+            "objects": {
+              "/mailblobs/migration/upload/<migration-a>/ics": {
+                "length": 32,
+                "sha256": "215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb"
+              },
+              "/mailblobs/migration/upload/<migration-a>/vcf": {
+                "length": 49,
+                "sha256": "5e05530fe342276367afd0cdf97649c999a45dc0b665e0735614845ec8b07023"
+              }
+            }
+          }
+        },
+        "before": {
+          "app_passwords": [],
+          "migration_jobs": [
+            {
+              "completed_at": "2026-10-01T10:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T10:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-a>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T10:00:00+00:00",
+              "status": "failed",
+              "target_mailbox_id": "<a>",
+              "user_id": "<a>"
+            },
+            {
+              "completed_at": "2026-10-01T11:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T11:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-b>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T11:00:00+00:00",
+              "status": "cancelled",
+              "target_mailbox_id": "<b>",
+              "user_id": "<b>"
+            },
+            {
+              "completed_at": "2026-10-01T12:00:00+00:00",
+              "conflict_strategy": "skip",
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "error_log": [
+                {
+                  "code": 7,
+                  "message": "finished <&>"
+                }
+              ],
+              "id": "<migration-completed>",
+              "progress": {
+                "a_long": 1,
+                "z": 2
+              },
+              "resume_cursor": null,
+              "source_config_enc": "\\x49444c4f47494e342d68696464656e",
+              "source_type": "imap",
+              "started_at": "2026-10-01T12:00:00+00:00",
+              "status": "completed",
+              "target_mailbox_id": "<a>",
+              "user_id": "<a>"
+            }
+          ],
+          "storage": {
+            "attempts": [
+              {
+                "body": {
+                  "length": 32,
+                  "sha256": "215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/ics"
+              },
+              {
+                "body": {
+                  "length": 49,
+                  "sha256": "5e05530fe342276367afd0cdf97649c999a45dc0b665e0735614845ec8b07023"
+                },
+                "method": "PUT",
+                "signature_valid": true,
+                "uri": "/mailblobs/migration/upload/<migration-a>/vcf"
+              }
+            ],
+            "objects": {
+              "/mailblobs/migration/upload/<migration-a>/ics": {
+                "length": 32,
+                "sha256": "215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb"
+              },
+              "/mailblobs/migration/upload/<migration-a>/vcf": {
+                "length": 49,
+                "sha256": "5e05530fe342276367afd0cdf97649c999a45dc0b665e0735614845ec8b07023"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "notify": {
+      "config_changed": [],
+      "critical_events": [],
+      "state_change": []
+    },
+    "request": {
+      "body": "--gofree-idlogin4\r\nContent-Disposition: form-data; name=\"ics\"; filename=\"data.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\r\n--gofree-idlogin4\r\nContent-Disposition: form-data; name=\"vcf\"; filename=\"data.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBEGIN:VCARD\r\nVERSION:3.0\r\nFN:Fixture\r\nEND:VCARD\r\n\r\n--gofree-idlogin4--\r\n",
+      "method": "POST",
+      "path": "/auth/me/migration/upload?job_id=<migration-a>",
+      "repeat": true
+    },
+    "response": {
+      "body": "{\"ics_size\":32,\"vcf_size\":49}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "30"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /auth/me/migration/upload"
+}

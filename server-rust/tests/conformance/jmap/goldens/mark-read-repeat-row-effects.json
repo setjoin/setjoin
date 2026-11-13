@@ -1,0 +1,81 @@
+{
+  "case": "mark-read-repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<two-labels>",
+        "mailbox_id": "<mailbox>",
+        "op": "updated",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<two-labels>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "is_read": {
+          "after": true,
+          "before": false
+        }
+      },
+      "row": "<two-labels>",
+      "table": "messages"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_state": {
+          "after": 3,
+          "before": 2
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 2
+        }
+      },
+      "row": "Inbox",
+      "table": "tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_state": {
+          "after": 2,
+          "before": 1
+        },
+        "unread_count": {
+          "after": 0,
+          "before": 1
+        }
+      },
+      "row": "Oracle Label",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "7bf8182bd5eac89443469c50fecbfa4346494b52",
+  "normalization": [
+    "compare every column of mailbox-scoped mailboxes, messages, tags, message_tags, and jmap_changes_journal",
+    "identify fixture mailbox, message and tag rows by stable names",
+    "journal mailbox and entity IDs: fixture IDs; created_at: timestamp",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Email/set"
+}

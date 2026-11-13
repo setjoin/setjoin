@@ -1,0 +1,30 @@
+{
+  "case": "policy-head",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "HEAD",
+      "path": "/auth/password-policy"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": "no-store",
+        "content-length": "130",
+        "content-type": "application/problem+json"
+      },
+      "status": 405,
+      "tokens": []
+    }
+  },
+  "route": "HEAD /auth/password-policy"
+}

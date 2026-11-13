@@ -1,0 +1,1254 @@
+{
+  "max_meetings": "40",
+  "scenario": "start-body",
+  "steps": [
+    {
+      "name": "empty-body",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "empty-object",
+      "request": {
+        "body_len": 2,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "room-only",
+      "request": {
+        "body_len": 12,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "token-only",
+      "request": {
+        "body_len": 13,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "null-values",
+      "request": {
+        "body_len": 26,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "top-level-null",
+      "request": {
+        "body_len": 4,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "array",
+      "request": {
+        "body_len": 2,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "number-room",
+      "request": {
+        "body_len": 22,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "object-token",
+      "request": {
+        "body_len": 28,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "bool-token",
+      "request": {
+        "body_len": 25,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "empty-strings",
+      "request": {
+        "body_len": 22,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "invalid-json",
+      "request": {
+        "body_len": 23,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "trailing-comma",
+      "request": {
+        "body_len": 25,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "bad-escape",
+      "request": {
+        "body_len": 26,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "syntax-error-after-fields",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "control-char-in-string",
+      "request": {
+        "body_len": 26,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "single-quotes",
+      "request": {
+        "body_len": 24,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "ok-case-insensitive-keys",
+      "request": {
+        "body_len": 28,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-last-duplicate-wins",
+      "request": {
+        "body_len": 41,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-unknown-keys",
+      "request": {
+        "body_len": 62,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-html-chars-in-room",
+      "request": {
+        "body_len": 34,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-unicode-room",
+      "request": {
+        "body_len": 33,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-lone-surrogate",
+      "request": {
+        "body_len": 38,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-invalid-utf8-room",
+      "request": {
+        "body_len": 31,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-kelvin-sign-key",
+      "request": {
+        "body_len": 31,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-escaped-quote-room",
+      "request": {
+        "body_len": 36,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-8192-bytes",
+      "request": {
+        "body_len": 8193,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "value-spans-limit",
+      "request": {
+        "body_len": 9026,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "ok-trailing-garbage-over-limit",
+      "request": {
+        "body_len": 28029,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "ok-deep-nesting",
+      "request": {
+        "body_len": 8032,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "too-deep-nesting-over-limit",
+      "request": {
+        "body_len": 10033,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-empty",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-no-room",
+      "request": {
+        "body_len": 13,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-room-number",
+      "request": {
+        "body_len": 10,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-null-room",
+      "request": {
+        "body_len": 13,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-unknown-room",
+      "request": {
+        "body_len": 24,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "stop-unknown-keys-ok",
+      "request": {
+        "body_len": 26,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-sorted-rooms",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[\"bad�byte\",\"big\",\"café-😀\",\"deep\",\"dup\",\"extra\",\"kelvin\",\"q\\\"uote\\\\back\",\"r\\u003c1\\u003e\\u0026\\u2028end\",\"sur�rogate\",\"trail\",\"upper\"]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "153"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-after-connect-failures",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    }
+  ]
+}

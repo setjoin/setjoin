@@ -1,0 +1,18 @@
+-- pgTAP: V057__rbac_permissions.pg — RBAC schema verification
+BEGIN;
+SELECT plan(9);
+
+SELECT has_table('admin_permissions');
+SELECT has_table('admin_role_groups');
+SELECT has_table('admin_role_assignments');
+
+SELECT has_column('admin_permissions', 'permission_key');
+SELECT has_column('admin_permissions', 'category');
+SELECT has_column('admin_permissions', 'is_sensitive');
+SELECT has_column('admin_role_groups', 'permissions');
+SELECT has_column('admin_role_assignments', 'role_group_id');
+
+SELECT col_is_pk('admin_permissions', 'permission_key');
+
+SELECT * FROM finish();
+ROLLBACK;

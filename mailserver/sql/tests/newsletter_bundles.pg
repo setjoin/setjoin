@@ -1,0 +1,197 @@
+-- pgTAP: newsletter_bundles.pg
+-- B5.2 — newsletter_bundles_list() computed bundle grouping + per-user opt-out.
+--
+-- 6 assertions:
+--   1. newsletter_bundles_list(7700) returns 2 bundle rows (one per list_id)
+--      with correct counts and latest message ids.
+--   2. NULL list_id messages are excluded from bundles.
+--   3. Account scoping: another mailbox's newsletters do not appear.
+--   4. Per-user opt-out via users.view_prefs->>'newsletterOptouts' excludes
+--      the opted-out list_id from the bundle list.
+--   5. Return value includes latestEmailId, count, listId, latestReceivedAt.
+--   6. Trash-tagged newsletter messages are excluded from bundle list
+--      (documented requirement per reducers/newsletter_bundles.sql lines 77-86).
+BEGIN;
+SELECT plan(6);
+
+-- Seed domain + user 7700 + mailbox 7700
+INSERT INTO domains (id, name, created_at) VALUES (7700, 'bundles-test.example', now())
+  ON CONFLICT (id) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 107700 != mailbox 7700). newsletter_bundles_list()
+-- takes the MAILBOX id and resolves the owning user via account_scope() to read the
+-- per-user opt-out (users.view_prefs) — so the opt-out test below sets view_prefs on
+-- the OWNING user id (107700), not the mailbox id. Coincident ids masked that path.
+INSERT INTO users (id, username, display_name, email, password_hash, domain_id, created_at)
+  VALUES (107700, 'bundles7700', 'Bundles User 7700', 'bundles@bundles-test.example', 'x', 7700, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, created_at, type)
+  VALUES (7700, 107700, 7700, 'bundles@bundles-test.example', 'Bundles User 7700', TRUE, now(), 'personal')
+  ON CONFLICT (id) DO NOTHING;
+
+-- Create system tags for the mailbox (seeds Inbox, Trash, Spam, etc.)
+SELECT create_system_tags(7700);
+
+-- Seed messages for mailbox 7700
+DO $$
+DECLARE
+  v_inbox_tag BIGINT;
+  v_now TIMESTAMPTZ := now();
+BEGIN
+  v_inbox_tag := get_tag_id('Inbox', 7700);
+
+  -- 3 messages in 'news.acme.io' bundle
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, list_id)
+    VALUES
+      (770001, 7700, v_inbox_tag, '<mid-770001>', 'Acme News 1', 'news@acme.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770001', 'raw/770001', v_now - interval '3 hours', 'news.acme.io'),
+      (770002, 7700, v_inbox_tag, '<mid-770002>', 'Acme News 2', 'news@acme.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770002', 'raw/770002', v_now - interval '2 hours', 'news.acme.io'),
+      (770003, 7700, v_inbox_tag, '<mid-770003>', 'Acme News 3', 'news@acme.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770003', 'raw/770003', v_now - interval '1 hour',  'news.acme.io');
+
+  -- 2 messages in 'deals.shop.io' bundle
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, list_id)
+    VALUES
+      (770004, 7700, v_inbox_tag, '<mid-770004>', 'Shop Deals 1', 'deals@shop.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770004', 'raw/770004', v_now - interval '4 hours',  'deals.shop.io'),
+      (770005, 7700, v_inbox_tag, '<mid-770005>', 'Shop Deals 2', 'deals@shop.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770005', 'raw/770005', v_now - interval '30 minutes','deals.shop.io');
+
+  -- 1 message with NULL list_id (should be excluded from bundles)
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, list_id)
+    VALUES
+      (770006, 7700, v_inbox_tag, '<mid-770006>', 'Regular Email', 'friend@example.com', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770006', 'raw/770006', v_now, NULL);
+
+  -- 1 newsletter message tagged as Trash (should be excluded from bundles —
+  -- documented requirement: reducer excludes Trash/Spam-tagged messages per
+  -- the NOT EXISTS subquery in newsletter_bundles.sql lines 77-86).
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, list_id)
+    VALUES
+      (770007, 7700, v_inbox_tag, '<mid-770007>', 'Trashed Newsletter', 'trash@trashed.news.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770007', 'raw/770007', v_now - interval '5 hours', 'trashed.news.io');
+
+  -- Tag all messages as Inbox
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES
+      (770001, v_inbox_tag, v_now - interval '3 hours', 'system', TRUE),
+      (770002, v_inbox_tag, v_now - interval '2 hours', 'system', TRUE),
+      (770003, v_inbox_tag, v_now - interval '1 hour',  'system', TRUE),
+      (770004, v_inbox_tag, v_now - interval '4 hours', 'system', TRUE),
+      (770005, v_inbox_tag, v_now - interval '30 minutes','system',TRUE),
+      (770006, v_inbox_tag, v_now,                       'system', TRUE);
+
+  -- Tag the newsletter message 770007 as Trash (location-group exclusive tag).
+  -- The exclusive-group trigger will replace any prior location tag, but since
+  -- 770007 was inserted to folder_id=v_inbox_tag, we tag it directly as Trash.
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    SELECT 770007, t.id, v_now - interval '5 hours', 'system', TRUE
+      FROM tags t
+     WHERE t.mailbox_id = 7700 AND t.name = 'Trash';
+END;
+$$;
+
+-- Seed a second mailbox/user (for account scoping test)
+INSERT INTO users (id, username, display_name, email, password_hash, domain_id, created_at)
+  VALUES (107701, 'other7701', 'Other User 7701', 'other@bundles-test.example', 'x', 7700, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, created_at, type)
+  VALUES (7701, 107701, 7700, 'other@bundles-test.example', 'Other User 7701', TRUE, now(), 'personal')
+  ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(7701);
+
+DO $$
+DECLARE
+  v_inbox_tag BIGINT;
+  v_now TIMESTAMPTZ := now();
+BEGIN
+  v_inbox_tag := get_tag_id('Inbox', 7701);
+  -- Newsletter for other user (should NOT appear in account 7700's bundles)
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, list_id)
+    VALUES (770010, 7701, v_inbox_tag, '<mid-770010>', 'Other Newsletter', 'other@news.io', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-770010', 'raw/770010', v_now, 'other.news.io');
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES (770010, v_inbox_tag, v_now, 'system', TRUE);
+END;
+$$;
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 1: newsletter_bundles_list returns 2 bundle rows
+-- ────────────────────────────────────────────────────────────────
+SELECT is(
+  (SELECT jsonb_array_length(newsletter_bundles_list(7700))),
+  2,
+  'newsletter_bundles_list returns 2 bundle rows (one per list_id)'
+);
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 2: Counts are correct (3 for news.acme.io, 2 for deals.shop.io)
+-- ────────────────────────────────────────────────────────────────
+SELECT is(
+  (
+    SELECT (elem->>'count')::INT
+    FROM jsonb_array_elements(newsletter_bundles_list(7700)) elem
+    WHERE elem->>'listId' = 'news.acme.io'
+  ),
+  3,
+  'news.acme.io bundle has count=3'
+);
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 3: Account scoping — other mailbox newsletters not included
+-- ────────────────────────────────────────────────────────────────
+SELECT is(
+  (
+    SELECT COUNT(*)::INT
+    FROM jsonb_array_elements(newsletter_bundles_list(7700)) elem
+    WHERE elem->>'listId' = 'other.news.io'
+  ),
+  0,
+  'other.news.io (from mailbox 7701) is absent from mailbox 7700 bundles'
+);
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 4: Per-user opt-out — opted-out list_id excluded from bundles
+-- Set view_prefs->>'newsletterOptouts' for user 7700 to opt out of news.acme.io
+-- ────────────────────────────────────────────────────────────────
+UPDATE users
+  SET view_prefs = jsonb_set(
+    COALESCE(view_prefs, '{}'::JSONB),
+    '{newsletterOptouts}',
+    '["news.acme.io"]'::JSONB
+  )
+WHERE id = 107700;  -- the OWNING user behind mailbox 7700 (divergent)
+
+SELECT is(
+  (SELECT jsonb_array_length(newsletter_bundles_list(7700))),
+  1,
+  'after opting out of news.acme.io, only 1 bundle remains'
+);
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 5: Result shape includes required fields
+-- ────────────────────────────────────────────────────────────────
+-- Reset opt-out so we can inspect deals.shop.io bundle
+UPDATE users SET view_prefs = view_prefs - 'newsletterOptouts' WHERE id = 107700;
+
+SELECT is(
+  (
+    SELECT (elem ? 'listId') AND (elem ? 'count') AND (elem ? 'latestEmailId') AND (elem ? 'latestReceivedAt')
+    FROM jsonb_array_elements(newsletter_bundles_list(7700)) elem
+    WHERE elem->>'listId' = 'deals.shop.io'
+    LIMIT 1
+  ),
+  TRUE,
+  'bundle row has listId, count, latestEmailId, latestReceivedAt fields'
+);
+
+-- ────────────────────────────────────────────────────────────────
+-- Test 6: Trash-tagged newsletter messages are excluded from bundles.
+-- Message 770007 has list_id='trashed.news.io' and is tagged Trash.
+-- The documented NOT EXISTS subquery in newsletter_bundles.sql (lines 77-86)
+-- must exclude it, so 'trashed.news.io' must NOT appear in the bundle list.
+-- ────────────────────────────────────────────────────────────────
+SELECT is(
+  (
+    SELECT COUNT(*)::INT
+    FROM jsonb_array_elements(newsletter_bundles_list(7700)) elem
+    WHERE elem->>'listId' = 'trashed.news.io'
+  ),
+  0,
+  'Trash-tagged newsletter message (trashed.news.io) is absent from bundle list'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

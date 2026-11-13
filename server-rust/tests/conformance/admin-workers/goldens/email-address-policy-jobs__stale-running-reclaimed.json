@@ -1,0 +1,65 @@
+{
+  "case": "stale-running-reclaimed",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "aliases": [
+          "gofree-ajw-act@gofree-ajw.test",
+          "gofree-ajw-t1@gofree-ajw.test",
+          "gofree-ajw-t2@gofree-ajw.test"
+        ],
+        "field-policy": [
+          "<act>:email:local_only",
+          "<t1>:email:local_only",
+          "<t2>:email:local_only"
+        ],
+        "jobs": [
+          "880001:done:4:true:"
+        ],
+        "mailboxes": [
+          "gofree-ajw-t3@gofree-ajw2.test",
+          "username.eap2@gofree-ajw.test",
+          "username.eap3@gofree-ajw.test",
+          "username.eap4@gofree-ajw.test",
+          "username.eap@gofree-ajw.test"
+        ],
+        "users": [
+          "gofree-ajw-t3@gofree-ajw2.test",
+          "username.eap2@gofree-ajw.test",
+          "username.eap3@gofree-ajw.test",
+          "username.eap4@gofree-ajw.test",
+          "username.eap@gofree-ajw.test"
+        ]
+      }
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "aliases": [],
+        "field-policy": [],
+        "jobs": [
+          "880001:running:0:false:"
+        ],
+        "mailboxes": [
+          "gofree-ajw-act@gofree-ajw.test",
+          "gofree-ajw-person@gofree-ajw.test",
+          "gofree-ajw-t1@gofree-ajw.test",
+          "gofree-ajw-t2@gofree-ajw.test",
+          "gofree-ajw-t3@gofree-ajw2.test"
+        ],
+        "users": [
+          "gofree-ajw-act@gofree-ajw.test",
+          "gofree-ajw-person@gofree-ajw.test",
+          "gofree-ajw-t1@gofree-ajw.test",
+          "gofree-ajw-t2@gofree-ajw.test",
+          "gofree-ajw-t3@gofree-ajw2.test"
+        ]
+      }
+    },
+    "notifies": []
+  },
+  "worker": "email-address-policy-jobs"
+}

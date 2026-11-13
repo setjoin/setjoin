@@ -1,0 +1,382 @@
+-- meet_presentation.pg — MEET plan M2: the reducer-owned presentation
+-- session (V265, meeting_presentation.sql). Covers the positive lifecycle
+-- arc (prepare→ready→start→page→handoff→source-switch→degrade→recover→
+-- end/revoke), verb-specific authority refusals (BZ186/BZ273), the
+-- lifecycle-illegal arms (BZ275 — including terminal-state resurrection),
+-- the generation/sequence fences (BZ274), the argument guards (BZ276), the
+-- M4 annotation reservation failing closed (BZ277), the meeting_end
+-- same-txn cancel arm, and the meeting_get projection keys. The FORCE-RLS
+-- cross-tenant proof lives in meet_presentation_rls.pg (both sides
+-- machine-guarded by scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt).
+--
+-- Plan: retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-
+-- semantic-recording.md, M2. Contracts: internal/meet/presentation/
+-- (lifecycle.go's frozen state machine, envelope.go's durable kinds).
+--
+-- Sequence bookkeeping (checkpoint_seq bumps once per durable event):
+--   prepare 0 · ready 1 · start 2 · page 3 · grant 4 · member-page 5 ·
+--   takeover 6 · switch 7 · degrade 8 · recover 9 · revoke 10.
+BEGIN;
+SELECT plan(90);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('pres-host@meet-presentation.test') AS host \gset
+SELECT mk_auth_user('pres-member@meet-presentation.test') AS member \gset
+SELECT mk_auth_user('pres-other@meet-presentation.test') AS other \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures: m1 — live, host + member (joined) + a stranger who never
+-- joins. Drive: one host-owned space with a file and TWO versions (the
+-- source-switch target), plus a member-owned space for the rights refusals.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('m1', :host, 'live')
+  RETURNING id AS m1 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :member, 'u:' || :member, 'member', now());
+
+SELECT drive_space_create(:host, 'pres-space', 'regular') AS space \gset
+SELECT drive_node_create(:host, :space, NULL, 'file', 'deck.pdf') AS node \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node, :space, repeat('ab', 32), 1, :host)
+  RETURNING id AS ver \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node, :space, repeat('ef', 32), 1, :host)
+  RETURNING id AS ver2 \gset
+UPDATE drive_files SET head_version_id = :ver WHERE node_id = :node;
+
+-- A space OWNED BY the member: even a member-space version stays
+-- unreachable for a presenter without Drive source rights on it.
+SELECT drive_space_create(:member, 'pres-member-space', 'regular') AS mspace \gset
+SELECT drive_node_create(:member, :mspace, NULL, 'file', 'member.pdf') AS mnode \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:mnode, :mspace, repeat('cd', 32), 1, :member)
+  RETURNING id AS mver \gset
+
+SELECT id AS mpid FROM meeting_participants
+  WHERE meeting_id = :m1 AND user_id = :member \gset
+SELECT id AS hpid FROM meeting_participants
+  WHERE meeting_id = :m1 AND user_id = :host \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 — prepare: the authority + identity fences.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_prepare(%s, %s, %s, %s, repeat('ef',32)) $$,
+         :member, :m1, :node, :ver),
+  'BZ186', NULL, 'a plain member cannot prepare (host/cohost floor)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_prepare(%s, %s, %s, %s, repeat('ef',32)) $$,
+         :other, :m1, :node, :ver),
+  'BZ186', NULL, 'a non-participant stranger cannot prepare');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_prepare(%s, %s, %s, %s, repeat('ef',32)) $$,
+         :host, :m1, :node, :mver),
+  'BZ272', NULL, 'a version foreign to the node is the anti-oracle not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_prepare(%s, %s, %s, %s, 'nothex') $$,
+         :host, :m1, :node, :ver),
+  'BZ276', NULL, 'a malformed manifest digest is BZ276');
+
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid \gset
+SELECT ok(:pid IS NOT NULL, 'prepare creates the session');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'PREPARING',
+  'the session starts PREPARING');
+SELECT is((SELECT presenter_generation FROM meeting_presentations WHERE id = :pid), 1::bigint,
+  'the initial presenter generation is 1');
+SELECT is((SELECT checkpoint_seq FROM meeting_presentations WHERE id = :pid), 0::bigint,
+  'checkpoint_seq starts at 0');
+SELECT is((SELECT source_sha256 FROM meeting_presentations WHERE id = :pid),
+          (SELECT content_sha256 FROM drive_file_versions WHERE id = :ver),
+  'source_sha256 is derived from Drive, never request-owned');
+SELECT is((SELECT presenter_participant_id FROM meeting_presentations WHERE id = :pid), :hpid::bigint,
+  'the preparing host is the initial presenter');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_prepare(%s, %s, %s, %s, repeat('ef',32)) $$,
+         :host, :m1, :node, :ver),
+  'BZ275', NULL, 'a second live session on one meeting is BZ275');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 — ready → start: the lifecycle arc.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_ready(%s, %s, %s, NULL) $$, :member, :m1, :pid),
+  'BZ186', NULL, 'a plain member cannot confirm rendition ready');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_ready(%s, %s, %s, NULL) $$, :host, :m1, :pid),
+  'host confirms rendition ready (PREPARING → READY)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'READY', 'ready flips to READY');
+SELECT is((SELECT checkpoint_seq FROM meeting_presentations WHERE id = :pid), 1::bigint,
+  'the ready event bumps checkpoint_seq to 1');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 1),
+          'ready', 'the durable event is ready');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_start(%s, %s, %s, 1) $$, :member, :m1, :pid),
+  'BZ273', NULL, 'a non-presenter cannot start');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_start(%s, %s, %s, 2) $$, :host, :m1, :pid),
+  'BZ274', NULL, 'a stale presenter generation refuses start');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_start(%s, %s, %s, 1) $$, :host, :m1, :pid),
+  'the presenter starts under the current generation (READY → ACTIVE)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'ACTIVE', 'start flips to ACTIVE');
+SELECT is((SELECT started_at IS NOT NULL FROM meeting_presentations WHERE id = :pid), true,
+  'start stamps started_at');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 2),
+          'start', 'the durable event is start');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 — page change: presenter + BOTH fences + the closed page range.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 2, 5) $$, :member, :m1, :pid),
+  'BZ273', NULL, 'a non-presenter cannot page');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 2, 5) $$, :other, :m1, :pid),
+  'BZ273', NULL, 'a caller with NO live participant row cannot page — the NULL-actor arm of the presenter fence (id <> NULL is NULL, never a silent pass; M6 continuity proof)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 9, 2, 5) $$, :host, :m1, :pid),
+  'BZ274', NULL, 'a stale generation cannot page');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 9, 5) $$, :host, :m1, :pid),
+  'BZ274', NULL, 'a stale checkpoint sequence cannot page (the stale-controls-overwrite race)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 2, 500) $$, :host, :m1, :pid),
+  'BZ276', NULL, 'page index 500 is outside [0,500)');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 2, 5) $$, :host, :m1, :pid),
+  'the presenter pages under both fences');
+SELECT is((SELECT page_index FROM meeting_presentations WHERE id = :pid), 5, 'page_index committed');
+SELECT is((SELECT checkpoint_seq FROM meeting_presentations WHERE id = :pid), 3::bigint, 'page change bumps seq to 3');
+SELECT is((SELECT payload->>'pageIndex' FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 3),
+          '5', 'the page.changed event carries the closed typed payload');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 — presenter grant / takeover.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, 999999, false, 1) $$,
+         :host, :m1, :pid),
+  'BZ273', NULL, 'a target that is not a live participant is refused');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, %s, false, 1) $$,
+         :member, :m1, :pid, :mpid),
+  'BZ273', NULL, 'a non-presenter member cannot grant');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, %s, true, NULL) $$,
+         :member, :m1, :pid, :mpid),
+  'BZ186', NULL, 'a member cannot take over (host/cohost authority)');
+
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, %s, false, 1) $$,
+         :host, :m1, :pid, :mpid),
+  'the presenter grants to the member (handoff under the fence)');
+SELECT is((SELECT presenter_generation FROM meeting_presentations WHERE id = :pid), 2::bigint,
+  'the grant bumps presenter_generation to 2');
+SELECT is((SELECT presenter_participant_id FROM meeting_presentations WHERE id = :pid), :mpid::bigint,
+  'the member is now the presenter of record');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 4),
+          'presenter.granted', 'the durable event is presenter.granted');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 1, 4, 6) $$, :host, :m1, :pid),
+  'BZ273', NULL, 'the superseded presenter fences out (the presenter check gates before the generation arm)');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 2, 4, 6) $$, :member, :m1, :pid),
+  'the new presenter pages under the new generation');
+
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, %s, true, NULL) $$,
+         :host, :m1, :pid, :hpid),
+  'host takeover needs no generation fence (the departing-presenter rescue)');
+SELECT is((SELECT presenter_generation FROM meeting_presentations WHERE id = :pid), 3::bigint,
+  'the takeover bumps presenter_generation to 3');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 6),
+          'presenter.takeover', 'the durable event is presenter.takeover');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 — source-version switch: presenter + Drive source right on the NEW
+-- version + a genuinely different version; manifest_generation bumps.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_source_switch(%s, %s, %s, %s, %s, repeat('ef',32), 3, 6) $$,
+         :member, :m1, :pid, :mnode, :mver),
+  'BZ273', NULL, 'a non-presenter cannot switch source');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_source_switch(%s, %s, %s, %s, %s, repeat('ef',32), 3, 6) $$,
+         :host, :m1, :pid, :node, :ver),
+  'BZ276', NULL, 'switching to the pinned version is BZ276');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_source_switch(%s, %s, %s, %s, 999999, repeat('ef',32), 3, 6) $$,
+         :host, :m1, :pid, :mnode),
+  'BZ272', NULL, 'a nonexistent target version is the anti-oracle not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_source_switch(%s, %s, %s, %s, %s, repeat('ef',32), 3, 6) $$,
+         :host, :m1, :pid, :mnode, :mver),
+  'BZ273', NULL, 'even the host presenter cannot switch to a version WITHOUT Drive source rights');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_source_switch(%s, %s, %s, %s, %s, repeat('ef',32), 3, 6) $$,
+         :host, :m1, :pid, :node, :ver2),
+  'the presenter switches to a version they hold source rights on');
+SELECT is((SELECT drive_version_id FROM meeting_presentations WHERE id = :pid), :ver2::bigint,
+  'the pinned version moved');
+SELECT is((SELECT manifest_generation FROM meeting_presentations WHERE id = :pid), 2::bigint,
+  'the switch bumps manifest_generation');
+SELECT is((SELECT page_index FROM meeting_presentations WHERE id = :pid), 0,
+  'the switch resets the page to 0');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 7),
+          'source.switched', 'the durable event is source.switched');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — degrade / recover: the DEGRADED edges.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_degrade(%s, %s, %s, NULL, NULL) $$, :member, :m1, :pid),
+  'BZ273', NULL, 'a non-presenter non-authority cannot degrade');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_degrade(%s, %s, %s, NULL, 'renderer lost') $$, :host, :m1, :pid),
+  'host authority degrades without a generation fence (ACTIVE → DEGRADED)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'DEGRADED', 'degrade flips to DEGRADED');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 8),
+          'fallback.changed', 'degrade rides the fallback.changed event');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 3, 8, 1) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'a DEGRADED session refuses page changes');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_end(%s, %s, %s, NULL) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'a DEGRADED session refuses end (the frozen table has no DEGRADED→ENDED edge)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_start(%s, %s, %s, NULL) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'start from DEGRADED is not a route (recover owns the edge)');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_recover(%s, %s, %s, 3) $$, :host, :m1, :pid),
+  'recover returns the session to ACTIVE (the ONLY outgoing DEGRADED edge)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'ACTIVE', 'recover flips to ACTIVE');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 9),
+          'fallback.changed', 'recover rides the fallback.changed event');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 — revoke / end: the terminal arms.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_revoke(%s, %s, %s, NULL) $$, :member, :m1, :pid),
+  'BZ186', NULL, 'a plain member cannot revoke');
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_revoke(%s, %s, %s, NULL) $$, :host, :m1, :pid),
+  'host revokes the ACTIVE session (ACTIVE → REVOKED)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'REVOKED', 'revoke flips to REVOKED');
+SELECT is((SELECT ended_at IS NOT NULL FROM meeting_presentations WHERE id = :pid), true,
+  'revoke stamps ended_at');
+SELECT is((SELECT kind FROM meeting_presentation_events WHERE presentation_id = :pid AND checkpoint_seq = 10),
+          'end', 'the revocation rides the durable end event');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_start(%s, %s, %s, 3) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'REVOKED → ACTIVE is unreachable (resurrection refused)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_presenter(%s, %s, %s, %s, false, 3) $$,
+         :host, :m1, :pid, :hpid),
+  'BZ275', NULL, 'a terminal session never changes presenter sideways');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_page(%s, %s, %s, 3, 10, 0) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'a terminal session refuses page changes');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_revoke(%s, %s, %s, NULL) $$, :host, :m1, :pid),
+  'BZ275', NULL, 'revoking a REVOKED session is BZ275');
+
+-- ── the cancel arm: PREPARING/READY land CANCELLED/FAILED, never ENDED. ──
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid2 \gset
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_revoke(%s, %s, %s, NULL) $$, :host, :m1, :pid2),
+  'revoking a PREPARING session lands FAILED (the pre-start access-loss edge)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid2), 'FAILED',
+  'PREPARING + revoke → FAILED');
+
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid3 \gset
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_end(%s, %s, %s, NULL) $$, :host, :m1, :pid3),
+  'ending a PREPARING session cancels it (never a fabricated ENDED)');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid3), 'CANCELLED',
+  'PREPARING + end → CANCELLED');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 — the M4 annotation admission (V267; BZ277 admitted-path semantics).
+-- A COMMITTED annotation is admitted — the widened events CHECK gives the
+-- committed kinds a durable home — while an unknown annotation-shaped kind
+-- still has none (the belt stays closed for everything the admission never
+-- named). The full commit arc + fence tests: meet_annotation_admission.pg.
+-- ══════════════════════════════════════════════════════════════════════
+-- A dedicated terminal session with known fences (the arc's :pid has
+-- drifted generations): ACTIVE → ENDED bumps the sequence to 3, so the
+-- commit passes every fence and refuses on lifecycle — BZ275, the
+-- terminal-resurrection arm.
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pidann \gset
+SELECT meeting_presentation_ready(:host, :m1, :pidann, NULL);
+SELECT meeting_presentation_start(:host, :m1, :pidann, 1);
+SELECT meeting_presentation_end(:host, :m1, :pidann, 1);
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 3, false, '{"s":1}', 7) $$,
+         :host, :m1, :pidann),
+  'BZ275', NULL, 'an un-admitted path (terminal session) still refuses annotation commits');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_events
+            WHERE kind LIKE 'annotation%' AND presentation_id = :pidann), 0,
+  'no annotation event ever landed through the refused path');
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_presentation_events
+           (presentation_id, meeting_id, checkpoint_seq, presenter_generation, kind, actor_user_id)
+           VALUES (%s, %s, 99, 1, 'annotation.uploaded', %s) $$, :pidann, :m1, :host),
+  '23514', NULL, 'an unknown annotation kind still has no durable home (V267 CHECK fails closed)');
+SELECT lives_ok(
+  format($$ INSERT INTO meeting_presentation_events
+           (presentation_id, meeting_id, checkpoint_seq, presenter_generation, kind, actor_user_id)
+           VALUES (%s, %s, 99, 1, 'annotation.committed', %s) $$, :pidann, :m1, :host),
+  'a committed annotation is ADMITTED: the widened CHECK gives it a durable home');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_events
+            WHERE kind = 'annotation.committed' AND presentation_id = :pidann), 1,
+  'the committed kind landed (fail-closed reservation narrowed, not removed)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9 — the checkpoint read, the projection keys, the meeting_end cancel.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid4 \gset
+SELECT meeting_presentation_ready(:host, :m1, :pid4, NULL);
+SELECT meeting_presentation_start(:host, :m1, :pid4, 1);
+
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_checkpoint(%s, %s, %s) $$, :host, :m1, :pid4),
+  'the authorized checkpoint read serves a participant');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_checkpoint(%s, %s, %s) $$, :other, :m1, :pid4),
+  'BZ272', NULL, 'a non-attendee checkpoint read is the indistinguishable not-found');
+SELECT is((SELECT (c->>'amPresenter')::bool FROM (
+  SELECT meeting_presentation_checkpoint(:host, :m1, :pid4) AS c) x), true,
+  'the checkpoint read reports presenter currency');
+SELECT is((SELECT (c->>'checkpointSeq')::bigint FROM (  SELECT meeting_presentation_checkpoint(:host, :m1, :pid4) AS c) x), 2::bigint,
+  'the checkpoint read carries the committed sequence');
+
+-- meeting_get: the flag-visibility key + the participant-scoped summary.
+SELECT is((SELECT (p->>'presentationEnabled')::boolean FROM (
+  SELECT meeting_get(:host, :m1) AS p) x), false,
+  'presentationEnabled reads the DEFAULT-OFF flag');
+SELECT is((SELECT p->'presentation'->>'status' FROM (
+  SELECT meeting_get(:host, :m1) AS p) x), 'ACTIVE',
+  'a participant sees the live session summary on meeting_get');
+SELECT is((SELECT p->>'presentation' FROM (
+  SELECT meeting_get_by_slug(:other, (SELECT slug FROM meetings WHERE id = :m1)) AS p) x), NULL,
+  'a non-participant gets the NULL anti-oracle, never the summary');
+
+-- meeting_end cancels the live session in the SAME transaction (law 1).
+SELECT meeting_end(:host, :m1);
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid4), 'CANCELLED',
+  'meeting_end cancels a live session in the same txn');
+SELECT is((SELECT status FROM meeting_presentations WHERE id = :pid), 'REVOKED',
+  'a session already terminal at meeting end is untouched');
+SELECT is((SELECT p->>'presentation' FROM (
+  SELECT meeting_get(:host, :m1) AS p) x), NULL,
+  'after the cancel the live summary is gone');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,10 @@
+DELETE FROM threat_feed_blocks WHERE source='authrt-ldap';
+DELETE FROM ip_rules WHERE description='authrt-ldap';
+DELETE FROM auth_lockouts WHERE lockout_key IN ('ip:127.0.0.1','user:alice@ldap1.test','ip_user:127.0.0.1:alice@ldap1.test');
+DELETE FROM auth_attempts WHERE target_username='alice@ldap1.test';
+DELETE FROM device_registry WHERE user_id=9342011;
+BEGIN;
+SET LOCAL session_replication_role=replica;
+DELETE FROM audit_log WHERE user_id=9342011 AND event_type IN ('device_new','device_country_changed');
+COMMIT;
+DELETE FROM conditional_access_policies WHERE id=9420422;

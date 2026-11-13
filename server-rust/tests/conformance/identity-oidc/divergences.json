@@ -1,0 +1,802 @@
+[
+  {
+    "baseline": "goldens/callback-cross-tenant.json",
+    "expectation": "security/callback-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /authorize/callback requires a session whose user is the request's bound user; a session that did not complete the request gets 400 'auth request not found' and no redirect, where Go redirected with interaction_required for any caller holding the request id.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "bd156f27566c21a9af50133a40239d3bb4b0525bfa3440381a1040e825bad9a0"
+  },
+  {
+    "baseline": "goldens/complete-head.json",
+    "expectation": "security/complete-head.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "031ffb96546f6e1ff39cf7c218868c9ecb61a6c15d819433e79cf374a4321a63"
+  },
+  {
+    "baseline": "goldens/complete-success.json",
+    "expectation": "security/complete-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "edbb6487c0c68b580cc6a9527cfc0d7f2f8a8aeec336079c0719f14206936215"
+  },
+  {
+    "baseline": "goldens/introspect-cross-tenant.json",
+    "expectation": "security/introspect-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): introspection answers active:false unless the token was issued to the authenticated caller and reports the token's own client_id; Go answered active:true under the caller's client_id (RFC 7662 section 2.2).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "1ecd32105ccfc5ab2acabf14c2872784ad0c00ab6019d59cb88de97db4bcea94"
+  },
+  {
+    "baseline": "goldens/introspect-legacy.json",
+    "expectation": "security/introspect-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (Go access tokens live 5 minutes, so every legacy token is already dead); introspection answers active:false.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "40bab2a99663c89d132f539a45ff67da97558bed3bf46b0191154684c9bdfe2b"
+  },
+  {
+    "baseline": "goldens/refresh-attach-statement.json",
+    "expectation": "security/refresh-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a0d70fcfcdb80d8577f45303bd57ebc6d6afd050420c41b7a1bd9ad55e12bfd8"
+  },
+  {
+    "baseline": "goldens/refresh-cross-tenant.json",
+    "expectation": "security/refresh-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "cf25322798c14bd3b13d6c49dea57eab3aafbb7dcfc7771e855894f23bf5478a"
+  },
+  {
+    "baseline": "goldens/refresh-invalid-input.json",
+    "expectation": "security/refresh-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "fe27ac9fb819fd23d01dff6e41094a1e6c93a5f35d9da69562af339ce9e5bf52"
+  },
+  {
+    "baseline": "goldens/refresh-repeat.json",
+    "expectation": "security/refresh-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): presenting an already-rotated refresh token is token reuse: Rust revokes the whole refresh family (the live successor's revoked_at is set) while still answering invalid_grant; Go leaves the successor active. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "59054ac143d358fa8e2619913d8e5c528d7dae4e3f300a28a63ba3c237c67cd8"
+  },
+  {
+    "baseline": "goldens/refresh-scope-narrow.json",
+    "expectation": "security/refresh-scope-narrow.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): a narrowed-scope refresh spends the presented refresh token and rotates like any refresh (the successor joins the family and a refresh_token is returned, the predecessor is revoked); Go minted an access token without rotating, leaving the token reusable and outside reuse detection. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "0561f2cf8df349a1ae95c25d6b678b9e89ab71e9171fc7a9df7641141e8a8490"
+  },
+  {
+    "baseline": "goldens/refresh-scope-widen.json",
+    "expectation": "security/refresh-scope-widen.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "b58ae38cecb7eca93fb108f0ca37fd5261dcec572540a8ce5441073f3e456690"
+  },
+  {
+    "baseline": "goldens/refresh-success.json",
+    "expectation": "security/refresh-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "bbb4721fe1f171b32185cdbe89330d30d33bedefa37b6956bd6930d28091d571"
+  },
+  {
+    "baseline": "goldens/revoke-legacy.json",
+    "expectation": "security/revoke-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): legacy CFB access tokens are no longer decoded, so a revocation naming one cannot resolve a stored row and revokes nothing; Go decoded the token and revoked its row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "5819504cf01711682ae04054fb393d01743fe86c77b014c680e8d16fe36a2441"
+  },
+  {
+    "baseline": "goldens/token-access-statement.json",
+    "expectation": "security/token-access-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "95708fe644d0b35deb244c3d5ceabecf25930ab9f5d2c8236ddd58bc46406b6b"
+  },
+  {
+    "baseline": "goldens/token-attach-statement.json",
+    "expectation": "security/token-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "4aa6abcb85ef771cb0a595fc11193d2437caf900be3bf9646ce0e53dff5d2d9e"
+  },
+  {
+    "baseline": "goldens/token-confidential-basic.json",
+    "expectation": "security/token-confidential-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "041813139f7da71fba504c3893fa0121f684edcb265ac152ec4af7427875b0d2"
+  },
+  {
+    "baseline": "goldens/token-confidential.json",
+    "expectation": "security/token-confidential.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "1aced228556415ce7ab97102d63980e90e2f41b8d1b96c542870ae525e31bb71"
+  },
+  {
+    "baseline": "goldens/token-cross-tenant.json",
+    "expectation": "security/token-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the consume predicate includes the authenticated presenting client, so client B presenting client A's code gets invalid_grant 'invalid code' and A's code survives (the request row stays); Go consumed the code first and burned it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "6851fb7f303c9d58fc3d30a3a45ce2507c225d800c8206d078953194125ef80b"
+  },
+  {
+    "baseline": "goldens/token-invalid-basic.json",
+    "expectation": "security/token-invalid-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a4a185fa3482cb7d3b8d9e4bcf9504bf87b5fb7f5714de4ca413f7156cc9413b"
+  },
+  {
+    "baseline": "goldens/token-invalid-input.json",
+    "expectation": "security/token-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "9e656880650f7b8ec90f9f98b96f50c91085520e791332feead011cdd3fbc4b5"
+  },
+  {
+    "baseline": "goldens/token-malformed-form.json",
+    "expectation": "security/token-malformed-form.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "16b74efec8d6d32d9437bf83400d59f929363676619751f65d23c573b957a101"
+  },
+  {
+    "baseline": "goldens/token-mixed-auth.json",
+    "expectation": "security/token-mixed-auth.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "edc46252708cc1bd1600dc45bd77f02ca2636149da93d8e993e3f5db8ae037a8"
+  },
+  {
+    "baseline": "goldens/token-pkce-absent.json",
+    "expectation": "security/token-pkce-absent.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "19300204284e55a1af1e29179f476b925fbb5ebc338826cee4e58f7c8c7ad330"
+  },
+  {
+    "baseline": "goldens/token-pkce-missing.json",
+    "expectation": "security/token-pkce-missing.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "0ebf8e8952c44a2b1114f30a23aeef11442f66fbd319cc0ec3893e4acfd48d3c"
+  },
+  {
+    "baseline": "goldens/token-pkce-plain.json",
+    "expectation": "security/token-pkce-plain.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "e1abb98490d16e0e309c1a3888fd298faea3991d2e667fae164dc9e331feae86"
+  },
+  {
+    "baseline": "goldens/token-pkce-wrong.json",
+    "expectation": "security/token-pkce-wrong.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "2d5850d7a42fb2f7ede50390cb536c01ac5363cdd3d815aaac0c608e6b4f1afa"
+  },
+  {
+    "baseline": "goldens/token-redirect-mismatch.json",
+    "expectation": "security/token-redirect-mismatch.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "b72b8b36ec32cb974bb785d366f9e9ef5408d1b3b6fc3794a3fcc16b3e1acfe3"
+  },
+  {
+    "baseline": "goldens/token-repeat.json",
+    "expectation": "security/token-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "520306159ac8dcd808ec34b0ae22f97f7ffa63ef33e9623016b401788e488fdf"
+  },
+  {
+    "baseline": "goldens/token-success.json",
+    "expectation": "security/token-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "13c45d7750e404dabdec2fc5ef2637dec6aea6ebf29e9d188b52ea6f42054ff8"
+  },
+  {
+    "baseline": "goldens/token-wrong-secret.json",
+    "expectation": "security/token-wrong-secret.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the client is authenticated before the single-use authorization code is consumed, so an unauthenticated attempt (wrong secret) leaves the code redeemable; Go consumes the code first and burns it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "66d311a73ba2e1c0b95978235ef9e029957754367e28f5cbab5eb1165b339cab"
+  },
+  {
+    "baseline": "goldens/userinfo-legacy.json",
+    "expectation": "security/userinfo-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (bit flips rewrite the subject); userinfo answers 401 access token invalid and the attempt counts as a failure.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c47e9b57332406a73c3e7647e6cdd0339d02b382aa634e75047c05fc1f71daac"
+  },
+  {
+    "baseline": "qualified/GET__auth_oidc_op_complete--complete-head-rows.json",
+    "expectation": "security/GET__auth_oidc_op_complete--complete-head-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "89d9eca6561f42b888e617ca36c523f11522fdd334a991de8aef2bed23bf48c2"
+  },
+  {
+    "baseline": "qualified/GET__auth_oidc_op_complete--complete-head.json",
+    "expectation": "security/GET__auth_oidc_op_complete--complete-head.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "d18e55f68f89be37e11350b88359fc5b21cd28005654d48a19142ccc166fa03c"
+  },
+  {
+    "baseline": "qualified/GET__auth_oidc_op_complete--complete-success-rows.json",
+    "expectation": "security/GET__auth_oidc_op_complete--complete-success-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "60f981ed0df53a2f41fae616d849763d2634c8e382ecc13157a3fde9a3c8192a"
+  },
+  {
+    "baseline": "qualified/GET__auth_oidc_op_complete--complete-success.json",
+    "expectation": "security/GET__auth_oidc_op_complete--complete-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): binding an authorization request to a session is a state change: GET /auth/oidc/op/complete only renders a no-store consent page carrying an HMAC CSRF token and binds nothing; the bind is a POST with the token (served by the same registration). Go bound on the bare GET.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "e8ecc6136bcae45a0894f81ef6d093880f8dc019dd1a89760d79f117ee084fab"
+  },
+  {
+    "baseline": "qualified/authorize_callback--callback-cross-tenant.json",
+    "expectation": "security/authorize_callback--callback-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /authorize/callback requires a session whose user is the request's bound user; a session that did not complete the request gets 400 'auth request not found' and no redirect, where Go redirected with interaction_required for any caller holding the request id.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "60773ac76124e6b38dcf91c9a8ef89a9f0a6b7cc7c4a8e293e04106dc4b4bb2f"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-access-statement.json",
+    "expectation": "security/oauth__authorization-code--token-access-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "95708fe644d0b35deb244c3d5ceabecf25930ab9f5d2c8236ddd58bc46406b6b"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-attach-statement.json",
+    "expectation": "security/oauth__authorization-code--token-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "4aa6abcb85ef771cb0a595fc11193d2437caf900be3bf9646ce0e53dff5d2d9e"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-confidential-basic.json",
+    "expectation": "security/oauth__authorization-code--token-confidential-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "041813139f7da71fba504c3893fa0121f684edcb265ac152ec4af7427875b0d2"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-confidential.json",
+    "expectation": "security/oauth__authorization-code--token-confidential.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "1aced228556415ce7ab97102d63980e90e2f41b8d1b96c542870ae525e31bb71"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-cross-tenant-rows.json",
+    "expectation": "security/oauth__authorization-code--token-cross-tenant-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the consume predicate includes the authenticated presenting client, so client B presenting client A's code gets invalid_grant 'invalid code' and A's code survives (the request row stays); Go consumed the code first and burned it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "7d5e804de305d4151c4c7ee128dce451ae6c183bb3753f79f29600d317caaa5b"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-cross-tenant.json",
+    "expectation": "security/oauth__authorization-code--token-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the consume predicate includes the authenticated presenting client, so client B presenting client A's code gets invalid_grant 'invalid code' and A's code survives (the request row stays); Go consumed the code first and burned it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "6851fb7f303c9d58fc3d30a3a45ce2507c225d800c8206d078953194125ef80b"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-invalid-basic.json",
+    "expectation": "security/oauth__authorization-code--token-invalid-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a4a185fa3482cb7d3b8d9e4bcf9504bf87b5fb7f5714de4ca413f7156cc9413b"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-invalid-input.json",
+    "expectation": "security/oauth__authorization-code--token-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "9e656880650f7b8ec90f9f98b96f50c91085520e791332feead011cdd3fbc4b5"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-malformed-form.json",
+    "expectation": "security/oauth__authorization-code--token-malformed-form.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "16b74efec8d6d32d9437bf83400d59f929363676619751f65d23c573b957a101"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-mixed-auth.json",
+    "expectation": "security/oauth__authorization-code--token-mixed-auth.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "edc46252708cc1bd1600dc45bd77f02ca2636149da93d8e993e3f5db8ae037a8"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-pkce-absent.json",
+    "expectation": "security/oauth__authorization-code--token-pkce-absent.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "19300204284e55a1af1e29179f476b925fbb5ebc338826cee4e58f7c8c7ad330"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-pkce-missing.json",
+    "expectation": "security/oauth__authorization-code--token-pkce-missing.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "0ebf8e8952c44a2b1114f30a23aeef11442f66fbd319cc0ec3893e4acfd48d3c"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-pkce-plain.json",
+    "expectation": "security/oauth__authorization-code--token-pkce-plain.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "e1abb98490d16e0e309c1a3888fd298faea3991d2e667fae164dc9e331feae86"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-pkce-wrong.json",
+    "expectation": "security/oauth__authorization-code--token-pkce-wrong.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "2d5850d7a42fb2f7ede50390cb536c01ac5363cdd3d815aaac0c608e6b4f1afa"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-redirect-mismatch.json",
+    "expectation": "security/oauth__authorization-code--token-redirect-mismatch.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "b72b8b36ec32cb974bb785d366f9e9ef5408d1b3b6fc3794a3fcc16b3e1acfe3"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-repeat.json",
+    "expectation": "security/oauth__authorization-code--token-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "520306159ac8dcd808ec34b0ae22f97f7ffa63ef33e9623016b401788e488fdf"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-success.json",
+    "expectation": "security/oauth__authorization-code--token-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "13c45d7750e404dabdec2fc5ef2637dec6aea6ebf29e9d188b52ea6f42054ff8"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-wrong-secret-rows.json",
+    "expectation": "security/oauth__authorization-code--token-wrong-secret-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the client is authenticated before the single-use authorization code is consumed, so an unauthenticated attempt (wrong secret) leaves the code redeemable; Go consumes the code first and burns it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "af29c2fa4512608e929fc3ebab9a7500d07cbf4676fb9a8cddd3440e1140322d"
+  },
+  {
+    "baseline": "qualified/oauth__authorization-code--token-wrong-secret.json",
+    "expectation": "security/oauth__authorization-code--token-wrong-secret.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the client is authenticated before the single-use authorization code is consumed, so an unauthenticated attempt (wrong secret) leaves the code redeemable; Go consumes the code first and burns it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "66d311a73ba2e1c0b95978235ef9e029957754367e28f5cbab5eb1165b339cab"
+  },
+  {
+    "baseline": "qualified/oauth__introspection--introspect-cross-tenant.json",
+    "expectation": "security/oauth__introspection--introspect-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): introspection answers active:false unless the token was issued to the authenticated caller and reports the token's own client_id; Go answered active:true under the caller's client_id (RFC 7662 section 2.2).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "1ecd32105ccfc5ab2acabf14c2872784ad0c00ab6019d59cb88de97db4bcea94"
+  },
+  {
+    "baseline": "qualified/oauth__introspection--introspect-legacy.json",
+    "expectation": "security/oauth__introspection--introspect-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (Go access tokens live 5 minutes, so every legacy token is already dead); introspection answers active:false.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "40bab2a99663c89d132f539a45ff67da97558bed3bf46b0191154684c9bdfe2b"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-attach-statement.json",
+    "expectation": "security/oauth__refresh-token--refresh-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a0d70fcfcdb80d8577f45303bd57ebc6d6afd050420c41b7a1bd9ad55e12bfd8"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-cross-tenant.json",
+    "expectation": "security/oauth__refresh-token--refresh-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "cf25322798c14bd3b13d6c49dea57eab3aafbb7dcfc7771e855894f23bf5478a"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-invalid-input.json",
+    "expectation": "security/oauth__refresh-token--refresh-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "fe27ac9fb819fd23d01dff6e41094a1e6c93a5f35d9da69562af339ce9e5bf52"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-repeat-rows.json",
+    "expectation": "security/oauth__refresh-token--refresh-repeat-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): presenting an already-rotated refresh token is token reuse: Rust revokes the whole refresh family (the live successor's revoked_at is set) while still answering invalid_grant; Go leaves the successor active. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "74dd222cee7e612aeddfe164583f90018aada453c86dccabf8640188efeece41"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-repeat.json",
+    "expectation": "security/oauth__refresh-token--refresh-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): presenting an already-rotated refresh token is token reuse: Rust revokes the whole refresh family (the live successor's revoked_at is set) while still answering invalid_grant; Go leaves the successor active. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "59054ac143d358fa8e2619913d8e5c528d7dae4e3f300a28a63ba3c237c67cd8"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-scope-narrow-rows.json",
+    "expectation": "security/oauth__refresh-token--refresh-scope-narrow-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): a narrowed-scope refresh spends the presented refresh token and rotates like any refresh (the successor joins the family and a refresh_token is returned, the predecessor is revoked); Go minted an access token without rotating, leaving the token reusable and outside reuse detection. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "dbaa88a40c90191723526b041fefa3a240d631e0adb9cc9265ef3ebfae07bc70"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-scope-narrow.json",
+    "expectation": "security/oauth__refresh-token--refresh-scope-narrow.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): a narrowed-scope refresh spends the presented refresh token and rotates like any refresh (the successor joins the family and a refresh_token is returned, the predecessor is revoked); Go minted an access token without rotating, leaving the token reusable and outside reuse detection. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "0561f2cf8df349a1ae95c25d6b678b9e89ab71e9171fc7a9df7641141e8a8490"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-scope-widen.json",
+    "expectation": "security/oauth__refresh-token--refresh-scope-widen.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "b58ae38cecb7eca93fb108f0ca37fd5261dcec572540a8ce5441073f3e456690"
+  },
+  {
+    "baseline": "qualified/oauth__refresh-token--refresh-success.json",
+    "expectation": "security/oauth__refresh-token--refresh-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "bbb4721fe1f171b32185cdbe89330d30d33bedefa37b6956bd6930d28091d571"
+  },
+  {
+    "baseline": "qualified/oauth_introspect--introspect-cross-tenant.json",
+    "expectation": "security/oauth_introspect--introspect-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): introspection answers active:false unless the token was issued to the authenticated caller and reports the token's own client_id; Go answered active:true under the caller's client_id (RFC 7662 section 2.2).",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "7709e5a6650d9b4862256cc17cd6dccce55313326a56dc7bc2011df5b3246c93"
+  },
+  {
+    "baseline": "qualified/oauth_introspect--introspect-legacy.json",
+    "expectation": "security/oauth_introspect--introspect-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (Go access tokens live 5 minutes, so every legacy token is already dead); introspection answers active:false.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "3baa996a7ca7dab9abb7a68193de325da406102ae87ffdea36226d75d0ee8cfb"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-access-statement.json",
+    "expectation": "security/oauth_token_authorization-code--token-access-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "37c22a7f05ffb4e65a2207dbc20b0906525fbef2a5da363f1933bd269e8f159f"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-attach-statement.json",
+    "expectation": "security/oauth_token_authorization-code--token-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "8e05e59dcbff6dfb4b04cfb9434c0a6692656a920d54afa3a4059cb5250b85f8"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-confidential-basic.json",
+    "expectation": "security/oauth_token_authorization-code--token-confidential-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a51f72743727e65fd8d7e655fcb506673f4fbcec98af7ec4a769b7660078a3ec"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-confidential.json",
+    "expectation": "security/oauth_token_authorization-code--token-confidential.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "10e3c8e3a92e7658384c31fe0b41c990c78a85af37a2345065c9beb2260ae40a"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-cross-tenant-rows.json",
+    "expectation": "security/oauth_token_authorization-code--token-cross-tenant-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the consume predicate includes the authenticated presenting client, so client B presenting client A's code gets invalid_grant 'invalid code' and A's code survives (the request row stays); Go consumed the code first and burned it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "269a206f524eeb568bdc4b495ee3af6ad74f51e42cfcc3373a25a9b8df9f81a6"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-cross-tenant.json",
+    "expectation": "security/oauth_token_authorization-code--token-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the consume predicate includes the authenticated presenting client, so client B presenting client A's code gets invalid_grant 'invalid code' and A's code survives (the request row stays); Go consumed the code first and burned it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "8770c0390269100566aef2f02dcca7132ce1fe9ffcc146474cb1aef6b0b3a83e"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-invalid-basic.json",
+    "expectation": "security/oauth_token_authorization-code--token-invalid-basic.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "14f60d83c61a7ca9cf226d6ba0fcefad89e8e960b0d4019c0ce1b63c61649b19"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-invalid-input.json",
+    "expectation": "security/oauth_token_authorization-code--token-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "d4712206b024b8390408f645832f2637528f32e3ccf71122f78a0730a6846ef2"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-malformed-form.json",
+    "expectation": "security/oauth_token_authorization-code--token-malformed-form.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a27426de4f739d5ff6c6877a0d97cf3a9263cbf43a48598cb34ac5f40f8e0440"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-mixed-auth.json",
+    "expectation": "security/oauth_token_authorization-code--token-mixed-auth.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "08e1a7b529dd587c800187a80bf214d974aee1906e9ae248f7de284f69fccf70"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-pkce-absent.json",
+    "expectation": "security/oauth_token_authorization-code--token-pkce-absent.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a5c22796520c859b99a4e14b23a8d1b2357b108f44c13d93f6543dece2debf71"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-pkce-missing.json",
+    "expectation": "security/oauth_token_authorization-code--token-pkce-missing.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "136d8406e9743bec8d43707b6ea1e629c1d36e5ed4d8f7e2e45f12c71481ae34"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-pkce-plain.json",
+    "expectation": "security/oauth_token_authorization-code--token-pkce-plain.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "f5f4639fb4f5408c31362109fb17139e6839cb5f522a24db8eacab0df1972a9d"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-pkce-wrong.json",
+    "expectation": "security/oauth_token_authorization-code--token-pkce-wrong.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "bae4e7b268dc72d9eaeda0a9589ca0ea35364e9ef0142925cba2700dbdd07517"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-redirect-mismatch.json",
+    "expectation": "security/oauth_token_authorization-code--token-redirect-mismatch.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "e58f809cb08f7025d072678a4519f759fb62c712c9cc7b6fd3834071db60b3a6"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-repeat.json",
+    "expectation": "security/oauth_token_authorization-code--token-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "cba3f236691d357d21a7f227b9e94d5f69d588735e74d55bd0594f2339fb56a4"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-success.json",
+    "expectation": "security/oauth_token_authorization-code--token-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "329b4f7e50aab12a887070446079e9cff7a08bc2d82de3a3d18437533149e3de"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-wrong-secret-rows.json",
+    "expectation": "security/oauth_token_authorization-code--token-wrong-secret-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the client is authenticated before the single-use authorization code is consumed, so an unauthenticated attempt (wrong secret) leaves the code redeemable; Go consumes the code first and burns it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "59bd17716691e30c5d50414d0912c2d94d9e5c03ab1893731774255381c1d7ea"
+  },
+  {
+    "baseline": "qualified/oauth_token_authorization-code--token-wrong-secret.json",
+    "expectation": "security/oauth_token_authorization-code--token-wrong-secret.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): the client is authenticated before the single-use authorization code is consumed, so an unauthenticated attempt (wrong secret) leaves the code redeemable; Go consumes the code first and burns it. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "53e7a6479022c2edb6ca590fc3420d009a64f984d1f8d47bd2a09ac3f90d8eba"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-attach-statement.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-attach-statement.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "9d0f6af5edd72f20edecc85cd8f89518d6444ee131bf36d4430b561e6ba99e48"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-cross-tenant.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "a9506945e1cefca71ce4e42c95c893e5d7218df312432a2cd4498cb05b4d3d12"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-invalid-input.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-invalid-input.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "1333884836f8e2177772ff19d3c2a0f54f82814dd247d5aab30a041d79520cc2"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-repeat-rows.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-repeat-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): presenting an already-rotated refresh token is token reuse: Rust revokes the whole refresh family (the live successor's revoked_at is set) while still answering invalid_grant; Go leaves the successor active. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "fa264f55f1b0689c9978baadef64afced8120221b072aec5bb45b027d3681924"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-repeat.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): presenting an already-rotated refresh token is token reuse: Rust revokes the whole refresh family (the live successor's revoked_at is set) while still answering invalid_grant; Go leaves the successor active. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "e9a74c2d69adc8a389de9bfb76d31c1827e7b136770c444d794f8e82770f99d0"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-scope-narrow-rows.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-scope-narrow-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): a narrowed-scope refresh spends the presented refresh token and rotates like any refresh (the successor joins the family and a refresh_token is returned, the predecessor is revoked); Go minted an access token without rotating, leaving the token reusable and outside reuse detection. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c640731c24ca9d52e9d0bc5b9621a726a07440bf7aa94e668d1fec167a87cfc1"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-scope-narrow.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-scope-narrow.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): a narrowed-scope refresh spends the presented refresh token and rotates like any refresh (the successor joins the family and a refresh_token is returned, the predecessor is revoked); Go minted an access token without rotating, leaving the token reusable and outside reuse detection. Responses also gain no-store/no-cache.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "71a6c560dd282776c93308dcfe0a6a20f873623c1e6d1d81326a2d9038bef1df"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-scope-widen.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-scope-widen.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "3d4b498c241cbb23aca3ecbb88a038224f78a24b684b41dab1542c6aead6a4d9"
+  },
+  {
+    "baseline": "qualified/oauth_token_refresh-token--refresh-success.json",
+    "expectation": "security/oauth_token_refresh-token--refresh-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): /oauth/token responses, errors included, carry Cache-Control: no-store and Pragma: no-cache (RFC 6749 section 5.1); frozen Go sends neither. Nothing else differs.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "362c307acc0d27524722349ec78f583a723295d66420de04c33050c4c2013c9f"
+  },
+  {
+    "baseline": "qualified/revoke--revoke-legacy-rows.json",
+    "expectation": "security/revoke--revoke-legacy-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): legacy CFB access tokens are no longer decoded, so a revocation naming one cannot resolve a stored row and revokes nothing; Go decoded the token and revoked its row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c04e28cb2ac4377cba3a85ea4aa06dd2c03abcbefd5795ecf1dbfbeb090ed9c0"
+  },
+  {
+    "baseline": "qualified/revoke--revoke-legacy.json",
+    "expectation": "security/revoke--revoke-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): legacy CFB access tokens are no longer decoded, so a revocation naming one cannot resolve a stored row and revokes nothing; Go decoded the token and revoked its row.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "5819504cf01711682ae04054fb393d01743fe86c77b014c680e8d16fe36a2441"
+  },
+  {
+    "baseline": "qualified/userinfo--userinfo-legacy-rows.json",
+    "expectation": "security/userinfo--userinfo-legacy-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (bit flips rewrite the subject); userinfo answers 401 access token invalid and the attempt counts as a failure.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "cced452bf9b9f3942ff474f4ba2a912b9bc25ab59ee6ca145162b50442ac525f"
+  },
+  {
+    "baseline": "qualified/userinfo--userinfo-legacy.json",
+    "expectation": "security/userinfo--userinfo-legacy.json",
+    "reason": "owner-approved security fix 2026-11-05 (#523): integrity-less legacy CFB access tokens are no longer accepted (bit flips rewrite the subject); userinfo answers 401 access token invalid and the attempt counts as a failure.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "sha256": "c47e9b57332406a73c3e7647e6cdd0339d02b382aa634e75047c05fc1f71daac"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "password_from_selected_file": true,
+  "exit": 1,
+  "peer_denial_preserved": true,
+  "no_sql_executed": true,
+  "requests": [
+    {
+      "path": "/setup/restore",
+      "body": "{\"provider\":\"\",\"endpoint\":\"\",\"region\":\"\",\"bucket\":\"fixture\",\"access_key\":\"mctl4-fixture-access\",\"secret_key\":\"mctl4-fixture-secret\",\"type\":\"blobs\"}",
+      "content-type": "application/json"
+    }
+  ]
+}

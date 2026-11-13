@@ -1,0 +1,223 @@
+{
+  "case": "foreign",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "assignments": [
+            {
+              "by": "<admin>",
+              "eligible": false,
+              "expires": null,
+              "override": null,
+              "role": "admin2-grant",
+              "scope_id": null,
+              "scope_type": null,
+              "user": "<admin>"
+            }
+          ],
+          "jobs": [],
+          "roles": [
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-domain-role",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-grant",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create"
+              ],
+              "scope": "<other-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-high",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create",
+                "domains.write"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": "security",
+              "description": "",
+              "name": "admin2-sec",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": "system",
+              "description": "",
+              "name": "admin2-sys",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-target-role",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": null
+            }
+          ]
+        },
+        "before": {
+          "assignments": [
+            {
+              "by": "<admin>",
+              "eligible": false,
+              "expires": null,
+              "override": null,
+              "role": "admin2-grant",
+              "scope_id": null,
+              "scope_type": null,
+              "user": "<admin>"
+            }
+          ],
+          "jobs": [],
+          "roles": [
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-domain-role",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": "<target-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-grant",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create"
+              ],
+              "scope": "<other-domain>"
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-high",
+              "permissions": [
+                "roles.manage",
+                "users.read",
+                "users.create",
+                "domains.write"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": "security",
+              "description": "",
+              "name": "admin2-sec",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": "system",
+              "description": "",
+              "name": "admin2-sys",
+              "permissions": [
+                "queue.read"
+              ],
+              "scope": null
+            },
+            {
+              "builtin": false,
+              "class": null,
+              "description": "",
+              "name": "admin2-target-role",
+              "permissions": [
+                "users.read"
+              ],
+              "scope": null
+            }
+          ]
+        },
+        "table": "roles"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/permissions",
+      "method": "GET",
+      "path": "/admin/permissions"
+    },
+    "response": {
+      "body": "[{\"key\":\"access.policy_read\",\"category\":\"Access\",\"description\":\"Read conditional-access policies, excludes, and sign-in log\",\"isSensitive\":false},{\"key\":\"access.policy_write\",\"category\":\"Access\",\"description\":\"Mutate CA policies, excludes, and break-glass accounts (sensitive)\",\"isSensitive\":true},{\"key\":\"apps.manage\",\"category\":\"Applications\",\"description\":\"Install, update, disable and remove curated application runtimes\",\"isSensitive\":true},{\"key\":\"apps.view\",\"category\":\"Applications\",\"description\":\"View curated application runtime and operation state\",\"isSensitive\":false},{\"key\":\"approvals.manage\",\"category\":\"Approvals\",\"description\":\"Create/edit/delete approval policies\",\"isSensitive\":true},{\"key\":\"approvals.view\",\"category\":\"Approvals\",\"description\":\"View and audit approval requests\",\"isSensitive\":false},{\"key\":\"audit.export\",\"category\":\"Audit\",\"description\":\"Export audit trail records (the only permitted audit-trail export path)\",\"isSensitive\":true},{\"key\":\"audit.read\",\"category\":\"Audit\",\"description\":\"View audit logs, login history\",\"isSensitive\":false},{\"key\":\"backup.read\",\"category\":\"Backup\",\"description\":\"View backup status, restore history\",\"isSensitive\":false},{\"key\":\"backup.write\",\"category\":\"Backup\",\"description\":\"Trigger backup, initiate restore\",\"isSensitive\":true},{\"key\":\"chat.compliance_manage\",\"category\":\"Chat\",\"description\":\"Administer chat retention, legal hold, classification and purge\",\"isSensitive\":true},{\"key\":\"chat.compliance_view\",\"category\":\"Chat\",\"description\":\"View chat retention policies, holds, classifications and audit chains\",\"isSensitive\":false},{\"key\":\"chat.ediscovery\",\"category\":\"Chat\",\"description\":\"Search, read and export chat content for eDiscovery cases\",\"isSensitive\":true},{\"key\":\"compliance.read\",\"category\":\"Compliance\",\"description\":\"View eDiscovery, retention policies, DLP\",\"isSensitive\":false},{\"key\":\"compliance.write\",\"category\":\"Compliance\",\"description\":\"Create eDiscovery cases, edit policies\",\"isSensitive\":true},{\"key\":\"directory.groups.manage\",\"category\":\"Directory\",\"description\":\"Create and reconcile normalized directory groups\",\"isSensitive\":true},{\"key\":\"directory.groups.read\",\"category\":\"Directory\",\"description\":\"Read reachable normalized directory groups\",\"isSensitive\":false},{\"key\":\"domains.read\",\"category\":\"Domains\",\"description\":\"View domain configuration\",\"isSensitive\":false},{\"key\":\"domains.write\",\"category\":\"Domains\",\"description\":\"Add/remove domains, change DNS config\",\"isSensitive\":true},{\"key\":\"drive.manage\",\"category\":\"Drive\",\"description\":\"Administer drive spaces, quotas, classification and compliance policy\",\"isSensitive\":true},{\"key\":\"drive.view\",\"category\":\"Drive\",\"description\":\"View drive spaces, membership, locks and audit chains\",\"isSensitive\":false},{\"key\":\"exchange.assessment.attest\",\"category\":\"Exchange replacement\",\"description\":\"Attach operator and completeness attestations\",\"isSensitive\":true},{\"key\":\"exchange.assessment.audit\",\"category\":\"Exchange replacement\",\"description\":\"Read and export assessment evidence and audit records\",\"isSensitive\":true},{\"key\":\"exchange.assessment.decide\",\"category\":\"Exchange replacement\",\"description\":\"Accept, reject or waive capability mappings\",\"isSensitive\":true},{\"key\":\"exchange.assessment.delete\",\"category\":\"Exchange replacement\",\"description\":\"Delete assessment artifacts and request backup-expiry closure\",\"isSensitive\":true},{\"key\":\"exchange.assessment.publish\",\"category\":\"Exchange replacement\",\"description\":\"Publish evidence-derived comparison claims\",\"isSensitive\":true},{\"key\":\"exchange.assessment.read\",\"category\":\"Exchange replacement\",\"description\":\"View assessment projects, runs, facts, reports and receipts\",\"isSensitive\":false},{\"key\":\"exchange.assessment.run\",\"category\":\"Exchange replacement\",\"description\":\"Create, upload, validate, process, cancel and resume assessments\",\"isSensitive\":true},{\"key\":\"federation.manage\",\"category\":\"Federation\",\"description\":\"Manage the cross-org federation allow-list and trust anchors\",\"isSensitive\":true},{\"key\":\"guests.manage\",\"category\":\"Guests\",\"description\":\"Invite, disable, expire and manage external guest accounts\",\"isSensitive\":true},{\"key\":\"guests.view\",\"category\":\"Guests\",\"description\":\"View guest accounts, their status and grants\",\"isSensitive\":false},{\"key\":\"identity.write\",\"category\":\"Identity\",\"description\":\"Edit identity/directory configuration: auth methods, AD/LDAP, conditional access, group mappings, address policies\",\"isSensitive\":true},{\"key\":\"mam.read\",\"category\":\"MAM\",\"description\":\"View MAM policies, device list, events\",\"isSensitive\":false},{\"key\":\"mam.write\",\"category\":\"MAM\",\"description\":\"Change policies, lock/wipe devices\",\"isSensitive\":true},{\"key\":\"mail.export\",\"category\":\"Mail\",\"description\":\"Export mailbox contents (MBOX/EML) â privileged bulk content read, granted per role explicitly\",\"isSensitive\":true},{\"key\":\"mail.offline_policy\",\"category\":\"Mail\",\"description\":\"Offline-cache governance: policy CRUD and org enable/disable toggle\",\"isSensitive\":true},{\"key\":\"mail.pipeline\",\"category\":\"Mail\",\"description\":\"SMTP pipeline config, mail rules, branding\",\"isSensitive\":false},{\"key\":\"mail.security\",\"category\":\"Mail\",\"description\":\"DLP, TLS, anti-phishing, spam threshold (å®å¨ç­ç¥ surface)\",\"isSensitive\":true},{\"key\":\"office.manage\",\"category\":\"Office\",\"description\":\"Configure, drain, disable and remove Office providers\",\"isSensitive\":true},{\"key\":\"office.view\",\"category\":\"Office\",\"description\":\"View Office provider policy, health, evidence and removal state\",\"isSensitive\":false},{\"key\":\"queue.read\",\"category\":\"Queue\",\"description\":\"View outbound queue status\",\"isSensitive\":false},{\"key\":\"queue.write\",\"category\":\"Queue\",\"description\":\"Retry, bounce, purge queue items\",\"isSensitive\":false},{\"key\":\"reports.read\",\"category\":\"Reports\",\"description\":\"View storage, traffic, user activity reports\",\"isSensitive\":false},{\"key\":\"roles.manage\",\"category\":\"Roles\",\"description\":\"Create/edit/delete role groups\",\"isSensitive\":true},{\"key\":\"security.write\",\"category\":\"Security\",\"description\":\"Threat settings, TLS config, spam threshold\",\"isSensitive\":true},{\"key\":\"sharing.manage\",\"category\":\"Sharing\",\"description\":\"Set org/OU/group sharing defaults; override any user's sharing\",\"isSensitive\":true},{\"key\":\"sharing.read\",\"category\":\"Sharing\",\"description\":\"View sharing defaults and who-can-see-what audit\",\"isSensitive\":false},{\"key\":\"system.config\",\"category\":\"System\",\"description\":\"Change gateway config, feature toggles\",\"isSensitive\":true},{\"key\":\"system.recovery\",\"category\":\"System\",\"description\":\"Open and resolve bounded client-assisted mail recovery incidents\",\"isSensitive\":true},{\"key\":\"system.upgrade\",\"category\":\"System\",\"description\":\"Trigger software upgrade\",\"isSensitive\":true},{\"key\":\"users.create\",\"category\":\"Users\",\"description\":\"Create and update user accounts\",\"isSensitive\":false},{\"key\":\"users.delete\",\"category\":\"Users\",\"description\":\"Permanently delete users\",\"isSensitive\":true},{\"key\":\"users.impersonate\",\"category\":\"Users\",\"description\":\"Impersonate another user mailbox\",\"isSensitive\":true},{\"key\":\"users.password_reset\",\"category\":\"Users\",\"description\":\"Reset non-admin passwords\",\"isSensitive\":false},{\"key\":\"users.read\",\"category\":\"Users\",\"description\":\"View users, profiles, aliases\",\"isSensitive\":false},{\"key\":\"users.suspend\",\"category\":\"Users\",\"description\":\"Enable/disable (åå¯) user accounts and modify security-sensitive attributes\",\"isSensitive\":true}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/permissions"
+}

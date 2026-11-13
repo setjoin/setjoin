@@ -1,0 +1,192 @@
+-- pgTAP: jmap_email_set_update — a no-op patch has no effect (#219).
+-- Owner decision 2026-10-29 (found by the #212 parity oracle): a message joins
+-- the post-loop batch (ONE jmap_email_state bump + its `updated` journal row +
+-- ONE push) only when at least one of its fields actually changed. A no-op is
+-- still reported in `updated` (JMAP: the patch succeeded), but must not bump
+-- state, journal, or push. Covers every patch key the reducer handles.
+BEGIN;
+SELECT plan(32);
+
+SET LOCAL app.capture_notify = 'on';
+
+CREATE TEMP TABLE _acct AS SELECT mk_account('noopupd') AS mb;
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+SELECT v.id, a.mb, get_tag_id('Inbox', a.mb), '<noop' || v.id || '@noop.test>', 'Noop ' || v.id,
+       'n@ext.com', 100, 'thr-' || v.id, 's3://raw-' || v.id, now(), v.is_read
+FROM _acct a, (VALUES (21901::BIGINT, TRUE), (21902, FALSE), (21903, FALSE)) AS v(id, is_read);
+SELECT tag_message(id, received_at, 'Inbox', mailbox_id, 'deliver', TRUE)
+FROM messages WHERE id IN (21901, 21902, 21903);
+-- 21903 also carries a user label so the mailboxIds no-op has a multi-label set.
+INSERT INTO tags (mailbox_id, name, tag_type) SELECT mb, 'NoopLabel', 'user' FROM _acct;
+SELECT tag_message(21903, (SELECT received_at FROM messages WHERE id = 21903), 'NoopLabel',
+                   (SELECT mb FROM _acct), 'user', FALSE);
+
+-- Observation helpers: email state, email journal rows, pushes on tag:{mb}.
+CREATE TEMP TABLE _obs (label TEXT PRIMARY KEY, email_state BIGINT, tag_state BIGINT,
+                        journal INT, pushes INT, unread INT);
+CREATE FUNCTION pg_temp.obs(p_label TEXT) RETURNS VOID LANGUAGE sql AS $$
+  INSERT INTO _obs
+  SELECT p_label, mb.jmap_email_state, mb.jmap_tag_state,
+         (SELECT count(*)::INT FROM jmap_changes_journal j
+           WHERE j.mailbox_id = mb.id AND j.datatype = 'email'),
+         notify_count('tag:' || mb.id),
+         (SELECT unread_count FROM tags WHERE mailbox_id = mb.id AND name = 'Inbox')
+  FROM mailboxes mb WHERE mb.id = (SELECT mb FROM _acct);
+$$;
+CREATE FUNCTION pg_temp.upd(p_patch JSONB) RETURNS JSONB LANGUAGE sql AS $$
+  SELECT jmap_email_set_update((SELECT mb FROM _acct), p_patch);
+$$;
+
+-- ── 1. Repeated $seen=true on an already-read message: no effect ───────────
+SELECT pg_temp.obs('s0');
+CREATE TEMP TABLE _r1 AS SELECT pg_temp.upd('{"21901":{"keywords":{"$seen":true}}}') AS r;
+SELECT pg_temp.obs('s1');
+
+SELECT is((SELECT r->'updated' FROM _r1), '[21901]'::jsonb,
+  'no-op $seen: the message is still reported in updated');
+SELECT is((SELECT r->>'newState' FROM _r1), (SELECT r->>'oldState' FROM _r1),
+  'no-op $seen: newState equals oldState');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's1'),
+          (SELECT email_state FROM _obs WHERE label = 's0'),
+  'no-op $seen: jmap_email_state not bumped');
+SELECT is((SELECT journal FROM _obs WHERE label = 's1'),
+          (SELECT journal FROM _obs WHERE label = 's0'),
+  'no-op $seen: no updated journal row');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's1'),
+          (SELECT pushes FROM _obs WHERE label = 's0'),
+  'no-op $seen: no push');
+SELECT is((SELECT unread FROM _obs WHERE label = 's1'),
+          (SELECT unread FROM _obs WHERE label = 's0'),
+  'no-op $seen: unread_count unchanged');
+
+-- ── 2. A real change ($seen false→true) still bumps exactly once ───────────
+CREATE TEMP TABLE _r2 AS SELECT pg_temp.upd('{"21902":{"keywords":{"$seen":true}}}') AS r;
+SELECT pg_temp.obs('s2');
+
+SELECT is((SELECT email_state FROM _obs WHERE label = 's2'),
+          (SELECT email_state + 1 FROM _obs WHERE label = 's1'),
+  'real $seen change: jmap_email_state bumped exactly once');
+SELECT is((SELECT r->>'newState' FROM _r2), (SELECT (email_state)::TEXT FROM _obs WHERE label = 's2'),
+  'real $seen change: newState is the bumped state');
+SELECT is((SELECT journal FROM _obs WHERE label = 's2'),
+          (SELECT journal + 1 FROM _obs WHERE label = 's1'),
+  'real $seen change: exactly one journal row');
+SELECT is((SELECT count(*)::INT FROM jmap_changes_journal
+            WHERE mailbox_id = (SELECT mb FROM _acct) AND datatype = 'email'
+              AND state_seq = (SELECT email_state FROM _obs WHERE label = 's2')
+              AND entity_id = 21902),
+  1, 'real $seen change: the journal row names the changed message');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's2'),
+          (SELECT pushes + 1 FROM _obs WHERE label = 's1'),
+  'real $seen change: exactly one push');
+SELECT is((SELECT unread FROM _obs WHERE label = 's2'),
+          (SELECT unread - 1 FROM _obs WHERE label = 's1'),
+  'real $seen change: unread_count decremented');
+
+-- ── 3. Mixed batch: 21901 (already read, no-op) + 21903 (unread, change) ───
+CREATE TEMP TABLE _r3 AS SELECT pg_temp.upd(
+  '{"21901":{"keywords":{"$seen":true}},"21903":{"keywords":{"$seen":true}}}') AS r;
+SELECT pg_temp.obs('s3');
+
+SELECT is((SELECT jsonb_array_length(r->'updated') FROM _r3), 2,
+  'mixed batch: both messages reported in updated');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's3'),
+          (SELECT email_state + 1 FROM _obs WHERE label = 's2'),
+  'mixed batch: jmap_email_state bumped exactly once');
+SELECT is((SELECT journal FROM _obs WHERE label = 's3'),
+          (SELECT journal + 1 FROM _obs WHERE label = 's2'),
+  'mixed batch: one journal row (only the changed message)');
+SELECT is((SELECT array_agg(entity_id) FROM jmap_changes_journal
+            WHERE mailbox_id = (SELECT mb FROM _acct) AND datatype = 'email'
+              AND state_seq = (SELECT email_state FROM _obs WHERE label = 's3')),
+  ARRAY[21903::BIGINT], 'mixed batch: the journal names only the changed message');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's3'),
+          (SELECT pushes + 1 FROM _obs WHERE label = 's2'),
+  'mixed batch: exactly one push');
+
+-- ── 4. Every other patch key: a no-op value has no effect ──────────────────
+-- 4a. Every keyword already at its stored value ($flagged=false also exercises
+--     the flag_due_at/flag_reminder_at clearing arm, already NULL).
+SELECT pg_temp.upd('{"21901":{"keywords":{"$seen":true,"$flagged":false,"$answered":false,"$draft":false}}}');
+SELECT pg_temp.obs('s4a');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4a'),
+          (SELECT email_state FROM _obs WHERE label = 's3'),
+  'no-op keywords (all four): jmap_email_state not bumped');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's4a'),
+          (SELECT pushes FROM _obs WHERE label = 's3'),
+  'no-op keywords (all four): no push');
+
+-- 4b. flagDueAt / flagReminderAt equal to the stored instants.
+UPDATE messages SET flag_due_at = '2026-06-20T17:00:00Z', flag_reminder_at = '2026-06-20T16:00:00Z'
+WHERE id = 21901 AND mailbox_id = (SELECT mb FROM _acct);
+SELECT pg_temp.obs('s4b0');
+SELECT pg_temp.upd('{"21901":{"flagDueAt":"2026-06-20T17:00:00Z","flagReminderAt":"2026-06-20T16:00:00Z"}}');
+SELECT pg_temp.obs('s4b');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4b'),
+          (SELECT email_state FROM _obs WHERE label = 's4b0'),
+  'no-op flagDueAt/flagReminderAt: jmap_email_state not bumped');
+SELECT is((SELECT journal FROM _obs WHERE label = 's4b'),
+          (SELECT journal FROM _obs WHERE label = 's4b0'),
+  'no-op flagDueAt/flagReminderAt: no journal row');
+
+-- 4c. pinned=false on an unpinned message.
+SELECT pg_temp.upd('{"21901":{"pinned":false}}');
+SELECT pg_temp.obs('s4c');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4c'),
+          (SELECT email_state FROM _obs WHERE label = 's4b'),
+  'no-op pinned=false: jmap_email_state not bumped');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's4c'),
+          (SELECT pushes FROM _obs WHERE label = 's4b'),
+  'no-op pinned=false: no push');
+
+-- 4d. mailboxIds equal to the current label set (Inbox primary + NoopLabel).
+CREATE TEMP TABLE _tags_before AS
+  SELECT tag_id, is_primary FROM message_tags WHERE message_id = 21903;
+SELECT pg_temp.upd(jsonb_build_object('21903', jsonb_build_object('mailboxIds',
+  jsonb_build_object(get_tag_id('Inbox', (SELECT mb FROM _acct))::TEXT, true,
+                     get_tag_id('NoopLabel', (SELECT mb FROM _acct))::TEXT, true))));
+SELECT pg_temp.obs('s4d');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4d'),
+          (SELECT email_state FROM _obs WHERE label = 's4c'),
+  'no-op mailboxIds: jmap_email_state not bumped');
+SELECT is((SELECT tag_state FROM _obs WHERE label = 's4d'),
+          (SELECT tag_state FROM _obs WHERE label = 's4c'),
+  'no-op mailboxIds: jmap_tag_state not bumped');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's4d'),
+          (SELECT pushes FROM _obs WHERE label = 's4c'),
+  'no-op mailboxIds: no push');
+SELECT set_eq('SELECT tag_id, is_primary FROM message_tags WHERE message_id = 21903',
+              'SELECT tag_id, is_primary FROM _tags_before',
+  'no-op mailboxIds: label set and primary unchanged');
+
+-- 4e. mailboxIds no-op still refuses a foreign tag (BZ002 ownership check kept).
+CREATE TEMP TABLE _other AS SELECT mk_account('noopother') AS mb;
+SELECT throws_ok(
+  format($q$SELECT jmap_email_set_update(%s, '{"21903":{"mailboxIds":{"%s":true,"%s":true}}}'::jsonb)$q$,
+         (SELECT mb FROM _acct), get_tag_id('Inbox', (SELECT mb FROM _acct)),
+         get_tag_id('Inbox', (SELECT mb FROM _other))),
+  'BZ002', NULL, 'mailboxIds with a foreign tag still raises BZ002');
+
+-- 4f. A real non-$seen change still bumps once (flagDueAt changes).
+SELECT pg_temp.upd('{"21901":{"flagDueAt":"2026-07-01T09:00:00Z"}}');
+SELECT pg_temp.obs('s4f');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4f'),
+          (SELECT email_state + 1 FROM _obs WHERE label = 's4d'),
+  'real flagDueAt change: jmap_email_state bumped exactly once');
+SELECT is((SELECT pushes FROM _obs WHERE label = 's4f'),
+          (SELECT pushes + 1 FROM _obs WHERE label = 's4d'),
+  'real flagDueAt change: exactly one push');
+
+-- 4g. A real mailboxIds change (drop NoopLabel) still bumps once and re-labels.
+SELECT pg_temp.upd(jsonb_build_object('21903', jsonb_build_object('mailboxIds',
+  jsonb_build_object(get_tag_id('Inbox', (SELECT mb FROM _acct))::TEXT, true))));
+SELECT pg_temp.obs('s4g');
+SELECT is((SELECT email_state FROM _obs WHERE label = 's4g'),
+          (SELECT email_state + 1 FROM _obs WHERE label = 's4f'),
+  'real mailboxIds change: jmap_email_state bumped exactly once');
+SELECT is((SELECT count(*)::INT FROM message_tags WHERE message_id = 21903), 1,
+  'real mailboxIds change: NoopLabel removed');
+
+SELECT * FROM finish();
+ROLLBACK;

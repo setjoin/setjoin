@@ -1,0 +1,1171 @@
+[
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "unsigned",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "missing-selector",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: d=dkim.smtp2.test; a=rsa-sha256\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "rsa-pass",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "expired-signature-still-passes",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=Cu3ObjGYeDrba0T6QV7YUzKPqgerAGvhTjqHUI+wUCBDN8Zkpa4QV24IXTJgfqlNMEYABhidEm/YfsTDzUE5O5r1wpf4YmDaSjfY+UuwqTI8wRjR8oqJL+/js1J7vHo8bx45BpiAILZKvPytLVVjRS/ijGKPDVQLVcjW7HT5ipzg6O5yzMOyD8XLAWmHAPvvd0wLlt4NNi2HyBKplj3yY1sW45BPiEg2Y7Y75U0ttSNTCXNnKH7xQFp8efUF16DcdU/lAIcGne6NlT3aOGigB/rFuadN2dKUSY8/p0sxWnbgv0xVhsbceSgPE/gwohvS9omu4pmmhlBUANzIwMFbtA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "simple-signature",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=RVS9rHyWyuSwLxcma5cviPDcwbKfVerHFC0bHzVZ35HZSc7OYR67BdNCfCyFOIF11lG3vTxjB7LVpc1oYdJZSKvsjz5hz7Ym9B6T2kf8i4OTfiLUGNEZsT9NC0H9L2fotn2OiY5zQaToRoYm+dpY+gW7v5cMSwVaoGiCvagyaQeu3n+ObbOG/rpLc/JukF/rRgGaI0oa0nilPwBi+qbb6iJu8c39HbuchA9eHroHakSDH0R3/aN1HcxibbhmN3ufTN/eAu7NTxpooP7QoqUM7DRjgLjesXzOxi0+A5u6cIzpj/oUigA4xYgpFfNzSVBGoOEjw8033ILWxKT9xiIWWA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "header-whitespace",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=fHdcwbqhhqrJvwzCkcsqk+JmcWgAReXncrQKb7JxdNmO1WKgTelaYFswDFYTEFV15oaFqiHn6PVmzDme3cDhEVlBCAPBADM5imjcJxDnhgrURIeSNQUT7Yyzu4Hw9B/WYJZuMOLmF2Ph9BPF4ZnnPJY2bRAIU6ohVO2wdDwWvo2lzr2KuY8gBeKe5YqNssLmGUjRTDyWvQW4Pb0cbuMRaUKsq4q5WhFTGlqsKowFFsTg2R357vVSddYGtDQUXV1Z7O0o6sdLk8B/O5Reb4ZTJYi6EZOJO/dkhK6q9nczAhpLu/NJGj6Q9dpBrIuVANTio+cco9Z8FuE5iCXjC2hkJw==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM  fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "body-relaxation",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=Cu3ObjGYeDrba0T6QV7YUzKPqgerAGvhTjqHUI+wUCBDN8Zkpa4QV24IXTJgfqlNMEYABhidEm/YfsTDzUE5O5r1wpf4YmDaSjfY+UuwqTI8wRjR8oqJL+/js1J7vHo8bx45BpiAILZKvPytLVVjRS/ijGKPDVQLVcjW7HT5ipzg6O5yzMOyD8XLAWmHAPvvd0wLlt4NNi2HyBKplj3yY1sW45BPiEg2Y7Y75U0ttSNTCXNnKH7xQFp8efUF16DcdU/lAIcGne6NlT3aOGigB/rFuadN2dKUSY8/p0sxWnbgv0xVhsbceSgPE/gwohvS9omu4pmmhlBUANzIwMFbtA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody \t line  \t\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "signed-prefix-with-untrusted-tail",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; l=4; bh=Iw2DWNyOiJC0xY3utikS7i8gNXrpKlzIYbmOaP4xrLU=; b=EdFxM84wpyZLBCv8pwZkkp+w31Kb72WYlE+fHdr6+viWlq63olTgGCy/E7R7TJp8uV7zXz/4a9jTP62BapEYV54jrxbaT1H7w+DQ+bW44Wlijvh+KY7fDDjULau9k8aHqAFwttQol7jEcZzfiQ6xqO2IVTnEXtZftjkfROzuD/eNtkpiL6lCAWC7prT4u1vkFNBB/v8MCox5nXXBYObFmXVBwi4QOVEC4CezahKLAXbNKK0yq8JF4C+GZxo+Q8dbXBf/8nrP8SV7oo1grhiR/dm15BHr88Yl9QeEK5gbI8jc+N1fzBBdONy6h+ZEu9uebU189cEzZOwz+CjZndLrjw==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "zero-length-empty-body",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=0; bh=47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=; b=fqn1+pe97w1W20Zsfvak3BEPOhtupWY9RVTJT/lvUEtWTeYSZA2xeVON9rrC+xd7vNvIF9O26IUzLj3R8JDxquFGj2w2nIvzz7GbgyTk3yjCxgDMVvCzZNe+W8WTt2oEVNOFBy3RWgrXxfrGEeYbICnB+pjEmgWZTCYWpQBFslVSpi8CKNn6ifpIVRd5gsttiP/4neo961Tv1n7/TC2xzFe6EUaO495a33pbF/bAqA0RuadjExD6LvtCmXdcvvNtpjs8pX1hGrO+anhScKC0Es4V3uMzbsiovltYz9TOmKtywpJR0ipIKA/HMYRGVu52V8aT07JxyxQQ2ghf4wsvQg==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "tampered-body",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nevil line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "tampered-header",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: evil\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "observe_effects": true,
+    "name": "dns-nxdomain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": "temporary"
+    },
+    "observe_effects": true,
+    "name": "dns-temporary",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "some unrelated record"
+      ]
+    },
+    "observe_effects": true,
+    "name": "no-key-record",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p="
+      ]
+    },
+    "observe_effects": true,
+    "name": "revoked-key",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; p=oops!"
+      ]
+    },
+    "observe_effects": true,
+    "name": "bad-base64-key",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; p=Z2FyYmFnZQ=="
+      ]
+    },
+    "observe_effects": true,
+    "name": "not-spki",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "rsa-sha1-forbidden",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha1; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "unsupported-algorithm",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=unknown; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=ed25519; p=MCowBQYDK2VwAyEA3hZd84HSrv47Wjmnoel0VwFQAVl8Po6NI9j8khbK+Uk="
+      ]
+    },
+    "observe_effects": true,
+    "name": "rsa-algorithm-ed-key",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=ed25519; p=MCowBQYDK2VwAyEA3hZd84HSrv47Wjmnoel0VwFQAVl8Po6NI9j8khbK+Uk="
+      ]
+    },
+    "observe_effects": true,
+    "name": "ed25519-go-direct-data",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=4udwm79pvYceF9t2BPbdEEk29WBBUoC8aLl1j99n+zk3/1cJCme4Zo0Eb7Fpz8/i+t76whNlnD4AZdsezlchDg==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "ed-algorithm-rsa-key",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=4udwm79pvYceF9t2BPbdEEk29WBBUoC8aLl1j99n+zk3/1cJCme4Zo0Eb7Fpz8/i+t76whNlnD4AZdsezlchDg==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "bad-signature",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=AAAAfuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "duplicate-domain-last-wins",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=victim.test; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "unsigned-query-identity-tags",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; q=invalid; i=forged@victim.test; z=whatever; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "first-signature-only",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: d=other.test; s=bad; a=rsa-sha1\r\nDKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1793832231; x=4102444800; h=from:to:subject:date; l=22; bh=1fZryatUjUenl5TM7D+TUzMZv7JxgI6lu7VmBqtsM8A=; b=fuJHg9gHN6bpNkavObv0UGkn07la7JI1HrDIV/aX1tc8M4VI29k/ILrAqAj2d++cVokQjNqonUM+Eysd+cFpv7hdwvwbToognWz5FBmRREA+mpefXQO2Q3EV1sE65mcVmDVR+Bdqowi0EOXvmK1vFUo9uOx3hPCgU9QeTIPhI43AoRSE9EU4bVXz8PNTehxLcODWmXHKFW1zy2O2LfsMBosx+nGKI/swEA1WYU+plnzdG/k/44abG4GkIP9XiRxqhucZg1Dxaz6ENKjf3hx0F+k3p2cq8qwLqYByYcPudT0ooHXV3pnds7Yn2tNMmf/ZtHDkrTMHxhc9VFf8OJHDnA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "unknown-canonicalization",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=unknown/unknown; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=NAtfomJMGcbsV+xVF56q8PSdwZEq2iTDwB5i85PoKnybmmth44syTPzQ+emRxbqI+qZTjp49KTar5sYd8zAC/a3iIISjw/dd/UnfsTpt0Cv+EZYUam7j7Wa44GR9Sgfaz0uTbaMlTpyyUNZ5gZDCC8mQ+84gdVQ/+t7CLWaIDmo/0X93OB+GEbjUGJXiPj2vgai8JoJYX8Fp5rCpl6117zWyFmsAfsUwqXL4f1T6Q5GdWpBiOEo/dFsboSPs3CwyP44fGpIqsfHzwzay74FJK9S47293KzzJyY//EDTuD7EUHuW4dQlAHM/dWG1CuC2zLvflt7ChSgB7ABjz5RRACA==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "mail_auth": {
+      "feature.dkim": true
+    },
+    "dns": {
+      "txt:sel._domainkey.dkim.smtp2.test": [
+        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQAB"
+      ]
+    },
+    "observe_effects": true,
+    "name": "duplicate-from",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003csender@dkim.smtp2.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=dkim.smtp2.test; s=sel; t=1; x=2; h=from:to:subject:date; bh=DpT4eM5beyFH0bMBSvPi3iAM93aPgz7sg0T8G7UnGZc=; b=SdXOWPHZScf3ykAwZplWQxoOiAsst3OcnngMlYbTVz289bHzL77Bk4AgUokQPIfYqR8BhantCjEB/DEI4pE9KGdMWrTt+hfbF272iVws/wOunU9Kz5HIXU+ZQXnRMwy+cSI/Qgmr3tgbjMElJe3f+j1ljxS1YU5TvD+4NB1nfve20pbOE5xjB/WB0cHjc1MBWlTBl0dhJ4mnk4Ixx47CIyhVo2wItpbg6Lmz6yFuf0q+SqiHCf7D77Gr2gXjsoreiXBduo+GOXvhKUi1hvM3mxrIlE7kZhjcQ0mDApFEsyhFIqWh1+IboxEDSOGzxGOuFCYx6TVd8mI7RLWYVIMUZg==\r\nFrom: Alice \u003csender@dkim.smtp2.test\u003e\r\nFrom: second@dkim.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: DKIM fixture\r\nDate: Thu, 10 Sep 2026 10:00:00 +0000\r\nMessage-Id: \u003cdkim@smtp2.test\u003e\r\n\r\nbody line\r\nsecond line\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  }
+]

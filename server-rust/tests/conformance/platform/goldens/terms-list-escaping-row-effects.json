@@ -1,0 +1,95 @@
+{
+  "case": "escaping-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "body_md": "z body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9101,
+          "lang": "en",
+          "name": "zeta",
+          "require_scroll": true,
+          "version": 1
+        },
+        {
+          "body_md": "a body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9102,
+          "lang": "fr",
+          "name": "Alpha",
+          "require_scroll": true,
+          "version": 2
+        },
+        {
+          "body_md": "b body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9103,
+          "lang": "en",
+          "name": "beta",
+          "require_scroll": true,
+          "version": 1
+        },
+        {
+          "body_md": "<script>&amp;   é 😀",
+          "created_at": "2026-10-02T10:00:00+00:00",
+          "enabled": false,
+          "id": 9111,
+          "lang": "en",
+          "name": "a<b>&c",
+          "require_scroll": false,
+          "version": 1
+        }
+      ],
+      "before": [
+        {
+          "body_md": "z body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9101,
+          "lang": "en",
+          "name": "zeta",
+          "require_scroll": true,
+          "version": 1
+        },
+        {
+          "body_md": "a body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9102,
+          "lang": "fr",
+          "name": "Alpha",
+          "require_scroll": true,
+          "version": 2
+        },
+        {
+          "body_md": "b body",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "id": 9103,
+          "lang": "en",
+          "name": "beta",
+          "require_scroll": true,
+          "version": 1
+        },
+        {
+          "body_md": "<script>&amp;   é 😀",
+          "created_at": "2026-10-02T10:00:00+00:00",
+          "enabled": false,
+          "id": 9111,
+          "lang": "en",
+          "name": "a<b>&c",
+          "require_scroll": false,
+          "version": 1
+        }
+      ],
+      "table": "terms_of_use"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/terms-of-use"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -id: parse error\nUsage of ca update:\n  -actions string\n    \tActions JSON\n  -conditions string\n    \tConditions JSON\n  -desc string\n    \tDescription\n  -enabled string\n    \tDEPRECATED: use --state. true→on, false→off\n  -id int\n    \tPolicy ID (required)\n  -name string\n    \tPolicy name\n  -scope string\n    \tScope type\n  -state string\n    \tPolicy state: report_only, on, off\n  -target string\n    \tScope target\n",
+  "exit": 2
+}

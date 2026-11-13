@@ -1,0 +1,28 @@
+{
+  "case": "invalid-input",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture actor, space and version IDs"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/office/wopi/files/{id}"
+    },
+    "response": {
+      "body": {
+        "detail": "invalid WOPI file id",
+        "instance": "",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "status": 400
+    }
+  },
+  "route": "GET /office/wopi/files/{id}"
+}

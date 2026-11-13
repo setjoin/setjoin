@@ -1,0 +1,98 @@
+[
+  {
+    "case": "impersonate-domain-scope",
+    "issue": "#495",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#495): a domain-scoped grant impersonates only targets in its own domains (403 otherwise, audited as domain_scope)",
+    "secure_test": "bins/auth/tests/secfix3.rs::scoped_admin_impersonates_only_inside_its_domains",
+    "mutant": "impersonate-foreign-domain"
+  },
+  {
+    "case": "bootstrap-revoked",
+    "issue": "#495",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#495): a revoked JWT receives no device secret on /device/register (401)",
+    "secure_test": "bins/auth/tests/secfix3.rs::revoked_token_gets_no_device_secret",
+    "mutant": "bootstrap-revoked-gets-secret"
+  },
+  {
+    "case": "bootstrap-bound",
+    "issue": "#495",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#495): a cnf-bound JWT needs a valid DPoP proof (ath, htm, htu) on /device/register",
+    "secure_test": "bins/auth/tests/secfix3.rs::bound_token_needs_a_dpop_proof_on_device_register",
+    "mutant": "bootstrap-bound-no-dpop"
+  },
+  {
+    "case": "drive-native-token-act",
+    "issue": "#495",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#495): the derived Drive token keeps the source token's act provenance",
+    "secure_test": "bins/auth/tests/secfix3.rs::drive_native_token_keeps_act_provenance",
+    "mutant": "drive-token-drops-act"
+  },
+  {
+    "baseline": "goldens/bootstrap-bound-rows.json",
+    "sha256": "24469259095522f68d81845a28a83d5cba3a0a964aa60faca4c94266e50d8c81",
+    "expectation": "security/bootstrap-bound-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a cnf-bound token without a valid DPoP proof gets no device secret (401, nothing written)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/bootstrap-bound.json",
+    "sha256": "5cb8d741de96aee5008c521c098b176fd36ba070ae665b8d67a725b7a058582d",
+    "expectation": "security/bootstrap-bound.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a cnf-bound token without a valid DPoP proof gets no device secret (401, nothing written)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/bootstrap-revoked-rows.json",
+    "sha256": "32405d49bd3f1a789563fcb98ac0f3dbd9ab16554cc5a6e9aa3031f0dcf64ebc",
+    "expectation": "security/bootstrap-revoked-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a revoked token gets no device secret (401, nothing written)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/bootstrap-revoked.json",
+    "sha256": "15b9bf78c5c9de8cee32384e9d783a4c5612bbf3fdb4fb7f0513a8bf82321e6c",
+    "expectation": "security/bootstrap-revoked.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a revoked token gets no device secret (401, nothing written)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/impersonate-domain-scope-rows.json",
+    "sha256": "dbcc3f8396f0dde324981309c066d254b3df762881464fc24a64b6f3dc758a9b",
+    "expectation": "security/impersonate-domain-scope-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a domain-scoped admin cannot impersonate a target outside its domains (403, audited as domain_scope)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/impersonate-domain-scope.json",
+    "sha256": "9ea56a3c2a00347f7d6a5fd58643e874f063773d25cf9c0a6a4413ab9635fad1",
+    "expectation": "security/impersonate-domain-scope.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: a domain-scoped admin cannot impersonate a target outside its domains (403, audited as domain_scope)).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  },
+  {
+    "baseline": "goldens/drive-native-actor.json",
+    "sha256": "652aef2421a7b16c32af6af980cb9801443fdd47db5bed4a42f5bc606da7933d",
+    "expectation": "security/drive-native-actor.json",
+    "reason": "owner-approved security fix 2026-11-05 (#495: the derived Drive token keeps the source token's act provenance).",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true
+  }
+]

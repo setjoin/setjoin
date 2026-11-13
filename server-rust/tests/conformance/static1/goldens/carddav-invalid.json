@@ -1,0 +1,34 @@
+{
+  "case": "carddav-invalid",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/.well-known/carddav"
+    },
+    "response": {
+      "body_length": 44,
+      "body_sha256": "4b92d7299e3f552c177bbb2f0013e575a23b5d877b58139eadcc476651f2074d",
+      "body_text": "<a href=\"/carddav/\">Moved Permanently</a>.\n\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "location": "/carddav/",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-carddav_invalid"
+      },
+      "status": 301
+    }
+  },
+  "route": "GET /.well-known/carddav"
+}

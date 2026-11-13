@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox purge-approve <approval-id> [--comment TEXT]\n",
+  "exit": 1
+}

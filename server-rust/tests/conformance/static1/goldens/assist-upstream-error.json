@@ -1,0 +1,58 @@
+{
+  "case": "assist-upstream-error",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [
+      {
+        "authorization": "Bearer static1-key",
+        "body": {
+          "messages": [
+            {
+              "content": "Context: compose reply. Respond in locale: fr",
+              "role": "system"
+            },
+            {
+              "content": "Say hi",
+              "role": "user"
+            },
+            {
+              "content": "downgraded",
+              "role": "user"
+            }
+          ],
+          "model": "static1-model"
+        },
+        "contentType": "application/json",
+        "method": "POST",
+        "uri": "/v1/chat/completions"
+      }
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/assist/complete"
+    },
+    "response": {
+      "body_length": 189,
+      "body_sha256": "8032f22139212926bc8c18af8badc1c54c1198d6028fd51423c331d66c3d6dce",
+      "body_text": "{\"type\":\"https://setjoin.com/errors/internal-error\",\"title\":\"Bad Gateway\",\"status\":502,\"detail\":\"The AI assist provider returned an error. Please try again.\",\"instance\":\"/assist/complete\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-assist_upstream_error"
+      },
+      "status": 502
+    }
+  },
+  "route": "POST /assist/complete"
+}

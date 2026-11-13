@@ -1,0 +1,61 @@
+# reach-coverage-allowlist.txt — exemptions for scripts/check-reach-coverage.sh
+#
+# Format (TAB-delimited):
+#   <basename>  <CLASS>  <unique lowercase substring>  <reason>
+#
+# CLASS ∈ WRAPPED|SUPER-ONLY|DOMAIN-ONLY|READ-ONLY
+#   WRAPPED     — reach check is present in this function (auto-passed by the
+#                 guard; allowlist entry only needed as documentation)
+#   SUPER-ONLY  — route is gated by a permission only held by org-level super-
+#                 admins; OU-scope narrowing is not applicable
+#   DOMAIN-ONLY — domain-scope is explicitly enforced (DomainScopeFromContext);
+#                 OU-scope pending as a later incremental tightening
+#   READ-ONLY   — function only reads data (no INSERT/UPDATE/DELETE on user
+#                 tables); information-disclosure risk is lower; OU-scope
+#                 enforcement deferred to a later iteration
+#
+# The unique substring must appear in the LOWERCASED Go function body for this
+# handler (not just anywhere in the file) — this prevents one entry from
+# masking a different, unreviewed handler in the same file.
+#
+# BLOCKED handlers (NOT listed here — guard will fail until fixed):
+#   admin_spam.go       ResetModel / DisableModel / EnableModel
+#     mutate user_spam_model (DELETE/INSERT/UPDATE) by caller-supplied userId
+#     with no domain or OU scope check; PermSecurityWrite is assignable to
+#     OU-scoped admins.  Add admin_can_reach() before these mutations.
+#   admin_departments.go  AssignUser
+#     UPDATE users SET department_id with no domain or OU scope; PermUsersCreate
+#     is assignable to OU-scoped admins.  Add admin_can_reach() before the UPDATE.
+#   admin_ad.go         SetFieldPolicy
+#     DELETE/INSERT on field_policy by caller-supplied req.UserID with no scope;
+#     PermIdentityWrite is assignable to OU-scoped admins.  Add admin_can_reach()
+#     or restrict to super-admin only.
+#
+# ── Genuinely exempt handlers ──────────────────────────────────────────────
+
+# admin_app_passwords.go — RevokeForUser
+#   Domain scope is explicitly enforced via DomainScopeFromContext: the UPDATE
+#   includes `AND user_id IN (SELECT id FROM users WHERE id=$2 AND domain_id=$3)`
+#   for scoped admins (indistinguishable from "not found" if out-of-scope).
+#   OU-scope is the next tightening; domain enforcement is in place.
+admin_app_passwords.go	DOMAIN-ONLY	apppasswordshandler) revokeforuser	domain-scoped app-password revocation (UPDATE app_passwords … domain_id predicate); OU-scope pending
+
+# admin_email_address_policy.go — Preview
+#   Calls the read-only email_address_policy_render reducer; no state mutation.
+#   The req.UserID is used as a parameter to simulate policy rendering for that
+#   user — equivalent to a read-only what-if query.  PermMailPipeline/identity
+#   gated at the route level.
+admin_email_address_policy.go	READ-ONLY	email_address_policy_render	read-only reducer call (email_address_policy_render) — no INSERT/UPDATE/DELETE on user tables
+
+# admin_mailboxes.go — Create
+#   Domain scope is explicitly enforced at lines ~259-263 via DomainScopeFromContext:
+#   if domainScope > 0 && domainID != domainScope → 403 Forbidden.  The user's
+#   domain_id is resolved from the DB (not trusted from the request) before the
+#   INSERT.  OU-scope is the next tightening; domain enforcement is in place.
+admin_mailboxes.go	DOMAIN-ONLY	mailboxeshandler) create	domain-scoped mailbox creation; explicit domain check (domainid != domainscope → 403) before INSERT
+
+# admin_ca_simulate.go — Simulate (classified 2026-07-02, guard-manifest rollout)
+#   Read-only what-if evaluation: builds a hypothetical PolicyEvalContext (optionally
+#   seeded from a ca_signin_log row), loads an uncached policy snapshot, calls
+#   engine.SimulateWithPolicies. No enforcement, no writes, no ca_signin_log append.
+admin_ca_simulate.go	READ-ONLY	simulatewithpolicies	read-only what-if simulation; no INSERT/UPDATE/DELETE on user tables; gated access.policy_read

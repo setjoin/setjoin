@@ -1,0 +1,100 @@
+-- pgTAP: ca_policy_restore.pg — CA-1 C3: restore clears deleted_at on a free
+-- priority (lives_ok), raises BZ087 when the priority is held by a live on policy.
+BEGIN;
+SELECT plan(9);
+SET app.capture_notify = 'on';
+
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('ca_policy_restore(bigint,bigint)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM ca_reachability_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('ca_policy_restore(bigint,bigint)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM ca_reachability_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('ca_policy_restore(bigint,bigint)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'FOR UPDATE'),
+  'loaded restore reducer fences before locking its exact policy tuple');
+
+INSERT INTO domains (id, name, is_local) VALUES (96200, 're.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (83101, 're_actor', 96200, 'actor@re.test', 'Actor', TRUE);
+
+-- Give the actor an admin role so ca_lockout_guard always finds a reachable admin
+-- (the guard fires for on+global+block/step_up; allow-action policies short-circuit
+-- only when p_actions->>'action' = 'allow' in the old bare format; the new
+-- operator/grants format returns NULL for that key, so the guard runs and needs
+-- at least one reachable admin in the test DB).
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (91301, 're-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES (83101, 91301, NULL);
+
+-- Insert a soft-deleted 'on' policy (priority=200) to restore.
+-- Use old bare {"action":"allow"} format so ca_lockout_guard's action short-circuit
+-- fires correctly (guard checks p_actions->>'action'; new operator/grants format
+-- returns NULL which bypasses the short-circuit).
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions, deleted_at)
+  VALUES (800201, 200, 're-deleted', 'on', 'global',
+          '{}'::jsonb, '{"action":"allow"}'::jsonb,
+          now() - INTERVAL '1 hour');
+
+-- Restore succeeds when priority is free.
+SELECT lives_ok(
+  $$ SELECT ca_policy_restore(800201, 83101) $$,
+  'ca_policy_restore succeeds when priority=200 is free');
+
+-- deleted_at cleared.
+SELECT ok(
+  (SELECT deleted_at IS NULL FROM conditional_access_policies WHERE id = 800201),
+  'restore clears deleted_at');
+
+-- Audit row written.
+SELECT is(
+  (SELECT action FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=800201
+   ORDER BY id DESC LIMIT 1),
+  'ca_policy_restore',
+  'restore writes ca_policy_restore audit row');
+
+-- Audit before_state captured.
+SELECT ok(
+  (SELECT before_state IS NOT NULL FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=800201
+   ORDER BY id DESC LIMIT 1),
+  'restore captures before_state in audit row');
+
+-- F2 notify fired.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'restore fires ca_notify_policy_change → conditional_access channel');
+
+-- Now soft-delete again and insert a live policy at the same priority.
+UPDATE conditional_access_policies SET deleted_at = now() WHERE id = 800201;
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions)
+  VALUES (800202, 200, 're-blocker', 'on', 'global',
+          '{}'::jsonb, '{"action":"allow"}'::jsonb);
+
+-- Restore raises BZ087 (priority clash with live policy).
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore(800201, 83101) $$,
+  'BZ087', NULL,
+  'restore raises BZ087 when priority=200 is held by a live on policy');
+
+-- not-found → BZ081.
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore(9999999, 83101) $$,
+  'BZ081', NULL,
+  'restore of missing policy raises BZ081');
+
+-- double-restore of a live (non-deleted) row is idempotent or raises — check it does not raise BZ087.
+-- (After the fix the row is live again; restoring a non-deleted row is a no-op or safe.)
+SELECT lives_ok(
+  $$ SELECT ca_policy_restore(800202, 83101) $$,
+  'restoring an already-live policy is a no-op (idempotent)');
+
+SELECT finish();
+ROLLBACK;

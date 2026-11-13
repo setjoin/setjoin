@@ -1,0 +1,10 @@
+{
+  "stdout": "connectivity: profile=global source=default publicNetwork=true writesHost=false\ncollabora: docker.io/collabora/code (shipped_upstream)\nprovider: ai               openai_compatible    misconfigured\nprovider: url_reputation   google_safe_browsing not_configured\nprovider: url_reputation   spamhaus_dbl         configured\nhost: distro= release= arch=amd64 supported=false writesHost=false\n  apt             external           missing              \n[WARNING] host_inventory_unsupported: host inventory is read-only and currently limited to Ubuntu\n[BLOCKER] ai_misconfigured: assist.provider_url must be HTTP(S) and assist.model must be non-empty\n",
+  "stderr": "Error: sources doctor found one or more blocking deployment-source checks\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

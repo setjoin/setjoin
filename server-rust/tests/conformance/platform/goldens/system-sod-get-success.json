@@ -1,0 +1,71 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "enabled": false,
+            "key": "dengbao.sod_mode"
+          }
+        ],
+        "before": [
+          {
+            "enabled": false,
+            "key": "dengbao.sod_mode"
+          }
+        ],
+        "table": "feature_toggles"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/dengbao/sod-mode",
+      "method": "GET",
+      "path": "/admin/dengbao/sod-mode"
+    },
+    "response": {
+      "body": "{\"enabled\":false,\"violations\":[\"violationType\":\"super_admin_role\",\"subject\":\"Audit Reader\",\"detail\":\"Role group \\\"Audit Reader\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"Compliance Admin\",\"detail\":\"Role group \\\"Compliance Admin\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"Domain Admin\",\"detail\":\"Role group \\\"Domain Admin\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"Global Reader\",\"detail\":\"Role group \\\"Global Reader\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{{\"violationType\":\"super_admin_role\",\"subject\":\"Help Desk\",\"detail\":\"Role group \\\"Help Desk\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"Security Admin\",\"detail\":\"Role group \\\"Security Admin\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"Super Admin\",\"detail\":\"Role group \\\"Super Admin\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"},{\"violationType\":\"super_admin_role\",\"subject\":\"User Admin\",\"detail\":\"Role group \\\"User Admin\\\" spans multiple 等保 classes or holds a no-class permission; it cannot exist under 等保三级 mode.\"}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1667"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/dengbao/sod-mode"
+}

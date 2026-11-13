@@ -1,0 +1,46 @@
+{
+  "case": "control-restore-blobs-corrupt-source",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [
+        "/mailblobs/blobs/360b991993a470ff148b2682cbe746ae87459f7276ad12df6c8dc2fa75731197"
+      ],
+      "quarantine": [],
+      "restore_jobs": [
+        {
+          "error_log": [
+            "1 restore error(s); first: blob fd192b9be2f2995123c0e2efc6c7b4a351176541698d82942945020997f8fdd3: backup verification: sha-256 mismatch (got fcf7fc019d632cd8da17d48c86d946d99cd05a8f87292c8800a070ebfc9af46c)"
+          ],
+          "status": "failed",
+          "type": "blobs"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/restore"
+    },
+    "response": {
+      "body": {
+        "errors": [
+          "blob fd192b9be2f2995123c0e2efc6c7b4a351176541698d82942945020997f8fdd3: backup verification: sha-256 mismatch (got fcf7fc019d632cd8da17d48c86d946d99cd05a8f87292c8800a070ebfc9af46c)"
+        ],
+        "restore_job_id": "<id>",
+        "restored_blobs": 1,
+        "restored_config_keys": 0,
+        "status": "completed"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /setup/restore"
+}

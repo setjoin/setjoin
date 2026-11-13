@@ -1,0 +1,40 @@
+{
+  "case": "control-restore-in-progress",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [],
+      "quarantine": [],
+      "restore_jobs": [
+        {
+          "error_log": [],
+          "status": "running",
+          "type": "full"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/restore"
+    },
+    "response": {
+      "body": {
+        "detail": "a restore is already in progress",
+        "instance": "",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 409
+    }
+  },
+  "route": "POST /setup/restore"
+}

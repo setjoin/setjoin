@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity upgrade backfill start:\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preflight-checksum string\n    \texact preflight SHA-256\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\nError: flag: help requested\n",
+  "exit": 1
+}

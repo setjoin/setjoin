@@ -1,0 +1,8 @@
+dist/
+release/
+src-tauri/target/
+src-tauri/gen/
+node_modules/
+# Queue B #6 mobile-runtime e2e harness output (screenshots/logs/results) —
+# runtime evidence, not source; see scripts/mobile-e2e.sh.
+e2e-artifacts/

@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"display_name\":\"Ada\",\"email\":\"ada@example.test\",\"password\":\"test\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"display_name\":\"Bob\",\"email\":\"bob@example.test\",\"password\":\"test2\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "  FAIL bob@example.test: HTTP 409 exists: already exists\nError: bulk-create: 1/2 failed\n",
+  "exit": 1
+}

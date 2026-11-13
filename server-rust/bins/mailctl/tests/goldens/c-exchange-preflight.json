@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"checks\": [\n    {\n      \"detail\": \"registry v1 source cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\n      \"id\": \"PKG-REGISTRY\",\n      \"status\": \"pass\"\n    },\n    {\n      \"detail\": \"linux/amd64\",\n      \"id\": \"RUNTIME\",\n      \"status\": \"pass\"\n    },\n    {\n      \"detail\": \"offline: no network attempted\",\n      \"id\": \"NETWORK\",\n      \"status\": \"pass\"\n    },\n    {\n      \"detail\": \"31 capabilities; embedded sha256 a67bbb5815586e436e7c1811d61dc813f477f7b808012a706688ffae2980e9b6\",\n      \"id\": \"FIXTURE\",\n      \"status\": \"pass\"\n    }\n  ],\n  \"complete\": true,\n  \"offline\": true,\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"schemaVersion\": \"setjoin.exchange.preflight/v1\"\n}\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "config.yaml": {
+      "body": "schema_version: 1\nexchange:\n  servers: []\ncollection:\n  modules: [topology, identities, delegates, calendars, resources]\n  max_parallel: 4\nredaction:\n  profile: standard\noutput:\n  locale: zh-CN\n  retention_days: 30\n",
+      "mode": 384
+    }
+  }
+}

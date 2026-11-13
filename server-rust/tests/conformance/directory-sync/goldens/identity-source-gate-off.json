@@ -1,0 +1,308 @@
+{
+  "case": "gate-off",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "batches": [],
+      "inbox": [],
+      "leases": [],
+      "links": [],
+      "quarantine": [],
+      "sources": [
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:beta",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:consist",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:noenvelope",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:retired",
+          "pending": null,
+          "state": "retired",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:alpha",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:draft",
+          "pending": null,
+          "state": "draft",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:gamma",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:nosecret",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:paused",
+          "pending": null,
+          "state": "paused",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "legacy:ad",
+          "pending": null,
+          "state": "active",
+          "success": false
+        }
+      ],
+      "sync_log": [],
+      "users": [
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "Bob Local",
+          "email": "bob@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "bob@host-a.test"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "is7-admin",
+          "email": "is7-admin@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "is7-admin@host-a.test"
+        }
+      ]
+    },
+    "before": {
+      "batches": [],
+      "inbox": [],
+      "leases": [],
+      "links": [],
+      "quarantine": [],
+      "sources": [
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:beta",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:consist",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:noenvelope",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:retired",
+          "pending": null,
+          "state": "retired",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:alpha",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:draft",
+          "pending": null,
+          "state": "draft",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:gamma",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:nosecret",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:paused",
+          "pending": null,
+          "state": "paused",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "legacy:ad",
+          "pending": null,
+          "state": "active",
+          "success": false
+        }
+      ],
+      "sync_log": [],
+      "users": [
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "Bob Local",
+          "email": "bob@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "bob@host-a.test"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "is7-admin",
+          "email": "is7-admin@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "is7-admin@host-a.test"
+        }
+      ]
+    },
+    "case": "gate-off",
+    "directory": {
+      "ad:beta": [],
+      "ad:consist": [],
+      "ad:noenvelope": [],
+      "ad:retired": [],
+      "ldap:alpha": [],
+      "ldap:draft": [],
+      "ldap:gamma": [],
+      "ldap:nosecret": [],
+      "ldap:paused": []
+    },
+    "gate": false
+  }
+}

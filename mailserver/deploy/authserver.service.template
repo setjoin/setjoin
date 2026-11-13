@@ -1,0 +1,85 @@
+[Unit]
+Description=SetJoin Auth Server
+Documentation=https://github.com/setjoin/setjoin
+After=network.target postgresql.service
+Wants=postgresql.service
+# The gateway (setjoin.service) proxies every /auth/* route to this process
+# (mailserver/internal/authproxy). Order auth up first so the gateway's first
+# requests don't 502 — but this is ordering only (Wants, not Requires) on the
+# gateway side, so a gateway restart never hard-depends on auth being healthy.
+Before=setjoin.service
+# StartLimit* live in [Unit] (systemd ignores them under [Service]) — the
+# 25bef473 lesson; caught here by systemd-analyze verify on the 2026-07-16
+# fresh-VM gate.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{RUNTIME_DIR}}
+ExecStart={{RUNTIME_DIR}}/authserverd
+
+ExecStartPre=/bin/sh -c 'until pg_isready -U mail -d mailserver -h 127.0.0.1; do sleep 2; done'
+
+# Restart policy (StartLimit* are in [Unit], above)
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=200%
+TasksMax=1024
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# No CAP_NET_BIND_SERVICE: unlike the gateway (:443), auth listens on an
+# unprivileged loopback-only port (see the auth.env LISTEN_ADDR override below).
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-auth
+
+# Environment
+# Shares the gateway's config.env (DB_DSN, JWT_SECRET, INTERNAL_API_KEY,
+# WEBAUTHN_*, DB_ENCRYPTION_KEY, CRYPTO_ALGORITHM_PROFILE all use the SAME
+# env var names on both sides of the gateway<->auth split) — the {{CONFIG_ENV}}
+# token, same as the gateway unit.
+EnvironmentFile={{CONFIG_ENV}}
+# Privileged DB tiers (DEPLOY-004 split, r2-2): the WORKER credential is
+# load-bearing for authserverd (identity_links serves user_identity_links —
+# FORCE RLS deny-all to setjoin_app — from the dedicated worker pool), so this
+# unit MUST keep receiving the worker-tier DSN: it lives only in this
+# root-owned 0600 credential file now. Whether authserverd should also retain
+# the owner-tier DSNs from the same file is a recorded,
+# separately-adjudicated owner decision — today it receives the same file the
+# gateway does. EnvironmentFile order is precedence order (later wins) and
+# {{DB_CREDENTIALS_FILE}} is read AFTER config.env, BEFORE auth.env.
+EnvironmentFile={{DB_CREDENTIALS_FILE}}
+# auth.env is read AFTER config.env — EnvironmentFile order is precedence
+# order, and EnvironmentFile always beats Environment= lines. ORDER-SENSITIVE:
+# this {{AUTH_ENV}} line must stay LAST — it overrides the shared file's
+# LISTEN_ADDR (that value is the gateway's public :443) to bind auth
+# loopback-only on an unprivileged port, never reachable except through the
+# gateway's proxy. render_authserver_unit (lib-livekit.sh) never reorders
+# template lines, so this ordering is preserved by construction; install.sh
+# keeps AUTH_ENV in sync with the AUTHSERVER_URL it writes into config.env.
+EnvironmentFile={{AUTH_ENV}}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,151 @@
+-- pgTAP: admin_ou_regression.pg
+--
+-- Regression: manageable + Access-Preview read paths inherit OU narrowing.
+--
+-- Verifies that the manageable-flag query (used by admin user-list and role-
+-- member-list) correctly gates OU-scoped actors — an /eng-scoped actor's
+-- manageable set must EXCLUDE /sales users and INCLUDE /eng/backend users.
+-- A NULL-scope (global) actor's manageable set must be UNCHANGED from the
+-- pre-OU-narrowing behaviour (all reachable users are manageable when the
+-- actor's perms cover the target's perms).
+--
+-- The query under test is the EXACT SQL from admin_users.go "flagRows" query:
+--
+--   WITH actor AS (
+--     SELECT EXISTS(...) AS is_super, a.perms, a.scope
+--       FROM admin_effective_authority($actor) AS a
+--   )
+--   SELECT u.id,
+--          (u.id = $actor) AS is_self,
+--          CASE WHEN a.is_super THEN true
+--               ELSE ea.perms <@ a.perms
+--                    AND NOT (cardinality(ea.perms) > 0 AND a.scope IS NOT NULL AND ea.scope IS NULL)
+--                    AND admin_can_reach($actor, u.id)
+--          END AS manageable
+--     FROM unnest($ids) AS u(id)
+--     CROSS JOIN LATERAL admin_effective_authority(u.id) AS ea
+--     CROSS JOIN actor a
+--
+-- 7 assertions (seed ids 957xx, avoids conflicts with other test files):
+--   1. /eng-scoped actor: /sales target → manageable=false (OU excluded)
+--   2. /eng-scoped actor: /eng/backend target → manageable=true (OU included)
+--   3. /eng-scoped actor: dept-less target → manageable=false (OU-scoped misses dept-less)
+--   4. NULL-scope (global) actor: /sales target → manageable=true (global covers all)
+--   5. NULL-scope (global) actor: /eng/backend target → manageable=true
+--   6. NULL-scope (global) actor: dept-less target → manageable=true
+--   7. /eng-scoped actor: super-admin /sales target → manageable=false
+--      (super-admin short-circuit does NOT bypass the OU gate — the actor cannot
+--       reach the super's row, so reachability is false first; the short-circuit
+--       is on the ACTOR's is_super, not the target's)
+
+BEGIN;
+SELECT plan(7);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'Engineering', '/eng',         'ou=Engineering,dc=reg,dc=test'),
+  (95702, 'Backend',     '/eng/backend', 'ou=Backend,ou=Engineering,dc=reg,dc=test'),
+  (95703, 'Sales',       '/sales',       'ou=Sales,dc=reg,dc=test');
+
+-- ── Domain ───────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'reg.test', TRUE);
+
+-- ── Users ─────────────────────────────────────────────────────────────────────
+--  Targets:
+--   95711 eng_backend_user  domain reg.test, dept /eng/backend
+--   95712 sales_user        domain reg.test, dept /sales
+--   95713 deptless_user     domain reg.test, dept NULL
+--   95714 sales_super       domain reg.test, dept /sales  (has Super Admin role)
+--  Actors:
+--   95721 eng_actor         OU-confined to /eng (global domain, OU /eng)
+--   95722 global_actor      NULL scope (global domain, no OU narrowing)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95711, 'reg_backend',  95701, 95702, 'backend@reg.test',  'BU', TRUE),
+  (95712, 'reg_sales',    95701, 95703, 'sales@reg.test',    'SU', TRUE),
+  (95713, 'reg_deptless', 95701, NULL,  'deptless@reg.test', 'DU', TRUE),
+  (95714, 'reg_ssuper',   95701, 95703, 'ssuper@reg.test',   'SS', TRUE),
+  (95721, 'reg_engactor', 95701, NULL,  'engact@reg.test',   'EA', TRUE),
+  (95722, 'reg_global',   95701, NULL,  'global@reg.test',   'GA', TRUE);
+
+-- ── Role groups ──────────────────────────────────────────────────────────────
+-- rg_low  : low-authority group for the actors (has users.read)
+-- Super Admin (role_group_id=1) already exists in the schema.
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'reg-low', ARRAY['users.read'], NULL);
+
+-- ── Assignments ──────────────────────────────────────────────────────────────
+-- eng_actor   : rg_low, global domain, OU /eng
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95721, 95701, 'ou', 95701, 95722);
+-- global_actor: rg_low, global domain, no OU
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95722, 95701, 95722);
+-- sales_super : Super Admin (role_group_id=1)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95714, 1, 95722);
+
+-- ── Helper: the exact manageable query from admin_users.go ───────────────────
+-- Parameterised as a function so the assertions stay readable.
+-- Returns manageable boolean for target given actor.
+CREATE OR REPLACE FUNCTION _reg_manageable(p_actor bigint, p_target bigint)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+  WITH actor AS (
+    SELECT EXISTS(SELECT 1 FROM admin_role_assignments
+                   WHERE user_id=p_actor AND role_group_id=1
+                     AND (expires_at IS NULL OR expires_at > now())) AS is_super,
+           a.perms, a.scope
+      FROM admin_effective_authority(p_actor) AS a
+  )
+  SELECT CASE WHEN a.is_super THEN true
+              ELSE ea.perms <@ a.perms
+                   AND NOT (cardinality(ea.perms) > 0 AND a.scope IS NOT NULL AND ea.scope IS NULL)
+                   AND (cardinality(a.perms) = 0 OR admin_can_reach(p_actor, p_target))
+         END
+    FROM admin_effective_authority(p_target) AS ea
+    CROSS JOIN actor a;
+$$;
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+
+-- 1. /eng-scoped actor: /sales target → manageable=false (OU excludes /sales)
+SELECT ok(
+  NOT _reg_manageable(95721, 95712),
+  '/eng-scoped actor: /sales user NOT manageable (OU gate)');
+
+-- 2. /eng-scoped actor: /eng/backend target → manageable=true (in subtree)
+SELECT ok(
+  _reg_manageable(95721, 95711),
+  '/eng-scoped actor: /eng/backend user IS manageable (in-OU subtree)');
+
+-- 3. /eng-scoped actor: dept-less target → manageable=false (OU-scoped misses no-dept)
+SELECT ok(
+  NOT _reg_manageable(95721, 95713),
+  '/eng-scoped actor: dept-less user NOT manageable (OU-scoped misses dept-less)');
+
+-- 4. NULL-scope global actor: /sales target → manageable=true
+SELECT ok(
+  _reg_manageable(95722, 95712),
+  'global actor: /sales user IS manageable (global covers all)');
+
+-- 5. NULL-scope global actor: /eng/backend target → manageable=true
+SELECT ok(
+  _reg_manageable(95722, 95711),
+  'global actor: /eng/backend user IS manageable');
+
+-- 6. NULL-scope global actor: dept-less target → manageable=true
+SELECT ok(
+  _reg_manageable(95722, 95713),
+  'global actor: dept-less user IS manageable');
+
+-- 7. /eng-scoped actor: Super Admin /sales target → manageable=false
+--    The ACTOR is NOT super (is_super=false for 95721), so the CASE falls to
+--    the perm+reach arm. The reach fails (/sales out of /eng OU), so false.
+SELECT ok(
+  NOT _reg_manageable(95721, 95714),
+  '/eng-scoped actor: Super Admin /sales target NOT manageable (OU excludes it)');
+
+SELECT * FROM finish();
+ROLLBACK;

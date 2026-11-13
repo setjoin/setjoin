@@ -1,0 +1,212 @@
+{
+  "case": "ignored-query",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "deliveries": 0,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-a.example/hook?x=<&>",
+            "user": "<admin>"
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[\"mail.received\"]",
+            "is_active": false,
+            "legacy_prev_secret": null,
+            "legacy_secret": "<seed:old>",
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "organization",
+            "secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "url": "https://plat4-b.example/hook?x=<&>",
+            "user": null
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "url": "https://plat4-c.example/hook?x=<&>",
+            "user": "<other>"
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[\"user.deleted\", \"auth.login\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "organization",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-d.example/hook?x=<&>",
+            "user": "<admin>"
+          }
+        ],
+        "before": [
+          {
+            "deliveries": 0,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-a.example/hook?x=<&>",
+            "user": "<admin>"
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[\"mail.received\"]",
+            "is_active": false,
+            "legacy_prev_secret": null,
+            "legacy_secret": "<seed:old>",
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "organization",
+            "secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "url": "https://plat4-b.example/hook?x=<&>",
+            "user": null
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "url": "https://plat4-c.example/hook?x=<&>",
+            "user": "<other>"
+          },
+          {
+            "deliveries": 0,
+            "event_types": "[\"user.deleted\", \"auth.login\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "organization",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-d.example/hook?x=<&>",
+            "user": "<admin>"
+          }
+        ],
+        "table": "webhook_subscriptions"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/webhooks",
+      "method": "GET",
+      "path": "/admin/webhooks",
+      "query": "?limit=-1&q=%00&x=%zz"
+    },
+    "response": {
+      "body": "[{\"id\":\"<sub-c>\",\"userId\":\"<other>\",\"url\":\"https://plat4-c.example/hook?x=\\u003c\\u0026\\u003e\",\"eventTypes\":[],\"scope\":\"self\",\"isActive\":true,\"createdAt\":\"2026-10-01T10:59:00.123456Z\",\"updatedAt\":\"2026-10-01T10:59:00.123456Z\"},{\"id\":\"<sub-d>\",\"userId\":\"<admin>\",\"url\":\"https://plat4-d.example/hook?x=\\u003c\\u0026\\u003e\",\"eventTypes\":[\"user.deleted\",\"auth.login\"],\"scope\":\"organization\",\"isActive\":true,\"createdAt\":\"2026-10-01T10:30:00Z\",\"updatedAt\":\"2026-10-01T10:30:00Z\"},{\"id\":\"<sub-b>\",\"url\":\"https://plat4-b.example/hook?x=\\u003c\\u0026\\u003e\",\"eventTypes\":[\"mail.received\"],\"scope\":\"organization\",\"isActive\":false,\"createdAt\":\"2026-10-01T10:02:00Z\",\"updatedAt\":\"2026-10-01T10:02:00Z\"},{\"id\":\"<sub-a>\",\"userId\":\"<admin>\",\"url\":\"https://plat4-a.example/hook?x=\\u003c\\u0026\\u003e\",\"eventTypes\":[\"user.created\",\"user.updated\"],\"scope\":\"self\",\"isActive\":true,\"createdAt\":\"2026-10-01T10:01:00Z\",\"updatedAt\":\"2026-10-01T10:01:00Z\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "929"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat4-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/webhooks"
+}

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/mam/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Global policies:\n[\n  {\n    \"policy_key\": \"screen\",\n    \"policy_value\": \"on\"\n  }\n]\n\nGroup policies:\n[]\n",
+  "stderr": "",
+  "exit": 0
+}

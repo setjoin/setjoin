@@ -1,0 +1,111 @@
+[
+  {
+    "name": "implicit-and-nested-starttls",
+    "tls": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 6
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RSET\r\n",
+        "lines": 1
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "upgrade": true
+      },
+      {
+        "send": "EHLO again\r\n",
+        "lines": 6
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "tls-enforce-ignores-implicit-tls",
+    "tls": true,
+    "enforce": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 6
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "upgrade": true
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "tls-required-without-certificate",
+    "enforce": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

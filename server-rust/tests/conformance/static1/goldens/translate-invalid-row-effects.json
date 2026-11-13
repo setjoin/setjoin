@@ -1,0 +1,12 @@
+{
+  "case": "translate-invalid-row-effects",
+  "effects": [
+    {
+      "rows": [],
+      "table": "chat_audit_log"
+    }
+  ],
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "route": "POST /chat/messages/{id}/translate"
+}

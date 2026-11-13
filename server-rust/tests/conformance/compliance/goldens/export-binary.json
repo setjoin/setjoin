@@ -1,0 +1,254 @@
+{
+  "case": "binary",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "ediscovery_export",
+        "after_state": null,
+        "before_state": [
+          "<message-a>",
+          "<message-b>"
+        ],
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": 970001,
+        "target_type": "ediscovery_case",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "cases": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "held": false,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox>"
+            },
+            {
+              "held": false,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox>"
+            }
+          ],
+          "results": [
+            {
+              "bound_at": "<timestamp>",
+              "message_id": "<message-a>",
+              "search_id": 980001
+            },
+            {
+              "bound_at": "<timestamp>",
+              "message_id": "<message-b>",
+              "search_id": 980001
+            }
+          ],
+          "searches": [
+            {
+              "case_id": 970001,
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "export_ref": null,
+              "id": 980001,
+              "name": "Result search",
+              "query": {
+                "dateFrom": "",
+                "dateTo": "",
+                "fromAddr": "",
+                "keywords": "oracle",
+                "kql": "",
+                "mailboxIds": [
+                  "<mailbox>"
+                ]
+              },
+              "result_count": 2,
+              "started_at": null,
+              "status": "complete"
+            }
+          ]
+        },
+        "before": {
+          "cases": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "Scope <42>",
+              "id": 970001,
+              "name": "Investigation",
+              "status": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "closed_at": "<timestamp>",
+              "closed_by": "<actor>",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "description": "",
+              "id": 970002,
+              "name": "Closed investigation",
+              "status": "closed",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "held": false,
+              "id": "<message-a>",
+              "mailbox_id": "<mailbox>"
+            },
+            {
+              "held": false,
+              "id": "<message-b>",
+              "mailbox_id": "<mailbox>"
+            }
+          ],
+          "results": [
+            {
+              "bound_at": "<timestamp>",
+              "message_id": "<message-a>",
+              "search_id": 980001
+            },
+            {
+              "bound_at": "<timestamp>",
+              "message_id": "<message-b>",
+              "search_id": 980001
+            }
+          ],
+          "searches": [
+            {
+              "case_id": 970001,
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "export_ref": null,
+              "id": 980001,
+              "name": "Result search",
+              "query": {
+                "dateFrom": "",
+                "dateTo": "",
+                "fromAddr": "",
+                "keywords": "oracle",
+                "kql": "",
+                "mailboxIds": [
+                  "<mailbox>"
+                ]
+              },
+              "result_count": 2,
+              "started_at": null,
+              "status": "complete"
+            }
+          ]
+        },
+        "table": "ediscovery_cases"
+      }
+    ],
+    "notify": [],
+    "outbound": [
+      {
+        "key": "a",
+        "method": "GET",
+        "signature_valid": true
+      },
+      {
+        "key": "b",
+        "method": "GET",
+        "signature_valid": true
+      }
+    ],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/admin/ediscovery/export",
+      "query": "ids=<message-a>,<message-b>&caseId=970001"
+    },
+    "response": {
+      "body": {
+        "base64": "RnJvbSBjdXN0b2R5LWNoYWluQG1haWxzZXJ2ZXIgPHRpbWVzdGFtcD4NClgtQ3VzdG9keS1DYXNlLUlEOiA5NzAwMDENClgtQ3VzdG9keS1NZXNzYWdlLUNvdW50OiAyDQpYLUN1c3RvZHktQ2hlY2tzdW06IHNoYTI1Njo8Zml4dHVyZS1pZC1kaWdlc3Q+DQpYLUN1c3RvZHktUmVxdWVzdGVkLUF0OiA8dGltZXN0YW1wPg0KWC1DdXN0b2R5LU1lc3NhZ2UtSURzOiA8bWVzc2FnZS1hPiw8bWVzc2FnZS1iPg0KDQpGcm9tIHNlbmRlckBleGFtcGxlLnRlc3QgPHRpbWVzdGFtcD4NClN1YmplY3Q6IEV4cG9ydGVkIEENClgtQ3VzdG9keS1NZXNzYWdlLUlEOiA8bWVzc2FnZS1hPg0KRnJvbTogc2VuZGVyQGV4YW1wbGUudGVzdA0KU3ViamVjdDogUmF3IGENCg0KRXZpZGVuY2UgYQ0KAP+ADQoNCkZyb20gc2VuZGVyQGV4YW1wbGUudGVzdCA8dGltZXN0YW1wPg0KU3ViamVjdDogRXhwb3J0ZWQgQg0KWC1DdXN0b2R5LU1lc3NhZ2UtSUQ6IDxtZXNzYWdlLWI+DQpGcm9tOiBzZW5kZXJAZXhhbXBsZS50ZXN0DQpTdWJqZWN0OiBSYXcgYg0KDQpFdmlkZW5jZSBiDQoA/4ANCg0K"
+      },
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=ediscovery-<timestamp>.mbox"
+        ],
+        "content-length": [
+          "549"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/mbox"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/ediscovery/export"
+}

@@ -1,0 +1,44 @@
+{
+  "case": "drive-native-cookie",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "issued_claims": {
+      "aud": [
+        "mailserver-gateway"
+      ],
+      "email": "actor@idlogin3.test",
+      "exp": "<source-expiry>",
+      "fam": "33300000-0000-4000-8000-000000000001",
+      "iat": "<timestamp>",
+      "iss": "mailserver",
+      "jti": "idlogin3-drive-source",
+      "scp": "drive",
+      "typ": "access",
+      "uid": "<actor>"
+    },
+    "issued_header": {
+      "alg": "HS256",
+      "kid": "mailserver-drive-native-1",
+      "typ": "JWT"
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"lifetime\":99999999,\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/drive/native-token"
+    },
+    "response": {
+      "body": "{\"token\":\"<verified-scoped-token>\",\"expiresAt\":\"<timestamp>\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /drive/native-token"
+}

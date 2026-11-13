@@ -1,0 +1,44 @@
+BEGIN;
+SELECT plan(5);
+
+SELECT has_table('public', 'system_config', 'system_config exists');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1
+          FROM public.system_config
+         WHERE key = 'identity.deployment_id'
+    ),
+    'identity deployment ID is seeded'
+);
+
+SELECT ok(
+    (
+        SELECT (value #>> '{}')::uuid IS NOT NULL
+          FROM public.system_config
+         WHERE key = 'identity.deployment_id'
+    ),
+    'identity deployment ID is a UUID string'
+);
+
+SELECT is(
+    (
+        SELECT encrypted
+          FROM public.system_config
+         WHERE key = 'identity.deployment_id'
+    ),
+    false,
+    'identity deployment ID is non-secret AAD'
+);
+
+SELECT ok(
+    EXISTS (
+        SELECT 1
+          FROM public.schema_migrations
+         WHERE version = 154
+    ),
+    'schema migration V154 is recorded'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

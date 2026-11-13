@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: tls: unknown action \"bogus\" (use: status, set)\n",
+  "exit": 1
+}

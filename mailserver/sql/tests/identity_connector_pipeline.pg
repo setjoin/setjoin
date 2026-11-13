@@ -1,0 +1,761 @@
+-- pgTAP: I2 connector lease, inbox, generation, and cursor durability.
+BEGIN;
+UPDATE feature_toggles
+   SET enabled=TRUE
+ WHERE key='feature.identity_model_v2';
+SELECT plan(75);
+SET LOCAL app.capture_notify = 'on';
+
+INSERT INTO domains (name,is_local) VALUES ('mk.test',true)
+ON CONFLICT (name) DO UPDATE SET is_local=true;
+
+CREATE TEMP TABLE i2_fixture (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+INSERT INTO i2_fixture VALUES
+    ('source_id',(SELECT id::text FROM identity_sources WHERE source_key='legacy:ad')),
+    ('generation',(SELECT generation::text FROM identity_sources WHERE source_key='legacy:ad')),
+    ('instance_a',gen_random_uuid()::text),
+    ('instance_b',gen_random_uuid()::text),
+    ('batch_1',gen_random_uuid()::text),
+    ('batch_2',gen_random_uuid()::text),
+    ('batch_3',gen_random_uuid()::text),
+    ('batch_4',gen_random_uuid()::text),
+    ('batch_5',gen_random_uuid()::text),
+    ('batch_manager',gen_random_uuid()::text),
+    ('batch_manager_clear',gen_random_uuid()::text),
+    ('subject',gen_random_uuid()::text),
+    ('manager_subject',gen_random_uuid()::text),
+    ('report_subject',gen_random_uuid()::text);
+
+SELECT has_table('public','identity_source_batches',
+    'connector batches have a durable ledger');
+SELECT col_is_pk('public','identity_source_batches',ARRAY['source_id','batch_id'],
+    'connector batch identity is source-scoped');
+SELECT is(
+    (SELECT relrowsecurity::text || ':' || relforcerowsecurity::text
+     FROM pg_class WHERE oid='identity_source_batches'::regclass),
+    'true:true',
+    'connector batch ledger is FORCE RLS'
+);
+SELECT is(
+    (SELECT rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
+     WHERE c.oid='identity_source_batches'::regclass),
+    'setjoin_owner',
+    'connector batch ledger has isolated ownership'
+);
+SELECT throws_ok(
+    $$UPDATE identity_sources SET kind='ldap' WHERE source_key='legacy:ad'$$,
+    'BZ228','identity source kind is immutable',
+    'a source kind cannot reinterpret retained subjects'
+);
+
+SELECT ok(identity_source_lease_acquire(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_a'),45
+), 'first process acquires the discovery lease');
+SELECT isnt(identity_source_lease_acquire(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_b'),45
+), true, 'second process cannot steal a live discovery lease');
+SELECT ok(identity_source_lease_acquire(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_a'),45
+), 'lease owner can heartbeat by compare-and-set');
+SELECT isnt(identity_source_lease_release(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_b')
+), true, 'non-owner cannot release the lease');
+SELECT ok(identity_source_lease_release(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+), 'lease owner releases its exact generation');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_batch_begin(
+            %s,%s,%L::uuid,'{"usn":"9"}'::jsonb,'[]'::jsonb,%L::uuid
+        )$$,
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='batch_1'),
+        (SELECT value FROM i2_fixture WHERE key='instance_a')
+    ),
+    'BZ229','identity source discovery lease was lost',
+    'a stale process cannot acknowledge a remote page without its live lease'
+);
+SELECT ok(identity_source_lease_acquire(
+    (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+    (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+    (SELECT value::uuid FROM i2_fixture WHERE key='instance_a'),45
+), 'connector reacquires the lease before acknowledging a remote page');
+
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_1'),
+        '{"usn":"10"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-1',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='subject'),
+            'payload',jsonb_build_object(
+                'operation','upsert',
+                'email','i2-first@mk.test',
+                'displayName','I2 First',
+                'enabled',true,
+                'cursorValue','10'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'entries',
+    '1','one discovered entry is staged'
+);
+SELECT is(
+    (SELECT state FROM identity_source_batches
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+       AND batch_id=(SELECT value::uuid FROM i2_fixture WHERE key='batch_1')),
+    'staged','new batch starts staged'
+);
+SELECT is(
+    (SELECT pending_cursor->>'usn' FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    '10','remote cursor is pending before application'
+);
+GRANT SELECT ON i2_fixture TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+    identity_source_batch_resume(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'batchId',
+    (SELECT value FROM i2_fixture WHERE key='batch_1'),
+    'runtime app role can recover the exact accepted batch through the guarded reducer'
+);
+SELECT is(
+    identity_source_batch_resume(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->'objectKeys'->>0,
+    'object-1',
+    'recovery returns only the exact pending inbox object keys'
+);
+RESET ROLE;
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_batch_begin(
+            %s,%s,%L::uuid,'{"usn":"11"}'::jsonb,
+            '[{"objectKey":"object-1","immutableSubject":"changed-subject",
+               "payload":{"operation":"upsert","email":"changed@mk.test",
+                          "enabled":true}}]'::jsonb,
+            %L::uuid
+        )$$,
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='batch_1'),
+        (SELECT value FROM i2_fixture WHERE key='instance_a')
+    ),
+    'BZ240','identity source batch id was reused with different input',
+    'batch idempotency key cannot be reused with different canonical input'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_1'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'false','cursor cannot advance while an entry is pending'
+);
+SELECT is(
+    (SELECT committed_cursor IS NULL FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    true,'premature finish preserves the prior committed cursor'
+);
+
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_1'),
+        'object-1'
+    )->>'state',
+    'applied','immutable AD entry applies'
+);
+INSERT INTO i2_fixture
+SELECT 'user_id',u.id::text FROM users u WHERE u.ad_object_guid=(
+    SELECT value::uuid FROM i2_fixture WHERE key='subject'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM i2_fixture WHERE key='user_id'),
+    1,'AD hard anchor creates one durable person'
+);
+SELECT is(
+    (SELECT count(*)::integer
+     FROM user_identity_links
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+       AND external_subject=(SELECT value FROM i2_fixture WHERE key='subject')
+       AND user_id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')
+       AND state='active'),
+    1,'entry creates one exact source-subject link'
+);
+SELECT is(
+    (SELECT authority_kind FROM user_lifecycle_authorities
+     WHERE user_id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')),
+    'source','new connector person is source-lifecycle owned'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_1'),2,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'true','terminal batch advances the committed cursor'
+);
+SELECT is(
+    (SELECT committed_cursor->>'usn' FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    '10','committed cursor is the exact staged cursor'
+);
+SELECT is(
+    (SELECT pending_cursor IS NULL FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    true,'successful finish clears the pending cursor'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_sync_log
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    1,'successful finish records source-scoped sync evidence'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_1'),
+        'object-1'
+    )->>'replayed',
+    'true','applied entry replay is idempotent'
+);
+
+SELECT lives_ok(
+    $$SELECT identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_2'),
+        '{"usn":"20"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-rename',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='subject'),
+            'payload',jsonb_build_object(
+                'operation','upsert','email','i2-renamed@mk.test',
+                'displayName','I2 Renamed','enabled',true,'cursorValue','20'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )$$,
+    'second page stages after the first commits'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_2'),
+        'object-rename'
+    )->>'userId',
+    (SELECT value FROM i2_fixture WHERE key='user_id'),
+    'rename resolves by immutable subject and preserves users.id'
+);
+SELECT is(
+    (SELECT email FROM users
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')),
+    'i2-renamed@mk.test','safe rename updates the linked person'
+);
+SELECT lives_ok(
+    $$SELECT identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_2'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )$$,'rename batch finishes'
+);
+
+INSERT INTO i2_fixture (key,value)
+VALUES ('collision_mailbox',mk_account('i2-collision')::text);
+INSERT INTO i2_fixture (key,value)
+SELECT 'collision_user',m.user_id::text
+FROM mailboxes m
+WHERE m.id=(SELECT value::bigint FROM i2_fixture WHERE key='collision_mailbox');
+UPDATE users SET email='i2-collision@mk.test'
+WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='collision_user');
+UPDATE mailboxes SET email='i2-collision@mk.test'
+WHERE user_id=(SELECT value::bigint FROM i2_fixture WHERE key='collision_user')
+  AND is_primary;
+
+SELECT lives_ok(
+    $$SELECT identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),
+        '{"usn":"30"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-collision',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='subject'),
+            'payload',jsonb_build_object(
+                'operation','upsert','email','i2-collision@mk.test',
+                'displayName','Collision','enabled',true,'cursorValue','30'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )$$,'collision page is durably staged'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),
+        'object-collision'
+    )->>'state',
+    'blocked','rename collision blocks instead of taking over'
+);
+SELECT is(
+    (SELECT email FROM users
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')),
+    'i2-renamed@mk.test','collision leaves the linked person unchanged'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_candidates
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+       AND external_subject=(SELECT value FROM i2_fixture WHERE key='subject')
+       AND status='pending'),
+    1,'collision creates one review candidate'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),
+        'object-collision'
+    )->>'state',
+    'blocked','collision replay stays blocked'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_match_candidates
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+       AND external_subject=(SELECT value FROM i2_fixture WHERE key='subject')
+       AND status='pending'),
+    1,'collision replay does not duplicate evidence'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'false','blocked collision cannot skip the remote object'
+);
+SELECT is(
+    (SELECT committed_cursor->>'usn' FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    '20','blocked collision preserves last committed cursor'
+);
+SELECT is(
+    identity_source_entry_quarantine(
+        (SELECT value::bigint FROM i2_fixture WHERE key='collision_user'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),
+        'object-collision','COLLISION_REVIEWED',
+        'operator accepted quarantine after collision review'
+    )->>'state',
+    'quarantined','operator can explicitly terminalize reviewed evidence'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_3'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'true','explicit quarantine permits cursor commit'
+);
+SELECT is(
+    (SELECT committed_cursor->>'usn' FROM identity_sources
+     WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    '30','post-review terminal batch advances exactly once'
+);
+
+INSERT INTO oauth_tokens(
+    user_id,token_hash,expires_at,family_id,token_type
+) VALUES(
+    (SELECT value::bigint FROM i2_fixture WHERE key='user_id'),
+    digest('identity-source-disable-refresh','sha256'),
+    statement_timestamp()+interval '1 hour',
+    gen_random_uuid(),
+    'refresh'
+);
+SELECT lives_ok(
+    $$SELECT identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_4'),
+        '{"usn":"40"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-disable',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='subject'),
+            'payload',jsonb_build_object(
+                'operation','disable','enabled',false,'cursorValue','40'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )$$,'disable page is durably staged under the live lease'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_4'),
+        'object-disable'
+    )->>'state',
+    'applied','source-owned disable applies through the lifecycle authority'
+);
+SELECT is(
+    (SELECT enabled FROM users
+      WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')),
+    false,'source disable turns off the durable user credential'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM oauth_tokens
+      WHERE user_id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')
+        AND revoked_at IS NULL),
+    0,'source disable revokes every live OAuth token family'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM session_revocations
+      WHERE user_id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')
+        AND scope='all' AND reason='identity_source_disable'),
+    1,'source disable writes a durable all-session JWT denylist fence'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_4'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'true','terminal disable advances the remote cursor'
+);
+SELECT is(
+    (SELECT committed_cursor->>'usn' FROM identity_sources
+      WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')),
+    '40','disable commits its exact remote cursor'
+);
+
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager'),
+        '{"usn":"41"}'::jsonb,
+        jsonb_build_array(
+            jsonb_build_object(
+                'objectKey','object-manager',
+                'immutableSubject',(SELECT value FROM i2_fixture WHERE key='manager_subject'),
+                'payload',jsonb_build_object(
+                    'operation','upsert','email','i2-manager@mk.test',
+                    'displayName','I2 Manager','enabled',true,'cursorValue','41'
+                )
+            ),
+            jsonb_build_object(
+                'objectKey','object-report',
+                'immutableSubject',(SELECT value FROM i2_fixture WHERE key='report_subject'),
+                'payload',jsonb_build_object(
+                    'operation','upsert','email','i2-report@mk.test',
+                    'displayName','I2 Report','enabled',true,'cursorValue','41',
+                    'managerSubject',(SELECT value FROM i2_fixture WHERE key='manager_subject')
+                )
+            )
+        ),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'entries',
+    '2','manager and report are staged in one authoritative page'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager'),
+        'object-manager'
+    )->>'state',
+    'applied','manager immutable subject applies before relationship reconciliation'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager'),
+        'object-report'
+    )->>'state',
+    'applied','report immutable subject applies before relationship reconciliation'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'true','terminal page reconciles reporting authority before cursor commit'
+);
+SELECT is(
+    (SELECT report.manager_id
+       FROM users report
+      WHERE report.ad_object_guid=(
+          SELECT value::uuid FROM i2_fixture WHERE key='report_subject'
+      )),
+    (SELECT manager.id
+       FROM users manager
+      WHERE manager.ad_object_guid=(
+          SELECT value::uuid FROM i2_fixture WHERE key='manager_subject'
+      )),
+    'manager relationship resolves through immutable subjects, not directory DNs'
+);
+SELECT is(
+    (SELECT authority_kind||':'||source_id::text
+       FROM identity_attribute_authority
+      WHERE user_id=(
+          SELECT id FROM users WHERE ad_object_guid=(
+              SELECT value::uuid FROM i2_fixture WHERE key='report_subject'
+          )
+      ) AND field='manager_id'),
+    'source:'||(SELECT value FROM i2_fixture WHERE key='source_id'),
+    'resolved manager relationship records exact source authority'
+);
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager_clear'),
+        '{"usn":"42"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-report-clear',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='report_subject'),
+            'payload',jsonb_build_object(
+                'operation','upsert','email','i2-report@mk.test',
+                'displayName','I2 Report','enabled',true,'cursorValue','42'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'entries',
+    '1','manager removal is staged as an explicit source page'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager_clear'),
+        'object-report-clear'
+    )->>'state',
+    'applied','manager removal profile update applies'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_manager_clear'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'cursorAdvanced',
+    'true','manager removal page commits'
+);
+SELECT is(
+    (SELECT manager_id
+       FROM users
+      WHERE ad_object_guid=(
+          SELECT value::uuid FROM i2_fixture WHERE key='report_subject'
+      )),
+    NULL::bigint,
+    'absent manager subject clears stale source-owned reporting authority'
+);
+
+INSERT INTO identity_sources(
+    source_key,display_name,kind,capabilities,state,generation
+) VALUES (
+    'i2-consistency-ad','I2 Consistency GUID','ad',
+    '{"provisionLifecycle":true,"immutableSubject":true}'::jsonb,
+    'active',1
+);
+INSERT INTO i2_fixture VALUES
+    ('consistency_source_id',(
+        SELECT id::text FROM identity_sources WHERE source_key='i2-consistency-ad'
+    )),
+    ('consistency_instance',gen_random_uuid()::text),
+    ('consistency_batch',gen_random_uuid()::text);
+SELECT ok(identity_source_lease_acquire(
+    (SELECT value::bigint FROM i2_fixture WHERE key='consistency_source_id'),
+    1,
+    (SELECT value::uuid FROM i2_fixture WHERE key='consistency_instance'),45
+), 'consistency-GUID AD source acquires its own discovery lease');
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='consistency_source_id'),
+        1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='consistency_batch'),
+        '{"usn":"1"}'::jsonb,
+        '[{"objectKey":"consistency-object",
+           "immutableSubject":"AQIDBAUGBwg=",
+           "payload":{"operation":"upsert",
+                      "email":"i2-consistency@mk.test",
+                      "displayName":"Consistency Anchor",
+                      "enabled":true,
+                      "cursorValue":"1"}}]'::jsonb,
+        (SELECT value::uuid FROM i2_fixture WHERE key='consistency_instance')
+    )->>'entries',
+    '1','binary consistency GUID stages as a canonical opaque subject'
+);
+SELECT is(
+    identity_source_entry_apply(
+        (SELECT value::bigint FROM i2_fixture WHERE key='consistency_source_id'),
+        1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='consistency_batch'),
+        'consistency-object'
+    )->>'state',
+    'applied','binary consistency GUID provisions without a UUID cast'
+);
+SELECT is(
+    (SELECT count(*)::integer
+       FROM user_identity_links l
+       JOIN users u ON u.id=l.user_id
+      WHERE l.source_id=(
+                SELECT value::bigint FROM i2_fixture
+                 WHERE key='consistency_source_id'
+            )
+        AND l.external_subject='AQIDBAUGBwg='
+        AND u.email='i2-consistency@mk.test'),
+    1,'source-scoped link retains the exact consistency GUID'
+);
+SELECT ok(
+    (SELECT u.ad_object_guid IS NULL
+       FROM users u
+       JOIN user_identity_links l ON l.user_id=u.id
+      WHERE l.source_id=(
+                SELECT value::bigint FROM i2_fixture
+                 WHERE key='consistency_source_id'
+            )
+        AND l.external_subject='AQIDBAUGBwg='),
+    'non-UUID consistency GUID is not invented in the legacy AD scalar'
+);
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT value::bigint FROM i2_fixture WHERE key='consistency_source_id'),
+        1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='consistency_batch'),1,
+        (SELECT value::uuid FROM i2_fixture WHERE key='consistency_instance')
+    )->>'cursorAdvanced',
+    'true','consistency-GUID batch commits its exact cursor'
+);
+
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT value::bigint FROM i2_fixture WHERE key='source_id'),
+        (SELECT value::bigint FROM i2_fixture WHERE key='generation'),
+        (SELECT value::uuid FROM i2_fixture WHERE key='batch_5'),
+        '{"usn":"50"}'::jsonb,
+        jsonb_build_array(jsonb_build_object(
+            'objectKey','object-stale',
+            'immutableSubject',(SELECT value FROM i2_fixture WHERE key='subject'),
+            'payload',jsonb_build_object(
+                'operation','upsert','email','i2-stale-must-not-land@mk.test',
+                'displayName','Stale Worker','enabled',true,'cursorValue','50'
+            )
+        )),
+        (SELECT value::uuid FROM i2_fixture WHERE key='instance_a')
+    )->>'entries',
+    '1','stale-worker fixture is durably accepted before the generation changes'
+);
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_attributes_apply(
+            %s,%s,
+            (SELECT id FROM user_identity_links
+              WHERE source_id=%s
+                AND external_subject=%L),
+            %L::uuid,'wrong-object',
+            '{"email":"must-not-land@mk.test"}'::jsonb
+        )$$,
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='subject'),
+        (SELECT value FROM i2_fixture WHERE key='batch_5')
+    ),
+    'BZ229','source profile authority is stale',
+    'attribute apply requires the exact pending inbox object, not any row at that generation'
+);
+UPDATE identity_sources SET generation=generation+1
+WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id');
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_entry_apply(%s,%s,%L::uuid,'object-stale')$$,
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='batch_5')
+    ),
+    'BZ229','identity source generation is stale',
+    'generation change rejects an accepted stale entry before person mutation'
+);
+SELECT is(
+    (SELECT email FROM users
+      WHERE id=(SELECT value::bigint FROM i2_fixture WHERE key='user_id')),
+    'i2-renamed@mk.test',
+    'stale entry leaves the person address unchanged'
+);
+SELECT is(
+    (SELECT attempt_count FROM identity_source_inbox
+      WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+        AND batch_id=(SELECT value::uuid FROM i2_fixture WHERE key='batch_5')
+        AND object_key='object-stale'),
+    0,
+    'stale rejection occurs before inbox attempt or mutation bookkeeping'
+);
+SELECT throws_ok(
+    format(
+        'SELECT identity_source_lease_acquire(%s,%s,%L::uuid,45)',
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='instance_a')
+    ),
+    'BZ229','identity source generation is stale',
+    'stale worker cannot reacquire after a generation fence'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM identity_link_events
+     WHERE source_id=(SELECT value::bigint FROM i2_fixture WHERE key='source_id')
+       AND action='source_cursor_committed'),
+    6,'each completed page has one append-only cursor event'
+);
+
+UPDATE feature_toggles
+   SET enabled=FALSE
+ WHERE key='feature.identity_model_v2';
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_entry_apply(%s,%s,%L::uuid,'object-stale')$$,
+        (SELECT value FROM i2_fixture WHERE key='source_id'),
+        (SELECT value FROM i2_fixture WHERE key='generation'),
+        (SELECT value FROM i2_fixture WHERE key='batch_5')
+    ),
+    'BZ224','identity model writes are disabled',
+    'database master disable fences a stale worker before any person mutation'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

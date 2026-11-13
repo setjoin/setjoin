@@ -1,0 +1,425 @@
+[
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);",
+    "name": "smime-cancel-global",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-global@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIESAYJKoZIhvcNAQcCoIIEOTCCBDUCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfYwgfMCAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEgwRgIhAPLbHIead6IOLi/n3Is5LDhxpx4FsH+A\r\nAME/OY1HocqfAiEA5hZLlp2MgkpSBHZ0P4uXGKwV9Z76uvTc2T8FEamFgSU=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',9348001);",
+    "name": "smime-cancel-recipient-domain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-recipient-domain@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIgF0tP6RYO8vA16b7v9NRGGhzIiTmk9Ykb\r\nXtw3Hcbgf14CIQDolbRVbKqaFDolZN84vV40jG+Ia3q5HFppHs0PQaSdNw==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',9348002);",
+    "name": "smime-cancel-foreign-domain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-foreign-domain@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIhAJimfaEvITYT5gdecp5hUWryvO8I/T8s\r\n0c+szPNxtyFjAiA9v/ps2dij1LkzxI9+RFfSvrz7S1F5s7vXg4La9HcrOA==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "name": "smime-cancel-unknown-anchor",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-unknown-anchor@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIgRceck5SnTaQTlxro4mxAbAfNDNbYshlO\r\n9qfgACA7DnYCIQCRF/Nr8GIjeDBWT7NYcNK+0HA0GjZoOJzUfvbGUjxqnQ==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);INSERT INTO smime_revocation_blocklist(fingerprint,reason) VALUES('79f847327edfac852ccebee47116b88a38806d88b427f0887b5934175440311e','smtp6-fixture');",
+    "name": "smime-cancel-revoked-badge",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-revoked-badge@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIESAYJKoZIhvcNAQcCoIIEOTCCBDUCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfYwgfMCAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEgwRgIhAJKMJgREtumRIhNy81VmT0vOSY62N0PP\r\nCxJ886+RYloqAiEAmONWQmD1TWXJUu9yBagFaTMgGS9FIuhsk71i2hZrkk4=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);",
+    "name": "smime-cancel-wrong-from",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003cdifferent@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-wrong-from@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIgUFXwkif6u1RHY1qz4hYabOsVaNi/I/Ar\r\nY60j1DWGlq8CIQCX0N4tBCKqBjFq3uC40JLTiqcM2UskQlicr9eKrHqKWg==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);UPDATE calendar_events SET organizer_email='second@external.test' WHERE id IN (9348061,9348062);",
+    "name": "smime-cancel-second-san",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003csecond@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-second-san@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:second@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEILJ9qmA5ycuhiEVuCMx6hRilIcMYl192T4dZ\r\na6AyPPkfMAoGCCqGSM49BAMCBEcwRQIhAMkQkJyvTJWOioWt1xxdLSvgyhYY/IHz\r\nBwzLJtHjH/ikAiBIPP+hHlt87MXodhYLnXDiKA6xG6D3gQ1iA0B89niQBQ==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);",
+    "name": "smime-cancel-tampered",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-tampered@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Tampered meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIhAM5nPKcS2/xn8HL0yKc0mx5AH1MK8lcr\r\noIgngBN0MQGzAiBJmvjTd/0vVNbUZstKD4kU4obMfivY6ErCkC/VOETMew==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',9348001);",
+    "name": "smime-cancel-occurrence-domain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-occurrence-domain@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nRECURRENCE-ID:20300103T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIJUsDntlRDtLQTDZYY/t0LPYpr8CX6JGR/nt\r\nPa8ehc8sMAoGCCqGSM49BAMCBEcwRQIhAJD2U76MbtESIPL9d0BjbbYZhIP0TNts\r\nOd0Va5o4RiibAiBafXShe3HKe8aBoB2fD8vCBY26T0/nl5dkxp+/nVzUmA==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "name": "smime-request-untrusted-no-fallback",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-request-untrusted-no-fallback@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIF+ZmV/BIKRWI9wqYBZWRwq2oZ3DhWdGQNOg\r\ncIwztvC3MAoGCCqGSM49BAMCBEcwRQIgbkQFObfUfkCqpU60ak13mL/WlKutTX9g\r\n3eVM8Iwh+dwCIQDxvzWw5a2CK8HaC0zKlWgyhKGjdgemlkbqy9aGpH7Scw==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);",
+    "name": "smime-request-valid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-request-valid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIF+ZmV/BIKRWI9wqYBZWRwq2oZ3DhWdGQNOg\r\ncIwztvC3MAoGCCqGSM49BAMCBEcwRQIgVdAVepuao9uOTahT+8jxwsb72OnDtkwP\r\nWl8ja4MfqbkCIQDAtza/TX2SGg8ZvU3DlvJYt0E2rUga459GDKXynt3oEA==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAASpKUhriGImTI8FjdfIWzNoW+I0/OTQ06PrXoDNvZnIO3sKz3L3lzi7VYTaV/tU\nK1iFMMK7M/XB8KaR+LRenajvo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQU3MWU7efgu6tc/FVwFRa2Vy7/A2gwCgYIKoZIzj0E\nAwIDSQAwRgIhAII6vep4G5s3YN4HyR/8kaE3ZZqWNPtZ9qLVX7TE0H4qAiEAswSX\nlyh7a06jSeeQNiY1p2689LuYCLdtr5zpFLSUtWM=\n-----END CERTIFICATE-----\n','1f6c80bb8c3056165a73eec87b26fb90142c672e767d66cc9e43c116adc25997',9348001);",
+    "name": "smime-reply-domain",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003calice@smtp1.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-reply-domain@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEJwYJKoZIhvcNAQcCoIIEGDCCBBQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC+TCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEqSlIa4hiJkyPBY3XyFszaFviNPzk0NOj616Azb2ZyDt7Cs9y\r\n95c4u1WE2lf7VCtYhTDCuzP1wfCmkfi0Xp2o76NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFNzFlO3n4LurXPxVcBUWtlcu/wNo\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCCOr3qeBubN2DeB8kf/JGhN2WaljT7Wfai1V+0\r\nxNB+KgIhALMEl5coe2tOo0nnkDYmNaduvPS7mAi3ba+c6RS0lLVjMIIBiDCCAS6g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQCUbSoCrm0/ovt\r\nDhVXUJOs6QFd/czoQp03qbtYbzN+oeWlDwT7d4E2Eyy9O4BkupLx5MFsXUaQRZOL\r\nngTubrg5o2UwYzAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwQw\r\nHwYDVR0jBBgwFoAU3MWU7efgu6tc/FVwFRa2Vy7/A2gwGwYDVR0RBBQwEoEQYWxp\r\nY2VAc210cDEudGVzdDAKBggqhkjOPQQDAgNIADBFAiANgTHOElMHszJcuc0/oOtT\r\nsEUskoBR5NIxDfvtrbzxXgIhAMy9aEtJH7peV7HH9nC/xtP93ebCl/Cdn2Jw/tNj\r\nnPmUMYH1MIHyAgEBMCAwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzAL\r\nBglghkgBZQMEAgGgaTAYBgkqhkiG9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3\r\nDQEJBTEPFw0yNjExMDgwMDI4MzJaMC8GCSqGSIb3DQEJBDEiBCCZ9Abx8tnpaQcx\r\nZCTKLEqFTi0cyehiA9CWnrxGS2GLvTAKBggqhkjOPQQDAgRHMEUCIQCFzkENO04R\r\noymfZRVGD/4vhywQChWBR2vkupCwzxsOuQIgNHSDPxvsQMSpjjmDyYoSLEP1QJs6\r\nNb8AyGioc96hggw=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAASpKUhriGImTI8FjdfIWzNoW+I0/OTQ06PrXoDNvZnIO3sKz3L3lzi7VYTaV/tU\nK1iFMMK7M/XB8KaR+LRenajvo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQU3MWU7efgu6tc/FVwFRa2Vy7/A2gwCgYIKoZIzj0E\nAwIDSQAwRgIhAII6vep4G5s3YN4HyR/8kaE3ZZqWNPtZ9qLVX7TE0H4qAiEAswSX\nlyh7a06jSeeQNiY1p2689LuYCLdtr5zpFLSUtWM=\n-----END CERTIFICATE-----\n','1f6c80bb8c3056165a73eec87b26fb90142c672e767d66cc9e43c116adc25997',NULL);",
+    "name": "smime-reply-global",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003calice@smtp1.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-reply-global@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEJwYJKoZIhvcNAQcCoIIEGDCCBBQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIC+TCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEqSlIa4hiJkyPBY3XyFszaFviNPzk0NOj616Azb2ZyDt7Cs9y\r\n95c4u1WE2lf7VCtYhTDCuzP1wfCmkfi0Xp2o76NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFNzFlO3n4LurXPxVcBUWtlcu/wNo\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCCOr3qeBubN2DeB8kf/JGhN2WaljT7Wfai1V+0\r\nxNB+KgIhALMEl5coe2tOo0nnkDYmNaduvPS7mAi3ba+c6RS0lLVjMIIBiDCCAS6g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQCUbSoCrm0/ovt\r\nDhVXUJOs6QFd/czoQp03qbtYbzN+oeWlDwT7d4E2Eyy9O4BkupLx5MFsXUaQRZOL\r\nngTubrg5o2UwYzAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwQw\r\nHwYDVR0jBBgwFoAU3MWU7efgu6tc/FVwFRa2Vy7/A2gwGwYDVR0RBBQwEoEQYWxp\r\nY2VAc210cDEudGVzdDAKBggqhkjOPQQDAgNIADBFAiANgTHOElMHszJcuc0/oOtT\r\nsEUskoBR5NIxDfvtrbzxXgIhAMy9aEtJH7peV7HH9nC/xtP93ebCl/Cdn2Jw/tNj\r\nnPmUMYH1MIHyAgEBMCAwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzAL\r\nBglghkgBZQMEAgGgaTAYBgkqhkiG9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3\r\nDQEJBTEPFw0yNjExMDgwMDI4MzJaMC8GCSqGSIb3DQEJBDEiBCCZ9Abx8tnpaQcx\r\nZCTKLEqFTi0cyehiA9CWnrxGS2GLvTAKBggqhkjOPQQDAgRHMEUCIQD/0Fx02q4I\r\nnawMMYZjVFc7B6JsNQz3iqKu/cwDSj2tJQIgZfOjcYn3Jdr8D4FXFgoQcI/lsEfx\r\n+XBpVBi6Xgr01aM=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "imip_notify": true,
+    "capture_blobs": true,
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAS950LN98okwNXni391t95M+g4TEMkpjy76am53OJ+jpjyJt+kb1x8BTBihHevK\ncPB/sYAPJfgXwgM/qz1dpFwWo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUb4p6A/6zcOUTzPNI4hKHV+LmBBIwCgYIKoZIzj0E\nAwIDSQAwRgIhAOPCPPFj7K02kwQ16hkTRkx7PFtDuqSSd0PMNj+zA4uUAiEA8+tW\ne0X+VK9w36m47RbLk8YcJcOwETjlcyHtUfWNMKg=\n-----END CERTIFICATE-----\n','4a694d076600d2447cd0d872b698db3dbf2d394a1f279c455cd4aff59d296502',NULL);",
+    "name": "smime-cancel-trailing-unsigned-request",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:\u003crelay@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: \u003corganizer@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cancel-trailing-unsigned-request@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Signed meeting\r\nDTSTART:20300103T100000Z\r\nDTEND:20300103T110000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=Alice;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIERwYJKoZIhvcNAQcCoIIEODCCBDQCAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDGTCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEvedCzffKJMDV54t/dbfeTPoOExDJKY8u+mpudzifo6Y8ibfp\r\nG9cfAUwYoR3rynDwf7GADyX4F8IDP6s9XaRcFqNCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFG+KegP+s3DlE8zzSOISh1fi5gQS\r\nMAoGCCqGSM49BAMCA0kAMEYCIQDjwjzxY+ytNpMENeoZE0ZMezxbQ7qkkndDzDY/\r\nswOLlAIhAPPrVntF/lSvcN+puO0Wy5PGHCXDsBE45XMh7VH1jTCoMIIBqDCCAU2g\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASQJ+n9JQsJj+iO\r\nB8I/CB/li2Wrhwe4P2DltHlAZ9Qa5DOPyXD/29Aq9zWBxeCnDv2jgGOSRhyj6EJb\r\nyJHZo+PRo4GDMIGAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcD\r\nBDAfBgNVHSMEGDAWgBRvinoD/rNw5RPM80jiEodX4uYEEjA4BgNVHREEMTAvgRdv\r\ncmdhbml6ZXJAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYI\r\nKoZIzj0EAwIDSQAwRgIhAMTPjtoeK565n/bYIvBvyn8tp0jVJGjlQ0xQpsGiousC\r\nAiEA5u8f+cX2qrx9JEXymYq68AV7lDRswkhQyeJryWgq4wwxgfUwgfICAQEwIDAa\r\nMRgwFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QCAgIPMAsGCWCGSAFlAwQCAaBpMBgG\r\nCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEwHAYJKoZIhvcNAQkFMQ8XDTI2MTEwODAw\r\nMjgzMlowLwYJKoZIhvcNAQkEMSIEIL9qRoeNsAz9sBejDjNkQAAC+pb+GJJdFW44\r\nPdh11fouMAoGCCqGSM49BAMCBEcwRQIgd7hEFXzL+MhLfFLXIKUh7LW04RVNNNDz\r\nHQRR+bfg4EECIQDDlJdofe68YPPbdiuhOt1hUPL9q2Xqe1eZK0aLuy2NzA==\r\n--smtp6-signed--\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nMETHOD:REQUEST\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  }
+]

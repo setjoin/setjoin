@@ -1,0 +1,127 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [
+    {
+      "after": {
+        "aliases": [
+          {
+            "domain": "<target-domain>",
+            "email": "admin1-alt@host-t.test",
+            "mailbox": "<target-mailbox>",
+            "primary": false
+          }
+        ],
+        "entitlements": [
+          {
+            "app": "chat",
+            "by": "<target>",
+            "enabled": false,
+            "user": "<target>"
+          }
+        ],
+        "passwords": [
+          {
+            "name": "laptop",
+            "revoked": false,
+            "user": "<target>"
+          },
+          {
+            "name": "phone",
+            "revoked": true,
+            "user": "<target>"
+          },
+          {
+            "name": "watch",
+            "revoked": false,
+            "user": "<target>"
+          }
+        ],
+        "quota": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<target-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          }
+        ]
+      },
+      "before": {
+        "aliases": [
+          {
+            "domain": "<target-domain>",
+            "email": "admin1-alt@host-t.test",
+            "mailbox": "<target-mailbox>",
+            "primary": false
+          }
+        ],
+        "entitlements": [
+          {
+            "app": "chat",
+            "by": "<target>",
+            "enabled": false,
+            "user": "<target>"
+          }
+        ],
+        "passwords": [
+          {
+            "name": "laptop",
+            "revoked": false,
+            "user": "<target>"
+          },
+          {
+            "name": "phone",
+            "revoked": true,
+            "user": "<target>"
+          },
+          {
+            "name": "watch",
+            "revoked": false,
+            "user": "<target>"
+          }
+        ],
+        "quota": [
+          {
+            "email": 0,
+            "mailbox": "<admin-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<other-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          },
+          {
+            "email": 0,
+            "mailbox": "<target-mailbox>",
+            "quota_bytes": 53687091200,
+            "sending_quota_day": 500,
+            "tags": 0
+          }
+        ]
+      },
+      "table": "users"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/users/{id}"
+}

@@ -1,0 +1,27 @@
+{
+  "case": "ssrf-localhost",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "private_tcp_connections": 0,
+    "request": {
+      "method": "GET",
+      "path": "/auth/oidc/login",
+      "query": "provider=idfed2",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/login"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"unknown OIDC provider\",\"instance\":\"/auth/oidc/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 400
+    }
+  },
+  "route": "GET /auth/oidc/login"
+}

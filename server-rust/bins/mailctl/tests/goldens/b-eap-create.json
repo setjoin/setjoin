@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/email-address-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"additionalTemplates\":[\"alias@example.test\"],\"condDomainIds\":[7],\"enabled\":true,\"name\":\"Sales\",\"overwriteDirectoryAddress\":true,\"primaryTemplate\":\"{given_name}@{domain}\"}"
+    }
+  ],
+  "stdout": "Email address policy created.\n",
+  "stderr": "",
+  "exit": 0
+}

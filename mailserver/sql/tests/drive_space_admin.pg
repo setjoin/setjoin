@@ -1,0 +1,39 @@
+-- mailserver/sql/tests/drive_space_admin.pg — policy validation + admin-only quota
+-- (quota ENFORCEMENT is I-14, Task 13 — this file covers the two admin reducers).
+BEGIN;
+SELECT plan(10);
+SELECT mk_account('dsa') AS mb \gset
+SELECT mk_account('dsaA') AS mba \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+-- ua becomes a drive.manage admin (role_group 1 = Super Admin holds both perms, Task 1 seed)
+-- admin_role_assignments has `granted_by`, not `assigned_by` (AUTOPLAN CORRECTIONS batch-3 item 1)
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:ua, 1, :ua);
+-- V255__drive_space_update_rls_backstop.sql: trg_drive_space_no_reassign pins
+-- quota_bytes to a drive.manage admin resolved from app.current_user_id — the
+-- GUC every drive route sets per request via dbscope.RunUserScoped before
+-- calling these reducers (internal/drive/spaces.go patchSpace). A bare pgTAP
+-- session has no GUC, so emulate the request envelope for :ua's admin calls.
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT drive_space_create(:u, 'Pol', 'regular') AS sid \gset
+
+SELECT lives_ok(format($$ SELECT drive_space_set_policy(%s, %s,
+  '{"edit_lock":"required","upload_max_bytes":1048576,"upload_ext_deny":["exe","bat"]}', NULL, NULL, NULL) $$, :u, :sid),
+  'manager sets a valid policy');
+SELECT is(drive_policy_resolve(:sid)->>'edit_lock', 'required', 'stored policy resolves');
+SELECT throws_ok(format($$ SELECT drive_space_set_policy(%s, %s, '{"edit_lock":"maybe"}', NULL, NULL, NULL) $$, :u, :sid),
+  'BZ141', NULL, 'bad edit_lock value → BZ141');
+SELECT throws_ok(format($$ SELECT drive_space_set_policy(%s, %s, '{"frobnicate":1}', NULL, NULL, NULL) $$, :u, :sid),
+  'BZ141', NULL, 'unknown policy key → BZ141');
+SELECT throws_ok(format($$ SELECT drive_space_set_policy(%s, %s, '{}', NULL, NULL, -4) $$, :u, :sid),
+  'BZ141', NULL, 'non-positive vault_quota_mb → BZ141');
+SELECT is((SELECT action FROM drive_audit_log WHERE space_id=:sid ORDER BY id DESC LIMIT 1), 'policy.change', 'policy change audited');
+
+-- quota: drive.manage only (§0.1-2), NULL clears
+SELECT throws_ok(format($$ SELECT drive_space_set_quota(%s, %s, 1000000) $$, :u, :sid),
+  'BZ140', NULL, 'manager WITHOUT drive.manage cannot set quota');
+SELECT lives_ok(format($$ SELECT drive_space_set_quota(%s, %s, 1000000) $$, :ua, :sid), 'admin sets quota');
+SELECT is((SELECT quota_bytes FROM drive_spaces WHERE id=:sid), 1000000::bigint, 'quota stored');
+SELECT lives_ok(format($$ SELECT drive_space_set_quota(%s, %s, NULL) $$, :ua, :sid), 'NULL clears = unlimited');
+SELECT * FROM finish();
+ROLLBACK;

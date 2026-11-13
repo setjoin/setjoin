@@ -1,0 +1,139 @@
+{
+  "case": "worker-recording-vanished-complete",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [],
+      "ingested_nodes": [
+        {
+          "kind": "file",
+          "name": "Recording — meet5 worker — <local-minute> (#<recording>).mp4",
+          "versions": [
+            {
+              "chunks": 1,
+              "device": "meet-egress",
+              "note": "meeting recording ingest",
+              "sha256": "ef21cd221bae9422b09e6605fa6e658bc8739c91e749a7ef93f8b5e542cadc5a",
+              "size": 1234,
+              "type": "video/mp4"
+            }
+          ]
+        }
+      ],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": null,
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {},
+          "state": "live",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "guest_display_name": null,
+          "identity": "u:<owner>",
+          "joined_at": "<timestamp>",
+          "left_at": null,
+          "role": "host"
+        }
+      ],
+      "recordings": [
+        {
+          "duration_ms": null,
+          "egress_id": "EG_gone",
+          "error": null,
+          "ingest_attempts": 1,
+          "size_bytes": 1234,
+          "staging_key": "meet-egress/9-vanish.mp4",
+          "started_at": "<timestamp>",
+          "state": "ready",
+          "stopped_at": "<timestamp>"
+        }
+      ],
+      "requests": [],
+      "semantic": []
+    },
+    "notify": [
+      {
+        "channel": "meet:<owner>",
+        "payload": {
+          "event": "recording_state",
+          "meetingId": "<meeting-1>",
+          "payload": {
+            "recordingId": "<recording-1>",
+            "state": "stopped"
+          }
+        }
+      },
+      {
+        "channel": "meet:<owner>",
+        "payload": {
+          "event": "recording_ready",
+          "meetingId": "<meeting-1>",
+          "payload": {
+            "recordingId": "<recording-1>"
+          }
+        }
+      }
+    ],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        }
+      ],
+      "objects": [
+        {
+          "key": "tmp/upload/<random>",
+          "op": "PUT",
+          "size": 1234
+        },
+        {
+          "from": "tmp/upload/<random>",
+          "op": "COPY",
+          "to": "drive/g/ef21cd221bae9422b09e6605fa6e658bc8739c91e749a7ef93f8b5e542cadc5a"
+        },
+        {
+          "key": "tmp/upload/<random>",
+          "op": "DELETE"
+        },
+        {
+          "key": "meet-egress/9-vanish.mp4",
+          "op": "DELETE"
+        }
+      ],
+      "stored": [
+        {
+          "key": "drive/g/ef21cd221bae9422b09e6605fa6e658bc8739c91e749a7ef93f8b5e542cadc5a",
+          "size": 1234
+        }
+      ]
+    }
+  },
+  "worker": "meet-reconcile"
+}

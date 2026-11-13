@@ -1,0 +1,9 @@
+{
+  "go_source": "2ab18c4ef0b3ea1c2e463fcb9848aaf43867c472",
+  "sha256": {
+    "mailserver/internal/federation/sender.go": "2f8dd8383e25ad3b0c8529577af806b946e6ac248cec05b4b12657965cb6b727",
+    "mailserver/internal/federation/wire.go": "c58022d935799b79c015711f22f1494430ac2d865e9b9b82095c9ff6bfa5f574",
+    "server-rust/crates/protocols/federation/oracle/typing_test.go.txt": "e6e75e55ff33ad0b055a80e3cf6e9618d94ebf63e9a8d4b1c0ae4dd5fc107755",
+    "server-rust/crates/protocols/federation/oracle/typing-go.json": "4801f36d8c2f9f349c577f88915f2e6c84f72eccaeed88157c8b0cf873b0578a"
+  }
+}

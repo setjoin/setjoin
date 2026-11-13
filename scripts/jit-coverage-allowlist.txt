@@ -1,0 +1,93 @@
+# jit-coverage-allowlist.txt — classified admin_role_assignments active-filter sites.
+#
+# Every site with: admin_role_assignments + expires_at active-filter + NO admin_assignment_active()
+# must appear here with a CLASS and a reason, or the guard (check-jit-coverage.sh) fails.
+#
+# Format: <basename>  TAB  <CLASS>  TAB  <unique lowercase substring>  TAB  <reason>
+# CLASS ∈ WRAPPED | IS-ADMIN | POTENTIAL | INCLUDES-ELIGIBLE | SOD | HINT
+# Unique substring: appears in the lowercased file/literal body; no shell metacharacters ($).
+#
+# ── SQL Reducers — POTENTIAL ──────────────────────────────────────────────────────────────
+# These are TARGET-SIDE or structural: they read eligible assignments to protect dormant
+# admins (POTENTIAL) or to route to a WRAPPED enforcement function.  The JIT gate lives
+# in admin_effective_authority / admin_can_reach (both WRAPPED).
+admin_effective_authority_potential.sql	POTENTIAL	admin_effective_authority_potential	target-side: dormant-eligible higher admin stays protected; expires-only — no JIT gate here
+admin_protection_check.sql	POTENTIAL	admin_protection_check	target is_super + last-SA count: dormant-eligible higher admin stays protected; dormant-eligible SA counts for lockout prevention
+admin_actor_reach_users.sql	POTENTIAL	admin_actor_reach_users	target reach enumeration for admin_protection_check domination object-axis arm
+admin_actor_contains_ou.sql	POTENTIAL	admin_actor_contains_ou	structural OU containment helper; enforcement routes through admin_can_reach (WRAPPED)
+admin_can_manage.sql	POTENTIAL	admin_can_manage	full-reach short-circuit: no active assignment → unconfined (blocked at route); actual reach enforcement via admin_can_reach (WRAPPED)
+
+# ── SQL Reducer — INCLUDES-ELIGIBLE ──────────────────────────────────────────────────────
+# access_review_start recertifies assignments — dormant-eligible rows need recertification
+# (D3).  The expires_at-only filter is intentional: a user who holds an eligible
+# assignment without activating it still needs access-review recertification.
+access_review_start.sql	INCLUDES-ELIGIBLE	access_review_start	recertifies eligibility — D3; dormant-eligible rows need recertification too
+
+# ── SQL Reducer — SOD ─────────────────────────────────────────────────────────────────────
+# SoD precheck is a one-shot admin pre-flight, not a request-path enforcement gate.
+# It scans eligible-or-active by design: the same semantics as the sod_exclusion_guard
+# trigger (SoD bites on eligible-or-active — D1).
+admin_sod_precheck.sql	SOD	admin_sod_precheck	SoD OFF→ON precheck scans eligible-or-active (same semantics as sod_exclusion_guard trigger)
+
+# ── Schema Migrations — SOD ───────────────────────────────────────────────────────────────
+# The sod_exclusion_guard trigger fires on INSERT/UPDATE to admin_role_assignments and
+# checks whether the new assignment would create a SoD class conflict.  The trigger
+# deliberately bites on eligible-or-active assignments — D1 (a pending-eligible
+# assignment can be activated at any time and would then violate SoD immediately).
+V019__dengbao_sod.sql	SOD	dengbao.sod_mode	sod_exclusion_guard trigger: SoD bites on eligible-or-active — D1
+V024__sod_exclusion_perm_span.sql	SOD	v_new_role_class_span	sod_exclusion_guard perm-span extension: eligible-or-active — D1
+V035__admin_protection.sql	POTENTIAL	protect_last_super_admin	last-usable-SA lockout: counts eligible-or-active — a dormant-eligible SA still prevents lockout
+
+# ── Go — IS-ADMIN ─────────────────────────────────────────────────────────────────────────
+# These sites derive the is_admin JWT claim or impersonation tier.  They intentionally
+# count eligible (not-yet-activated) assignments so that a freshly-granted admin's
+# session runs permissions.Resolve on the gateway (chain.go), which then calls
+# admin_effective_authority — the WRAPPED function that applies the JIT gate (decision 9).
+# Do NOT add admin_assignment_active() here; the JIT gate lives in admin_effective_authority.
+auth.go	IS-ADMIN	ara.user_id = users.id	isAdminExprSQL: counts eligible so chain.go runs Resolve — decision 9; JIT gate in admin_effective_authority
+auth.go	IS-ADMIN	ara.user_id = u.id	isAdminExprSQLAlias: counts eligible (u-alias variant) — decision 9
+session.go	IS-ADMIN	mailboxes where user_id = u.id	Me endpoint: counts eligible for is_admin flag — decision 9; JIT gate in admin_effective_authority
+impersonation.go	IS-ADMIN	and ara.role_group_id =	resolveImpersonationTier: counts eligible for impersonation tier derivation — decision 9
+refresh.go	IS-ADMIN	ot.token_hash, u.id, u.email	refresh token successor (grace-window) path: mints is_admin from eligible count — decision 9
+refresh.go	IS-ADMIN	select email, exists	refresh token normal path: mints is_admin from eligible count — decision 9
+
+# ── Go — HINT (admin_roles.go) ────────────────────────────────────────────────────────────
+# manageable-hint queries: UI pre-flight only, not enforcement.  The expires_at-only
+# filter gives admins a correct UI hint (manageable=true/false) before they try an
+# action; the actual enforcement gates (admin_protection_check, admin_can_reach, etc.)
+# all run WRAPPED with the JIT gate.  An eligible-but-not-activated admin showing
+# manageable=true in the UI is acceptable — they won't pass enforcement until activated.
+admin_roles.go	HINT	u.display_name	manageable-hint in fetchMembers: is_super flag for manageable UI preview; not enforcement
+admin_roles.go	HINT	coalesce(ra.domain_override, rg.domain_scope)	effective permission sources display: informational UI only; not enforcement
+
+# ── Go — SOD (admin_roles.go) ─────────────────────────────────────────────────────────────
+# SoD checks embedded in admin role-management handlers.  These operate on the
+# eligible-or-active set by design — a pending assignment can be activated at any time
+# (D1), so SoD must catch it now.  Not enforcement of reach/perms; SoD admin config.
+admin_roles.go	SOD	ara_this.user_id	SoD class collision check on role group update: eligible-or-active (admin config, not enforcement)
+admin_roles.go	SOD	and ara.role_group_id <>	SoD assign member class check before granting role: eligible-or-active (SoD enrollment gate)
+
+# ── Go — HINT (admin_users.go) ────────────────────────────────────────────────────────────
+admin_users.go	HINT	cross join lateral admin_effective_authority	manageable-hint in user list: is_super + manageable UI flags; not enforcement
+
+# ── Go — SOD (jmap/handler.go) ────────────────────────────────────────────────────────────
+# Reads the caller's role sod_class values for SoD context derivation in JMAP.
+# Deliberate eligible-or-active scan: a pending assignment that would be activated
+# mid-session must be reflected in the SoD class check (D1 semantics).
+# ponytail: borderline — if JIT tightens further, this should add admin_assignment_active.
+handler.go	SOD	from admin_role_assignments ra join	SoD class derivation in JMAP handler: reads caller sod_class values; SOD context, not enforcement
+
+# ── SQL Reducers — INCLUDES-ELIGIBLE (CA lockout/impact; classified 2026-07-02, guard-manifest rollout) ──
+# Lockout-prevention + impact counts deliberately count dormant-eligible admins: an eligible
+# admin can sign in and self-activate, so they remain a recoverable administrator; excluding
+# them would over-trigger the lockout refusal / understate who a block would strand.
+ca_lockout_guard.sql	INCLUDES-ELIGIBLE	distinct ara.user_id	reachable-admin lockout count: dormant-eligible admin is recoverable (can self-activate); counting it is the safe direction
+ca_policy_impact.sql	INCLUDES-ELIGIBLE	would_block_admins	read-only impact count/display mirroring ca_lockout_guard; no privilege granted
+
+# ── Migration — gate carried INLINE (RLS policies cannot drift-check the fn twin) ──
+# V073 RLS policies embed the JIT gate inline (NOT rbac.jit OR eligible=false OR
+# activated_until>now()) — a planner-inlined twin of admin_assignment_active. Applied
+# migration: immutable, cannot be rewritten to call the function. If admin_assignment_active
+# semantics ever change, these inline twins must be migrated forward in the same change.
+V073__approvals_perms.sql	WRAPPED	approval_policies_admin_only	RLS policies carry the JIT gate inline (twin of admin_assignment_active); applied migration, immutable
+V089__sharing_defaults.sql	WRAPPED	sharing_defaults_admin_write	RLS policies carry the JIT gate inline (twin of admin_assignment_active), mirroring V073; applied migration, immutable

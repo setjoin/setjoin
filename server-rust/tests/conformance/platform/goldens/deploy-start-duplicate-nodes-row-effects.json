@@ -1,0 +1,81 @@
+{
+  "case": "duplicate-nodes-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed_at": "<timestamp>",
+          "error": "no primary node found",
+          "output": "",
+          "started_at": "<timestamp>",
+          "status": "failed",
+          "step_name": "configure_replication"
+        }
+      ],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": {
+        "log": [
+          "[ssh_check] SSH connectivity check",
+          "[ssh_check] OK",
+          "[install_packages] Install PostgreSQL + Pgpool-II + SeaweedFS",
+          "[install_packages] OK",
+          "[configure_replication] Configure streaming replication",
+          "[configure_replication] FAILED: no primary node found"
+        ],
+        "nodes": [
+          {
+            "has_inline_key": true,
+            "host": "<node-1>",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-2>",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "has_inline_key": true,
+            "host": "<node-3>",
+            "role": "standby",
+            "ssh_user": "root"
+          }
+        ],
+        "profile": 0,
+        "started_at": "<timestamp>",
+        "status": "failed",
+        "steps": [
+          {
+            "name": "ssh_check",
+            "status": "ok"
+          },
+          {
+            "name": "install_packages",
+            "status": "ok"
+          },
+          {
+            "error": "no primary node found",
+            "name": "configure_replication",
+            "status": "failed"
+          }
+        ]
+      },
+      "before": {
+        "log": null,
+        "nodes": [],
+        "profile": 0,
+        "started_at": "<zero-time>",
+        "status": "",
+        "steps": null
+      },
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/start"
+}

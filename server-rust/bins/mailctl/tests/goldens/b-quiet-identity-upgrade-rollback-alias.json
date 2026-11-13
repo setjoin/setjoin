@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/upgrade/rollback",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"readPath\":\"legacy\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

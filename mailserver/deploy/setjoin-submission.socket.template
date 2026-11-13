@@ -1,0 +1,14 @@
+[Unit]
+Description=Setjoin native SMTP MSA submission (STARTTLS) listener (#501)
+ConditionPathExists={{RUNTIME_DIR}}/setjoin-gateway
+
+[Socket]
+ListenStream={{SMTP_LISTEN}}
+FileDescriptorName=submission
+Service=setjoin-gateway.service
+Accept=no
+NoDelay=true
+Backlog=4096
+
+[Install]
+WantedBy=sockets.target

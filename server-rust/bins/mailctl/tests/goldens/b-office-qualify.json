@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/office/providers/collabora/qualify",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"buildDigest\":\"\",\"expectedGeneration\":1,\"routeRevision\":1,\"syntheticReceiptId\":9}"
+    }
+  ],
+  "stdout": "map[qualified:true]\n",
+  "stderr": "",
+  "exit": 0
+}

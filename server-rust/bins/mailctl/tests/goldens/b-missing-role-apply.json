@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --reason is required for role apply (audit-hardened deployments reject role mutations without an audit reason)\n",
+  "exit": 1
+}

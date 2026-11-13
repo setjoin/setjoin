@@ -1,0 +1,99 @@
+-- pgTAP test for utils reducer
+BEGIN;
+SELECT plan(8);
+
+-- compute_thread_id: no ancestors → returns own message_id
+SELECT is(
+  compute_thread_id('<root@test>', NULL, NULL, 1),
+  'root@test',
+  'compute_thread_id returns own id when no ancestors'
+);
+
+-- compute_thread_id: with in-reply-to
+SELECT is(
+  compute_thread_id('<child@test>', '<root@test>', NULL, 1),
+  'child@test',
+  'compute_thread_id returns own id when ancestor not in mailbox'
+);
+
+-- check_quota: empty mailbox should have headroom
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testutils.example', TRUE) RETURNING id INTO v_domain_id;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('utils', 'utils@testutils.example', 'Utils', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+  VALUES (v_user_id, v_domain_id, 'utils@testutils.example', 'Utils', TRUE)
+  RETURNING id INTO v_mailbox_id;
+  -- Override quota_bytes after trigger fires (trigger sets system default)
+  UPDATE mailboxes SET quota_bytes = 1073741824, used_bytes = 0 WHERE id = v_mailbox_id;
+
+  PERFORM set_config('app.quota_mb', v_mailbox_id::TEXT, TRUE);
+END;
+$$;
+
+SELECT ok(
+  check_quota(current_setting('app.quota_mb')::BIGINT, 1000),
+  'check_quota allows within-limit');
+SELECT ok(
+  NOT check_quota(current_setting('app.quota_mb')::BIGINT, 1073741825),
+  'check_quota rejects over-limit');
+
+-- next_imap_uid: should increment
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+  v_folder_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('testimap.example', TRUE) RETURNING id INTO v_domain_id;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('imap', 'imap@testimap.example', 'IMAP', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+  VALUES (v_user_id, v_domain_id, 'imap@testimap.example', 'IMAP', TRUE)
+  RETURNING id INTO v_mailbox_id;
+  -- Use the inbox folder auto-created by the trigger
+  SELECT id INTO v_folder_id FROM folders WHERE mailbox_id = v_mailbox_id AND role = 'inbox';
+
+  PERFORM set_config('app.uid_folder', v_folder_id::TEXT, TRUE);
+END;
+$$;
+
+SELECT is(next_imap_uid(current_setting('app.uid_folder')::BIGINT), 1::BIGINT,
+  'first next_imap_uid on a fresh folder is 1');
+SELECT is(next_imap_uid(current_setting('app.uid_folder')::BIGINT), 2::BIGINT,
+  'next_imap_uid increments sequentially');
+
+-- bump_email_state: should increment and return
+DO $$
+DECLARE
+  v_domain_id BIGINT;
+  v_user_id BIGINT;
+  v_mailbox_id BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('teststate.example', TRUE) RETURNING id INTO v_domain_id;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+  VALUES ('state', 'state@teststate.example', 'State', '$2a$10$abcdefghijklmnopqrstuv', v_domain_id, TRUE)
+  RETURNING id INTO v_user_id;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary, jmap_email_state)
+  VALUES (v_user_id, v_domain_id, 'state@teststate.example', 'State', TRUE, 0)
+  RETURNING id INTO v_mailbox_id;
+
+  PERFORM set_config('app.state_mb', v_mailbox_id::TEXT, TRUE);
+END;
+$$;
+
+SELECT is(bump_email_state(current_setting('app.state_mb')::BIGINT), 1::BIGINT,
+  'first bump_email_state from 0 returns 1');
+SELECT is(bump_email_state(current_setting('app.state_mb')::BIGINT), 2::BIGINT,
+  'bump_email_state increments sequentially');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: identity upgrade shadow requires --source KEY\n",
+  "exit": 1
+}

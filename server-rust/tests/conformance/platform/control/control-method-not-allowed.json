@@ -1,0 +1,29 @@
+{
+  "case": "control-method-not-allowed",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [],
+      "quarantine": [],
+      "restore_jobs": []
+    },
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/setup/preflight"
+    },
+    "response": {
+      "body": "Method Not Allowed\n",
+      "headers": {
+        "allow": "POST",
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 405
+    }
+  },
+  "route": "GET /setup/preflight"
+}

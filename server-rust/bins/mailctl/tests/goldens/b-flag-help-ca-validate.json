@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca validate:\n  -strict\n    \ttreat warnings as errors\nError: flag: help requested\n",
+  "exit": 1
+}

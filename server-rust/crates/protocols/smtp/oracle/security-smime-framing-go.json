@@ -1,0 +1,1201 @@
+[
+  {
+    "pipeline_effects": {
+      "held": [],
+      "events": [],
+      "harvest": [
+        {
+          "email": "visitor@external.test",
+          "source": "harvested",
+          "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBozCCAUqgAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUw\nEwYDVQQDEwxTTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+\n/qLqt0GiLF/C80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmL\nKBJqO/QS/cg21JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoG\nCCsGAQUFBwMEMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1Ud\nEQQvMC2BFXZpc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRl\nc3QwCgYIKoZIzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+E\nG7Cx6d8CIFwoY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVu\n-----END CERTIFICATE-----\n",
+          "not_after": "2099-01-01 00:00:00+00",
+          "not_before": "2020-01-01 00:00:00+00",
+          "fingerprint": "ab202c5c5ddddbbd60287c3e41f43921c603ed51d0a2683d79eb6fb8301688f1",
+          "owner_user_id": 9348011
+        }
+      ],
+      "locations": [
+        {
+          "name": "Inbox",
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-trailing-octet-invalid@smtp6.test\u003e"
+        }
+      ],
+      "quarantine": []
+    },
+    "security_effects": [
+      {
+        "mailbox_id": 9348021,
+        "message_id": "\u003csmime-cms-trailing-octet-invalid@smtp6.test\u003e",
+        "spam_score": 0,
+        "is_external": false,
+        "smime_status": "valid",
+        "spam_headers": null,
+        "is_name_spoof": false,
+        "smime_issuer_cn": "SMTP6 Test Root",
+        "smime_signer_cn": "SMTP6 Signer",
+        "smime_signer_email": "visitor@external.test"
+      }
+    ],
+    "capture_blobs": true,
+    "blobs": {
+      "inbound/adc4afc940edd0c48e48bdb1e25f9e470da08e0f37c0f5ccb2a3f0e9ab942a54": "RnJvbTogVmlzaXRvciA8dmlzaXRvckBleHRlcm5hbC50ZXN0PgpUbzogYWxpYXNAc210cDEudGVzdApNZXNzYWdlLUlEOiA8c21pbWUtY21zLXRyYWlsaW5nLW9jdGV0LWludmFsaWRAc210cDYudGVzdD4KU3ViamVjdDogUy9NSU1FIGZpeHR1cmUKQ29udGVudC1UeXBlOiBtdWx0aXBhcnQvc2lnbmVkOyBwcm90b2NvbD0iYXBwbGljYXRpb24vcGtjczctc2lnbmF0dXJlIjsgYm91bmRhcnk9InNtdHA2LXNpZ25lZCIKCi0tc210cDYtc2lnbmVkCkNvbnRlbnQtVHlwZTogdGV4dC9wbGFpbjsgY2hhcnNldD11dGYtOAoKaGVsbG8gaHR0cHM6Ly9leHRlcm5hbC50ZXN0L2FjdGlvbgoKLS1zbXRwNi1zaWduZWQKQ29udGVudC1UeXBlOiBhcHBsaWNhdGlvbi9wa2NzNy1zaWduYXR1cmUKQ29udGVudC1UcmFuc2Zlci1FbmNvZGluZzogYmFzZTY0CgpNSUlFUWdZSktvWklodmNOQVFjQ29JSUVNekNDQkM4Q0FRRXhEVEFMQmdsZ2hrZ0JaUU1FQWdFd0N3WUpLb1pJCmh2Y05BUWNCb0lJREZEQ0NBV2t3Z2dFT29BTUNBUUlDQWdJT01Bb0dDQ3FHU000OUJBTUNNQm94R0RBV0JnTlYKQkFNVEQxTk5WRkEySUZSbGMzUWdVbTl2ZERBZ0Z3MHdNREF4TURFd01EQXdNREJhR0E4eU1UQXdNREV3TVRBdwpNREF3TUZvd0dqRVlNQllHQTFVRUF4TVBVMDFVVURZZ1ZHVnpkQ0JTYjI5ME1Ga3dFd1lIS29aSXpqMENBUVlJCktvWkl6ajBEQVFjRFFnQUVLU0RrRUpZU3k4QStiNy8yN3p3Q0JUQk1BZ3lhQml2TlBTNWJLZ1RZL2VmS0RKUWwKWi9OS0drMGpobEo4MDdjamtOblQ3RE9GWm1sV3dmTDMrQW01QzZOQ01FQXdEZ1lEVlIwUEFRSC9CQVFEQWdFRwpNQThHQTFVZEV3RUIvd1FGTUFNQkFmOHdIUVlEVlIwT0JCWUVGSTltVzlhWkNFT3pXUDg1Um01Mjc4MGkzdzNSCk1Bb0dDQ3FHU000OUJBTUNBMGtBTUVZQ0lRQ0dOc2g0OXAyaVZmT1VhVCttZld1Q09FWUNGME5vYVdnR3Y0YkkKUkR1RW5BSWhBSThHUWhwZjYyVFpLSGlFVEljRnZ4a3NTQ2JvRFJmZ2lvZ20ybkZEKzQzcE1JSUJvekNDQVVxZwpBd0lCQWdJQ0FnOHdDZ1lJS29aSXpqMEVBd0l3R2pFWU1CWUdBMVVFQXhNUFUwMVVVRFlnVkdWemRDQlNiMjkwCk1DQVhEVEl3TURFd01UQXdNREF3TUZvWUR6SXdPVGt3TVRBeE1EQXdNREF3V2pBWE1SVXdFd1lEVlFRREV3eFQKVFZSUU5pQlRhV2R1WlhJd1dUQVRCZ2NxaGtqT1BRSUJCZ2dxaGtqT1BRTUJCd05DQUFUKy9xTHF0MEdpTEYvQwo4MFk3TmxJa1FKRzNxNEMrQU1JRmU0MEJxK01aZnF6MEhWTitxV21wd1preHJIN1ZCS21MS0JKcU8vUVMvY2cyCjFKbW1QTUdsbzRHQU1INHdEZ1lEVlIwUEFRSC9CQVFEQWdlQU1CTUdBMVVkSlFRTU1Bb0dDQ3NHQVFVRkJ3TUUKTUI4R0ExVWRJd1FZTUJhQUZJOW1XOWFaQ0VPeldQODVSbTUyNzgwaTN3M1JNRFlHQTFVZEVRUXZNQzJCRlhacApjMmwwYjNKQVpYaDBaWEp1WVd3dWRHVnpkSUVVYzJWamIyNWtRR1Y0ZEdWeWJtRnNMblJsYzNRd0NnWUlLb1pJCnpqMEVBd0lEUndBd1JBSWdTUGV5YVBoc1d0eDMySFpKWEJKTDQ4Rk9HOXZDUVZ3cVpoK0VHN0N4NmQ4Q0lGd28KWTJXKzdFVHpUQU5Qa0pIRkR4QzFTK2ZHM2xueWsrMjRpQm5UenRWdU1ZSDFNSUh5QWdFQk1DQXdHakVZTUJZRwpBMVVFQXhNUFUwMVVVRFlnVkdWemRDQlNiMjkwQWdJQ0R6QUxCZ2xnaGtnQlpRTUVBZ0dnYVRBWUJna3Foa2lHCjl3MEJDUU14Q3dZSktvWklodmNOQVFjQk1Cd0dDU3FHU0liM0RRRUpCVEVQRncweU5qRXhNRGN5TWpVMk5ERmEKTUM4R0NTcUdTSWIzRFFFSkJERWlCQ0JiS3VkdytzUmJ0eldTOXNvVUNNUEVwYU5reTZleWdkclNtVnJwQXNTMgplakFLQmdncWhrak9QUVFEQWdSSE1FVUNJQ3JkbU5CRTFyOHBOWmN4RDhGbjB6SWluN21mWW9uMnUyNmNOYmMyCnFGa1RBaUVBOHdYeGo5OSs1L1FNWkpHMWhsZ3JNK0dRN3BkM3ErS3h4YzRkaG5mOHBVQUEKLS1zbXRwNi1zaWduZWQtLQo="
+    },
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "effects": {
+      "tags": [
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 1,
+          "mailbox_id": 9348021,
+          "total_count": 1,
+          "unread_count": 1,
+          "imap_uid_next": 3
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        }
+      ],
+      "audit": [],
+      "journal": [
+        {
+          "op": "created",
+          "datatype": "email",
+          "state_seq": 1,
+          "mailbox_id": 9348021
+        }
+      ],
+      "messages": [
+        {
+          "is_read": false,
+          "raw_ref": "inbound/adc4afc940edd0c48e48bdb1e25f9e470da08e0f37c0f5ccb2a3f0e9ab942a54",
+          "subject": "S/MIME fixture",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "alias@smtp1.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "hello https://external.test/action",
+          "from_addr": "visitor@external.test",
+          "from_name": "Visitor",
+          "is_deleted": false,
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-trailing-octet-invalid@smtp6.test\u003e",
+          "size_bytes": 1922,
+          "spam_score": 0,
+          "spf_result": "none",
+          "crypto_type": "smime-signed",
+          "dkim_result": "none",
+          "dmarc_result": "none",
+          "spam_headers": null
+        }
+      ],
+      "mailboxes": [
+        {
+          "id": 9348021,
+          "used_bytes": 1922,
+          "jmap_tag_state": 1,
+          "jmap_email_state": 1
+        },
+        {
+          "id": 9348022,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        },
+        {
+          "id": 9348023,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        }
+      ]
+    },
+    "name": "smime-cms-trailing-octet-invalid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3,
+        "reply": "250 OK\r\n250 OK\r\n354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cms-trailing-octet-invalid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCICrdmNBE1r8pNZcxD8Fn0zIin7mfYon2u26cNbc2\r\nqFkTAiEA8wXxj99+5/QMZJG1hlgrM+GQ7pd3q+Kxxc4dhnf8pUAA\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      }
+    ]
+  },
+  {
+    "pipeline_effects": {
+      "held": [],
+      "events": [],
+      "harvest": [
+        {
+          "email": "visitor@external.test",
+          "source": "harvested",
+          "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBozCCAUqgAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUw\nEwYDVQQDEwxTTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+\n/qLqt0GiLF/C80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmL\nKBJqO/QS/cg21JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoG\nCCsGAQUFBwMEMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1Ud\nEQQvMC2BFXZpc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRl\nc3QwCgYIKoZIzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+E\nG7Cx6d8CIFwoY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVu\n-----END CERTIFICATE-----\n",
+          "not_after": "2099-01-01 00:00:00+00",
+          "not_before": "2020-01-01 00:00:00+00",
+          "fingerprint": "ab202c5c5ddddbbd60287c3e41f43921c603ed51d0a2683d79eb6fb8301688f1",
+          "owner_user_id": 9348011
+        }
+      ],
+      "locations": [
+        {
+          "name": "Inbox",
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-ber-indefinite-valid@smtp6.test\u003e"
+        }
+      ],
+      "quarantine": []
+    },
+    "security_effects": [
+      {
+        "mailbox_id": 9348021,
+        "message_id": "\u003csmime-cms-ber-indefinite-valid@smtp6.test\u003e",
+        "spam_score": 0,
+        "is_external": false,
+        "smime_status": "valid",
+        "spam_headers": null,
+        "is_name_spoof": false,
+        "smime_issuer_cn": "SMTP6 Test Root",
+        "smime_signer_cn": "SMTP6 Signer",
+        "smime_signer_email": "visitor@external.test"
+      }
+    ],
+    "capture_blobs": true,
+    "blobs": {
+      "inbound/45f58bd3e29e5ca76a64aa209c62c5ff3080676d0792ab61be578ee637a6b3cf": "RnJvbTogVmlzaXRvciA8dmlzaXRvckBleHRlcm5hbC50ZXN0PgpUbzogYWxpYXNAc210cDEudGVzdApNZXNzYWdlLUlEOiA8c21pbWUtY21zLWJlci1pbmRlZmluaXRlLXZhbGlkQHNtdHA2LnRlc3Q+ClN1YmplY3Q6IFMvTUlNRSBmaXh0dXJlCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L3NpZ25lZDsgcHJvdG9jb2w9ImFwcGxpY2F0aW9uL3BrY3M3LXNpZ25hdHVyZSI7IGJvdW5kYXJ5PSJzbXRwNi1zaWduZWQiCgotLXNtdHA2LXNpZ25lZApDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTgKCmhlbGxvIGh0dHBzOi8vZXh0ZXJuYWwudGVzdC9hY3Rpb24KCi0tc210cDYtc2lnbmVkCkNvbnRlbnQtVHlwZTogYXBwbGljYXRpb24vcGtjczctc2lnbmF0dXJlCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NAoKTUlBR0NTcUdTSWIzRFFFSEFxQ0NCRE13Z2dRdkFnRUJNUTB3Q3dZSllJWklBV1VEQkFJQk1Bc0dDU3FHU0liMwpEUUVIQWFDQ0F4UXdnZ0ZwTUlJQkRxQURBZ0VDQWdJQ0RqQUtCZ2dxaGtqT1BRUURBakFhTVJnd0ZnWURWUVFECkV3OVRUVlJRTmlCVVpYTjBJRkp2YjNRd0lCY05NREF3TVRBeE1EQXdNREF3V2hnUE1qRXdNREF4TURFd01EQXcKTURCYU1Cb3hHREFXQmdOVkJBTVREMU5OVkZBMklGUmxjM1FnVW05dmREQlpNQk1HQnlxR1NNNDlBZ0VHQ0NxRwpTTTQ5QXdFSEEwSUFCQ2tnNUJDV0VzdkFQbSsvOXU4OEFnVXdUQUlNbWdZcnpUMHVXeW9FMlAzbnlneVVKV2Z6ClNocE5JNFpTZk5PM0k1RFowK3d6aFdacFZzSHk5L2dKdVF1alFqQkFNQTRHQTFVZER3RUIvd1FFQXdJQkJqQVAKQmdOVkhSTUJBZjhFQlRBREFRSC9NQjBHQTFVZERnUVdCQlNQWmx2V21RaERzMWovT1VadWR1L05JdDhOMFRBSwpCZ2dxaGtqT1BRUURBZ05KQURCR0FpRUFoamJJZVBhZG9sWHpsR2svcG4xcmdqaEdBaGREYUdsb0JyK0d5RVE3CmhKd0NJUUNQQmtJYVgrdGsyU2g0aEV5SEJiOFpMRWdtNkEwWDRJcUlKdHB4US91TjZUQ0NBYU13Z2dGS29BTUMKQVFJQ0FnSVBNQW9HQ0NxR1NNNDlCQU1DTUJveEdEQVdCZ05WQkFNVEQxTk5WRkEySUZSbGMzUWdVbTl2ZERBZwpGdzB5TURBeE1ERXdNREF3TURCYUdBOHlNRGs1TURFd01UQXdNREF3TUZvd0Z6RVZNQk1HQTFVRUF4TU1VMDFVClVEWWdVMmxuYm1WeU1Ga3dFd1lIS29aSXpqMENBUVlJS29aSXpqMERBUWNEUWdBRS92Nmk2cmRCb2l4Znd2TkcKT3paU0pFQ1J0NnVBdmdEQ0JYdU5BYXZqR1g2czlCMVRmcWxwcWNHWk1heCsxUVNwaXlnU2FqdjBFdjNJTnRTWgpwanpCcGFPQmdEQitNQTRHQTFVZER3RUIvd1FFQXdJSGdEQVRCZ05WSFNVRUREQUtCZ2dyQmdFRkJRY0RCREFmCkJnTlZIU01FR0RBV2dCU1BabHZXbVFoRHMxai9PVVp1ZHUvTkl0OE4wVEEyQmdOVkhSRUVMekF0Z1JWMmFYTnAKZEc5eVFHVjRkR1Z5Ym1Gc0xuUmxjM1NCRkhObFkyOXVaRUJsZUhSbGNtNWhiQzUwWlhOME1Bb0dDQ3FHU000OQpCQU1DQTBjQU1FUUNJRWozc21qNGJGcmNkOWgyU1Z3U1MrUEJUaHZid2tGY0ttWWZoQnV3c2VuZkFpQmNLR05sCnZ1eEU4MHdEVDVDUnhROFF0VXZueHQ1WjhwUHR1SWdaMDg3VmJqR0I5VENCOGdJQkFUQWdNQm94R0RBV0JnTlYKQkFNVEQxTk5WRkEySUZSbGMzUWdVbTl2ZEFJQ0FnOHdDd1lKWUlaSUFXVURCQUlCb0drd0dBWUpLb1pJaHZjTgpBUWtETVFzR0NTcUdTSWIzRFFFSEFUQWNCZ2txaGtpRzl3MEJDUVV4RHhjTk1qWXhNVEEzTWpJMU5qUXhXakF2CkJna3Foa2lHOXcwQkNRUXhJZ1FnV3lybmNQckVXN2Mxa3ZiS0ZBakR4S1dqWk11bnNvSGEwcGxhNlFMRXRub3cKQ2dZSUtvWkl6ajBFQXdJRVJ6QkZBaUFxM1pqUVJOYS9LVFdYTVEvQlo5TXlJcCs1bjJLSjlydHVuRFczTnFoWgpFd0loQVBNRjhZL2ZmdWYwREdTUnRZWllLelBoa082WGQ2dmlzY1hPSFlaMy9LVkFBQUE9Ci0tc210cDYtc2lnbmVkLS0K"
+    },
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "effects": {
+      "tags": [
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 1,
+          "mailbox_id": 9348021,
+          "total_count": 1,
+          "unread_count": 1,
+          "imap_uid_next": 3
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        }
+      ],
+      "audit": [],
+      "journal": [
+        {
+          "op": "created",
+          "datatype": "email",
+          "state_seq": 1,
+          "mailbox_id": 9348021
+        }
+      ],
+      "messages": [
+        {
+          "is_read": false,
+          "raw_ref": "inbound/45f58bd3e29e5ca76a64aa209c62c5ff3080676d0792ab61be578ee637a6b3cf",
+          "subject": "S/MIME fixture",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "alias@smtp1.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "hello https://external.test/action",
+          "from_addr": "visitor@external.test",
+          "from_name": "Visitor",
+          "is_deleted": false,
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-ber-indefinite-valid@smtp6.test\u003e",
+          "size_bytes": 1920,
+          "spam_score": 0,
+          "spf_result": "none",
+          "crypto_type": "smime-signed",
+          "dkim_result": "none",
+          "dmarc_result": "none",
+          "spam_headers": null
+        }
+      ],
+      "mailboxes": [
+        {
+          "id": 9348021,
+          "used_bytes": 1920,
+          "jmap_tag_state": 1,
+          "jmap_email_state": 1
+        },
+        {
+          "id": 9348022,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        },
+        {
+          "id": 9348023,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        }
+      ]
+    },
+    "name": "smime-cms-ber-indefinite-valid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3,
+        "reply": "250 OK\r\n250 OK\r\n354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cms-ber-indefinite-valid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIAGCSqGSIb3DQEHAqCCBDMwggQvAgEBMQ0wCwYJYIZIAWUDBAIBMAsGCSqGSIb3\r\nDQEHAaCCAxQwggFpMIIBDqADAgECAgICDjAKBggqhkjOPQQDAjAaMRgwFgYDVQQD\r\nEw9TTVRQNiBUZXN0IFJvb3QwIBcNMDAwMTAxMDAwMDAwWhgPMjEwMDAxMDEwMDAw\r\nMDBaMBoxGDAWBgNVBAMTD1NNVFA2IFRlc3QgUm9vdDBZMBMGByqGSM49AgEGCCqG\r\nSM49AwEHA0IABCkg5BCWEsvAPm+/9u88AgUwTAIMmgYrzT0uWyoE2P3nygyUJWfz\r\nShpNI4ZSfNO3I5DZ0+wzhWZpVsHy9/gJuQujQjBAMA4GA1UdDwEB/wQEAwIBBjAP\r\nBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBSPZlvWmQhDs1j/OUZudu/NIt8N0TAK\r\nBggqhkjOPQQDAgNJADBGAiEAhjbIePadolXzlGk/pn1rgjhGAhdDaGloBr+GyEQ7\r\nhJwCIQCPBkIaX+tk2Sh4hEyHBb8ZLEgm6A0X4IqIJtpxQ/uN6TCCAaMwggFKoAMC\r\nAQICAgIPMAoGCCqGSM49BAMCMBoxGDAWBgNVBAMTD1NNVFA2IFRlc3QgUm9vdDAg\r\nFw0yMDAxMDEwMDAwMDBaGA8yMDk5MDEwMTAwMDAwMFowFzEVMBMGA1UEAxMMU01U\r\nUDYgU2lnbmVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/v6i6rdBoixfwvNG\r\nOzZSJECRt6uAvgDCBXuNAavjGX6s9B1TfqlpqcGZMax+1QSpiygSajv0Ev3INtSZ\r\npjzBpaOBgDB+MA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDBDAf\r\nBgNVHSMEGDAWgBSPZlvWmQhDs1j/OUZudu/NIt8N0TA2BgNVHREELzAtgRV2aXNp\r\ndG9yQGV4dGVybmFsLnRlc3SBFHNlY29uZEBleHRlcm5hbC50ZXN0MAoGCCqGSM49\r\nBAMCA0cAMEQCIEj3smj4bFrcd9h2SVwSS+PBThvbwkFcKmYfhBuwsenfAiBcKGNl\r\nvuxE80wDT5CRxQ8QtUvnxt5Z8pPtuIgZ087VbjGB9TCB8gIBATAgMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdAICAg8wCwYJYIZIAWUDBAIBoGkwGAYJKoZIhvcN\r\nAQkDMQsGCSqGSIb3DQEHATAcBgkqhkiG9w0BCQUxDxcNMjYxMTA3MjI1NjQxWjAv\r\nBgkqhkiG9w0BCQQxIgQgWyrncPrEW7c1kvbKFAjDxKWjZMunsoHa0pla6QLEtnow\r\nCgYIKoZIzj0EAwIERzBFAiAq3ZjQRNa/KTWXMQ/BZ9MyIp+5n2KJ9rtunDW3NqhZ\r\nEwIhAPMF8Y/ffuf0DGSRtYZYKzPhkO6Xd6viscXOHYZ3/KVAAAA=\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      }
+    ]
+  },
+  {
+    "pipeline_effects": {
+      "held": [],
+      "events": [],
+      "harvest": [],
+      "locations": [
+        {
+          "name": "Inbox",
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-truncated-invalid@smtp6.test\u003e"
+        }
+      ],
+      "quarantine": []
+    },
+    "security_effects": [
+      {
+        "mailbox_id": 9348021,
+        "message_id": "\u003csmime-cms-truncated-invalid@smtp6.test\u003e",
+        "spam_score": 0,
+        "is_external": false,
+        "smime_status": "invalid",
+        "spam_headers": null,
+        "is_name_spoof": false,
+        "smime_issuer_cn": null,
+        "smime_signer_cn": null,
+        "smime_signer_email": null
+      }
+    ],
+    "capture_blobs": true,
+    "blobs": {
+      "inbound/b68904756df79167889aa1d38048451e44ab41563348f0184552490febd6369e": "RnJvbTogVmlzaXRvciA8dmlzaXRvckBleHRlcm5hbC50ZXN0PgpUbzogYWxpYXNAc210cDEudGVzdApNZXNzYWdlLUlEOiA8c21pbWUtY21zLXRydW5jYXRlZC1pbnZhbGlkQHNtdHA2LnRlc3Q+ClN1YmplY3Q6IFMvTUlNRSBmaXh0dXJlCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L3NpZ25lZDsgcHJvdG9jb2w9ImFwcGxpY2F0aW9uL3BrY3M3LXNpZ25hdHVyZSI7IGJvdW5kYXJ5PSJzbXRwNi1zaWduZWQiCgotLXNtdHA2LXNpZ25lZApDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTgKCmhlbGxvIGh0dHBzOi8vZXh0ZXJuYWwudGVzdC9hY3Rpb24KCi0tc210cDYtc2lnbmVkCkNvbnRlbnQtVHlwZTogYXBwbGljYXRpb24vcGtjczctc2lnbmF0dXJlCkNvbnRlbnQtVHJhbnNmZXItRW5jb2Rpbmc6IGJhc2U2NAoKTUlJRVFnWUpLb1pJaHZjTkFRY0NvSUlFTXpDQ0JDOENBUUV4RFRBTEJnbGdoa2dCWlFNRUFnRXdDd1lKS29aSQpodmNOQVFjQm9JSURGRENDQVdrd2dnRU9vQU1DQVFJQ0FnSU9NQW9HQ0NxR1NNNDlCQU1DTUJveEdEQVdCZ05WCkJBTVREMU5OVkZBMklGUmxjM1FnVW05dmREQWdGdzB3TURBeE1ERXdNREF3TURCYUdBOHlNVEF3TURFd01UQXcKTURBd01Gb3dHakVZTUJZR0ExVUVBeE1QVTAxVVVEWWdWR1Z6ZENCU2IyOTBNRmt3RXdZSEtvWkl6ajBDQVFZSQpLb1pJemowREFRY0RRZ0FFS1NEa0VKWVN5OEErYjcvMjd6d0NCVEJNQWd5YUJpdk5QUzViS2dUWS9lZktESlFsClovTktHazBqaGxKODA3Y2prTm5UN0RPRlptbFd3ZkwzK0FtNUM2TkNNRUF3RGdZRFZSMFBBUUgvQkFRREFnRUcKTUE4R0ExVWRFd0VCL3dRRk1BTUJBZjh3SFFZRFZSME9CQllFRkk5bVc5YVpDRU96V1A4NVJtNTI3ODBpM3czUgpNQW9HQ0NxR1NNNDlCQU1DQTBrQU1FWUNJUUNHTnNoNDlwMmlWZk9VYVQrbWZXdUNPRVlDRjBOb2FXZ0d2NGJJClJEdUVuQUloQUk4R1FocGY2MlRaS0hpRVRJY0Z2eGtzU0Nib0RSZmdpb2dtMm5GRCs0M3BNSUlCb3pDQ0FVcWcKQXdJQkFnSUNBZzh3Q2dZSUtvWkl6ajBFQXdJd0dqRVlNQllHQTFVRUF4TVBVMDFVVURZZ1ZHVnpkQ0JTYjI5MApNQ0FYRFRJd01ERXdNVEF3TURBd01Gb1lEekl3T1Rrd01UQXhNREF3TURBd1dqQVhNUlV3RXdZRFZRUURFd3hUClRWUlFOaUJUYVdkdVpYSXdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVCsvcUxxdDBHaUxGL0MKODBZN05sSWtRSkczcTRDK0FNSUZlNDBCcStNWmZxejBIVk4rcVdtcHdaa3hySDdWQkttTEtCSnFPL1FTL2NnMgoxSm1tUE1HbG80R0FNSDR3RGdZRFZSMFBBUUgvQkFRREFnZUFNQk1HQTFVZEpRUU1NQW9HQ0NzR0FRVUZCd01FCk1COEdBMVVkSXdRWU1CYUFGSTltVzlhWkNFT3pXUDg1Um01Mjc4MGkzdzNSTURZR0ExVWRFUVF2TUMyQkZYWnAKYzJsMGIzSkFaWGgwWlhKdVlXd3VkR1Z6ZElFVWMyVmpiMjVrUUdWNGRHVnlibUZzTG5SbGMzUXdDZ1lJS29aSQp6ajBFQXdJRFJ3QXdSQUlnU1BleWFQaHNXdHgzMkhaSlhCSkw0OEZPRzl2Q1FWd3FaaCtFRzdDeDZkOENJRndvClkyVys3RVR6VEFOUGtKSEZEeEMxUytmRzNsbnlrKzI0aUJuVHp0VnVNWUgxTUlIeUFnRUJNQ0F3R2pFWU1CWUcKQTFVRUF4TVBVMDFVVURZZ1ZHVnpkQ0JTYjI5MEFnSUNEekFMQmdsZ2hrZ0JaUU1FQWdHZ2FUQVlCZ2txaGtpRwo5dzBCQ1FNeEN3WUpLb1pJaHZjTkFRY0JNQndHQ1NxR1NJYjNEUUVKQlRFUEZ3MHlOakV4TURjeU1qVTJOREZhCk1DOEdDU3FHU0liM0RRRUpCREVpQkNCYkt1ZHcrc1JidHpXUzlzb1VDTVBFcGFOa3k2ZXlnZHJTbVZycEFzUzIKZWpBS0JnZ3Foa2pPUFFRREFnUkhNRVVDSUNyZG1OQkUxcjhwTlpjeEQ4Rm4weklpbjdtZllvbjJ1MjZjTmJjMgpxRmtUQWlFQTh3WHhqOTkrNS9RTVpKRzFobGdyTStHUTdwZDNxK0t4eGM0ZGhnPT0KLS1zbXRwNi1zaWduZWQtLQo="
+    },
+    "teardown_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;",
+    "mail_auth": {
+      "feature.smime_verify": true
+    },
+    "observe_effects": true,
+    "setup_sql": "DELETE FROM smime_trust_anchors WHERE label='smtp6-fixture'; DELETE FROM smime_revocation_blocklist WHERE reason='smtp6-fixture'; DELETE FROM recipient_smime_certs WHERE owner_user_id BETWEEN 9348011 AND 9348013;INSERT INTO smime_trust_anchors(label,cert_pem,fingerprint,domain_id) VALUES('smtp6-fixture','-----BEGIN CERTIFICATE-----\nMIIBaTCCAQ6gAwIBAgICAg4wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYg\nVGVzdCBSb290MCAXDTAwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgw\nFgYDVQQDEw9TTVRQNiBUZXN0IFJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNC\nAAQpIOQQlhLLwD5vv/bvPAIFMEwCDJoGK809LlsqBNj958oMlCVn80oaTSOGUnzT\ntyOQ2dPsM4VmaVbB8vf4CbkLo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/\nBAUwAwEB/zAdBgNVHQ4EFgQUj2Zb1pkIQ7NY/zlGbnbvzSLfDdEwCgYIKoZIzj0E\nAwIDSQAwRgIhAIY2yHj2naJV85RpP6Z9a4I4RgIXQ2hpaAa/hshEO4ScAiEAjwZC\nGl/rZNkoeIRMhwW/GSxIJugNF+CKiCbacUP7jek=\n-----END CERTIFICATE-----\n','a4d179f951d8f73463ab8883d55ab1bab138036e93090829ce3a6ebc677e9839',NULL);",
+    "effects": {
+      "tags": [
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 1,
+          "mailbox_id": 9348021,
+          "total_count": 1,
+          "unread_count": 1,
+          "imap_uid_next": 3
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348021,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348022,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Drafts",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Important",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Inbox",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Muted",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Other",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Scheduled",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Sent",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Snoozed",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Spam",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Starred",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        },
+        {
+          "name": "Trash",
+          "jmap_state": 0,
+          "mailbox_id": 9348023,
+          "total_count": 0,
+          "unread_count": 0,
+          "imap_uid_next": 1
+        }
+      ],
+      "audit": [],
+      "journal": [
+        {
+          "op": "created",
+          "datatype": "email",
+          "state_seq": 1,
+          "mailbox_id": 9348021
+        }
+      ],
+      "messages": [
+        {
+          "is_read": false,
+          "raw_ref": "inbound/b68904756df79167889aa1d38048451e44ab41563348f0184552490febd6369e",
+          "subject": "S/MIME fixture",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "alias@smtp1.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "hello https://external.test/action",
+          "from_addr": "visitor@external.test",
+          "from_name": "Visitor",
+          "is_deleted": false,
+          "mailbox_id": 9348021,
+          "message_id": "\u003csmime-cms-truncated-invalid@smtp6.test\u003e",
+          "size_bytes": 1913,
+          "spam_score": 0,
+          "spf_result": "none",
+          "crypto_type": "smime-signed",
+          "dkim_result": "none",
+          "dmarc_result": "none",
+          "spam_headers": null
+        }
+      ],
+      "mailboxes": [
+        {
+          "id": 9348021,
+          "used_bytes": 1913,
+          "jmap_tag_state": 1,
+          "jmap_email_state": 1
+        },
+        {
+          "id": 9348022,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        },
+        {
+          "id": 9348023,
+          "used_bytes": 0,
+          "jmap_tag_state": 0,
+          "jmap_email_state": 0
+        }
+      ]
+    },
+    "name": "smime-cms-truncated-invalid",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cvisitor@external.test\u003e\r\nRCPT TO:\u003calias@smtp1.test\u003e\r\nDATA\r\n",
+        "lines": 3,
+        "reply": "250 OK\r\n250 OK\r\n354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Visitor \u003cvisitor@external.test\u003e\r\nTo: alias@smtp1.test\r\nMessage-ID: \u003csmime-cms-truncated-invalid@smtp6.test\u003e\r\nSubject: S/MIME fixture\r\nContent-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"smtp6-signed\"\r\n\r\n--smtp6-signed\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello https://external.test/action\r\n\r\n--smtp6-signed\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nMIIEQgYJKoZIhvcNAQcCoIIEMzCCBC8CAQExDTALBglghkgBZQMEAgEwCwYJKoZI\r\nhvcNAQcBoIIDFDCCAWkwggEOoAMCAQICAgIOMAoGCCqGSM49BAMCMBoxGDAWBgNV\r\nBAMTD1NNVFA2IFRlc3QgUm9vdDAgFw0wMDAxMDEwMDAwMDBaGA8yMTAwMDEwMTAw\r\nMDAwMFowGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290MFkwEwYHKoZIzj0CAQYI\r\nKoZIzj0DAQcDQgAEKSDkEJYSy8A+b7/27zwCBTBMAgyaBivNPS5bKgTY/efKDJQl\r\nZ/NKGk0jhlJ807cjkNnT7DOFZmlWwfL3+Am5C6NCMEAwDgYDVR0PAQH/BAQDAgEG\r\nMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFI9mW9aZCEOzWP85Rm52780i3w3R\r\nMAoGCCqGSM49BAMCA0kAMEYCIQCGNsh49p2iVfOUaT+mfWuCOEYCF0NoaWgGv4bI\r\nRDuEnAIhAI8GQhpf62TZKHiETIcFvxksSCboDRfgiogm2nFD+43pMIIBozCCAUqg\r\nAwIBAgICAg8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPU01UUDYgVGVzdCBSb290\r\nMCAXDTIwMDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAXMRUwEwYDVQQDEwxT\r\nTVRQNiBTaWduZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+/qLqt0GiLF/C\r\n80Y7NlIkQJG3q4C+AMIFe40Bq+MZfqz0HVN+qWmpwZkxrH7VBKmLKBJqO/QS/cg2\r\n1JmmPMGlo4GAMH4wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwME\r\nMB8GA1UdIwQYMBaAFI9mW9aZCEOzWP85Rm52780i3w3RMDYGA1UdEQQvMC2BFXZp\r\nc2l0b3JAZXh0ZXJuYWwudGVzdIEUc2Vjb25kQGV4dGVybmFsLnRlc3QwCgYIKoZI\r\nzj0EAwIDRwAwRAIgSPeyaPhsWtx32HZJXBJL48FOG9vCQVwqZh+EG7Cx6d8CIFwo\r\nY2W+7ETzTANPkJHFDxC1S+fG3lnyk+24iBnTztVuMYH1MIHyAgEBMCAwGjEYMBYG\r\nA1UEAxMPU01UUDYgVGVzdCBSb290AgICDzALBglghkgBZQMEAgGgaTAYBgkqhkiG\r\n9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0yNjExMDcyMjU2NDFa\r\nMC8GCSqGSIb3DQEJBDEiBCBbKudw+sRbtzWS9soUCMPEpaNky6eygdrSmVrpAsS2\r\nejAKBggqhkjOPQQDAgRHMEUCICrdmNBE1r8pNZcxD8Fn0zIin7mfYon2u26cNbc2\r\nqFkTAiEA8wXxj99+5/QMZJG1hlgrM+GQ7pd3q+Kxxc4dhg==\r\n--smtp6-signed--\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      }
+    ]
+  }
+]

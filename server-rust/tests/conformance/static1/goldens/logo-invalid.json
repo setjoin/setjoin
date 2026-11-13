@@ -1,0 +1,33 @@
+{
+  "case": "logo-invalid",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/api/logo.svg"
+    },
+    "response": {
+      "body_length": 612,
+      "body_sha256": "cdba810d9f663bc9496c69dfe603a425b7808bdfb07e9485ccc20fd607a0aad0",
+      "body_text": "<svg width=\"172\" height=\"40\" viewBox=\"0 0 172 40\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n  <g transform=\"translate(2,2)\">\n    <rect x=\"3\" y=\"3\" width=\"20\" height=\"20\" rx=\"5\" stroke=\"#1E202B\" stroke-width=\"2.5\"></rect>\n    <rect x=\"13\" y=\"13\" width=\"20\" height=\"20\" rx=\"5\" stroke=\"#1E202B\" stroke-width=\"2.5\"></rect>\n    <rect x=\"13\" y=\"13\" width=\"10\" height=\"10\" rx=\"2.5\" fill=\"#4A50D0\"></rect>\n  </g>\n  <text x=\"48\" y=\"27\" font-family=\"IBM Plex Sans, sans-serif\" font-size=\"22\" font-weight=\"600\" letter-spacing=\"-0.02em\"><tspan fill=\"#1E202B\">set</tspan><tspan fill=\"#4A50D0\">join</tspan></text>\n</svg>",
+      "headers": {
+        "cache-control": "public, max-age=86400",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "image/svg+xml",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-logo_invalid"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /api/logo.svg"
+}

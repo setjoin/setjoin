@@ -1,0 +1,42 @@
+// Frozen-Go oracle overlay; never compiled into the shipped Go gateway.
+package auth
+import("context";"encoding/json";"log/slog";"net/http/httptest";"os";"testing";"time";"github.com/jackc/pgx/v5";"github.com/jackc/pgx/v5/pgxpool";"setjoin.com/mailserver/internal/config";"setjoin.com/mailserver/internal/db";"setjoin.com/shared/pwhash")
+func TestIDLOGIN3ChainOracle(t *testing.T){
+ ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+ pool,e:=pgxpool.New(ctx,os.Getenv("TEST_DB_DSN"));if e!=nil{t.Fatal(e)};defer pool.Close()
+ lock,e:=pool.Acquire(ctx);if e!=nil{t.Fatal(e)};defer lock.Release();if _,e=lock.Exec(ctx,"SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))");e!=nil{t.Fatal(e)}
+ var old *bool;_ = pool.QueryRow(ctx,"SELECT enabled FROM feature_toggles WHERE key='feature.disable_basic_auth'").Scan(&old)
+ defer func(){cleanup:=context.Background();if old==nil{pool.Exec(cleanup,"DELETE FROM feature_toggles WHERE key='feature.disable_basic_auth'")}else{pool.Exec(cleanup,"UPDATE feature_toggles SET enabled=$1 WHERE key='feature.disable_basic_auth'",*old)}}()
+ hash,e:=pwhash.HashPassword("idlogin3-worker-password");if e!=nil{t.Fatal(e)}
+ var uid int64; email:="idlogin3-chain@idlogin3.test"
+ e=pool.QueryRow(ctx,"INSERT INTO users(username,domain_id,email,display_name,password_hash) SELECT 'idlogin3-chain',id,$1,'worker',$2 FROM domains WHERE name='guest.invalid' RETURNING id",email,hash).Scan(&uid);if e!=nil{t.Fatal(e)}
+ defer func(){cleanup:=context.Background();for _,sql:=range []string{"DELETE FROM auth_event_log WHERE user_id=$1","DELETE FROM users WHERE id=$1"}{if _,e:=pool.Exec(cleanup,sql,uid);e!=nil{t.Errorf("owned fixture cleanup: %v",e)}}}()
+ set:=func(v bool){_,e=pool.Exec(ctx,"INSERT INTO feature_toggles(key,enabled) VALUES('feature.disable_basic_auth',$1) ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled",v);if e!=nil{t.Fatal(e)}}
+ set(true)
+ cfg:=&config.Config{};cfg.JWTSecret="idlogin1-fixture-secret-at-least-32-bytes";cfg.JWTIssuer="mailserver";chain,e:=NewChain(cfg,pool);if e!=nil{t.Fatal(e)}
+ dsn:=os.Getenv("TEST_DB_DSN")+"?application_name=gofree-idlogin3-chain-go"
+ conn,e:=pgx.Connect(ctx,dsn);if e!=nil{t.Fatal(e)};listener:=db.NewListener(conn,slog.Default());listener.SetDSN(dsn);done:=make(chan struct{});go func(){listener.Run(ctx);close(done)}();defer func(){cancel();<-done}();chain.ListenForChanges(ctx,listener)
+ admitted:=func()bool{r:=httptest.NewRequest("POST","http://mail.test/api/drive/native-token",nil);r.SetBasicAuth(email,"idlogin3-worker-password");c,e:=chain.AuthenticateRequest(r);return e==nil&&c.UserID==uid}
+ wait:=func(want bool){deadline:=time.Now().Add(10*time.Second);for admitted()!=want{if time.Now().After(deadline){t.Fatalf("admission never became %v",want)};time.Sleep(20*time.Millisecond)}}
+ trace:=[]map[string]interface{}{};point:=func(name string,want bool){wait(want);trace=append(trace,map[string]interface{}{"event":name,"basic_allowed":admitted()})}
+ point("startup-disabled",false);set(false);point("notify-enable",true);set(true);point("notify-disable",false)
+ pool.Exec(ctx,"DELETE FROM feature_toggles WHERE key='feature.disable_basic_auth'");if e=chain.ReloadMethods(ctx);e!=nil{t.Fatal(e)};point("missing-toggle",false)
+ set(false);point("notify-restore",true)
+ // Force loss of only our own named listener, then miss a committed update.
+ pool.Exec(ctx,"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=current_database() AND application_name='gofree-idlogin3-chain-go'")
+ set(true);point("reconnect-authority",false);set(false);point("post-reconnect-notify",true)
+ // A method-query failure must remove password authority while retaining JWT.
+ if _,e=pool.Exec(ctx,"ALTER TABLE auth_methods RENAME TO idlogin3_auth_methods_saved");e!=nil{t.Fatal(e)}
+ defer pool.Exec(context.Background(),"ALTER TABLE IF EXISTS idlogin3_auth_methods_saved RENAME TO auth_methods")
+ if chain.ReloadMethods(ctx)==nil{t.Fatal("expected query failure")};point("query-failure",false)
+ if _,e=pool.Exec(ctx,"ALTER TABLE idlogin3_auth_methods_saved RENAME TO auth_methods");e!=nil{t.Fatal(e)}
+ if os.Getenv("GOFREE_CHAIN_INITIAL")=="1" {
+  if e=chain.ReloadMethods(ctx);e!=nil{t.Fatal(e)};wait(true)
+  failedCtx,failedCancel:=context.WithCancel(ctx);failedCancel()
+  fresh,e:=pgx.Connect(ctx,dsn);if e!=nil{t.Fatal(e)}
+  failedListener:=db.NewListener(fresh,slog.Default());finished:=make(chan struct{});go func(){failedListener.Run(failedCtx);close(finished)}()
+  chain.ListenForChanges(failedCtx,failedListener);<-finished;point("initial-subscription-failure",false)
+ }
+ raw,e:=json.MarshalIndent(map[string]interface{}{"format":1,"go_source":"d431c0ecdbb362809c3fdba781a395712612bf61","worker":"auth-chain-reload","trace":trace},"","  ");if e!=nil{t.Fatal(e)}
+ f,e:=os.OpenFile(os.Getenv("GOFREE_CHAIN_GOLDEN"),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0644);if e!=nil{t.Fatal(e)};defer f.Close();f.Write(append(raw,'\n'))
+}

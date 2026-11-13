@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/sources/directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"sourceKey\": \"directory\",\n  \"displayName\": \"Directory\",\n  \"kind\": \"ldap\",\n  \"state\": \"active\",\n  \"generation\": \"3\",\n  \"mappingVersion\": \"1\",\n  \"capabilities\": {},\n  \"document\": {},\n  \"secretConfigured\": {\n    \"bindPassword\": true\n  }\n}\n",
+  "stderr": "",
+  "exit": 0
+}

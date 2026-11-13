@@ -1,0 +1,101 @@
+{
+  "case": "verify-rolling-replay-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 1,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": true
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": true
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/verify"
+}

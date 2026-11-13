@@ -1,0 +1,96 @@
+-- guest_app_entitlements.pg -- Guest G2 Task 4 user-id entitlement core.
+BEGIN;
+SELECT plan(15);
+
+INSERT INTO domains (name, is_local) VALUES ('g2-ent-host.example', TRUE);
+
+CREATE TEMP TABLE _member AS
+  SELECT mk_account('g2-ent-member') AS mailbox_id;
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'g2-ent-admin', d.id, 'g2-ent-admin@g2-ent-host.example', 'Admin', TRUE
+  FROM domains d WHERE d.name = 'g2-ent-host.example';
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'g2-ent-guest@external.example', d.id,
+       'g2-ent-guest@external.example', 'Guest', TRUE
+  FROM domains d WHERE d.name = 'guest.invalid';
+
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'g2-ent-admin@g2-ent-host.example', d.id, 'active'
+  FROM users u CROSS JOIN domains d
+ WHERE u.email = 'g2-ent-guest@external.example'
+   AND d.name = 'g2-ent-host.example';
+
+CREATE TEMP TABLE _ids AS
+SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mailbox_id FROM _member)) AS member_id,
+       (SELECT id FROM users WHERE email = 'g2-ent-guest@external.example') AS guest_id,
+       (SELECT id FROM users WHERE email = 'g2-ent-admin@g2-ent-host.example') AS admin_id;
+
+SELECT is(check_user_app_entitlement((SELECT member_id FROM _ids), 'calendar'), TRUE,
+  'member absent row preserves default allow');
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'calendar'), FALSE,
+  'guest absent row fails closed');
+
+INSERT INTO user_app_entitlements(user_id, app, enabled) VALUES
+  ((SELECT member_id FROM _ids), 'calendar', FALSE),
+  ((SELECT guest_id FROM _ids), 'chat', TRUE),
+  ((SELECT guest_id FROM _ids), 'drive', FALSE);
+
+SELECT is(check_user_app_entitlement((SELECT member_id FROM _ids), 'calendar'), FALSE,
+  'member explicit deny is enforced');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat';
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.guest_accounts';
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'chat'), TRUE,
+  'mailbox-less guest explicit allow is enforced');
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'drive'), FALSE,
+  'guest explicit deny is enforced');
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'unknown'), FALSE,
+  'unknown app is denied');
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat';
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'chat'), FALSE,
+  'global toggle intersects an explicit guest grant');
+SELECT is(check_user_app_entitlement(-1, 'calendar'), FALSE,
+  'missing user is denied');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat';
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.guest_accounts';
+SELECT is(check_user_app_entitlement((SELECT guest_id FROM _ids), 'chat'), FALSE,
+  'guest program toggle disables an existing explicit app grant');
+SELECT is(check_user_app_entitlement((SELECT member_id FROM _ids), 'mail'), TRUE,
+  'guest program toggle does not change member absent-row access');
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.guest_accounts';
+
+SELECT is(check_app_entitlement((SELECT mailbox_id FROM _member), 'calendar'), FALSE,
+  'mailbox compatibility wrapper delegates explicit deny');
+DELETE FROM user_app_entitlements
+ WHERE user_id = (SELECT member_id FROM _ids) AND app = 'calendar';
+SELECT is(check_app_entitlement((SELECT mailbox_id FROM _member), 'calendar'), TRUE,
+  'mailbox compatibility wrapper preserves member absent-row allow');
+
+SELECT throws_ok(format(
+  'SELECT set_app_entitlement(%s, %L, true, %s)',
+  (SELECT guest_id FROM _ids), 'chat', (SELECT admin_id FROM _ids)),
+  'BZ226', NULL,
+  'direct guest entitlement mutation raises BZ226');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat';
+SELECT set_config('g2ent.guest_id', (SELECT guest_id::text FROM _ids), true);
+SELECT set_config('app.current_user_id', (SELECT member_id::text FROM _ids), true);
+SET LOCAL ROLE setjoin_app;
+
+SELECT is(
+  (SELECT count(*)::int FROM guest_accounts
+    WHERE user_id = current_setting('g2ent.guest_id')::bigint),
+  0,
+  'setjoin_app cannot read another principal''s guest row through FORCE RLS');
+SELECT is(
+  check_user_app_entitlement(current_setting('g2ent.guest_id')::bigint, 'chat'),
+  TRUE,
+  'worker-owned entitlement authority returns the explicit guest Chat grant');
+
+SELECT * FROM finish();
+ROLLBACK;

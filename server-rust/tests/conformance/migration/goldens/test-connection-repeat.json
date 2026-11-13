@@ -1,0 +1,194 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "jobs": [
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<target>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<target>"
+            }
+          ],
+          "messages": [],
+          "objects": [],
+          "s3": [],
+          "tags": [
+            {
+              "color": null,
+              "mailbox": "<mailbox-a>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            },
+            {
+              "color": null,
+              "mailbox": "<mailbox-b>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            }
+          ]
+        },
+        "before": {
+          "jobs": [
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<target>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<target>"
+            }
+          ],
+          "messages": [],
+          "objects": [],
+          "s3": [],
+          "tags": [
+            {
+              "color": null,
+              "mailbox": "<mailbox-a>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            },
+            {
+              "color": null,
+              "mailbox": "<mailbox-b>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            }
+          ]
+        },
+        "table": "migration_jobs+messages+tags+objects"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"source_type\":\"imap\",\"host\":\"{PUBLIC}\",\"port\":{PORT},\"ssl\":false}",
+      "external_path": "/api/admin/migration/test-connection",
+      "method": "POST",
+      "path": "/admin/migration/test-connection"
+    },
+    "response": {
+      "body": "{\"ok\":true}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "12"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox6-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/migration/test-connection"
+}

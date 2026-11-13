@@ -1,0 +1,11 @@
+{
+  "schema": "setjoin.security-program.inventory-decision/v1",
+  "decisionVersion": "inventory-denominator/v1",
+  "decidedAt": "2026-09-03T09:31:30.000Z",
+  "revision": "727f40ad1274d950926369913a464bcc8f2e0236",
+  "historicalCandidateCount": 6163,
+  "acceptedAuthorizedCount": 5824,
+  "exclusionPolicySha256": "2b98ae3ac8ec76ddc0ad139b78a1e6ea5e9e777027815b2b8d8bcb13b1b6dede",
+  "inventorySha256": "b48c312ddc01b7410463eeb1bc659da6a28b2ee2bff50a4d422bf95b5b7407af",
+  "rationaleToken": "APPROVED-FIRST-PARTY-DENOMINATOR"
+}

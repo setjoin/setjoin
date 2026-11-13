@@ -1,0 +1,119 @@
+{
+  "case": "possession-webauthn-finish-expired-ceremony",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "audit": [],
+      "ceremonies": [
+        {
+          "family": null,
+          "hash": "<challenge-hash>",
+          "jti": "idmfa3-actor",
+          "kind": "management_assertion",
+          "live": false,
+          "operation": "recovery.regenerate",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "credentials": [
+        {
+          "attestation": "none",
+          "count": 7,
+          "id": "69646d6661322d6b65792d3037",
+          "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+          "owner": "actor",
+          "revoked": false,
+          "used": false,
+          "uv": true
+        },
+        {
+          "attestation": "none",
+          "count": 7,
+          "id": "666f726569676e2d75762d6b6579",
+          "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+          "owner": "foreign",
+          "revoked": false,
+          "used": false,
+          "uv": true
+        }
+      ],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "idmfa3-actor",
+          "live": true,
+          "method": "password",
+          "operation": "recovery.regenerate",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        },
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "users": [
+        {
+          "generation": 2,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ],
+      "webauthn_budgets": [
+        {
+          "count": 0,
+          "locked": false,
+          "owner": "actor"
+        },
+        {
+          "count": 0,
+          "locked": false,
+          "owner": "foreign"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"id\":\"aWRtZmEyLWtleS0wNw\",\"operation\":\"recovery.regenerate\",\"rawId\":\"aWRtZmEyLWtleS0wNw\",\"response\":{\"authenticatorData\":\"SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAACA\",\"clientDataJSON\":\"eyJjaGFsbGVuZ2UiOiJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFIiwib3JpZ2luIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwIiwidHlwZSI6IndlYmF1dGhuLmdldCJ9\",\"signature\":\"MEYCIQDmzVoHqwFzBVAmNpZmsRFPa71959jwexB-zd9B4USGSgIhAKvcMYo3rh2jfG51VzfyLXYCy3vlj2ETpm2-gGLjAH-C\",\"userHandle\":\"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI\"},\"type\":\"public-key\",\"user_id\":<foreign>}",
+      "method": "POST",
+      "path": "/auth/mfa/possession/webauthn/finish"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/reauth-required\",\"title\":\"Re-authentication required\",\"status\":403,\"detail\":\"no live management-assertion ceremony for this session — begin one at POST /auth/mfa/possession/webauthn/begin\",\"instance\":\"/auth/mfa/possession/webauthn/finish\",\"remediation\":\"reauth\",\"code\":\"reauth_required\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /auth/mfa/possession/webauthn/finish"
+}

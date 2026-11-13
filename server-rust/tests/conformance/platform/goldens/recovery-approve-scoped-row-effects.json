@@ -1,0 +1,53 @@
+{
+  "case": "scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "approval_required": true,
+          "approved_at": null,
+          "approved_by": null,
+          "close_reason": null,
+          "closed_at": null,
+          "closed_by": null,
+          "created_at": "<timestamp>",
+          "expires_at": "<timestamp>",
+          "id": "<uuid>",
+          "idempotency_key": "<uuid>",
+          "installation_id": "<installation>",
+          "maximum_timeline": 2,
+          "minimum_timeline": 1,
+          "opened_by": "<other>",
+          "reason": "oracle recovery approval",
+          "status": "open",
+          "step_up_binding": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "before": [
+        {
+          "approval_required": true,
+          "approved_at": null,
+          "approved_by": null,
+          "close_reason": null,
+          "closed_at": null,
+          "closed_by": null,
+          "created_at": "<timestamp>",
+          "expires_at": "<timestamp>",
+          "id": "<uuid>",
+          "idempotency_key": "<uuid>",
+          "installation_id": "<installation>",
+          "maximum_timeline": 2,
+          "minimum_timeline": 1,
+          "opened_by": "<other>",
+          "reason": "oracle recovery approval",
+          "status": "open",
+          "step_up_binding": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "table": "mail_recovery_incidents"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/system/recovery/incidents/{id}/approve"
+}

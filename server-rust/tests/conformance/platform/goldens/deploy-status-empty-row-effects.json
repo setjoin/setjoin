@@ -1,0 +1,13 @@
+{
+  "case": "empty-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "deployment_steps"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "GET /admin/deploy/status"
+}

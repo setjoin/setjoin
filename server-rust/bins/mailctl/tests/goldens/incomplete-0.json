@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage: mailctl <command> [args...]\nRun 'mailctl help' for available commands.\n",
+  "exit": 1
+}

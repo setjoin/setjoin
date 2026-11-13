@@ -1,0 +1,85 @@
+-- pgTAP: V020__perm_split_backfill.pg — backfill split permission keys onto
+-- existing umbrella-key holders.
+--
+-- Coverage:
+--   1. Super Admin (id 1) gains users.create, users.suspend, mail.pipeline,
+--      mail.security — confirming the users.write + mail.write backfill paths.
+--   2. Super Admin does NOT gain audit.export (that key seeds only onto the
+--      等保 audit preset; it is explicitly excluded from the backfill).
+--   3. Real idempotency (not a tautology): run the V020 UPDATE statements a
+--      second time in this transaction and assert the permissions array is
+--      byte-identical to the snapshot captured before the second run.
+--   4. A non-umbrella role (Audit Reader, id 4, holds neither users.write nor
+--      mail.write) is completely unchanged by the backfill.
+--
+-- NOTE: the absolute Super Admin permission count after backfill (was 27) is
+-- not asserted here — V022 subsequently removes users.write + mail.write,
+-- making the final count 25, which is owned by V022__drop_umbrella_perms.pg.
+BEGIN;
+SELECT plan(6);
+
+-- ── 1. Super Admin has the four backfilled split keys ────────────────────────
+
+SELECT ok(
+  (SELECT permissions @> ARRAY['users.create','users.suspend']
+   FROM admin_role_groups WHERE id = 1),
+  'Super Admin has users.create and users.suspend (backfilled from users.write)');
+
+SELECT ok(
+  (SELECT permissions @> ARRAY['mail.pipeline','mail.security']
+   FROM admin_role_groups WHERE id = 1),
+  'Super Admin has mail.pipeline and mail.security (backfilled from mail.write)');
+
+-- ── 2. Super Admin does NOT hold audit.export ────────────────────────────────
+
+SELECT ok(
+  NOT (SELECT permissions @> ARRAY['audit.export']
+       FROM admin_role_groups WHERE id = 1),
+  'Super Admin does NOT hold audit.export (backfill never adds it)');
+
+-- ── 3. Real idempotency — run the V020 UPDATE expressions a second time ──────
+--
+-- Capture Super Admin's permissions before the re-run, then execute the two
+-- backfill UPDATE statements, then compare.  If the array changes (duplicates
+-- introduced, length grows) the equality check will fail.
+
+CREATE TEMP TABLE _before_rerun AS
+  SELECT id, permissions FROM admin_role_groups WHERE id = 1;
+
+-- Re-run the exact V020 backfill UPDATE statements:
+UPDATE admin_role_groups
+SET    permissions = (
+         SELECT array_agg(DISTINCT p ORDER BY p)
+         FROM   unnest(permissions || ARRAY['users.create','users.suspend']) AS p
+       )
+WHERE  permissions @> ARRAY['users.write'];
+
+UPDATE admin_role_groups
+SET    permissions = (
+         SELECT array_agg(DISTINCT p ORDER BY p)
+         FROM   unnest(permissions || ARRAY['mail.pipeline','mail.security']) AS p
+       )
+WHERE  permissions @> ARRAY['mail.write'];
+
+SELECT results_eq(
+  $$SELECT permissions FROM admin_role_groups WHERE id = 1$$,
+  $$SELECT permissions FROM _before_rerun WHERE id = 1$$,
+  'V020 is idempotent: second run leaves Super Admin permissions byte-identical');
+
+-- ── 4. Audit Reader (id 4) is unchanged by the backfill ──────────────────────
+--
+-- Audit Reader holds {audit.read, reports.read} — no umbrella key.  Its
+-- permissions must not be modified by either backfill UPDATE.
+
+SELECT results_eq(
+  $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE id = 4$$,
+  $$SELECT 2$$,
+  'Audit Reader still has exactly 2 permissions — untouched by backfill');
+
+SELECT ok(
+  NOT (SELECT permissions && ARRAY['users.create','users.suspend','mail.pipeline','mail.security']
+       FROM admin_role_groups WHERE id = 4),
+  'Audit Reader holds none of the four backfilled split keys');
+
+SELECT * FROM finish();
+ROLLBACK;

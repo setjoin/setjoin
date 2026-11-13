@@ -1,0 +1,239 @@
+{
+  "go_source": "7f2633f3388c6ed525a905eed70f0ae46c56ed4e",
+  "observation": {
+    "events": [
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\"",
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "DELETE",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\"",
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "DELETE",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\"",
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.alt.example.test.",
+        "op": "DELETE",
+        "ttl": 0,
+        "values": [
+          "\"$CHALLENGE\""
+        ]
+      },
+      {
+        "api": "r53",
+        "op": "zones"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "records",
+        "type": "TXT"
+      },
+      {
+        "api": "r53",
+        "name": "_acme-challenge.example.test.",
+        "op": "UPSERT",
+        "ttl": 0,
+        "values": [
+          "\"keep\""
+        ]
+      }
+    ],
+    "published": false
+  }
+}

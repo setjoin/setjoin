@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of approval list:\n  -consumer-type string\n    \tFilter by consumer type: rbac.jit_activation, mail.external_send, mail.group_moderation\nError: flag: help requested\n",
+  "exit": 1
+}

@@ -1,0 +1,22 @@
+-- mailserver/sql/tests/drive_policy_resolve.pg — §9.2 defaults + gxp hard floor
+BEGIN;
+SELECT plan(6);
+SELECT mk_account('dpr') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('reg', :u);
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS rid \gset
+INSERT INTO drive_spaces (name, owner_user_id, classification, export_policy)
+  VALUES ('sec', :u, 'secure', '{"export":"approval","upload_max_bytes":1048576}');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid2 \gset
+INSERT INTO drive_spaces (name, owner_user_id, classification, retention_days, worm_mode, export_policy)
+  VALUES ('gxp', :u, 'gxp', 30, 'compliance', '{"export":"allow","audit_reads":false}');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS gid \gset
+
+SELECT is(drive_policy_resolve(:rid)->>'export', 'allow', 'regular default export=allow');
+SELECT is((drive_policy_resolve(:rid)->>'audit_reads')::boolean, FALSE, 'regular default audit_reads=false');
+SELECT is(drive_policy_resolve(:sid2)->>'export', 'approval', 'stored key overrides secure default');
+SELECT is((drive_policy_resolve(:sid2)->>'upload_max_bytes')::bigint, 1048576::bigint, 'extra keys pass through');
+SELECT is(drive_policy_resolve(:gid)->>'export', 'approval', 'gxp floor overrides a weaker stored value');
+SELECT is((drive_policy_resolve(:gid)->>'audit_reads')::boolean, TRUE, 'gxp audit_reads floor holds');
+SELECT * FROM finish();
+ROLLBACK;

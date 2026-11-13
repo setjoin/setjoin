@@ -1,0 +1,141 @@
+-- pgTAP: rls_denial_extra.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Native-RLS pre-flight gate: SET-ROLE cross-tenant DENIAL coverage for FORCE'd
+-- user-data tables that had NO such test anywhere in this suite (audited via
+-- `grep -L 'SET LOCAL ROLE' + pg_policies` against every table with
+-- relforcerowsecurity=true). Six tables, chosen as one representative per
+-- distinct policy shape so this genuinely fails if RLS is dropped or a policy
+-- is weakened — not an exhaustive sweep of all ~24 FORCE'd tables:
+--   - saved_searches, jmap_entity_state   : ALL policy keyed on mailbox_id
+--   - login_events, terms_of_use_acceptance,
+--     focus_sender_overrides              : ALL policy keyed on user_id
+--   - user_risk                           : SELECT-ONLY policy keyed on user_id
+--
+-- WHY SET LOCAL ROLE setjoin_app: the test connection (`mail`) is a SUPERUSER
+-- and table owner — both bypass RLS even under FORCE. setjoin_app is the real
+-- constrained runtime role the native-RLS flip targets (NOSUPERUSER +
+-- NOBYPASSRLS). Mirrors rls_calendar_subscriptions.pg / rls_user_image_allow.pg.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(28);
+
+-- ── FORCE-state guard: fails loudly if a migration ever drops FORCE ─────────
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.saved_searches'::regclass),
+  TRUE, 'saved_searches: ROW LEVEL SECURITY FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.jmap_entity_state'::regclass),
+  TRUE, 'jmap_entity_state: ROW LEVEL SECURITY FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.login_events'::regclass),
+  TRUE, 'login_events: ROW LEVEL SECURITY FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.terms_of_use_acceptance'::regclass),
+  TRUE, 'terms_of_use_acceptance: ROW LEVEL SECURITY FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.focus_sender_overrides'::regclass),
+  TRUE, 'focus_sender_overrides: ROW LEVEL SECURITY FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.user_risk'::regclass),
+  TRUE, 'user_risk: ROW LEVEL SECURITY FORCED');
+
+-- ── Fixtures: two tenants, disjoint user_id/mailbox_id (mk_account) ─────────
+SELECT mk_account('denyA') AS mba \gset
+SELECT mk_account('denyB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+INSERT INTO terms_of_use (name, version, body_md) VALUES ('deny-extra-tou', 1, 'body')
+  RETURNING id AS tou_id \gset
+
+-- Seed one row per tenant per table, as the superuser (BEFORE SET ROLE).
+INSERT INTO saved_searches (mailbox_id, name, query) VALUES
+  (:mba, 'A search', 'from:a'), (:mbb, 'B search', 'from:b');
+INSERT INTO jmap_entity_state (mailbox_id, datatype, seq) VALUES
+  (:mba, 'Email', 1), (:mbb, 'Email', 1);
+INSERT INTO login_events (user_id, success) VALUES
+  (:ua, TRUE), (:ub, TRUE);
+INSERT INTO terms_of_use_acceptance (user_id, tou_id, version) VALUES
+  (:ua, :tou_id, 1), (:ub, :tou_id, 1);
+INSERT INTO focus_sender_overrides (user_id, sender, focused) VALUES
+  (:ua, 'a-sender@deny.test', TRUE), (:ub, 'b-sender@deny.test', TRUE);
+INSERT INTO user_risk (user_id, score, level) VALUES
+  (:ua, 10, 'low'), (:ub, 20, 'low');
+
+SET LOCAL ROLE setjoin_app;
+
+-- ── saved_searches (mailbox_id ALL policy) ──────────────────────────────────
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+SELECT is((SELECT count(*) FROM saved_searches)::INT, 1,
+  'saved_searches: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM saved_searches WHERE mailbox_id = :mbb)::INT, 0,
+  'saved_searches: B''s row is invisible to A');
+UPDATE saved_searches SET name = 'HACKED' WHERE mailbox_id = :mbb;
+DELETE FROM saved_searches WHERE mailbox_id = :mbb;
+SELECT set_config('app.current_mailbox_id', :mbb::text, true);
+SELECT is((SELECT name FROM saved_searches WHERE mailbox_id = :mbb), 'B search',
+  'saved_searches: A''s UPDATE of B''s row had no effect (still B''s original name)');
+SELECT is((SELECT count(*) FROM saved_searches WHERE mailbox_id = :mbb)::INT, 1,
+  'saved_searches: A''s DELETE of B''s row had no effect (row survives)');
+
+-- ── jmap_entity_state (mailbox_id ALL policy) ───────────────────────────────
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+SELECT is((SELECT count(*) FROM jmap_entity_state)::INT, 1,
+  'jmap_entity_state: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM jmap_entity_state WHERE mailbox_id = :mbb)::INT, 0,
+  'jmap_entity_state: B''s row is invisible to A');
+UPDATE jmap_entity_state SET seq = 999 WHERE mailbox_id = :mbb;
+DELETE FROM jmap_entity_state WHERE mailbox_id = :mbb;
+SELECT set_config('app.current_mailbox_id', :mbb::text, true);
+SELECT is((SELECT seq FROM jmap_entity_state WHERE mailbox_id = :mbb)::INT, 1,
+  'jmap_entity_state: A''s UPDATE of B''s row had no effect (seq unchanged)');
+SELECT is((SELECT count(*) FROM jmap_entity_state WHERE mailbox_id = :mbb)::INT, 1,
+  'jmap_entity_state: A''s DELETE of B''s row had no effect (row survives)');
+
+-- ── login_events (user_id ALL policy) ───────────────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is((SELECT count(*) FROM login_events)::INT, 1,
+  'login_events: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM login_events WHERE user_id = :ub)::INT, 0,
+  'login_events: B''s row is invisible to A');
+UPDATE login_events SET fail_reason = 'HACKED' WHERE user_id = :ub;
+DELETE FROM login_events WHERE user_id = :ub;
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is((SELECT fail_reason FROM login_events WHERE user_id = :ub), NULL,
+  'login_events: A''s UPDATE of B''s row had no effect (fail_reason still NULL)');
+SELECT is((SELECT count(*) FROM login_events WHERE user_id = :ub)::INT, 1,
+  'login_events: A''s DELETE of B''s row had no effect (row survives)');
+
+-- ── terms_of_use_acceptance (user_id ALL policy) ────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is((SELECT count(*) FROM terms_of_use_acceptance)::INT, 1,
+  'terms_of_use_acceptance: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM terms_of_use_acceptance WHERE user_id = :ub)::INT, 0,
+  'terms_of_use_acceptance: B''s row is invisible to A');
+UPDATE terms_of_use_acceptance SET version = 999 WHERE user_id = :ub;
+DELETE FROM terms_of_use_acceptance WHERE user_id = :ub;
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is((SELECT version FROM terms_of_use_acceptance WHERE user_id = :ub)::INT, 1,
+  'terms_of_use_acceptance: A''s UPDATE of B''s row had no effect (version unchanged)');
+SELECT is((SELECT count(*) FROM terms_of_use_acceptance WHERE user_id = :ub)::INT, 1,
+  'terms_of_use_acceptance: A''s DELETE of B''s row had no effect (row survives)');
+
+-- ── focus_sender_overrides (user_id ALL policy) ─────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is((SELECT count(*) FROM focus_sender_overrides)::INT, 1,
+  'focus_sender_overrides: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM focus_sender_overrides WHERE user_id = :ub)::INT, 0,
+  'focus_sender_overrides: B''s row is invisible to A');
+UPDATE focus_sender_overrides SET focused = FALSE WHERE user_id = :ub;
+DELETE FROM focus_sender_overrides WHERE user_id = :ub;
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is((SELECT focused FROM focus_sender_overrides WHERE user_id = :ub), TRUE,
+  'focus_sender_overrides: A''s UPDATE of B''s row had no effect (focused unchanged)');
+SELECT is((SELECT count(*) FROM focus_sender_overrides WHERE user_id = :ub)::INT, 1,
+  'focus_sender_overrides: A''s DELETE of B''s row had no effect (row survives)');
+
+-- ── user_risk (SELECT-ONLY policy — no write policy exists for setjoin_app) ─
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is((SELECT count(*) FROM user_risk)::INT, 1,
+  'user_risk: GUC=A sees exactly one row (its own)');
+SELECT is((SELECT count(*) FROM user_risk WHERE user_id = :ub)::INT, 0,
+  'user_risk: B''s row is invisible to A');
+
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

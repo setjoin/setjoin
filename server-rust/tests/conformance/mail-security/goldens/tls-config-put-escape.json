@@ -1,0 +1,157 @@
+{
+  "case": "escape",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "tls_config_set",
+        "after_state": {
+          "description": "TLS configuration",
+          "keys": [
+            "tls_<k>&"
+          ]
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "tls_<k>&",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "system_config",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_<k>&",
+              "value": "<v>&  é \"q\""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            }
+          ],
+          "files": []
+        },
+        "before": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            }
+          ],
+          "files": []
+        },
+        "table": "tls"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_<k>&",
+          "operation": "insert"
+        }
+      }
+    ],
+    "request": {
+      "external_path": "/api/admin/tls/config",
+      "method": "PUT",
+      "path": "/admin/tls/config"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/tls/config"
+}

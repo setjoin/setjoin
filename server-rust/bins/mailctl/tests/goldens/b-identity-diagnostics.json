@@ -1,0 +1,41 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/diagnostics",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\",\"sinceSeconds\":3600,\"sourceKey\":\"directory\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001/download",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Sanitized identity diagnostics written to $HOME/diagnostics.zip (mode 0600).\nJob: 00000000-0000-4000-8000-000000000001  SHA-256: 964749ce4e689f8fd463fd4af0c5302132f49c7650d03b62aaad6937a1186708\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000001\n",
+  "exit": 0,
+  "files": {
+    "diagnostics.zip": {
+      "body": "PK\u0003\u0004sanitized-fixture",
+      "mode": 384
+    }
+  }
+}

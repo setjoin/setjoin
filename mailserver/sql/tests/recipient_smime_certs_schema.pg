@@ -1,0 +1,41 @@
+-- recipient_smime_certs_schema.pg — pgTAP schema test for the SP1 recipient
+-- cert store (V025). Pins the locked column shape + constraints that
+-- smime.ResolveRecipientCert (reads) and Phase 2 harvest (upserts) depend on.
+BEGIN;
+SELECT plan(16);
+
+SELECT has_table('recipient_smime_certs');
+SELECT col_is_pk('recipient_smime_certs', 'id');
+SELECT has_column('recipient_smime_certs', 'owner_user_id');
+SELECT col_not_null('recipient_smime_certs', 'owner_user_id');
+SELECT has_column('recipient_smime_certs', 'email');
+SELECT has_column('recipient_smime_certs', 'cert_pem');
+SELECT has_column('recipient_smime_certs', 'fingerprint');
+SELECT has_column('recipient_smime_certs', 'not_before');
+SELECT has_column('recipient_smime_certs', 'not_after');
+SELECT has_column('recipient_smime_certs', 'source');
+SELECT col_default_is('recipient_smime_certs', 'first_seen', 'now()');
+SELECT col_default_is('recipient_smime_certs', 'last_seen', 'now()');
+
+-- Dedup uniqueness: (owner_user_id, email, fingerprint).
+SELECT col_is_unique('recipient_smime_certs', ARRAY['owner_user_id','email','fingerprint']);
+
+-- source CHECK rejects an unknown value.
+SELECT throws_ok(
+  $$INSERT INTO recipient_smime_certs (owner_user_id, email, cert_pem, fingerprint, source)
+    VALUES (1, 'x@y.z', 'pem', 'fp', 'bogus')$$,
+  '23514', NULL, 'source CHECK rejects an unknown value');
+
+-- V031: the dead outbound-worker encrypt-gate column is gone. Encryption intent is
+-- per-submission (encryptSMIME), never a stored messages column.
+SELECT hasnt_column('messages', 'smime_encrypt',
+  'messages.smime_encrypt was dropped (V031) — encrypt intent is per-submission, not a column');
+
+-- V032: inbound S/MIME verification ships ON by default (seeded toggle, fail-open).
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.smime_verify'),
+  TRUE,
+  'feature.smime_verify seeded enabled=true (cutover default ON, V032)');
+
+SELECT * FROM finish();
+ROLLBACK;

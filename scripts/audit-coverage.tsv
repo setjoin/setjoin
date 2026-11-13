@@ -1,0 +1,997 @@
+meeting_local_capture.sql	_meeting_local_lease_lock	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_local_capture.sql	_meeting_local_require_owner_or_host	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_local_capture.sql	_meeting_local_stop_lease	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+meeting_local_capture.sql	_meeting_local_surfaces_ok	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_emit	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+meeting_presentation.sql	_meeting_presentation_lock	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_participant_of	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_require_generation	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_require_live	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_require_presenter	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_require_sequence	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	_meeting_presentation_require_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	_meeting_semantic_lock	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	_meeting_semantic_profile_shape	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	_meeting_semantic_require_authority	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	_meeting_semantic_seed_children	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+access_review_assert_open.sql	access_review_assert_open	READ_ONLY	-	pure read path (guard re-derives no DML)
+access_review_close.sql	access_review_close	MUST	core	lifecycle/authority transition (WP3 core class)
+access_review_decide.sql	access_review_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+access_review_decide_bulk.sql	access_review_decide_bulk	MUST	core	lifecycle/authority transition (WP3 core class)
+access_review_start.sql	access_review_start	MUST	core	lifecycle/authority transition (WP3 core class)
+account_scope.sql	account_scope	READ_ONLY	-	pure read path (guard re-derives no DML)
+ad_principal_set.sql	ad_principal_set	MUST	core	lifecycle/authority transition (WP3 core class)
+admin_actor_contains_ou.sql	admin_actor_contains_ou	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_actor_reach_users.sql	admin_actor_reach_users	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_assignment_active.sql	admin_assignment_active	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_can_manage.sql	admin_can_manage	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_can_manage.sql	admin_can_manage_with_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_can_reach.sql	admin_can_reach	READ_ONLY	-	pure read path (guard re-derives no DML)
+import_export.sql	admin_can_reach_mailbox	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_effective_authority.sql	admin_effective_authority	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_is_super.sql	admin_is_super	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_mailbox_in_group.sql	admin_mailbox_in_group	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_protection_check.sql	admin_protection_check	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_reset_password.sql	admin_reset_password	MUST	core	lifecycle/authority transition (WP3 core class)
+admin_role_activate.sql	admin_role_activate	MUST	core	lifecycle/authority transition (WP3 core class)
+admin_role_deactivate.sql	admin_role_deactivate	MUST	core	lifecycle/authority transition (WP3 core class)
+admin_role_window_open.sql	admin_role_window_open	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+admin_scope_member_users.sql	admin_scope_member_users	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_scope_within.sql	admin_scope_within	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_set_reaches.sql	admin_set_reaches	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_sod_precheck.sql	admin_sod_precheck	READ_ONLY	-	pure read path (guard re-derives no DML)
+app_notify.sql	app_notify	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+append_change.sql	append_change	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+append_change.sql	append_email_change	READ_ONLY	-	pure read path (guard re-derives no DML)
+rule_engine.sql	apply_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+rule_engine_or.sql	apply_rules	READ_ONLY	-	pure read path (guard re-derives no DML)
+approval_active_delegate.sql	approval_active_delegate	READ_ONLY	-	pure read path (guard re-derives no DML)
+approval_decide.sql	approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+approval_expire_due.sql	approval_expire_due	MUST	core	lifecycle/authority transition (WP3 core class)
+approval_match_policies.sql	approval_match_policies	READ_ONLY	-	pure read path (guard re-derives no DML)
+approval_request_cancel.sql	approval_request_cancel	MUST	core	lifecycle/authority transition (WP3 core class)
+approval_request_create.sql	approval_request_create	MUST	core	lifecycle/authority transition (WP3 core class)
+approval_resolve_approver.sql	approval_resolve_approver	READ_ONLY	-	pure read path (guard re-derives no DML)
+audit_write.sql	audit_write	AUDIT_SINK	-	the single INSERT path into admin_audit_log
+blob_upload_account.sql	blob_upload_account	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+booking_pages.sql	booking_cancel	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_confirm	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_create	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_expire_due	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_page_delete	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_page_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+booking_pages.sql	booking_page_public_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+booking_pages.sql	booking_page_upsert	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
+booking_pages.sql	booking_slots	READ_ONLY	-	pure read path (guard re-derives no DML)
+build_jmap_get_response.sql	build_jmap_get_response	READ_ONLY	-	pure read path (guard re-derives no DML)
+bulk_role_job_apply.sql	bulk_role_job_apply	MUST	core	grants/revokes admin_role_assignments — authority transitions per row (astra P2-5)
+jmap_contact_group.sql	bump_contact_group_state	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	bump_email_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+entity_state.sql	bump_entity_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_mailbox.sql	bump_mailbox_set_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_actions.sql	bump_reminder_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+utils_tags.sql	bump_tag_mailbox_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+ca_auth_strength_set.sql	ca_auth_strength_set	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_break_glass_set.sql	ca_break_glass_set	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_coverage_report.sql	ca_coverage_report	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_lockout_guard.sql	ca_grant_discriminators_valid	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_lockout_guard.sql	ca_lockout_guard	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_named_location_restore.sql	ca_named_location_restore	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_named_location_set.sql	ca_named_location_set	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_notify_policy_change.sql	ca_notify_policy_change	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_policy_delete.sql	ca_policy_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_lockout_guard.sql	ca_policy_effective_action	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_policy_impact.sql	ca_policy_impact	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_policy_import.sql	ca_policy_import	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_promote.sql	ca_policy_promote	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_reorder.sql	ca_policy_reorder	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_restore.sql	ca_policy_restore	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_restore_from_audit.sql	ca_policy_restore_from_audit	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_soft_delete.sql	ca_policy_soft_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_policy_upsert.sql	ca_policy_upsert	MUST	core	lifecycle/authority transition (WP3 core class)
+ca_lockout_guard.sql	ca_reachability_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_lockout_guard.sql	ca_revalidate_active_lockout_policies	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_signin_log_append.sql	ca_signin_log_append	EXEMPT	-	the row written IS the login-security trail (its own ledger)
+ca_signin_log_prune.sql	ca_signin_log_prune	EXEMPT	-	GC mechanics on the login-security log
+ca_template_instantiate.sql	ca_template_instantiate	MUST	core	lifecycle/authority transition (WP3 core class)
+caldav_changes.sql	caldav_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	calendar_book_resource	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+calendar_freebusy.sql	calendar_busy_intervals	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	calendar_check_conflict	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_effective_acl.sql	calendar_effective_acl	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_finalize_create_bookings.sql	calendar_finalize_create_bookings	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_finalize_create_invites.sql	calendar_finalize_create_invites	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	calendar_find_free_slots	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	calendar_free_busy	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy_multi.sql	calendar_free_busy_multi	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_import_ics.sql	calendar_import_ics	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+calendar_itip.sql	calendar_process_itip_cancel	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+calendar_itip.sql	calendar_process_itip_reply	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+calendar_itip.sql	calendar_send_invite	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_subscription_refresh.sql	calendar_subscription_refresh	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+scheduled_action_enqueue.sql	cancel_scheduled_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+chat_access_audit.sql	chat_access_audit	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_audit_actions.sql	chat_audit_actions	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_org_defaults.sql	chat_autojoin_defaults	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_channel.sql	chat_browse_channels	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_call_started.sql	chat_call_started	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_case_hold_release.sql	chat_case_hold_release	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_case_hold_set.sql	chat_case_hold_set	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_chain_anchor.sql	chat_chain_anchor	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_chain_anchor.sql	chat_chain_anchor_verify	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_channel_create.sql	chat_channel_create	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_channel_join.sql	chat_channel_join	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_readers.sql	chat_channel_readers	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_roster.sql	chat_channel_roster	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_channel_set_classification.sql	chat_channel_set_classification	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_channel_set_hold.sql	chat_channel_set_hold	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_channel_set_retention.sql	chat_channel_set_retention	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_channel_update.sql	chat_channel_update	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_read.sql	chat_conversation_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_dm_open.sql	chat_dm_open	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_ediscovery_export_begin.sql	chat_ediscovery_export_begin	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_ediscovery_read.sql	chat_ediscovery_message_json	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_ediscovery_read.sql	chat_ediscovery_read	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_ediscovery_search.sql	chat_ediscovery_search	EXEMPT	-	outside the frozen WP3 MUST classes (lifecycle/authority per plan WP3.1); candidate for a future policy round
+chat_effective_retention.sql	chat_effective_retention	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_channel.sql	chat_guest_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_scope_helper.sql	chat_hold_active	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_unfurl.sql	chat_link_preview_cache_write	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_unfurl.sql	chat_link_preview_claim	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_unfurl.sql	chat_link_preview_image_owner	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_unfurl.sql	chat_link_preview_lookup	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_read.sql	chat_mark_read	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_member_add.sql	chat_member_add	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_member_remove.sql	chat_member_remove	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_scope_helper.sql	chat_member_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_member_set_notif.sql	chat_member_set_notif	MUST	routine	member notif preference; row only at audit_policy full
+chat_roster.sql	chat_mention_search	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_message.sql	chat_message_delete	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_message.sql	chat_message_edit	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_message.sql	chat_message_send	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_message.sql	chat_message_to_json	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_unfurl.sql	chat_message_unfurl_apply	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_message.sql	chat_messages_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_message.sql	chat_messages_since	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_threads.sql	chat_my_threads	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_org_defaults.sql	chat_org_default_set	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_pin.sql	chat_pin_toggle	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_pin.sql	chat_pins_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_poll.sql	chat_poll_close	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_poll.sql	chat_poll_create	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_poll.sql	chat_poll_results	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_poll.sql	chat_poll_vote	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_purge_expired.sql	chat_purge_expired	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_purge_expired.sql	chat_purge_run	MUST	core	lifecycle/authority transition (WP3 core class)
+chat_push_should_notify.sql	chat_push_should_notify	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_reaction.sql	chat_reaction_toggle	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_require_role.sql	chat_require_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_save.sql	chat_save_toggle	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_save.sql	chat_saves_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_schedule.sql	chat_schedule_message	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_schedule.sql	chat_scheduled_cancel	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_schedule.sql	chat_scheduled_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_search.sql	chat_search	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_space_ensure.sql	chat_space_ensure	EXEMPT	-	chat content/session flow; membership/role authority lives in the extracted audited member/channel reducers
+chat_message.sql	chat_thread_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_presence.sql	chat_typing_signal	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_unfurl.sql	chat_unfurl_bound_text	READ_ONLY	-	pure read path (guard re-derives no DML)
+check_app_entitlement.sql	check_app_entitlement	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	check_quota	READ_ONLY	-	pure read path (guard re-derives no DML)
+check_user_app_entitlement.sql	check_user_app_entitlement	READ_ONLY	-	pure read path (guard re-derives no DML)
+cjk_to_ascii.sql	cjk_to_ascii	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_actions_dispatch.sql	claim_scheduled_actions	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+classify_focus.sql	classify_focus	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	compute_thread_id	READ_ONLY	-	pure read path (guard re-derives no DML)
+compute_user_risk.sql	compute_user_risk	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_contact.sql	contact_find_duplicates	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact_group.sql	contact_group_members_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_contact.sql	contact_merge	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_contact_group.sql	contact_primary_email	READ_ONLY	-	pure read path (guard re-derives no DML)
+content_purge.sql	content_purge_messages	MUST	core	lifecycle/authority transition (WP3 core class)
+continuity_admin_status.sql	continuity_admin_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+continuity_client_witness_record.sql	continuity_client_witness_record	MUST	core	lifecycle/authority transition (WP3 core class)
+continuity_context_issue.sql	continuity_context_issue	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+continuity_recovery_receipt_context.sql	continuity_recovery_receipt_context	READ_ONLY	-	pure read path (guard re-derives no DML)
+create_monthly_partitions.sql	create_monthly_partitions	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+cron_retention_days.sql	cron_retention_days	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	day_in_byday	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	day_of_week_num	READ_ONLY	-	pure read path (guard re-derives no DML)
+transition_message_location.sql	delete_draft_message	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+deliver_group_vacation.sql	deliver	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+deliver_json.sql	deliver_json	EXEMPT	-	delivery write front door delegating to deliver(); per-message traffic, plan-frozen EXEMPT (high-frequency, ownership-scoped)
+device_enroll_transition.sql	device_enroll_transition	MUST	core	lifecycle/authority transition (WP3 core class)
+device_nonce_claim.sql	device_nonce_claim	EXEMPT	-	single-use nonce mechanics
+directory_browse.sql	directory_address_set	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_group_authority.sql	directory_group_can_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_group_authority.sql	directory_group_delete	EXEMPT	-	directory sync mechanics; provider-driven
+directory_group_authority.sql	directory_group_dynamic_set	EXEMPT	-	directory sync mechanics; provider-driven
+directory_group_authority.sql	directory_group_effective_member	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_group_authority.sql	directory_group_manage_authorized	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_group_authority.sql	directory_group_picker	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_group_authority.sql	directory_group_source_reconcile_members	EXEMPT	-	directory sync mechanics; provider-driven
+directory_group_authority.sql	directory_group_source_upsert	EXEMPT	-	directory sync mechanics; provider-driven
+directory_group_authority.sql	directory_group_static_set	EXEMPT	-	directory sync mechanics; provider-driven
+directory_browse.sql	directory_members	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_browse.sql	directory_search	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_browse.sql	directory_tree	READ_ONLY	-	pure read path (guard re-derives no DML)
+directory_browse.sql	directory_visible_users	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_actions_dispatch.sql	dispatch_scheduled_actions	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+dlp_evaluate_draft.sql	dlp_evaluate_draft	READ_ONLY	-	pure read path (guard re-derives no DML)
+journal.sql	drain_journal_queue	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+drive_access_governance.sql	drive_access_approval_decide	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_audit.sql	drive_access_audit	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_effective_access.sql	drive_access_explain	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_access_invalidation_page.sql	drive_access_invalidation_page	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_access_governance.sql	drive_access_propagation_rank	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_access_governance.sql	drive_access_request	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_governance.sql	drive_access_request_policy_set	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_governance.sql	drive_access_request_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_access_governance.sql	drive_access_use_lease_abandon_due	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_governance.sql	drive_access_use_lease_consume	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_governance.sql	drive_access_use_lease_reserve	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_bump.sql	drive_acl_bump	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_bump.sql	drive_acl_bump_group	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_capabilities_valid.sql	drive_acl_capabilities_valid	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_capability_catalog.sql	drive_acl_capability_catalog	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation.sql	drive_acl_compat_folder_member_revoke	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_mutation.sql	drive_acl_compat_folder_member_set	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_cutover	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_cutover_evidence_record	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_epoch.sql	drive_acl_epoch	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation.sql	drive_acl_expire_due	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_mutation.sql	drive_acl_grant	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_mutation.sql	drive_acl_grant_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_acl_grant_subject_applies	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_projection.sql	drive_acl_inheritance_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation.sql	drive_acl_inheritance_set	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_mutation.sql	drive_acl_migrate_folder_admins	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_projection.sql	drive_acl_node_detail	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_preset_capabilities.sql	drive_acl_preset_capabilities	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_projection.sql	drive_acl_quick_view	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation.sql	drive_acl_revoke	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_revoke_bound_artifacts.sql	drive_acl_revoke_bound_artifacts	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_rollback	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_shadow_classify	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_shadow_compare	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_acl_shadow.sql	drive_acl_shadow_readiness	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_shadow.sql	drive_acl_shadow_start	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_activity_feed.sql	drive_activity_feed	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_alarm_evaluate.sql	drive_alarm_action_matches	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_alarm_create.sql	drive_alarm_create	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_alarm_delete.sql	drive_alarm_delete	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_alarm_evaluate.sql	drive_alarm_evaluate	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_alarm_update.sql	drive_alarm_update	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_alarm_validate_action_pattern.sql	drive_alarm_validate_action_pattern	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_audit_actions.sql	drive_audit_actions	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_audit_query.sql	drive_audit_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_authorize_node	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_branch_create.sql	drive_branch_create	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_branch_rename.sql	drive_branch_rename	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_branch_resolve.sql	drive_branch_resolve	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_branch_set_status.sql	drive_branch_set_status	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_changes_since.sql	drive_changes_since	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_chunk_register.sql	drive_chunk_register	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_chunk_register.sql	drive_chunk_register_bound	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_chunk_register.sql	drive_chunk_upload_require	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_closure_ancestors.sql	drive_closure_ancestors	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_closure_insert_node.sql	drive_closure_insert_node	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_closure_move_subtree.sql	drive_closure_move_subtree	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_closure_subtree.sql	drive_closure_subtree	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_scope_helper.sql	drive_content_download_require	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_effective_capabilities	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_effective_capability_sources	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_effective_capability_sources_set	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_notify_event.sql	drive_event_recipients	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_export_approval_decide.sql	drive_export_approval_decide	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_export_consume.sql	drive_export_consume	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_export_request.sql	drive_export_request	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_file_history_query.sql	drive_file_history_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_file_lock.sql	drive_file_lock	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_file_put_version.sql	drive_file_put_version	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_file_restore_version.sql	drive_file_restore_version	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_file_unlock.sql	drive_file_unlock	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_folder_admin_grant.sql	drive_folder_admin_grant	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_folder_admin_revoke.sql	drive_folder_admin_revoke	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_folder_member_grant.sql	drive_folder_member_grant	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_folder_member_revoke.sql	drive_folder_member_revoke	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_scope_helper.sql	drive_has_admin_perm	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_has_node_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_legacy_node_capabilities	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_lock_list.sql	drive_lock_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_maintenance_sweep.sql	drive_maintenance_sweep	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_meet_history_emit.sql	drive_meet_history_emit	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_member_grant.sql	drive_member_grant	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_member_revoke.sql	drive_member_revoke	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_scope_helper.sql	drive_member_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_node_create.sql	drive_node_create	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_destroy.sql	drive_node_destroy	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_node_destroy_hard.sql	drive_node_destroy_hard	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_move.sql	drive_node_move	EXEMPT	-	write-by-delegation front door (PERFORMs the EXEMPT mutators drive_closure_move_subtree + drive_acl_bump); user-content move mechanics
+drive_node_destroy.sql	drive_node_purge_mark	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_purge_restore.sql	drive_node_purge_restore	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_rename.sql	drive_node_rename	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_restore.sql	drive_node_restore	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_trash.sql	drive_node_trash	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_notify_change.sql	drive_notify_change	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_notify_event.sql	drive_notify_event	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_policy_resolve.sql	drive_policy_resolve	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_preview_attach.sql	drive_preview_attach	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_preview_request.sql	drive_preview_request	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_effective_access.sql	drive_require_node_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation_guard.sql	drive_require_node_mutation_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_require_space_root_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_mutation_guard.sql	drive_require_space_root_mutation_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_root_role_capabilities	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_runtime_capability_sources	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_runtime_capability_sources_set	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_runtime_has_node_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_runtime_has_space_root_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_search_nodes.sql	drive_search_nodes	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_share_approval_decide.sql	drive_share_approval_decide	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_effective_access.sql	drive_space_access_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_space_as_of.sql	drive_space_as_of	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_space_create.sql	drive_space_create	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_scope_helper.sql	drive_space_owner	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_space_set_classification.sql	drive_space_set_classification	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_space_set_policy.sql	drive_space_set_policy	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_space_set_quota.sql	drive_space_set_quota	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_subtree_admin.sql	drive_subtree_admin	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_sweep_age_trash.sql	drive_sweep_age_trash	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_node_purge_restore.sql	drive_trash_admin_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_tree_lock.sql	drive_tree_lock	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_scope_helper.sql	drive_user_can_write_regular	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_user_has_space_access	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_version_label_remove.sql	drive_version_label_remove	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_version_label_set.sql	drive_version_label_set	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_version_prune.sql	drive_version_prune	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_access_invalidation_page.sql	drive_visibility_snapshot_page	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_visible_children	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_effective_access.sql	drive_visible_nodes	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_watch_remove.sql	drive_watch_remove	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_watch_set.sql	drive_watch_set	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
+drive_worm_pending.sql	drive_worm_pending	READ_ONLY	-	pure read path (guard re-derives no DML)
+effective_capabilities.sql	effective_capabilities	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_address_policy_apply.sql	email_address_policy_apply	EXEMPT	-	email user-content/template flow; outside the frozen WP3 authority classes
+email_address_policy_apply_bulk.sql	email_address_policy_apply_bulk	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_address_policy_match_count.sql	email_address_policy_match_count	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_address_policy_render.sql	email_address_policy_render	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_address_policy_render_one.sql	email_address_policy_render_one	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	email_header_value	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_templates.sql	email_template_delete	EXEMPT	-	email user-content/template flow; outside the frozen WP3 authority classes
+email_templates.sql	email_template_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+email_templates.sql	email_template_set	EXEMPT	-	email user-content/template flow; outside the frozen WP3 authority classes
+retention.sql	enforce_retention	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+scheduled_action_enqueue.sql	enqueue_scheduled_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+ensure_admin.sql	ensure_default_admin	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+entity_state.sql	entity_state	READ_ONLY	-	pure read path (guard re-derives no DML)
+rule_engine.sql	eval_condition	READ_ONLY	-	pure read path (guard re-derives no DML)
+rule_engine_or.sql	eval_conditions	READ_ONLY	-	pure read path (guard re-derives no DML)
+exchange_assessment_artifact_commit.sql	exchange_assessment_artifact_commit	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_attestation_create.sql	exchange_assessment_attestation_create	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_claim_resolve.sql	exchange_assessment_claim_resolve	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_decision_set.sql	exchange_assessment_decision_set	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_delete_finalize.sql	exchange_assessment_delete_finalize	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_delete_request.sql	exchange_assessment_delete_request	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_domain_authorized.sql	exchange_assessment_domain_authorized	READ_ONLY	-	pure read path (guard re-derives no DML)
+exchange_assessment_lease_claim.sql	exchange_assessment_lease_claim	EXEMPT	-	assessment tooling mechanics; operator-driven
+exchange_assessment_probe_put.sql	exchange_assessment_probe_put	EXEMPT	-	assessment tooling mechanics; operator-driven
+exchange_assessment_project_create.sql	exchange_assessment_project_create	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_project_create_idempotent.sql	exchange_assessment_project_create_idempotent	EXEMPT	-	assessment tooling mechanics; operator-driven
+exchange_assessment_publish.sql	exchange_assessment_publish	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_publish_signed.sql	exchange_assessment_publish_signed	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_run_create.sql	exchange_assessment_run_create	MUST	core	lifecycle/authority transition (WP3 core class)
+exchange_assessment_run_create_idempotent.sql	exchange_assessment_run_create_idempotent	EXEMPT	-	assessment tooling mechanics; operator-driven
+exchange_assessment_run_transition.sql	exchange_assessment_run_transition	MUST	core	lifecycle/authority transition (WP3 core class)
+jmap_contact_group.sql	expand_contact_group	READ_ONLY	-	pure read path (guard re-derives no DML)
+expand_group.sql	expand_group	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	expand_recurrence	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	expand_recurrence_bysetpos	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_actions_admin.sql	failed_scheduled_actions	READ_ONLY	-	pure read path (guard re-derives no DML)
+feature_toggle_set.sql	feature_toggle_set	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_ack.sql	federation_ack	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_apply_chat.sql	federation_apply_chat	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_apply_inbound.sql	federation_apply_inbound	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_apply_room.sql	federation_apply_room	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_dm_ensure.sql	federation_dm_ensure	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_enqueue.sql	federation_enqueue	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_ingress_check.sql	federation_ingress_check	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_outbox_redact_purged.sql	federation_outbox_redact_purged	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_peer_authorize.sql	federation_peer_authorize	READ_ONLY	-	pure read path (guard re-derives no DML)
+federation_peer_delete.sql	federation_peer_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_peer_health.sql	federation_peer_health	READ_ONLY	-	pure read path (guard re-derives no DML)
+federation_peer_set.sql	federation_peer_set	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_reap.sql	federation_reap	EXEMPT	-	peer-replication transport; the peer applies with its own ledger
+federation_room_create.sql	federation_room_create	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_room_enqueue_member.sql	federation_room_enqueue_member	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_room_fanout.sql	federation_room_fanout	READ_ONLY	-	pure read path (guard re-derives no DML)
+federation_room_has_active_members.sql	federation_room_has_active_members	READ_ONLY	-	pure read path (guard re-derives no DML)
+federation_room_invite.sql	federation_room_invite	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_room_remove.sql	federation_room_remove	MUST	core	lifecycle/authority transition (WP3 core class)
+federation_room_roster.sql	federation_room_roster	READ_ONLY	-	pure read path (guard re-derives no DML)
+federation_typing_notify.sql	federation_typing_notify	READ_ONLY	-	pure read path (guard re-derives no DML)
+gal_changes.sql	gal_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+gal_journal_seen.sql	gal_journal_seen	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	gal_search	READ_ONLY	-	pure read path (guard re-derives no DML)
+gal_visibility_record.sql	gal_visibility_record	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+utils.sql	generate_etag	READ_ONLY	-	pure read path (guard re-derives no DML)
+get_approval_delegation.sql	get_approval_delegation	READ_ONLY	-	pure read path (guard re-derives no DML)
+health_check.sql	get_hc_config	READ_ONLY	-	pure read path (guard re-derives no DML)
+queue_read.sql	get_queue_summary	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils_tags.sql	get_tag_id	READ_ONLY	-	pure read path (guard re-derives no DML)
+set_vacation.sql	get_vacation	READ_ONLY	-	pure read path (guard re-derives no DML)
+group_moderation_approval_decide.sql	group_moderation_approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+group_moderation_check.sql	group_moderation_check	READ_ONLY	-	pure read path (guard re-derives no DML)
+group_moderation_hold.sql	group_moderation_hold	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+guest_account.sql	guest_account_host_domain	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_account_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_active_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_admin_can_reach_with_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_admin_can_transfer_to	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_admin_has_domain_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_admin_has_live_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_chat_policy_snapshot	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_dm_policy_allows	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_expire_due	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+guest_invite_request.sql	guest_invite_approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_invite.sql	guest_invite_create	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_invite.sql	guest_invite_domain_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+guest_invite_request.sql	guest_invite_request_create	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_invite.sql	guest_invite_revoke	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_notification_intent.sql	guest_notification_intent_enqueue	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+guest_profile.sql	guest_profile_apply	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_profile.sql	guest_profile_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_profile.sql	guest_profile_domain_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_profile.sql	guest_profile_flag	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_profile.sql	guest_profile_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_profile.sql	guest_profile_invite_snapshot	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_profile.sql	guest_profile_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_profile.sql	guest_profile_set	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_account.sql	guest_require_active	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_require_grantable	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_require_meet_ready	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	guest_set_status	MUST	core	lifecycle/authority transition (WP3 core class)
+guest_account.sql	guest_transfer	MUST	core	lifecycle/authority transition (WP3 core class)
+health_check.sql	health_check	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+hr_approval_decide.sql	hr_approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+hr_request_create.sql	hr_request_create	MUST	core	lifecycle/authority transition (WP3 core class)
+identity_match_decide.sql	identity_admin_scope_allows	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_auth_jit.sql	identity_auth_jit	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_auth_link.sql	identity_auth_link	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_auth_link_authorized.sql	identity_auth_link_authorized	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_auth_link_elevation_begin.sql	identity_auth_link_elevation_begin	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_auth_local_mint_fence.sql	identity_auth_local_mint_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_auth_mint_fence.sql	identity_auth_mint_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_auth_local_mint_fence.sql	identity_auth_person_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_auth_resolve.sql	identity_auth_resolve	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_auth_shadow_observe.sql	identity_auth_shadow_observe	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_auth_unlink.sql	identity_auth_unlink	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_diagnostic_delete.sql	identity_diagnostic_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+identity_diagnostic_download.sql	identity_diagnostic_download	MUST	core	lifecycle/authority transition (WP3 core class)
+identity_doctor.sql	identity_doctor	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_entitlements_reconcile_sso.sql	identity_entitlements_reconcile_sso	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_field_owned.sql	identity_field_owned	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_inventory_export.sql	identity_inventory_export	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_job_batch_settle.sql	identity_job_batch_settle	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_job_cancel.sql	identity_job_cancel	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_job_claim.sql	identity_job_claim	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_job_complete.sql	identity_job_complete	MUST	core	lifecycle/authority transition (WP3 core class)
+identity_job_create.sql	identity_job_create	MUST	core	lifecycle/authority transition (WP3 core class)
+identity_job_fail.sql	identity_job_fail	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_job_progress.sql	identity_job_progress	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_job_read.sql	identity_job_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_job_results.sql	identity_job_results	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_legacy_backfill.sql	identity_legacy_backfill	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_mailbox_invariant_snapshot.sql	identity_mailbox_invariant_snapshot	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_match_decide.sql	identity_match_decide	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_match_record.sql	identity_match_record	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_media_mint_fence.sql	identity_media_mint_fence	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_person_read.sql	identity_person_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_recovery_available.sql	identity_recovery_available	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_shadow_compare.sql	identity_shadow_compare	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_attributes_apply.sql	identity_source_attributes_apply	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_batch_begin.sql	identity_source_batch_begin	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_batch_finish.sql	identity_source_batch_finish	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_batch_resume.sql	identity_source_batch_resume	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_source_config_apply.sql	identity_source_config_apply	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_entry_apply.sql	identity_source_entry_apply	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_entry_fail.sql	identity_source_entry_fail	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_entry_quarantine.sql	identity_source_entry_quarantine	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_lease_acquire.sql	identity_source_lease_acquire	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_lease_release.sql	identity_source_lease_release	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_lifecycle.sql	identity_source_lifecycle	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_provider_bind.sql	identity_source_provider_bind	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_quarantine_record.sql	identity_source_quarantine_record	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_rebind_preview.sql	identity_source_rebind_preview	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_scim_apply.sql	identity_source_scim_apply	EXEMPT	-	write-by-delegation front door (PERFORMs identity_source_batch_begin + identity_source_entry_apply); IdP-driven sync flow
+identity_source_secret_set.sql	identity_source_secret_set	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_source_upsert.sql	identity_source_upsert	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_admission_allowed.sql	identity_transition_admission_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_transition_approve.sql	identity_transition_approve	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_cancel.sql	identity_transition_cancel	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_challenge_complete.sql	identity_transition_challenge_complete	EXEMPT	-	pure SQL shim delegating to identity_transition_elevation_issue; the authority work and its classification live in the callee
+identity_transition_challenge_issue.sql	identity_transition_challenge_issue	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_deny.sql	identity_transition_deny	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_effect_claim.sql	identity_transition_effect_claim	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_effect_complete.sql	identity_transition_effect_complete	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_effect_fail.sql	identity_transition_effect_fail	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_elevation_consume.sql	identity_transition_elevation_consume	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_elevation_issue.sql	identity_transition_elevation_issue	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_execute.sql	identity_transition_execute	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_expire.sql	identity_transition_expire	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_idempotency_claim.sql	identity_transition_idempotency_claim	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_preview.sql	identity_transition_preview	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_read.sql	identity_transition_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_transition_request.sql	identity_transition_request	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_retry.sql	identity_transition_retry	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_rollback.sql	identity_transition_rollback	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_rollback_preview.sql	identity_transition_rollback_preview	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_set_state.sql	identity_transition_set_state	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_transition_state_allowed.sql	identity_transition_state_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_upgrade_backfill_start.sql	identity_upgrade_backfill_start	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_upgrade_canary.sql	identity_upgrade_canary	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_upgrade_preflight.sql	identity_upgrade_preflight	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_upgrade_retirement_check.sql	identity_upgrade_retirement_check	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_upgrade_rollback.sql	identity_upgrade_rollback	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider events; high-frequency, provider holds the identity authority
+identity_upgrade_shadow.sql	identity_upgrade_shadow	READ_ONLY	-	pure read path (guard re-derives no DML)
+identity_upgrade_status.sql	identity_upgrade_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+imap_batch_move_location.sql	imap_batch_move_location	EXEMPT	-	write-by-delegation front door (loops PERFORM transition_message_location per message); per-message location mechanics, the cross-PR coordination class from a2f5196ae
+imap_membership_uid_allocate.sql	imap_membership_uid_allocate	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+imap_membership_uid_backfill_batch.sql	imap_membership_uid_backfill_batch	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+imap_membership_uid_readiness.sql	imap_membership_uid_readiness	READ_ONLY	-	pure read path (guard re-derives no DML)
+import_export.sql	import_message	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+calendar_freebusy.sql	is_byweekno_match	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	is_excluded	READ_ONLY	-	pure read path (guard re-derives no DML)
+guest_account.sql	is_guest_account	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	jmap_addressbook_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	jmap_addressbook_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	jmap_addressbook_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_addressbook_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_addressbook_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_calendar.sql	jmap_calendar_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_calendar.sql	jmap_calendar_event_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_itip.sql	jmap_calendar_event_counter	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_calendar.sql	jmap_calendar_event_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_sharing.sql	jmap_calendar_event_get_shared	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_calendar.sql	jmap_calendar_event_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_itip.sql	jmap_calendar_event_rsvp	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+calendar_itip.sql	jmap_calendar_event_send_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_calendar.sql	jmap_calendar_event_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_calendar.sql	jmap_calendar_event_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+calendar_recurrence.sql	jmap_calendar_event_set_occurrence	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_calendar.sql	jmap_calendar_event_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_calendar.sql	jmap_calendar_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_sharing.sql	jmap_calendar_get_shared	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	jmap_calendar_resource_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_calendar.sql	jmap_calendar_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+calendar_sharing.sql	jmap_calendar_share_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_sharing.sql	jmap_calendar_share_set	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_contact_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	jmap_contact_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact_group.sql	jmap_contact_group_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact_group.sql	jmap_contact_group_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact_group.sql	jmap_contact_group_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact_group.sql	jmap_contact_group_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact_group.sql	jmap_contact_group_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_contact_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_contact.sql	jmap_contact_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_contact_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_contact.sql	jmap_contact_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email.sql	jmap_email_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email.sql	jmap_email_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email.sql	jmap_email_purge	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email.sql	jmap_email_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email.sql	jmap_email_query_deleted	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email.sql	jmap_email_recover	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email.sql	jmap_email_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email.sql	jmap_email_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email.sql	jmap_email_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_email_submission.sql	jmap_email_submission_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email_submission.sql	jmap_email_submission_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_email_submission.sql	jmap_email_submission_set	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_entity_changes.sql	jmap_entity_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_identity.sql	jmap_identity_set_create	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_identity.sql	jmap_identity_set_destroy	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_identity.sql	jmap_identity_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_mailbox.sql	jmap_mailbox_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_mailbox.sql	jmap_mailbox_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_mailbox.sql	jmap_mailbox_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_mailbox.sql	jmap_mailbox_query_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_mailbox.sql	jmap_mailbox_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_mailbox.sql	jmap_mailbox_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_mailbox.sql	jmap_mailbox_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_thread.sql	jmap_search_snippet_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_task.sql	jmap_task_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_task.sql	jmap_task_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_task.sql	jmap_task_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_task.sql	jmap_task_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_task.sql	jmap_task_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_task.sql	jmap_task_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
+jmap_thread.sql	jmap_thread_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_thread.sql	jmap_thread_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+smime_journal_cert.sql	journal_cert_pem_for_domain	READ_ONLY	-	pure read path (guard re-derives no DML)
+journal.sql	journal_if_policy_matches	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+journal_op.sql	journal_op	READ_ONLY	-	pure read path (guard re-derives no DML)
+journal_op.sql	journal_resync	READ_ONLY	-	pure read path (guard re-derives no DML)
+smime_journal_cert.sql	journaling_required_for_domain	READ_ONLY	-	pure read path (guard re-derives no DML)
+ldap_sync_anchor_link.sql	ldap_sync_anchor_link	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+ldap_sync_anchor_resolve.sql	ldap_sync_anchor_resolve	READ_ONLY	-	pure read path (guard re-derives no DML)
+ldap_sync_disable_user.sql	ldap_sync_disable_user	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+link_protect_check_and_audit.sql	link_protect_check_and_audit	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+queue_read.sql	list_queue	READ_ONLY	-	pure read path (guard re-derives no DML)
+login_events_prune.sql	login_events_prune	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+m365_consent_complete.sql	m365_consent_complete	MUST	core	lifecycle/authority transition (WP3 core class)
+m365_consent_state_consume.sql	m365_consent_state_consume	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+m365_consent_state_mint.sql	m365_consent_state_mint	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mail_comment_get.sql	mail_comment_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_comment_set.sql	mail_comment_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mail_draft_get.sql	mail_draft_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_draft_lease_action.sql	mail_draft_lease_action	EXEMPT	-	draft/comment user-content flow; ownership-scoped
+mail_draft_replace.sql	mail_draft_replace	EXEMPT	-	draft/comment user-content flow; ownership-scoped
+mail_draft_revision_accept.sql	mail_draft_revision_accept	EXEMPT	-	draft/comment user-content flow; ownership-scoped
+mail_draft_session_open.sql	mail_draft_session_open	EXEMPT	-	draft/comment user-content flow; ownership-scoped
+mail_draft_submission_authorize.sql	mail_draft_submission_authorize	EXEMPT	-	draft/comment user-content flow; ownership-scoped
+mail_external_approval_decide.sql	mail_external_approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_external_ndr.sql	mail_external_ndr	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_artifact_ingest.sql	mail_recovery_artifact_ingest	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_artifact_list.sql	mail_recovery_artifact_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_artifact_quarantine.sql	mail_recovery_artifact_quarantine	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_chunk_cleanup_complete.sql	mail_recovery_chunk_cleanup_complete	EXEMPT	-	recovery chunk/item transport mechanics; covered by the audited recovery lifecycle (plan EXEMPT class)
+mail_recovery_authority.sql	mail_recovery_feature_enabled	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_fork_consent.sql	mail_recovery_fork_consent	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_authority.sql	mail_recovery_has_global_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_incident_approve.sql	mail_recovery_incident_approve	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_incident_close.sql	mail_recovery_incident_close	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_incident_list.sql	mail_recovery_incident_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_incident_open.sql	mail_recovery_incident_open	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_upload_abort.sql	mail_recovery_upload_abort	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_upload_begin.sql	mail_recovery_upload_begin	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_upload_chunk_record.sql	mail_recovery_upload_chunk_record	EXEMPT	-	recovery upload transport mechanics; covered by the audited recovery lifecycle (plan EXEMPT class)
+mail_recovery_upload_item_verify.sql	mail_recovery_upload_item_verify	EXEMPT	-	recovery upload transport mechanics; covered by the audited recovery lifecycle (plan EXEMPT class)
+mail_recovery_uploads_expire.sql	mail_recovery_uploads_expire	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_recovery_authority.sql	mail_recovery_user_can_upload	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_recovery_user_incident_list.sql	mail_recovery_user_incident_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_action_enqueue.sql	mail_work_action_enqueue	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_business_due_at.sql	mail_work_business_due_at	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_business_seconds.sql	mail_work_business_seconds	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_can_collaborate.sql	mail_work_can_collaborate	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_changes.sql	mail_work_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_collaborators_get.sql	mail_work_collaborators_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_digest_dispatch.sql	mail_work_digest_dispatch	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_get.sql	mail_work_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_metrics_get.sql	mail_work_metrics_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_metrics_rebuild.sql	mail_work_metrics_rebuild	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_notification_preferences_get.sql	mail_work_notification_preferences_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_notification_preferences_set.sql	mail_work_notification_preferences_set	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_outbox_claim.sql	mail_work_outbox_claim	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_outbox_dispatch_internal.sql	mail_work_outbox_dispatch_internal	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_outbox_dispatch_local.sql	mail_work_outbox_dispatch_local	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_outbox_finish.sql	mail_work_outbox_finish	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_record_first_response.sql	mail_work_record_first_response	EXEMPT	-	mail work-queue mechanics; high-frequency
+mail_work_retention_blockers.sql	mail_work_retention_blockers	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_set.sql	mail_work_set	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_work_sla_policy_get.sql	mail_work_sla_policy_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_sla_policy_set.sql	mail_work_sla_policy_set	MUST	core	lifecycle/authority transition (WP3 core class)
+mail_work_sla_policy_snapshot.sql	mail_work_sla_policy_snapshot	READ_ONLY	-	pure read path (guard re-derives no DML)
+mail_work_sla_scan.sql	mail_work_sla_scan	EXEMPT	-	mail work-queue mechanics; high-frequency
+mailbox_core_retention_blockers.sql	mailbox_core_retention_blockers	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_delegate_grant.sql	mailbox_delegate_grant	MUST	core	lifecycle/authority transition (WP3 core class)
+mailbox_delegate_revoke.sql	mailbox_delegate_revoke	MUST	core	lifecycle/authority transition (WP3 core class)
+mailbox_effective_type.sql	mailbox_effective_type	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_access_allowed.sql	mailbox_lifecycle_access_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_delivery_mode.sql	mailbox_lifecycle_delivery_mode	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_effect_apply.sql	mailbox_lifecycle_effect_apply	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_lifecycle_effect_claim.sql	mailbox_lifecycle_effect_claim	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_lifecycle_effect_complete.sql	mailbox_lifecycle_effect_complete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_lifecycle_effect_fail.sql	mailbox_lifecycle_effect_fail	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_lifecycle_effect_target_complete.sql	mailbox_lifecycle_effect_target_complete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_lifecycle_enabled.sql	mailbox_lifecycle_enabled	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_parity_report.sql	mailbox_lifecycle_parity_report	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_preview.sql	mailbox_lifecycle_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_read.sql	mailbox_lifecycle_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_lifecycle_transition.sql	mailbox_lifecycle_transition	MUST	core	lifecycle/authority transition (WP3 core class)
+mailbox_purge_approval_apply.sql	mailbox_purge_approval_apply	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_purge_blockers.sql	mailbox_purge_blockers	READ_ONLY	-	pure read path (guard re-derives no DML)
+mailbox_purge_cancel.sql	mailbox_purge_cancel	MUST	core	lifecycle/authority transition (WP3 core class)
+mailbox_purge_claim.sql	mailbox_purge_claim	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_purge_execute.sql	mailbox_purge_execute	MUST	core	lifecycle/authority transition (WP3 core class)
+mailbox_purge_fail.sql	mailbox_purge_fail	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_purge_schedule.sql	mailbox_purge_schedule	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+mailbox_retained_list.sql	mailbox_retained_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+mdm_device_checkin.sql	mdm_device_checkin	MUST	core	lifecycle/authority transition (WP3 core class)
+mdm_device_wipe_arm.sql	mdm_device_wipe_arm	MUST	core	lifecycle/authority transition (WP3 core class)
+mdm_device_checkin.sql	mdm_version_ge	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_lobby.sql	meeting_admit	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_scope_helper.sql	meeting_attendee_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_breakout.sql	meeting_breakout_assign	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_breakout.sql	meeting_breakout_close	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_breakout.sql	meeting_breakout_join	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_breakout.sql	meeting_breakout_open	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_captions_set	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_create.sql	meeting_create	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_lobby.sql	meeting_deny	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_end	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_read.sql	meeting_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_read.sql	meeting_get_by_slug	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_read.sql	meeting_get_projection	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_read.sql	meeting_guest_join_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_read.sql	meeting_guest_read_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_join.sql	meeting_join	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_lobby.sql	meeting_join_request_create	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_lobby.sql	meeting_join_request_poll	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_kick	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_read.sql	meeting_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_lobby.sql	meeting_lobby_mint_fence	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_local_capture.sql	meeting_local_capture_lease_acquire	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_local_capture.sql	meeting_local_capture_lease_expire	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_local_capture.sql	meeting_local_capture_lease_heartbeat	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_local_capture.sql	meeting_local_capture_lease_stop	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_local_capture.sql	meeting_local_capture_register	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_lock	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_scope_helper.sql	meeting_member_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_participant_event.sql	meeting_participant_event	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_annotation_commit	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_annotation_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	meeting_presentation_checkpoint	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	meeting_presentation_degrade	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_end	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_live	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_presentation.sql	meeting_presentation_page	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_prepare	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_presenter	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_ready	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_recover	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_revoke	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_source_switch	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_presentation.sql	meeting_presentation_start	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_recording.sql	meeting_recording_active	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_recording.sql	meeting_recording_bind_egress	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_recording.sql	meeting_recording_event	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_recording.sql	meeting_recording_ingested	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_recording.sql	meeting_recording_start	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_recording.sql	meeting_recording_stop	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_lobby.sql	meeting_requests_expire	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_require_authority.sql	meeting_require_authority	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	meeting_semantic_child_release	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_export_claim	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_export_complete	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_export_request	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_package_finalize	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_package_hold	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_package_mark_delete	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_package_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	meeting_semantic_package_restore	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_recording_start	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_recording_stop	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_semantic_recording.sql	meeting_semantic_replay_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+meeting_semantic_recording.sql	meeting_semantic_segment_ingest	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_set_guest_allowed	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_control.sql	meeting_set_role	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+meeting_space_ensure.sql	meeting_space_ensure	EXEMPT	-	meeting lifecycle user flow; outside the frozen WP3 authority classes
+message_lifecycle.sql	message_cancel	EXEMPT	-	per-message user flow (high-frequency, ownership-scoped)
+message_lifecycle.sql	message_schedule	EXEMPT	-	per-message user flow (high-frequency, ownership-scoped)
+message_snooze.sql	message_snooze	EXEMPT	-	per-message user flow (high-frequency, ownership-scoped)
+message_to_jmap_email.sql	message_to_jmap_email	READ_ONLY	-	pure read path (guard re-derives no DML)
+auth_policy.sql	mfa_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+migration_apply_mail_object.sql	migration_apply_mail_object	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_aux_object_begin.sql	migration_aux_object_begin	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_aux_object_complete.sql	migration_aux_object_complete	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_checkpoint_commit.sql	migration_checkpoint_commit	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_checkpoint_commit.sql	migration_checkpoint_commit_v2	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_orchestrate.sql	migration_orchestrate	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_orchestrate.sql	migration_recover_stuck	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_source_bind.sql	migration_source_bind	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_thread_reconcile_batch.sql	migration_thread_reconcile_batch	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+migration_thread_reconcile_start.sql	migration_thread_reconcile_start	EXEMPT	-	upgrade-program mechanics; operator-driven with its own migration receipts
+newsletter_bundles.sql	newsletter_bundles_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	next_imap_uid	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+utils_tags.sql	next_imap_uid_for_tag	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_mailbox.sql	normalize_tag_color	READ_ONLY	-	pure read path (guard re-derives no DML)
+health_check.sql	notify_alerts	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+notify_calendar_state.sql	notify_calendar_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+notify_chat_state.sql	notify_chat_state	READ_ONLY	-	pure read path (guard re-derives no DML)
+notify_contact_state.sql	notify_contact_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+notify_mailwork_state.sql	notify_mailwork_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+notify_meet_state.sql	notify_meet_state	READ_ONLY	-	pure read path (guard re-derives no DML)
+notify_state_change.sql	notify_state_change	EXEMPT	-	per-message journal+pg_notify mechanics invoked from every mutator; the owning authority reducer audits where the frozen classes apply
+jmap_task.sql	notify_task_assignee	READ_ONLY	-	pure read path (guard re-derives no DML)
+notify_task_list_state.sql	notify_task_list_state	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_task_comment.sql	notify_task_mention	READ_ONLY	-	pure read path (guard re-derives no DML)
+notify_task_state.sql	notify_task_state	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	nth_day_of_week_in_month	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	nth_month_day	READ_ONLY	-	pure read path (guard re-derives no DML)
+nudges.sql	nudge_dismiss	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+office_admin_list.sql	office_admin_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_app_admin_list.sql	office_app_admin_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_app_install_commit.sql	office_app_install_commit	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_app_operation_advance.sql	office_app_operation_advance	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_app_operation_claim_next.sql	office_app_operation_claim_next	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_app_operation_heartbeat.sql	office_app_operation_heartbeat	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_app_operation_recover_request.sql	office_app_operation_recover_request	MUST	core	lifecycle/authority transition (WP3 core class)
+office_app_operation_request.sql	office_app_operation_request	MUST	core	lifecycle/authority transition (WP3 core class)
+office_app_revision_record.sql	office_app_revision_record	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_choice_query.sql	office_choice_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_cohort_finish.sql	office_cohort_finish	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_file_family.sql	office_file_family	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_launch_begin.sql	office_launch_begin	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_launch_revoke.sql	office_launch_revoke	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_local_open_accept.sql	office_local_open_accept	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_preference_set.sql	office_preference_set	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_provider_accepts_new_launch.sql	office_provider_accepts_new_launch	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_provider_activate.sql	office_provider_activate	MUST	core	lifecycle/authority transition (WP3 core class)
+office_provider_configure.sql	office_provider_configure	MUST	core	lifecycle/authority transition (WP3 core class)
+office_provider_policy_set.sql	office_provider_policy_set	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_provider_qualification_target.sql	office_provider_qualification_target	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_provider_qualify.sql	office_provider_qualify	MUST	core	lifecycle/authority transition (WP3 core class)
+office_provider_remove.sql	office_provider_remove	MUST	core	lifecycle/authority transition (WP3 core class)
+office_save_accept.sql	office_save_accept	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+office_wopi_callback_allowed.sql	office_wopi_callback_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_wopi_file_query.sql	office_wopi_file_query	READ_ONLY	-	pure read path (guard re-derives no DML)
+office_wopi_lock_apply.sql	office_wopi_lock_apply	EXEMPT	-	office user-content flow; outside the frozen WP3 authority classes
+offline_device_approve.sql	offline_device_approve	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_device_deny.sql	offline_device_deny	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_device_opt_in.sql	offline_device_opt_in	EXEMPT	-	compatibility shim delegating to offline_device_set_preferences (MUST/routine, audited there) — callee-backed
+offline_device_register.sql	offline_device_register	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_device_revoke.sql	offline_device_revoke	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_device_set_preferences.sql	offline_device_set_preferences	MUST	routine	user device preference change; row only at audit_policy full
+offline_device_wipe_ack.sql	offline_device_wipe_ack	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_devices_pending.sql	offline_devices_pending	READ_ONLY	-	pure read path (guard re-derives no DML)
+offline_effective_policy.sql	offline_effective_policy	READ_ONLY	-	pure read path (guard re-derives no DML)
+offline_effective_policy_snapshot.sql	offline_effective_policy_snapshot	READ_ONLY	-	pure read path (guard re-derives no DML)
+offline_policy_delete.sql	offline_policy_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_policy_get.sql	offline_policy_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+offline_policy_list.sql	offline_policy_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+offline_policy_set.sql	offline_policy_set	EXEMPT	-	compatibility shim for pre-V209 gateways; ALL mutation/audit/notify authority in offline_policy_set_v2 (MUST/core, audited there) — callee-backed
+offline_policy_set_v2.sql	offline_policy_set_v2	MUST	core	lifecycle/authority transition (WP3 core class)
+offline_sync_policy_preview.sql	offline_sync_policy_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+org_chart.sql	org_chart_managers	READ_ONLY	-	pure read path (guard re-derives no DML)
+org_chart.sql	org_chart_reports	READ_ONLY	-	pure read path (guard re-derives no DML)
+policy_session_view.sql	policy_session_view	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	positional_week	READ_ONLY	-	pure read path (guard re-derives no DML)
+provision_account.sql	provision_account	MUST	core	lifecycle/authority transition (WP3 core class)
+prune_changes_journal.sql	prune_changes_journal	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_dmarc_reports.sql	prune_dmarc_reports	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_greylist_entries.sql	prune_greylist_entries	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_health_history.sql	prune_health_history	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_session_runtime.sql	prune_session_runtime	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_spam.sql	prune_spam	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_vacation_replies.sql	prune_vacation_replies	EXEMPT	-	GC/retention mechanics on already-journaled data
+jmap_email.sql	purge_deleted_messages	EXEMPT	-	GC/retention mechanics on already-journaled data
+purge_expired_tokens.sql	purge_expired_tokens	EXEMPT	-	GC/retention mechanics on already-journaled data
+purge_saml_assertions.sql	purge_saml_assertions	EXEMPT	-	GC/retention mechanics on already-journaled data
+push_should_notify.sql	push_should_notify	READ_ONLY	-	pure read path (guard re-derives no DML)
+quarantine_message.sql	quarantine_message	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+quick_steps.sql	quick_step_action_allowed	READ_ONLY	-	pure read path (guard re-derives no DML)
+quick_steps.sql	quick_step_apply	EXEMPT	-	write-by-delegation front door (PERFORMs apply_action, an EXEMPT mutator); user quick-action mechanics
+quick_steps.sql	quick_step_delete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+quick_steps.sql	quick_step_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+quick_steps.sql	quick_step_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+meeting_breakout.sql	raise_breakout_invalid	READ_ONLY	-	pure read path (guard re-derives no DML)
+rbac_approval_decide.sql	rbac_approval_decide	MUST	core	lifecycle/authority transition (WP3 core class)
+recall.sql	recall_message	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+recipients_ooo_status.sql	recipients_ooo_status	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_actions_dispatch.sql	reclaim_expired_scheduled_actions	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+record_tou_acceptance.sql	record_tou_acceptance	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+release_quarantine_tags.sql	release_quarantine_tags	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_actions.sql	reminder_dismiss	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_actions.sql	reminder_dismiss_all	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_actions.sql	reminder_snooze	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_get.sql	reminders_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+journal_retry.sql	repend_dead_journal_row	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+resolve_identity.sql	resolve_identity	READ_ONLY	-	pure read path (guard re-derives no DML)
+revoke_user_sessions.sql	revoke_user_sessions	MUST	core	lifecycle/authority transition (WP3 core class)
+rule_config_create.sql	rule_config_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rule_config_delete.sql	rule_config_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rule_config_template_create.sql	rule_config_template_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rule_config_update.sql	rule_config_update	MUST	core	lifecycle/authority transition (WP3 core class)
+rules_apply_retroactive.sql	rules_apply_retroactive	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+scheduled_actions_dispatch.sql	run_scheduled_action	READ_ONLY	-	pure read path (guard re-derives no DML)
+saved_searches.sql	saved_search_delete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+saved_searches.sql	saved_search_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+saved_searches.sql	saved_search_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+reminders_scan.sql	scan_due_reminders	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_action_chat_send.sql	scheduled_action_chat_send	EXEMPT	-	scheduled-action dispatch mechanics; the user action that scheduled it is the decision
+scheduled_action_dsn.sql	scheduled_action_dsn	READ_ONLY	-	pure read path (guard re-derives no DML)
+scheduled_action_remind.sql	scheduled_action_remind	EXEMPT	-	scheduled-action dispatch mechanics; the user action that scheduled it is the decision
+scheduled_action_rules_retro.sql	scheduled_action_rules_retro	EXEMPT	-	scheduled-action dispatch mechanics; the user action that scheduled it is the decision
+scheduled_action_send.sql	scheduled_action_send	EXEMPT	-	scheduled-action dispatch mechanics; the user action that scheduled it is the decision
+scheduled_action_snooze.sql	scheduled_action_snooze	EXEMPT	-	scheduled-action dispatch mechanics; the user action that scheduled it is the decision
+scim_apply_group_members.sql	scim_apply_group_members	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_delete_group.sql	scim_delete_group	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_delete_user.sql	scim_delete_user	MUST	core	account deletion (hard) — terminal lifecycle transition; the soft arm audits in scim_disable_user (astra P2-5)
+scim_disable_user.sql	scim_disable_user	MUST	core	account security-disable transition; IdP-driven but material (actor NULL, system origin in notes) (astra P2-5)
+scim_validate_token.sql	scim_list_active_tokens	READ_ONLY	-	pure read path (guard re-derives no DML)
+scim_validate_token.sql	scim_record_token_usage	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_remove_group_members.sql	scim_remove_group_members	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_token_create.sql	scim_token_create	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_token_list.sql	scim_token_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+scim_token_lookup.sql	scim_token_lookup	READ_ONLY	-	pure read path (guard re-derives no DML)
+scim_upsert_group.sql	scim_upsert_group	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+scim_upsert_user.sql	scim_upsert_user	EXEMPT	-	IdP-driven directory sync; high-frequency provider-driven flow
+secure_account.sql	secure_account	MUST	core	lifecycle/authority transition (WP3 core class)
+security_event_enqueue.sql	security_event_enqueue	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+security_event_outbox_prune.sql	security_event_outbox_prune	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+send.sql	send	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+send.sql	send_read_receipt	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+sender_control_action.sql	sender_control_action	MUST	core	lifecycle/authority transition (WP3 core class)
+sender_control_read.sql	sender_control_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+sender_list_read.sql	sender_list_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+sender_list_replace.sql	sender_list_replace	MUST	core	lifecycle/authority transition (WP3 core class)
+set_app_entitlement.sql	set_app_entitlement	MUST	core	lifecycle/authority transition (WP3 core class)
+set_approval_delegation.sql	set_approval_delegation	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+set_message_focus.sql	set_message_focus	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+utils_tags.sql	set_message_location	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+set_session_control.sql	set_session_control	MUST	core	lifecycle/authority transition (WP3 core class)
+set_signature_default.sql	set_signature_default	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+set_vacation.sql	set_vacation	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+settle_job.sql	settle_job	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+sharing_default_clear.sql	sharing_default_clear	MUST	core	lifecycle/authority transition (WP3 core class)
+sharing_default_resolve.sql	sharing_default_resolve	READ_ONLY	-	pure read path (guard re-derives no DML)
+sharing_default_set.sql	sharing_default_set	MUST	core	lifecycle/authority transition (WP3 core class)
+smime_harvest_recipient_cert.sql	smime_harvest_recipient_cert	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+smtp_inbound_deliver.sql	smtp_inbound_deliver	EXEMPT	-	per-message inbound-delivery front door; plan-frozen EXEMPT family (high-frequency, ownership-scoped)
+smtp_submission_send.sql	smtp_submission_send	READ_ONLY	-	pure read path (guard re-derives no DML)
+nudges.sql	stale_thread_nudges_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+startup_recovery.sql	startup_recovery	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+retention.sql	tag_retention	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+jmap_task_comment.sql	task_activity_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+tasks_assigned.sql	task_assignee_set_status	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+jmap_task.sql	task_checklist_normalize	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_task_comment.sql	task_comment_create	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_lists.sql	task_list_add_member	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_lists.sql	task_list_create	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_lists.sql	task_list_delete	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_lists.sql	task_list_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+task_lists.sql	task_list_get_roster	READ_ONLY	-	pure read path (guard re-derives no DML)
+task_lists.sql	task_list_remove_member	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_lists.sql	task_list_role	READ_ONLY	-	pure read path (guard re-derives no DML)
+task_list_tasks.sql	task_list_task_set	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+task_list_tasks.sql	task_list_tasks	READ_ONLY	-	pure read path (guard re-derives no DML)
+task_lists.sql	task_list_update	EXEMPT	-	task/user-content flow; outside the frozen WP3 authority classes
+tasks_assigned.sql	tasks_assigned_to_me	READ_ONLY	-	pure read path (guard re-derives no DML)
+utils.sql	trace	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+transition_message_location.sql	transition_message_location	EXEMPT	-	location-transition front door delegating to tag/message mutators; per-message mechanics, EXEMPT (audited classes are configuration + lifecycle)
+ca_lockout_guard.sql	trg_ca_reachability_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+ca_lockout_guard.sql	trg_ca_reachability_revalidate	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_acl_generation_init.sql	trg_drive_acl_generation_init	EXEMPT	-	trigger companion to its firing statement (the statement owns the trail)
+drive_acl_group_invalidation_bridge.sql	trg_drive_acl_group_invalidate	EXEMPT	-	trigger companion to its firing statement (the statement owns the trail)
+trg_imap_membership_uid_allocate.sql	trg_imap_membership_uid_allocate	EXEMPT	-	trigger companion to its firing statement (the statement owns the trail)
+trg_imap_membership_uid_retire.sql	trg_imap_membership_uid_retire	EXEMPT	-	trigger companion to its firing statement (the statement owns the trail)
+message_lifecycle.sql	undo_send	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+upgrade_actor_authorized.sql	upgrade_actor_authorized	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_catalog_record.sql	upgrade_catalog_record	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_challenge_complete.sql	upgrade_challenge_complete	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_challenge_issue.sql	upgrade_challenge_issue	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_console_read.sql	upgrade_console_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_intent_approve.sql	upgrade_intent_approve	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_intent_cancel.sql	upgrade_intent_cancel	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_intent_claim.sql	upgrade_intent_claim	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_intent_complete.sql	upgrade_intent_complete	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_console_read.sql	upgrade_intent_diagnostics	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_intent_preview.sql	upgrade_intent_preview	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_intent_progress.sql	upgrade_intent_progress	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+upgrade_intent_read.sql	upgrade_intent_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_intent_recover.sql	upgrade_intent_recover	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_intent_request.sql	upgrade_intent_request	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_preview_payload.sql	upgrade_preview_payload	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_readiness_record.sql	upgrade_readiness_record	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_recovery_context_read.sql	upgrade_recovery_context_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_recovery_identity_read.sql	upgrade_recovery_identity_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_recovery_set_read.sql	upgrade_recovery_set_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+upgrade_recovery_set_record.sql	upgrade_recovery_set_record	MUST	core	lifecycle/authority transition (WP3 core class)
+upgrade_restore_proof_record.sql	upgrade_restore_proof_record	MUST	core	lifecycle/authority transition (WP3 core class)
+auth_policy.sql	validate_password	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_access_audit.sql	verify_chat_audit_chain	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_access_audit.sql	verify_drive_audit_chain	READ_ONLY	-	pure read path (guard re-derives no DML)
+vip_senders.sql	vip_sender_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+vip_senders.sql	vip_senders_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+webhook_delivery_claim.sql	webhook_delivery_claim	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_delivery_complete.sql	webhook_delivery_complete	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_mail_committed_publish.sql	webhook_mail_committed_publish	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_migration_terminal_publish.sql	webhook_migration_terminal_publish	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_publication_claim.sql	webhook_publication_claim	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_publication_complete.sql	webhook_publication_complete	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_publication_fanout.sql	webhook_publication_fanout	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_publication_prune.sql	webhook_publication_prune	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_user_changed_publish.sql	webhook_user_changed_publish	EXEMPT	-	publication fanout transport; not an authority decision
+webhook_user_deleted_publish.sql	webhook_user_deleted_publish	EXEMPT	-	publication fanout transport; not an authority decision

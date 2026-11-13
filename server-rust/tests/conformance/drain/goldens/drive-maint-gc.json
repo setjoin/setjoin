@@ -1,0 +1,86 @@
+{
+  "case": "drive-maint-gc",
+  "format": 1,
+  "go_source": "2683b6ce8cd0a3eb88888117042a387ccdc25658",
+  "observation": {
+    "chunks": [
+      "g|<gc-live>|rc=3|applied=-|ref=drive/g/<gc-live>",
+      "g|<gc-dequeue>|rc=1|applied=-|ref=drive/g/<gc-dequeue>",
+      "g|<gc-claimed>|rc=0|applied=-|ref=drive/g/<gc-claimed>",
+      "s9400002|<gc-retained>|rc=0|applied=2031-05-06T07:08:09.250000|ref=drive/s9400002/<gc-retained>"
+    ],
+    "claims": [
+      "g|<gc-claimed>"
+    ],
+    "journal": [
+      "9400001|2"
+    ],
+    "queue": [
+      "s9400002|<gc-retained>"
+    ],
+    "s3": {
+      "keys": [
+        "drive/g/<gc-live>",
+        "drive/g/<gc-s3fail>"
+      ],
+      "requests": [
+        {
+          "body": {
+            "mode": "COMPLIANCE",
+            "until": "2031-05-06T07:08:09.25Z"
+          },
+          "method": "PUT",
+          "path": "/mailblobs/drive/s9400002/<gc-retained>",
+          "query": {
+            "retention": ""
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "max-keys": "200",
+            "prefix": "drive/"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/",
+          "query": {
+            "list-type": "2",
+            "prefix": "tmp/upload/"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<gc-delete>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<gc-oldclaim>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<gc-s3fail>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<gc-s3fail>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/g/<gc-swept>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/drive/s9400002/<gc-expired>"
+        },
+        {
+          "method": "DELETE",
+          "path": "/mailblobs/legacy/blob-one"
+        }
+      ]
+    }
+  }
+}

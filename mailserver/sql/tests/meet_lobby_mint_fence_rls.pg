@@ -1,0 +1,124 @@
+-- meet_lobby_mint_fence_rls.pg — V270: the fence ledger's FORCE-RLS proof
+-- (the rls_identity_model.pg deny-all genre — identity_media_admissions'
+-- posture, NOT the participant-scoped V265-V268 one: this table is a
+-- worker/reducer-plane capability ledger with NO user-data read surface, so
+-- it carries FORCE RLS and ZERO policies). Two arms, both driven as the
+-- constrained non-owner runtime role setjoin_app with two tenants' rows
+-- present:
+--   · DENIAL — nobody sees any window row through the table (own host, a
+--     foreign GUC, or no GUC at all); a foreign UPDATE no-ops; an INSERT
+--     42501s (no policy admits it).
+--   · ALLOW — the LEGITIMATE writers are the worker-owned SECURITY DEFINER
+--     paths (meeting_join_request_poll and the meeting_lobby_mint_fence it
+--     calls; the public surface runs GUC-less): driven as setjoin_app they
+--     still mint AND record windows through FORCE, while the table itself
+--     stays dark to the same role.
+-- COVERED entry: scripts/rls-denial-allowlist.txt (the allow guard
+-- auto-excludes policy-less tables — no app-role write is structurally
+-- possible, so only this denial file is owed).
+BEGIN;
+SELECT plan(11);
+
+-- ── Fixtures as superuser: two disjoint meetings (two tenants). ──
+INSERT INTO domains (name, is_local) VALUES ('lobfence-rls.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id, 'lobfence-rls-' || id::text,
+       (SELECT id FROM domains WHERE name = 'lobfence-rls.test'),
+       'lobfence-rls-' || id::text || '@lobfence-rls.test', 'LobFence RLS ' || id::text, 'x'
+  FROM generate_series(285, 288) AS ids(id)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('lobfence-a', 285, 'scheduled')
+RETURNING id AS ma \gset
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('lobfence-b', 287, 'scheduled')
+RETURNING id AS mb \gset
+SELECT slug AS ma_slug FROM meetings WHERE id = :ma \gset
+
+-- Tenant A: an admitted guest request WITH a seeded window, plus one
+-- admitted request deliberately left window-less (the ALLOW arm's mint).
+INSERT INTO meeting_join_requests (meeting_id, display_name, state, secret)
+VALUES (:ma, 'Fence RLS Guest', 'admitted', 'lobfence-rls-secret-a')
+RETURNING id AS ja \gset
+INSERT INTO meeting_lobby_mint_fences
+  (join_request_id, meeting_id, identity, first_mint_at, expires_at)
+VALUES (:ja, :ma, 'g:' || :ja, statement_timestamp(),
+        statement_timestamp() + interval '15 minutes');
+INSERT INTO meeting_join_requests (meeting_id, display_name, state, secret)
+VALUES (:ma, 'Fence RLS Mint', 'admitted', 'lobfence-rls-secret-c')
+RETURNING id AS jc \gset
+
+-- Tenant B: the cross-tenant presence the denial arms require to be
+-- meaningful.
+INSERT INTO meeting_join_requests (meeting_id, display_name, state, secret)
+VALUES (:mb, 'Fence RLS Guest B', 'admitted', 'lobfence-rls-secret-b')
+RETURNING id AS jb \gset
+INSERT INTO meeting_lobby_mint_fences
+  (join_request_id, meeting_id, identity, first_mint_at, expires_at)
+VALUES (:jb, :mb, 'g:' || :jb, statement_timestamp(),
+        statement_timestamp() + interval '15 minutes');
+
+-- FORCE state, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class
+            WHERE oid = 'public.meeting_lobby_mint_fences'::regclass),
+  TRUE, 'meeting_lobby_mint_fences RLS FORCED');
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 2::bigint,
+  'setup: both tenants'' windows are seeded (superuser view)');
+
+-- Table grants are GIVEN so every denial below is a POLICY denial, never a
+-- missing-privilege artifact (the meet_local_capture_rls.pg convention).
+GRANT SELECT, INSERT, UPDATE ON public.meeting_lobby_mint_fences TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_join_request_poll(text,bigint,text) TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_lobby_mint_fence(bigint) TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- DENIAL: no GUC at all — fail closed.
+SELECT is((SELECT count(*)::integer FROM meeting_lobby_mint_fences), 0,
+  'no GUC sees no window rows (deny-all)');
+
+-- DENIAL: the meeting's OWN host sees nothing either — there is no SELECT
+-- policy at all; the ledger has no user-data read surface by design.
+SELECT set_config('app.current_user_id', '285', true);
+SELECT is((SELECT count(*)::integer FROM meeting_lobby_mint_fences WHERE meeting_id = :ma), 0,
+  'even the minted request''s own meeting host sees no window rows (no SELECT policy exists)');
+
+-- DENIAL: a foreign participant's UPDATE no-ops (invisible rows, R3).
+SELECT set_config('app.current_user_id', '287', true);
+UPDATE meeting_lobby_mint_fences SET identity = 'g:forged'
+ WHERE meeting_id = :ma;
+SELECT is((SELECT count(*)::integer FROM meeting_lobby_mint_fences), 0,
+  'the forge UPDATE touched nothing visible (FORCE + no policies)');
+
+-- DENIAL: an INSERT is 42501-refused (no policy admits the write).
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_lobby_mint_fences
+             (join_request_id, meeting_id, identity, first_mint_at, expires_at)
+           VALUES (%s, %s, 'g:' || %s::text, statement_timestamp(),
+                   statement_timestamp() + interval '15 minutes') $$, :jb, :mb, :jb),
+  '42501', NULL, 'a setjoin_app INSERT is 42501-refused (no admitting policy)');
+
+-- ALLOW: the REAL writers are the worker-owned SECURITY DEFINER paths — the
+-- public poll (reached here through its function, the exact reducer the
+-- GUC-less PublicHandler calls) and the fence function it consults — driven
+-- as setjoin_app GUC-LESS they still mint AND record the window through FORCE.
+SELECT set_config('app.current_user_id', '', true);
+SELECT (meeting_join_request_poll(:'ma_slug', :jc, 'lobfence-rls-secret-c')) AS mint \gset
+SELECT is(:'mint'::jsonb ->> 'state', 'admitted',
+  'the poll path runs as setjoin_app GUC-less and mints through FORCE (ALLOW)');
+SELECT is(meeting_lobby_mint_fence(:jc) IS NOT NULL, true,
+  'the DEFINER fence path runs as setjoin_app (GUC-less) and is idempotent on the poll-recorded window');
+SELECT is(meeting_lobby_mint_fence(:ja) IS NOT NULL, true,
+  'the DEFINER fence path accepts a seeded live window idempotently');
+
+RESET ROLE;
+
+-- Back as superuser: the ALLOW arms really wrote through FORCE, and the
+-- DENIAL arms really changed nothing.
+SELECT is((SELECT count(*) FROM meeting_lobby_mint_fences), 3::bigint,
+  'exactly the one missing window was written through FORCE (2 seeded + 1 recorded)');
+SELECT is((SELECT identity FROM meeting_lobby_mint_fences WHERE join_request_id = :ja),
+  'g:' || :ja, 'the foreign forge UPDATE never landed (seeded window untouched)');
+
+SELECT * FROM finish();
+ROLLBACK;

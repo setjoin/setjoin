@@ -1,0 +1,131 @@
+-- guest_notification_intents.pg — Guest G1 Task 1 FORCE-RLS denial proof plus
+-- Task 2 enqueue-helper and real mention/DM/meeting producer integration.
+BEGIN;
+SELECT plan(17);
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.username, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g1-intent-a', 'g1-intent-a@guest.invalid', 'Intent A'),
+    ('g1-intent-b', 'g1-intent-b@guest.invalid', 'Intent B')
+  ) AS v(username, email, display_name)
+  JOIN domains d ON d.name = 'guest.invalid';
+
+INSERT INTO guest_notification_intents (user_id, kind, ref)
+SELECT u.id, 'mention', 'g1-intent:' || u.username
+  FROM users u
+ WHERE u.email IN ('g1-intent-a@guest.invalid', 'g1-intent-b@guest.invalid');
+
+SELECT is((SELECT relforcerowsecurity FROM pg_class
+             WHERE oid = 'public.guest_notification_intents'::regclass),
+  TRUE, 'guest_notification_intents RLS FORCED');
+SELECT is((SELECT count(*) FROM guest_notification_intents)::int, 2,
+  'owner fixture contains both protected guest_notification_intents rows');
+
+SELECT set_config('app.current_user_id',
+  (SELECT id::text FROM users WHERE email = 'g1-intent-a@guest.invalid'), true);
+SELECT set_config('g1.intent_b_id',
+  (SELECT id::text FROM users WHERE email = 'g1-intent-b@guest.invalid'), true);
+
+GRANT SELECT, UPDATE ON guest_notification_intents TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+SELECT is((SELECT count(*) FROM guest_notification_intents)::int, 0,
+  'guest_notification_intents: drain reads on workerPool BYPASSRLS; FORCE RLS deny-all');
+SELECT is((SELECT count(*) FROM guest_notification_intents
+             WHERE user_id = current_setting('g1.intent_b_id')::bigint)::int, 0,
+  'guest_notification_intents: other principal row is invisible under FORCE RLS');
+WITH upd AS (
+  UPDATE guest_notification_intents SET sent_at = now()
+   WHERE user_id = current_setting('g1.intent_b_id')::bigint
+  RETURNING 1
+)
+SELECT is((SELECT count(*) FROM upd)::int, 0,
+  'guest_notification_intents: other principal row is immutable under FORCE RLS');
+RESET ROLE;
+
+-- Task 2 behavior and real producer integration. The Task 1 deny-all proof
+-- above remains unchanged; reducers are the only supported write surface.
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.guest_accounts';
+INSERT INTO domains (name, is_local) VALUES ('g1-intent-host.example', TRUE);
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'host@g1-intent-host.example', h.id, 'active'
+  FROM users u
+ CROSS JOIN (SELECT id FROM domains WHERE name='g1-intent-host.example') h
+ WHERE u.email='g1-intent-b@guest.invalid';
+
+SELECT lives_ok(
+  format($q$SELECT guest_notification_intent_enqueue(%s,'mention','direct:mention')$q$,
+    (SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')),
+  'intent helper enqueues a guest mention');
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')
+              AND kind='mention' AND ref='direct:mention'), 1,
+  'intent helper persists a pending guest intent');
+SELECT lives_ok(
+  format($q$SELECT guest_notification_intent_enqueue(%s,'mention','member:no-op')$q$,
+    (SELECT id FROM users WHERE email='g1-intent-a@guest.invalid')),
+  'intent helper accepts a non-guest target as a no-op');
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-intent-a@guest.invalid')), 1,
+  'non-guest helper call adds no row beyond its Task 1 fixture');
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.guest_accounts';
+SELECT lives_ok(
+  format($q$SELECT guest_notification_intent_enqueue(%s,'dm','toggle:no-op')$q$,
+    (SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')),
+  'intent helper is a no-op while feature.guest_accounts is off');
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE kind='dm' AND ref='toggle:no-op'), 0,
+  'toggle-off helper call persists no intent');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.guest_accounts';
+INSERT INTO chat_channels (kind, name, visibility, created_by)
+SELECT 'channel', 'G1 notification integration', 'private', id
+  FROM users WHERE email='g1-intent-a@guest.invalid'
+RETURNING id \gset g1ch_
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+SELECT :g1ch_id, id, CASE WHEN email='g1-intent-a@guest.invalid' THEN 'owner' ELSE 'member' END
+  FROM users WHERE email IN ('g1-intent-a@guest.invalid','g1-intent-b@guest.invalid');
+
+SELECT lives_ok(
+  format($q$SELECT chat_message_send(%s,%s,'hello guest',NULL,ARRAY[%s]::bigint[])$q$,
+    (SELECT id FROM users WHERE email='g1-intent-a@guest.invalid'), :g1ch_id,
+    (SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')),
+  'chat_message_send real mention path succeeds');
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')
+              AND kind='mention' AND ref LIKE :g1ch_id::text || ':%'), 1,
+  'chat_message_send mention path enqueues a guest intent');
+
+INSERT INTO chat_channels (kind, member_key, created_by)
+SELECT 'dm', 'g1-intent-dm', id FROM users WHERE email='g1-intent-a@guest.invalid'
+RETURNING id \gset g1dm_
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+SELECT :g1dm_id, id, CASE WHEN email='g1-intent-a@guest.invalid' THEN 'owner' ELSE 'member' END
+  FROM users WHERE email IN ('g1-intent-a@guest.invalid','g1-intent-b@guest.invalid');
+SELECT lives_ok(
+  format($q$SELECT chat_message_send(%s,%s,'direct hello')$q$,
+    (SELECT id FROM users WHERE email='g1-intent-a@guest.invalid'), :g1dm_id),
+  'chat_message_send real DM path succeeds');
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')
+              AND kind='dm' AND ref LIKE :g1dm_id::text || ':%'), 1,
+  'chat_message_send DM path enqueues the non-sender guest');
+
+SELECT lives_ok(
+  format($q$SELECT meeting_create(%s,'G1 guest meeting',NULL,NULL,%s)$q$,
+    (SELECT id FROM users WHERE email='g1-intent-a@guest.invalid'), :g1ch_id),
+  'meeting_create real bound-channel path succeeds');
+SELECT id AS g1meet_id FROM meetings
+ WHERE title='G1 guest meeting'
+   AND owner_user_id=(SELECT id FROM users WHERE email='g1-intent-a@guest.invalid')
+ ORDER BY id DESC LIMIT 1 \gset
+SELECT is((SELECT count(*)::int FROM guest_notification_intents
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-intent-b@guest.invalid')
+              AND kind='meeting_invite' AND ref=:g1meet_id::text), 1,
+  'meeting_create enqueues the new meeting id for the guest channel member');
+
+SELECT * FROM finish();
+ROLLBACK;

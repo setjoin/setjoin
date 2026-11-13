@@ -1,0 +1,67 @@
+{
+  "case": "no-en-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": null,
+          "value": {
+            "default_locale": "en",
+            "enabled": true,
+            "locales": {
+              "de": {
+                "body_html": "",
+                "body_text": "Willkommen bei SetJoin!\n\nIhr E-Mail-Konto wurde erstellt und ist einsatzbereit.\n\nErste Schritte:\n• Webmail: Öffnen Sie die Webmail-URL Ihrer Organisation im Browser\n• Desktop: Laden Sie die SetJoin Desktop-App für Windows, Mac oder Linux herunter\n• Mobil: Holen Sie sich die SetJoin-App für iOS aus dem App Store oder für Android von Google Play\n\nIhr Postfach umfasst E-Mail, Kalender, Kontakte und Aufgaben — alles integriert.\n\nBrauchen Sie Hilfe? Wenden Sie sich an Ihren IT-Administrator.\n\n——Das SetJoin-Team",
+                "subject": "Willkommen bei SetJoin — Ihre E-Mail ist bereit"
+              },
+              "en": {
+                "body_html": "",
+                "body_text": "Welcome to SetJoin!\n\nYour email account has been created and is ready to use.\n\nQuick Start:\n• Webmail: open your browser and go to your organization's webmail URL\n• Desktop: download the SetJoin Desktop app for Windows, Mac, or Linux\n• Mobile: get the SetJoin app on iOS from the App Store, or on Android from Google Play\n\nYour mailbox includes email, calendar, contacts, and tasks — all integrated.\n\nNeed help? Contact your IT administrator.\n\n——The SetJoin Team",
+                "subject": "Welcome to SetJoin — Your New Email Is Ready"
+              },
+              "zh": {
+                "body_html": "",
+                "body_text": "欢迎使用 SetJoin！\n\n您的邮箱账户已创建，可以开始使用了。\n\n快速上手：\n• Webmail：在浏览器中打开您组织的 Webmail 网址\n• 桌面端：下载 SetJoin 桌面应用（支持 Windows、Mac、Linux）\n• 移动端：从 App Store 下载 iOS 版 SetJoin，或从应用商店下载 Android 版\n\n您的邮箱集成了邮件、日历、联系人和任务功能。\n\n需要帮助？请联系您的 IT 管理员。\n\n——SetJoin 团队",
+                "subject": "欢迎使用 SetJoin — 您的邮箱已就绪"
+              }
+            }
+          }
+        }
+      ],
+      "before": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": null,
+          "value": {
+            "default_locale": "en",
+            "enabled": true,
+            "locales": {
+              "de": {
+                "body_html": "",
+                "body_text": "Willkommen bei SetJoin!\n\nIhr E-Mail-Konto wurde erstellt und ist einsatzbereit.\n\nErste Schritte:\n• Webmail: Öffnen Sie die Webmail-URL Ihrer Organisation im Browser\n• Desktop: Laden Sie die SetJoin Desktop-App für Windows, Mac oder Linux herunter\n• Mobil: Holen Sie sich die SetJoin-App für iOS aus dem App Store oder für Android von Google Play\n\nIhr Postfach umfasst E-Mail, Kalender, Kontakte und Aufgaben — alles integriert.\n\nBrauchen Sie Hilfe? Wenden Sie sich an Ihren IT-Administrator.\n\n——Das SetJoin-Team",
+                "subject": "Willkommen bei SetJoin — Ihre E-Mail ist bereit"
+              },
+              "en": {
+                "body_html": "",
+                "body_text": "Welcome to SetJoin!\n\nYour email account has been created and is ready to use.\n\nQuick Start:\n• Webmail: open your browser and go to your organization's webmail URL\n• Desktop: download the SetJoin Desktop app for Windows, Mac, or Linux\n• Mobile: get the SetJoin app on iOS from the App Store, or on Android from Google Play\n\nYour mailbox includes email, calendar, contacts, and tasks — all integrated.\n\nNeed help? Contact your IT administrator.\n\n——The SetJoin Team",
+                "subject": "Welcome to SetJoin — Your New Email Is Ready"
+              },
+              "zh": {
+                "body_html": "",
+                "body_text": "欢迎使用 SetJoin！\n\n您的邮箱账户已创建，可以开始使用了。\n\n快速上手：\n• Webmail：在浏览器中打开您组织的 Webmail 网址\n• 桌面端：下载 SetJoin 桌面应用（支持 Windows、Mac、Linux）\n• 移动端：从 App Store 下载 iOS 版 SetJoin，或从应用商店下载 Android 版\n\n您的邮箱集成了邮件、日历、联系人和任务功能。\n\n需要帮助？请联系您的 IT 管理员。\n\n——SetJoin 团队",
+                "subject": "欢迎使用 SetJoin — 您的邮箱已就绪"
+              }
+            }
+          }
+        }
+      ],
+      "table": "system_config"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/system/welcome-email"
+}

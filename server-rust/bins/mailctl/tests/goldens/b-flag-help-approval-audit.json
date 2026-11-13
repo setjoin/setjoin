@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of approval audit:\n  -limit int\n    \tMax rows to return (default 50)\n  -offset int\n    \tRow offset\nError: flag: help requested\n",
+  "exit": 1
+}

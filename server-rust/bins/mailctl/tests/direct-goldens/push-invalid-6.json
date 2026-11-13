@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: DB_DSN environment variable is required\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

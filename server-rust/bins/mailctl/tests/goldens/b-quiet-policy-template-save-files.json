@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/mam/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    ".config/mailctl/templates/demo.json": {
+      "body": "{\n  \"global\": [],\n  \"groups\": []\n}",
+      "mode": 384
+    }
+  }
+}

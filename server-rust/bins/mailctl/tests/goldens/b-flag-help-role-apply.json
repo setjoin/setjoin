@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of role apply:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tDelete live roles/members absent from the document\n  -reason string\n    \tAudit reason (required)\nError: flag: help requested\n",
+  "exit": 1
+}

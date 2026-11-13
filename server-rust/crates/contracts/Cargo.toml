@@ -1,0 +1,19 @@
+[package]
+name = "setjoin-contracts"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "setjoin_contracts"
+path = "src/lib.rs"
+
+[features]
+oracle-mutants = []
+
+[dependencies]
+uuid = { version = "=1.29.0", default-features = false, features = ["std"] }

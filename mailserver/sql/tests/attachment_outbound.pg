@@ -1,0 +1,68 @@
+-- attachment_outbound.pg — outbound-attachment create path (item #1 P0).
+-- jmap_email_set_create writes message_attachments + has_attachments, enforces the
+-- per-message caps, bumps blobs.ref_count (V075 trigger), and jmap_email_get projects
+-- the read-only attachments array.
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (name, is_local) VALUES ('attout.test', TRUE) ON CONFLICT (name) DO NOTHING;
+CREATE TEMP TABLE _mb AS SELECT mk_account('attout') AS id;
+
+-- a content-addressed blob at ref_count 0 (the unsent-orphan state PUT /blobs creates)
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+VALUES ('attoutsha', 'b/attoutsha', 2048, 'application/pdf', 0);
+
+-- create a draft WITH one attachment
+CREATE TEMP TABLE _r AS
+SELECT jmap_email_set_create((SELECT id FROM _mb), jsonb_build_object(
+  'c1', jsonb_build_object(
+    'from', jsonb_build_array(jsonb_build_object('email', 'attout-1@mk.test')),
+    'to', jsonb_build_array(jsonb_build_object('email', 'x@y.test')),
+    'subject', 'attout subj',
+    'bodyValues', jsonb_build_object('t', jsonb_build_object('value', 'hello')),
+    'textBody', jsonb_build_array(jsonb_build_object('partId', 't')),
+    'mailboxIds', jsonb_build_object(
+      (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM _mb) AND name = 'Drafts')::text, true),
+    'attachments', jsonb_build_array(jsonb_build_object(
+      'blobId', 'attoutsha', 'type', 'application/pdf', 'name', 'f.pdf', 'size', 2048))
+  ))) AS res;
+
+SELECT isnt((SELECT res->'created'->'c1' FROM _r), NULL, 'create with an attachment succeeds');
+SELECT is((SELECT has_attachments FROM messages WHERE subject = 'attout subj'),
+          TRUE, 'has_attachments is set from the attachments array');
+SELECT is((SELECT count(*)::INT FROM message_attachments WHERE blob_sha256 = 'attoutsha'),
+          1, 'one message_attachments row written');
+SELECT is((SELECT filename FROM message_attachments WHERE blob_sha256 = 'attoutsha'),
+          'f.pdf', 'attachment filename persisted');
+SELECT is((SELECT ref_count FROM blobs WHERE sha256 = 'attoutsha'),
+          1, 'blobs.ref_count bumped 0→1 by the V075 AFTER INSERT trigger');
+-- size accounts for the attachment bytes (body + 2048)
+SELECT cmp_ok((SELECT size_bytes FROM messages WHERE subject = 'attout subj'),
+          '>=', 2048::BIGINT, 'message size_bytes includes the attachment bytes');
+
+-- jmap_email_get projects the read-only attachments array
+SELECT is(
+  (jmap_email_get((SELECT id FROM _mb),
+     ARRAY[(SELECT id FROM messages WHERE subject = 'attout subj')],
+     ARRAY['attachments'])
+   ->'list'->0->'attachments'->0->>'blobId'),
+  'attoutsha', 'jmap_email_get projects the attachments array');
+
+-- the count cap rejects > 100 attachments
+SELECT is(
+  (SELECT jmap_email_set_create((SELECT id FROM _mb), jsonb_build_object(
+    'c2', jsonb_build_object(
+      'from', jsonb_build_array(jsonb_build_object('email', 'attout-1@mk.test')),
+      'to', jsonb_build_array(jsonb_build_object('email', 'x@y.test')),
+      'subject', 'too many',
+      'bodyValues', jsonb_build_object('t', jsonb_build_object('value', 'x')),
+      'textBody', jsonb_build_array(jsonb_build_object('partId', 't')),
+      'mailboxIds', jsonb_build_object(
+        (SELECT id FROM tags WHERE mailbox_id = (SELECT id FROM _mb) AND name = 'Drafts')::text, true),
+      'attachments', (SELECT jsonb_agg(jsonb_build_object('blobId','attoutsha','type','x','name','f','size',1))
+                      FROM generate_series(1, 101))
+    ))) -> 'notCreated' -> 'c2' ->> 'type'),
+  'tooManyAttachments', 'the 100-attachment cap rejects an over-count create');
+
+SELECT * FROM finish();
+ROLLBACK;

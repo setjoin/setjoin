@@ -1,0 +1,50 @@
+-- pgTAP: V021__granted_by_nullable.pg
+--   1. granted_by column is now nullable.
+--   2. An INSERT with NULL granted_by succeeds (system-provisioned SSO grant).
+--   3. An INSERT with a non-NULL granted_by still succeeds (human grant path).
+BEGIN;
+SELECT plan(3);
+
+-- ── 1. Column is nullable ─────────────────────────────────────────────────────
+SELECT col_is_null(
+  'public', 'admin_role_assignments', 'granted_by',
+  'admin_role_assignments.granted_by is nullable after V021');
+
+-- ── 2. NULL granted_by (SSO / system-provisioned) INSERT succeeds ─────────────
+-- Fixture: insert a throwaway user so the FK on user_id is satisfied.
+INSERT INTO domains (name, is_local)
+  VALUES ('v021test.internal', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+
+DO $$
+DECLARE v_domain_id BIGINT;
+BEGIN
+  SELECT id INTO v_domain_id FROM domains WHERE name = 'v021test.internal';
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (80001, 'v015_user', v_domain_id,
+            'v021user@v021test.internal', 'V021 Test User', 'x')
+    ON CONFLICT (id) DO NOTHING;
+END;
+$$;
+
+-- Upsert with NULL granted_by — the core SSO write.
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 80001, g.id, NULL
+      FROM admin_role_groups g
+     WHERE g.name = 'Super Admin'
+     LIMIT 1$$,
+  'INSERT with NULL granted_by (system/SSO grant) succeeds');
+
+-- ── 3. Non-NULL granted_by (human grant) still works ─────────────────────────
+SELECT lives_ok(
+  $$INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+    SELECT 80001, g.id, 80001
+      FROM admin_role_groups g
+     WHERE g.name = 'Audit Reader'
+     LIMIT 1
+    ON CONFLICT DO NOTHING$$,
+  'INSERT with non-NULL granted_by (human grant) still succeeds');
+
+SELECT * FROM finish();
+ROLLBACK;

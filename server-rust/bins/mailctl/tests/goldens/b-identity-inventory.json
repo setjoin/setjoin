@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/inventory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity inventory (schema 1, generated 2026-01-01T00:00:00Z)\nPeople: total=0 enabled=0 disabled=0 members=0 guests=0 unclassified_without_mailbox=0\nMailboxes: shared=0 resources=0\nFederation pairs: oidc_complete=0 oidc_partial=0 saml_complete=0 saml_partial=0 legacy_inventoried=0\nProtected accounts: total=0 break_glass=0 sensitive_role_holders=0\nConnector secrets: ad=configured ldap=not_configured\nBlockers: none\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,162 @@
+{
+  "format": 1,
+  "route": "POST /admin/rules",
+  "case": "all-states-row-effects",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "effects": [
+    {
+      "after": {
+        "all_states": [
+          {
+            "jmap_email_state": 0,
+            "jmap_mailbox_state": 0,
+            "jmap_mailwork_state": 0,
+            "jmap_reminder_state": 0,
+            "jmap_tag_state": 0,
+            "jmap_thread_state": 0,
+            "mailbox_id": "<mailbox-actor>"
+          },
+          {
+            "jmap_email_state": 0,
+            "jmap_mailbox_state": 0,
+            "jmap_mailwork_state": 0,
+            "jmap_reminder_state": 0,
+            "jmap_tag_state": 0,
+            "jmap_thread_state": 0,
+            "mailbox_id": "<mailbox-other>"
+          }
+        ],
+        "rules": [
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961001,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-actor>",
+            "name": "Actor rule",
+            "priority": 1,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          },
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961002,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-other>",
+            "name": "Other rule",
+            "priority": 2,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          },
+          {
+            "actions": [
+              {
+                "type": "mark_read"
+              }
+            ],
+            "conditions": [],
+            "created_at": "<timestamp>",
+            "enabled": true,
+            "id": 962001,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-actor>",
+            "name": "Admin created rule",
+            "priority": 3,
+            "run_on": "server",
+            "stop_processing": true,
+            "updated_at": "<timestamp>",
+            "user_id": null
+          }
+        ],
+        "states": [
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-actor>",
+            "tag": 0
+          },
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-other>",
+            "tag": 0
+          }
+        ]
+      },
+      "before": {
+        "all_states": [
+          {
+            "jmap_email_state": 0,
+            "jmap_mailbox_state": 0,
+            "jmap_mailwork_state": 0,
+            "jmap_reminder_state": 0,
+            "jmap_tag_state": 0,
+            "jmap_thread_state": 0,
+            "mailbox_id": "<mailbox-actor>"
+          },
+          {
+            "jmap_email_state": 0,
+            "jmap_mailbox_state": 0,
+            "jmap_mailwork_state": 0,
+            "jmap_reminder_state": 0,
+            "jmap_tag_state": 0,
+            "jmap_thread_state": 0,
+            "mailbox_id": "<mailbox-other>"
+          }
+        ],
+        "rules": [
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961001,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-actor>",
+            "name": "Actor rule",
+            "priority": 1,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          },
+          {
+            "actions": [],
+            "conditions": [],
+            "created_at": "2026-10-01T00:00:00+00:00",
+            "enabled": true,
+            "id": 961002,
+            "is_transport_rule": false,
+            "mailbox_id": "<mailbox-other>",
+            "name": "Other rule",
+            "priority": 2,
+            "run_on": "server",
+            "stop_processing": false,
+            "updated_at": "2026-10-01T00:00:00+00:00",
+            "user_id": null
+          }
+        ],
+        "states": [
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-actor>",
+            "tag": 0
+          },
+          {
+            "email": 0,
+            "mailbox_id": "<mailbox-other>",
+            "tag": 0
+          }
+        ]
+      },
+      "table": "rules"
+    }
+  ]
+}

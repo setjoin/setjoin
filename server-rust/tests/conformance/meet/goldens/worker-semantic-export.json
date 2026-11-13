@@ -1,0 +1,119 @@
+{
+  "case": "worker-semantic-export",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [],
+      "drive_history": [
+        {
+          "audit_action": null,
+          "source_kind": "recording.stopped",
+          "state": "absent"
+        }
+      ],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": null,
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {},
+          "state": "live",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "guest_display_name": null,
+          "identity": "u:<owner>",
+          "joined_at": "<timestamp>",
+          "left_at": null,
+          "role": "host"
+        }
+      ],
+      "recordings": [],
+      "requests": [],
+      "semantic": [
+        {
+          "capture_mode": "server_audio",
+          "codec": "",
+          "container": "",
+          "deletion_generation": 1,
+          "holds": 0,
+          "local_descriptor_digest": null,
+          "local_only": false,
+          "manifest_digest": null,
+          "package_state": "ACTIVE",
+          "policy_mode": "server_only",
+          "producer_id": "",
+          "producer_version": "",
+          "profile_class": "evidence_pending",
+          "profile_evidence": "",
+          "rec_state": "stopped",
+          "registered_at": null,
+          "started_at": "<timestamp>",
+          "stopped_at": "<timestamp>",
+          "timeline_records": null,
+          "timeline_sha256": null
+        }
+      ],
+      "semantic_exports": [
+        {
+          "attempts": 1,
+          "bounds": null,
+          "claimed_at": "<timestamp>",
+          "error": "exportCompositionFailed: no qualified composition provider (server audio is evidence-pending)",
+          "exclusions": null,
+          "generation": 1,
+          "state": "failed"
+        }
+      ]
+    },
+    "notify": [
+      {
+        "channel": "meet:<owner>",
+        "payload": {
+          "event": "semantic_export_state",
+          "meetingId": "<meeting-1>",
+          "payload": {
+            "generation": 1,
+            "recordingId": "<semantic-recording>",
+            "state": "failed"
+          }
+        }
+      }
+    ],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        }
+      ],
+      "objects": [],
+      "stored": []
+    }
+  },
+  "worker": "meet-reconcile"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity conflict decide CONFLICT_ID --decision link|create|reject|defer --generation N --reason TEXT [--person PERSON_ID] [--idempotency-key UUID]\n",
+  "exit": 1
+}

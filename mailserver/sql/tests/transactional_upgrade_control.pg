@@ -1,0 +1,467 @@
+-- pgTAP: signed catalog/readiness plus the database-authoritative upgrade
+-- intent, fresh-MFA, approval, claim, progress, cancellation, and audit rail.
+BEGIN;
+SELECT plan(81);
+
+SELECT has_table('public','upgrade_recovery_sets',
+  'application recovery-set evidence has an authoritative table');
+SELECT has_table('public','upgrade_restore_proofs',
+  'isolated restore proofs are separate from successful backup evidence');
+SELECT has_column('public','upgrade_intents','recovery_set_id',
+  'upgrade intents bind the authorized recovery-set identity');
+SELECT has_column('public','upgrade_intents','recovery_set_digest',
+  'upgrade intents bind the authorized recovery-set digest');
+SELECT has_column('public','upgrade_control_state','timeline_id',
+  'upgrade control owns one durable recovery timeline identity');
+
+SET LOCAL ROLE setjoin_updater;
+SELECT (
+  (upgrade_recovery_identity_read()->>'installationId') ~ '^[0-9a-f-]{36}$'
+  AND (upgrade_recovery_identity_read()->>'timelineId') ~ '^[0-9a-f-]{36}$'
+) AS updater_recovery_identity_ok \gset
+RESET ROLE;
+SELECT ok(:'updater_recovery_identity_ok'::boolean,
+  'updater credential reads only the fixed installation/timeline recovery identity');
+
+SELECT throws_ok($$SELECT upgrade_intent_read(0)$$,
+  'BZ251',NULL,'invalid upgrade reducer arguments use the bounded BZ251 contract');
+
+SELECT lives_ok($$INSERT INTO upgrade_schema_migration_evidence(
+  schema_version,release_id,manifest_digest,migration_id,migration_sha256
+) VALUES(999,'fixture-release',repeat('aa',32),'fixture-migration',repeat('bb',32))$$,
+  'schema owner can record migration evidence through FORCE RLS in the same transaction');
+
+SELECT ok((
+  SELECT bool_and(NOT enabled) FROM feature_toggles WHERE key IN (
+    'feature.transactional_upgrades_catalog',
+    'feature.transactional_upgrades_execution',
+    'feature.client_recovery_receipts',
+    'feature.client_recovery_cache',
+    'feature.client_recovery_ingest'
+  )
+), 'all five transactional-upgrade and continuity flags seed OFF');
+SELECT lives_ok($$INSERT INTO approval_requests(
+  consumer_type,requester_user_id,subject,payload,approver_kind,approver_ref,expires_at
+) SELECT 'system_upgrade',id,'probe','{}','user',id,now()+interval '1 minute'
+    FROM users LIMIT 1$$,
+  'approval engine admits only the explicit system_upgrade discriminator');
+DELETE FROM approval_requests WHERE subject='probe';
+SELECT ok(NOT (SELECT enabled FROM approval_policies
+  WHERE consumer_type='system_upgrade'),
+  'independent upgrade approval is optional and seeded disabled');
+SELECT is((SELECT installation_id::text FROM upgrade_control_state WHERE singleton),
+  (SELECT value#>>'{}' FROM system_config WHERE key='identity.deployment_id'),
+  'upgrade control binds the durable installation identity');
+SELECT has_index('public','upgrade_intents','upgrade_intents_one_active_installation_idx',
+  'one non-terminal intent per installation has a partial unique index');
+SELECT has_trigger('public','upgrade_intent_events','trg_upgrade_intent_events_append_only',
+  'intent event evidence is append-only');
+
+CREATE TEMP TABLE tuc(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT INTO tuc SELECT 'actor_mb',mk_account('upgrade-actor')::text;
+INSERT INTO tuc SELECT 'actor',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM tuc WHERE key='actor_mb');
+INSERT INTO tuc SELECT 'approver_mb',mk_account('upgrade-approver')::text;
+INSERT INTO tuc SELECT 'approver',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM tuc WHERE key='approver_mb');
+INSERT INTO tuc SELECT 'outsider_mb',mk_account('upgrade-outsider')::text;
+INSERT INTO tuc SELECT 'outsider',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM tuc WHERE key='outsider_mb');
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES
+  ((SELECT value::bigint FROM tuc WHERE key='actor'),1,
+   (SELECT value::bigint FROM tuc WHERE key='actor')),
+  ((SELECT value::bigint FROM tuc WHERE key='approver'),1,
+   (SELECT value::bigint FROM tuc WHERE key='actor'));
+
+SELECT set_config('app.current_user_id',(SELECT value FROM tuc WHERE key='actor'),true);
+SELECT (SELECT policy_generation FROM upgrade_control_state WHERE singleton) AS app_trigger_gen \gset
+SET LOCAL ROLE setjoin_app;
+UPDATE approval_policies SET name=name
+ WHERE consumer_type='system_upgrade' AND priority=100;
+RESET ROLE;
+SELECT is((SELECT policy_generation FROM upgrade_control_state WHERE singleton),
+  :'app_trigger_gen'::bigint+1,
+  'app-role approval writes advance the FORCE-RLS upgrade policy generation through the narrow trigger');
+
+SELECT ok(upgrade_actor_authorized((SELECT value::bigint FROM tuc WHERE key='actor')),
+  'a live unscoped system.upgrade assignment is authorized');
+SELECT ok(NOT upgrade_actor_authorized((SELECT value::bigint FROM tuc WHERE key='outsider')),
+  'a user without persisted system.upgrade authority is denied');
+UPDATE feature_toggles SET enabled=true WHERE key IN (
+  'feature.transactional_upgrades_catalog','feature.transactional_upgrades_execution'
+);
+
+SELECT lives_ok(format($sql$SELECT upgrade_catalog_record(
+  %s,'release-1','1.2.3','community','linux','amd64',%L,'{}',1,
+  ARRAY['vendor-release-2026'],statement_timestamp(),
+  statement_timestamp()+interval '1 day',NULL,NULL)$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),repeat('ab',32)),
+  'trusted Community catalog evidence records without host mutation');
+SELECT is((SELECT catalog_generation FROM upgrade_release_catalog WHERE release_id='release-1'),
+  2::bigint,'catalog import advances the monotonic generation');
+SELECT lives_ok(format($sql$SELECT upgrade_readiness_record(
+  %s,'release-1',%L,'ready','1.2.2',177,178,
+  '{"manifest":true,"disk":true,"services":true}',0,
+  statement_timestamp()+interval '1 hour')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),repeat('ab',32)),
+  'ready evidence binds the exact manifest and schema range');
+SELECT is((SELECT readiness_generation FROM upgrade_readiness WHERE release_id='release-1'),
+  1::bigint,'first readiness proof has generation one');
+
+SELECT throws_ok(format($sql$SELECT upgrade_intent_preview(
+  %s,'release-1','planned maintenance',NULL)$sql$,
+  (SELECT value FROM tuc WHERE key='actor')),
+  'BZ243',NULL,'preview fails closed without a fresh application recovery set');
+INSERT INTO tuc VALUES('recovery_set_id',gen_random_uuid()::text);
+INSERT INTO tuc SELECT 'timeline_id',timeline_id::text
+  FROM upgrade_control_state WHERE singleton;
+SELECT throws_ok(format($sql$SELECT upgrade_recovery_set_record(
+  %s,gen_random_uuid(),gen_random_uuid(),'release-0',178,%L,
+  '{"database":true,"databaseRestoreList":true,"blobs":true,"configuration":true,"protectedKey":true,"featureToggles":true,"hmac":true}'::jsonb,
+  statement_timestamp()-interval '1 minute',statement_timestamp()+interval '23 hours')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),repeat('ce',32)),
+  'BZ245',NULL,'a recovery set cannot claim a different installation timeline');
+SELECT is((upgrade_recovery_context_read(
+  (SELECT value::bigint FROM tuc WHERE key='actor'))->>'timelineId'),
+  (SELECT value FROM tuc WHERE key='timeline_id'),
+  'recovery context exposes the exact authoritative timeline');
+SELECT lives_ok(format($sql$SELECT upgrade_recovery_set_record(
+  %s,%L::uuid,%L::uuid,'release-0',178,%L,
+  '{"database":true,"databaseRestoreList":true,"blobs":true,"configuration":true,"protectedKey":true,"featureToggles":true,"hmac":true}'::jsonb,
+  statement_timestamp()-interval '1 minute',statement_timestamp()+interval '23 hours')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),
+  (SELECT value FROM tuc WHERE key='recovery_set_id'),
+  (SELECT value FROM tuc WHERE key='timeline_id'),repeat('cd',32)),
+  'fresh cryptographically-verified application recovery evidence records');
+SELECT is((upgrade_recovery_set_read(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (SELECT value::uuid FROM tuc WHERE key='recovery_set_id')
+)->>'fresh')::boolean,true,'recovery-set read reports exact freshness');
+SELECT is((upgrade_recovery_set_read(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (SELECT value::uuid FROM tuc WHERE key='recovery_set_id')
+)->>'manifestDigest'),repeat('cd',32),'recovery-set read preserves the manifest binding');
+SELECT throws_ok(format($sql$SELECT upgrade_restore_proof_record(
+  %s,gen_random_uuid(),%L::uuid,
+  (SELECT installation_id::text FROM upgrade_control_state WHERE singleton),
+  '{"isolated":true,"schema":true,"login":true,"mail":true,"blob":true,"productionEndpointsAbsent":true}'::jsonb,
+  statement_timestamp())$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),
+  (SELECT value FROM tuc WHERE key='recovery_set_id')),
+  'BZ243',NULL,'in-place restore cannot become a rehearsal proof');
+SELECT lives_ok(format($sql$SELECT upgrade_restore_proof_record(
+  %s,gen_random_uuid(),%L::uuid,'isolated-target-1',
+  '{"isolated":true,"schema":true,"login":true,"mail":true,"blob":true,"productionEndpointsAbsent":true}'::jsonb,
+  statement_timestamp())$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),
+  (SELECT value FROM tuc WHERE key='recovery_set_id')),
+  'a new isolated target can record complete restore proof');
+SELECT is((upgrade_recovery_set_read(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (SELECT value::uuid FROM tuc WHERE key='recovery_set_id')
+)->'restoreProof'->>'staleWarning')::boolean,false,
+  'a fresh restore proof carries no 90-day warning');
+
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM upgrade_recovery_sets),0::bigint,
+  'upgrade_recovery_sets: app role cannot read installation-wide evidence directly');
+SELECT is((SELECT count(*) FROM upgrade_restore_proofs),0::bigint,
+  'upgrade_restore_proofs: app role cannot read installation-wide evidence directly');
+RESET ROLE;
+
+SELECT upgrade_intent_preview(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-1','planned maintenance',NULL
+) AS preview \gset
+SELECT ok((:'preview'::jsonb->>'previewDigest') ~ '^[0-9a-f]{64}$',
+  'preview exposes a canonical SHA-256 binding');
+INSERT INTO tuc VALUES('preview_digest',:'preview'::jsonb->>'previewDigest');
+SELECT upgrade_challenge_issue(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-1','planned maintenance',NULL,
+  (SELECT value FROM tuc WHERE key='preview_digest'),gen_random_uuid()
+) AS challenge \gset
+INSERT INTO tuc VALUES('challenge_id',:'challenge'::jsonb->>'challengeId');
+SELECT ok((SELECT value::uuid IS NOT NULL FROM tuc WHERE key='challenge_id'),
+  'preview-bound five-minute challenge is issued');
+SELECT throws_ok(format($sql$SELECT upgrade_challenge_complete(
+  %s,%L::uuid,digest('session','sha256'),digest('factor','sha256'),
+  ARRAY['pwd','mfa'],'aal2')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),
+  (SELECT value FROM tuc WHERE key='challenge_id')),
+  'BZ250',NULL,'challenge completion rejects a one-factor MFA label');
+
+SELECT upgrade_challenge_complete(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (SELECT value::uuid FROM tuc WHERE key='challenge_id'),
+  digest('session','sha256'),digest('factor','sha256'),
+  ARRAY['pwd','otp','mfa'],'aal2'
+) AS elevation \gset
+INSERT INTO tuc VALUES('elevation_id',:'elevation'::jsonb->>'elevationId');
+SELECT ok((SELECT value::uuid IS NOT NULL FROM tuc WHERE key='elevation_id'),
+  'two-factor AAL2 challenge completion creates one elevation');
+SELECT is((upgrade_challenge_complete(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (SELECT value::uuid FROM tuc WHERE key='challenge_id'),
+  digest('session','sha256'),digest('factor','sha256'),
+  ARRAY['pwd','otp','mfa'],'aal2'
+)->>'replayed')::boolean,true,
+  'exact challenge completion replay returns the original elevation');
+SELECT throws_ok(format($sql$SELECT upgrade_challenge_complete(
+  %s,%L::uuid,digest('changed','sha256'),digest('factor','sha256'),
+  ARRAY['pwd','otp','mfa'],'aal2')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),
+  (SELECT value FROM tuc WHERE key='challenge_id')),
+  'BZ242',NULL,'changed challenge replay evidence is rejected');
+
+SELECT upgrade_intent_request(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-1','planned maintenance',NULL,
+  (SELECT value FROM tuc WHERE key='preview_digest'),
+  (SELECT value::uuid FROM tuc WHERE key='elevation_id'),
+  '11111111-1111-4111-8111-111111111111'::uuid
+) AS intent \gset
+INSERT INTO tuc VALUES('intent_id',:'intent'::jsonb->>'intentId');
+SELECT is(:'intent'::jsonb->>'state','approved',
+  'permission plus fresh MFA authorizes an intent when optional approval is off');
+SELECT is((SELECT state FROM upgrade_intents WHERE id=(SELECT value::bigint FROM tuc WHERE key='intent_id')),
+  'approved','intent state is committed by the reducer');
+SELECT ok((SELECT consumed_at IS NOT NULL FROM upgrade_elevations
+  WHERE id=(SELECT value::uuid FROM tuc WHERE key='elevation_id')),
+  'request atomically consumes the one-use elevation');
+SELECT is((upgrade_intent_request(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-1','planned maintenance',NULL,
+  (SELECT value FROM tuc WHERE key='preview_digest'),
+  (SELECT value::uuid FROM tuc WHERE key='elevation_id'),
+  '11111111-1111-4111-8111-111111111111'::uuid
+)->>'replayed')::boolean,true,
+  'exact request replay is idempotent after elevation consumption');
+SELECT is((upgrade_intent_request(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-1','planned maintenance',NULL,
+  (SELECT value FROM tuc WHERE key='preview_digest'),gen_random_uuid(),gen_random_uuid()
+)->>'intentId'),(SELECT value FROM tuc WHERE key='intent_id'),
+  'a competing request receives the existing decimal-string intent ID');
+SELECT is((SELECT count(*) FROM upgrade_intents),1::bigint,
+  'competing request does not create or audit a duplicate intent');
+
+SELECT gen_random_uuid()::text AS lease \gset
+SELECT upgrade_intent_claim(
+  (SELECT value::bigint FROM tuc WHERE key='intent_id'),1,
+  'test-updater',:'lease'::uuid
+) AS claimed \gset
+SELECT is(:'claimed'::jsonb->>'state','claimed',
+  'updater claims an approved exact-generation intent');
+SELECT ok((WITH replay AS (
+  SELECT upgrade_intent_claim(
+    (SELECT value::bigint FROM tuc WHERE key='intent_id'),1,
+    'test-updater',:'lease'::uuid
+  ) AS value
+) SELECT (value->>'replayed')::boolean
+       AND value->>'releaseId'=:'claimed'::jsonb->>'releaseId'
+       AND value->>'manifestDigest'=:'claimed'::jsonb->>'manifestDigest'
+       AND value->>'recoverySetId'=:'claimed'::jsonb->>'recoverySetId'
+       AND value->>'recoverySetDigest'=:'claimed'::jsonb->>'recoverySetDigest'
+       AND value->>'leaseId'=:'lease' FROM replay),
+  'claim replay returns the same complete authority instead of caller-owned fields');
+SELECT is((SELECT state FROM upgrade_intents WHERE id=(SELECT value::bigint FROM tuc WHERE key='intent_id')),
+  'claimed','claim state is durable');
+SELECT throws_ok(format($sql$SELECT upgrade_intent_progress(
+  %s,2,'test-updater',%L::uuid,'migrations',%L,'{}')$sql$,
+  (SELECT value FROM tuc WHERE key='intent_id'),:'lease',repeat('01',32)),
+  'BZ242',NULL,'updater cannot skip manifest-declared state boundaries');
+
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),2,'test-updater',:'lease'::uuid,'preflight',repeat('02',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','preflight','claimed advances to preflight');
+SELECT is((upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),2,
+  'test-updater',:'lease'::uuid,'preflight',repeat('02',32),'{}')->>'replayed'),'true',
+  'exact progress response loss replays idempotently');
+SELECT throws_ok(format($sql$SELECT upgrade_intent_progress(
+  %s,2,'test-updater',%L::uuid,'preflight',%L,'{"changed":true}')$sql$,
+  (SELECT value FROM tuc WHERE key='intent_id'),:'lease',repeat('02',32)),
+  'BZ242',NULL,'progress replay with changed evidence is rejected');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),3,'test-updater',:'lease'::uuid,'recovery_point',repeat('03',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','recovery_point','preflight advances to recovery point');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),4,'test-updater',:'lease'::uuid,'staged',repeat('04',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','staged','recovery point advances to staged');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),5,'test-updater',:'lease'::uuid,'maintenance',repeat('05',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','maintenance','staged advances to maintenance');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),6,'test-updater',:'lease'::uuid,'migrations',repeat('06',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','migrations','maintenance advances to migrations');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),7,'test-updater',:'lease'::uuid,'switched',repeat('07',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','switched','migrations advances to switched');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),8,'test-updater',:'lease'::uuid,'readiness',repeat('08',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','readiness','switched advances to readiness');
+SELECT upgrade_intent_progress((SELECT value::bigint FROM tuc WHERE key='intent_id'),9,'test-updater',:'lease'::uuid,'committed',repeat('09',32),'{}') AS step \gset
+SELECT is(:'step'::jsonb->>'state','committed','readiness advances to committed');
+SELECT upgrade_intent_complete(
+  (SELECT value::bigint FROM tuc WHERE key='intent_id'),10,'test-updater',
+  :'lease'::uuid,'verified',repeat('10',32),'{"downtimeMs":1234}'
+) AS completed \gset
+SELECT is(:'completed'::jsonb->>'state','verified',
+  'committed transaction completes as verified');
+SELECT is((upgrade_intent_complete(
+  (SELECT value::bigint FROM tuc WHERE key='intent_id'),10,'test-updater',
+  :'lease'::uuid,'verified',repeat('10',32),'{"downtimeMs":1234}'
+)->>'replayed'),'true','exact terminal response loss replays idempotently');
+SELECT throws_ok(format($sql$SELECT upgrade_intent_complete(
+  %s,10,'test-updater',%L::uuid,'verified',%L,'{"downtimeMs":9999}')$sql$,
+  (SELECT value FROM tuc WHERE key='intent_id'),:'lease',repeat('10',32)),
+  'BZ242',NULL,'terminal replay with changed result is rejected');
+SELECT is((SELECT status FROM upgrade_history ORDER BY id DESC LIMIT 1),'success',
+  'legacy history receives a read-compatible success adapter row');
+SELECT is((SELECT count(*) FROM upgrade_intent_events
+  WHERE intent_id=(SELECT value::bigint FROM tuc WHERE key='intent_id')),11::bigint,
+  'every durable generation has exactly one event');
+SELECT throws_ok(format($sql$UPDATE upgrade_intent_events SET evidence='{}'
+  WHERE intent_id=%s$sql$,(SELECT value FROM tuc WHERE key='intent_id')),
+  'BZ017',NULL,'event evidence cannot be rewritten');
+
+-- Model a root helper entering after the automatic engine has durably recorded
+-- recovery_required. Only the exact lease/executor can reconcile a verified
+-- previous-cohort activation to rolled_back.
+UPDATE upgrade_intents SET state='recovery_required',state_generation=11,
+  result='{"category":"rollback_failed"}'::jsonb
+ WHERE id=(SELECT value::bigint FROM tuc WHERE key='intent_id');
+SELECT is((upgrade_intent_recover(
+  (SELECT value::bigint FROM tuc WHERE key='intent_id'),11,'test-updater',
+  :'lease'::uuid,repeat('11',32),'{"rollback":"verified"}'
+)->>'state'),'rolled_back','break-glass helper reconciles recovery_required to rolled_back');
+SELECT is((upgrade_intent_recover(
+  (SELECT value::bigint FROM tuc WHERE key='intent_id'),11,'test-updater',
+  :'lease'::uuid,repeat('11',32),'{"rollback":"verified"}'
+)->>'replayed'),'true','exact recovery response loss replays idempotently');
+SELECT throws_ok(format($sql$SELECT upgrade_intent_recover(
+  %s,11,'test-updater',%L::uuid,%L,'{"rollback":"changed"}')$sql$,
+  (SELECT value FROM tuc WHERE key='intent_id'),:'lease',repeat('11',32)),
+  'BZ242',NULL,'recovery replay with changed evidence is rejected');
+SELECT is((SELECT count(*) FROM upgrade_intent_events
+  WHERE intent_id=(SELECT value::bigint FROM tuc WHERE key='intent_id')
+    AND from_state='recovery_required' AND to_state='rolled_back'),1::bigint,
+  'recovery reconciliation appends exactly one immutable terminal event');
+
+SELECT (SELECT policy_generation FROM upgrade_control_state WHERE singleton) AS old_policy_gen \gset
+UPDATE approval_policies
+   SET enabled=true,
+       approver_spec=jsonb_build_object(
+         'kind','named','user_id',(SELECT value::bigint FROM tuc WHERE key='approver')
+       )
+ WHERE consumer_type='system_upgrade';
+SELECT ok((SELECT policy_generation FROM upgrade_control_state WHERE singleton)>:'old_policy_gen'::bigint,
+  'system-upgrade approval policy mutation advances policy generation');
+
+SELECT upgrade_catalog_record(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-2','1.2.4','community','linux','amd64',repeat('bc',32),'{}',2,
+  ARRAY['vendor-release-2026'],statement_timestamp(),statement_timestamp()+interval '1 day',NULL,NULL
+) \gset
+SELECT upgrade_readiness_record(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-2',repeat('bc',32),'ready','1.2.3',178,179,'{"checks":[]}',0,
+  statement_timestamp()+interval '1 hour'
+) \gset
+SELECT upgrade_intent_preview((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-2','second planned maintenance',NULL) AS p2 \gset
+SELECT upgrade_challenge_issue((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-2','second planned maintenance',NULL,:'p2'::jsonb->>'previewDigest',gen_random_uuid()) AS c2 \gset
+SELECT upgrade_challenge_complete((SELECT value::bigint FROM tuc WHERE key='actor'),
+  (:'c2'::jsonb->>'challengeId')::uuid,digest('s2','sha256'),digest('f2','sha256'),
+  ARRAY['pwd','otp','mfa'],'aal2') AS e2 \gset
+SELECT upgrade_intent_request((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-2','second planned maintenance',NULL,:'p2'::jsonb->>'previewDigest',
+  (:'e2'::jsonb->>'elevationId')::uuid,gen_random_uuid()) AS i2 \gset
+SELECT is(:'i2'::jsonb->>'state','awaiting_approval',
+  'enabled policy creates an independently approvable intent');
+SELECT is((SELECT consumer_type FROM approval_requests
+  WHERE id=(:'i2'::jsonb->>'approvalRequestId')::bigint),'system_upgrade',
+  'approval request is bound to the explicit upgrade consumer');
+SELECT throws_ok(format($sql$SELECT upgrade_intent_approve(%s,%s,1,'approve','self')$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),:'i2'::jsonb->>'intentId'),
+  'BZ242',NULL,'requester cannot approve their own upgrade');
+SELECT is((upgrade_intent_approve(
+  (SELECT value::bigint FROM tuc WHERE key='approver'),
+  (:'i2'::jsonb->>'intentId')::bigint,1,'approve','independent review complete'
+)->>'state'),'approved','different configured approver authorizes the intent');
+SELECT is((upgrade_intent_cancel(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  (:'i2'::jsonb->>'intentId')::bigint,2,'maintenance window withdrawn'
+)->>'state'),'cancelled','approved pre-claim intent cancels atomically');
+SELECT is((SELECT count(*) FROM upgrade_intents WHERE state NOT IN (
+  'verified','rolled_back','failed','cancelled','expired'
+)),0::bigint,'terminal intent releases the one-active slot');
+
+SELECT upgrade_catalog_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-stale','1.2.5','community','linux','amd64',repeat('cd',32),'{}',3,
+  ARRAY['vendor-release-2026'],statement_timestamp(),statement_timestamp()+interval '1 day',NULL,NULL) \gset
+SELECT upgrade_readiness_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-stale',repeat('cd',32),'ready','1.2.4',179,180,'{}',0,
+  statement_timestamp()+interval '1 hour') \gset
+SELECT upgrade_intent_preview((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-stale','stale preview check',NULL) AS stale_preview \gset
+SELECT upgrade_readiness_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-stale',repeat('cd',32),'ready','1.2.4',179,180,'{}',0,
+  statement_timestamp()+interval '1 hour') \gset
+SELECT throws_ok(format($sql$SELECT upgrade_challenge_issue(
+  %s,'release-stale','stale preview check',NULL,%L,gen_random_uuid())$sql$,
+  (SELECT value FROM tuc WHERE key='actor'),:'stale_preview'::jsonb->>'previewDigest'),
+  'BZ243',NULL,'readiness generation change invalidates an old preview');
+
+SELECT upgrade_catalog_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-expired','2.0.0','enterprise','linux','amd64',repeat('de',32),'{}',4,
+  ARRAY['vendor-release-2026'],statement_timestamp(),statement_timestamp()+interval '1 day',
+  repeat('ef',32),statement_timestamp()-interval '1 minute') \gset
+SELECT throws_ok(format($sql$SELECT upgrade_intent_preview(
+  %s,'release-enterprise-expired','enterprise scope check',NULL)$sql$,
+  (SELECT value FROM tuc WHERE key='actor')),
+  'BZ244',NULL,'expired Enterprise entitlement fails before readiness');
+
+UPDATE approval_policies SET enabled=false
+ WHERE consumer_type='system_upgrade';
+SELECT upgrade_catalog_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-claim','2.0.1','enterprise','linux','amd64',repeat('df',32),'{}',5,
+  ARRAY['vendor-release-2026'],statement_timestamp(),statement_timestamp()+interval '1 day',
+  repeat('ee',32),statement_timestamp()+interval '1 hour') \gset
+SELECT upgrade_readiness_record(
+  (SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-claim',repeat('df',32),'ready','1.2.4',179,180,'{}',0,
+  statement_timestamp()+interval '1 hour') \gset
+SELECT upgrade_intent_preview((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-claim','enterprise claim expiry check',NULL) AS ent_preview \gset
+SELECT upgrade_challenge_issue((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-claim','enterprise claim expiry check',NULL,
+  :'ent_preview'::jsonb->>'previewDigest',gen_random_uuid()) AS ent_challenge \gset
+SELECT upgrade_challenge_complete((SELECT value::bigint FROM tuc WHERE key='actor'),
+  (:'ent_challenge'::jsonb->>'challengeId')::uuid,digest('es','sha256'),
+  digest('ef','sha256'),ARRAY['pwd','otp','mfa'],'aal2') AS ent_elevation \gset
+SELECT upgrade_intent_request((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-enterprise-claim','enterprise claim expiry check',NULL,
+  :'ent_preview'::jsonb->>'previewDigest',
+  (:'ent_elevation'::jsonb->>'elevationId')::uuid,gen_random_uuid()) AS ent_intent \gset
+UPDATE upgrade_release_catalog
+   SET entitlement_grace_until=statement_timestamp()-interval '1 second'
+ WHERE release_id='release-enterprise-claim';
+SELECT throws_ok(format($sql$SELECT upgrade_intent_claim(
+  %s,1,'test-updater',gen_random_uuid())$sql$,
+  :'ent_intent'::jsonb->>'intentId'),
+  'BZ243',NULL,'Enterprise entitlement crossing grace before claim blocks new host work');
+SELECT is((SELECT state FROM upgrade_intents
+  WHERE id=(:'ent_intent'::jsonb->>'intentId')::bigint),'approved',
+  'rejected post-grace Enterprise claim leaves the approved intent unmodified');
+
+SELECT upgrade_catalog_record((SELECT value::bigint FROM tuc WHERE key='actor'),
+  'release-metadata-expired','1.2.6','community','linux','amd64',repeat('ef',32),'{}',6,
+  ARRAY['vendor-release-2026'],statement_timestamp()-interval '2 hours',
+  statement_timestamp()-interval '1 hour',NULL,NULL) \gset
+SELECT throws_ok(format($sql$SELECT upgrade_intent_preview(
+  %s,'release-metadata-expired','metadata expiry check',NULL)$sql$,
+  (SELECT value FROM tuc WHERE key='actor')),
+  'BZ245',NULL,'expired signed metadata is never previewable');
+SELECT ok(EXISTS(
+  SELECT 1 FROM admin_audit_log
+   WHERE action='upgrade_intent_requested'
+     AND notes='planned maintenance'
+), 'mandatory operator reason is retained in immutable audit evidence');
+
+SELECT * FROM finish();
+ROLLBACK;

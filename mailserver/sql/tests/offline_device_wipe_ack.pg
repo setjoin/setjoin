@@ -1,0 +1,63 @@
+-- pgTAP: offline_device_wipe_ack.pg
+-- The NATIVE client confirms it dropped its offline-core 'mail' store + destroyed
+-- its key (held via guard-core) after an offline.wipe push. Sets user_devices.wipe_acked_at.
+-- R3-scoped (own device only). BZ101 if there is no pending wipe (malformed transition).
+BEGIN;
+SELECT plan(4);
+
+CREATE TEMP TABLE _d AS
+  SELECT mk_account('wipeack')       AS mb,
+         mk_account('wipeack_other') AS mb_other;
+CREATE TEMP TABLE _ids AS
+  SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _d))       AS uid,
+         (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_other FROM _d)) AS uid_other;
+
+-- The ack keys user_devices on device_id (the canonical devices.id the client
+-- echoes back), so each device links a real devices row and the ack is called
+-- with THAT id — not the user_devices.id.
+-- A native device owned by account A, with a pending wipe (revoked by #2a path).
+INSERT INTO devices (user_id, fingerprint, hmac_secret, platform)
+  VALUES ((SELECT uid FROM _ids), 'fp-a', encode(gen_random_bytes(32),'hex'), 'desktop');
+INSERT INTO user_devices (user_id, device_id, device_name, platform, fingerprint_hash, wipe_requested, wipe_type, wipe_at, offline_approval)
+  VALUES ((SELECT uid FROM _ids),
+          (SELECT id FROM devices WHERE user_id=(SELECT uid FROM _ids) AND fingerprint='fp-a'),
+          'native/desktop', 'desktop', sha256('fp-a'::bytea), TRUE, 'selective', now(), 'revoked');
+CREATE TEMP TABLE _dev AS
+  SELECT id AS ud_id, device_id AS dev_id FROM user_devices WHERE user_id = (SELECT uid FROM _ids);
+
+-- A device of ANOTHER user (ownership-leak guard).
+INSERT INTO devices (user_id, fingerprint, hmac_secret, platform)
+  VALUES ((SELECT uid_other FROM _ids), 'fp-other', encode(gen_random_bytes(32),'hex'), 'ios');
+INSERT INTO user_devices (user_id, device_id, device_name, platform, fingerprint_hash, wipe_requested, wipe_type, wipe_at, offline_approval)
+  VALUES ((SELECT uid_other FROM _ids),
+          (SELECT id FROM devices WHERE user_id=(SELECT uid_other FROM _ids) AND fingerprint='fp-other'),
+          'native/ios', 'ios', sha256('fp-other'::bytea), TRUE, 'selective', now(), 'revoked');
+CREATE TEMP TABLE _dev_other AS
+  SELECT id AS ud_id, device_id AS dev_id FROM user_devices WHERE user_id = (SELECT uid_other FROM _ids);
+
+-- Test 1: legal ack (keyed on canonical devices.id) sets wipe_acked_at.
+SELECT lives_ok(
+  $$ SELECT offline_device_wipe_ack((SELECT mb FROM _d), (SELECT dev_id FROM _dev)) $$,
+  'legal wipe-ack succeeds'
+);
+SELECT isnt(
+  (SELECT wipe_acked_at FROM user_devices WHERE id = (SELECT ud_id FROM _dev)),
+  NULL,
+  'wipe_acked_at is set after ack'
+);
+
+-- Test 2: ack on a device with no pending wipe → BZ101.
+UPDATE user_devices SET wipe_requested = FALSE, wipe_at = NULL WHERE id = (SELECT ud_id FROM _dev);
+SELECT throws_ok(
+  $$ SELECT offline_device_wipe_ack((SELECT mb FROM _d), (SELECT dev_id FROM _dev)) $$,
+  'BZ101', NULL, 'ack with no pending wipe raises BZ101'
+);
+
+-- Test 3: ack of ANOTHER user's device → no row matched, BZ101 (R3 ownership).
+SELECT throws_ok(
+  $$ SELECT offline_device_wipe_ack((SELECT mb FROM _d), (SELECT dev_id FROM _dev_other)) $$,
+  'BZ101', NULL, 'ack of another users device raises BZ101 (R3 ownership in the same statement)'
+);
+
+SELECT finish();
+ROLLBACK;

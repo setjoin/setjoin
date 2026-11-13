@@ -1,0 +1,63 @@
+{
+  "case": "set_default-audit-fault",
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "normalization": [
+    "fixture identities",
+    "generated timestamps; audit checksum verified"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 0
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permission": "read",
+          "user_id": "<foreign-user>"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "PUT",
+      "path": "/me/sharing/default"
+    },
+    "response": {
+      "body": {
+        "detail": "request failed",
+        "instance": "",
+        "status": 500,
+        "title": "Internal Server Error",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "drive1-oracle"
+      },
+      "status": 500
+    }
+  },
+  "route": "PUT /me/sharing/default"
+}

@@ -1,0 +1,908 @@
+{
+  "max_meetings": "2",
+  "scenario": "mux",
+  "steps": [
+    {
+      "name": "double-slash",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "//status"
+      },
+      "response": {
+        "body": "<a href=\"/status\">Temporary Redirect</a>.\n\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "43"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "location",
+            "/status"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "dot-dot",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/a/../status"
+      },
+      "response": {
+        "body": "<a href=\"/status\">Temporary Redirect</a>.\n\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "43"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "location",
+            "/status"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "dot",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/./status"
+      },
+      "response": {
+        "body": "<a href=\"/status\">Temporary Redirect</a>.\n\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "43"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "location",
+            "/status"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "trailing-slash",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status/"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "healthz-trailing-slash",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/healthz/"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "root",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "unknown",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/nope"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "case",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/STATUS"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "query",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status?x=1"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "redirect-keeps-query",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "//status?x=1&y=2"
+      },
+      "response": {
+        "body": "<a href=\"/status?x=1&amp;y=2\">Temporary Redirect</a>.\n\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "55"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "location",
+            "/status?x=1&y=2"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "percent-encoded-letter",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/st%61tus"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "percent-encoded-slash",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status%2F"
+      },
+      "response": {
+        "body": "404 page not found\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 404
+      }
+    },
+    {
+      "name": "bad-percent",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/st%zz"
+      },
+      "response": {
+        "body": "400 Bad Request",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "post-redirect",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "//start"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "0"
+          ],
+          [
+            "location",
+            "/start"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "head-redirect",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "HEAD",
+        "path": "//status"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "location",
+            "/status"
+          ]
+        ],
+        "status": 307
+      }
+    },
+    {
+      "name": "post-status",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/status"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "GET, HEAD"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "get-start",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/start"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "POST"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "delete-healthz",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "DELETE",
+        "path": "/healthz"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "GET, HEAD"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "options-start",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "OPTIONS",
+        "path": "/start"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "POST"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "put-stop",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "PUT",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "POST"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "get-stop",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "POST"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "head-healthz",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "HEAD",
+        "path": "/healthz"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "head-status",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "HEAD",
+        "path": "/status"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "head-status-no-auth",
+      "request": {
+        "body_len": 0,
+        "headers": [],
+        "method": "HEAD",
+        "path": "/status"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "25"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 401
+      }
+    },
+    {
+      "name": "options-no-auth",
+      "request": {
+        "body_len": 0,
+        "headers": [],
+        "method": "OPTIONS",
+        "path": "/status"
+      },
+      "response": {
+        "body": "Method Not Allowed\n",
+        "headers": [
+          [
+            "allow",
+            "GET, HEAD"
+          ],
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "19"
+          ],
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ],
+          [
+            "x-content-type-options",
+            "nosniff"
+          ]
+        ],
+        "status": 405
+      }
+    },
+    {
+      "name": "healthz",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "response": {
+        "body": "",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "0"
+          ]
+        ],
+        "status": 200
+      }
+    }
+  ]
+}

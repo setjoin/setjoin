@@ -1,0 +1,69 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "status": {
+          "after": "quarantined",
+          "before": "uploading"
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": 0,
+      "table": "mail_recovery_upload_sessions"
+    },
+    {
+      "after": {
+        "artifact_identity": "<identity>",
+        "blob_inventory": [],
+        "created_at": "<timestamp>",
+        "device_id": "<device>",
+        "fork_consented_at": null,
+        "fork_consented_by": null,
+        "id": "<artifact>",
+        "incident_id": "<incident>",
+        "lineage_sha256": "<lineage>",
+        "mailbox_id": "<mailbox>",
+        "malware_status": "clean",
+        "parsed_headers": {
+          "bccAddrs": [],
+          "bodyHtml": "",
+          "bodyText": "Recovered body\r\n\r\nSecond paragraph.",
+          "ccAddrs": [],
+          "eligibility": "received",
+          "fromAddr": "sender@example.test",
+          "fromName": "Sender",
+          "inReplyTo": "",
+          "messageId": "<blobs1-recovered@example.test>",
+          "receivedAt": "2026-10-30T12:00:00Z",
+          "references": "",
+          "subject": "recovered message",
+          "toAddrs": [
+            {
+              "email": "recipient@example.test"
+            }
+          ]
+        },
+        "raw_mime_sha256": "\\x6d24e135773a39235ee530b567e9acb7da25b66da9ea98b528a4b1977b7ef1a6",
+        "raw_mime_size": 256,
+        "raw_ref": "6d24e135773a39235ee530b567e9acb7da25b66da9ea98b528a4b1977b7ef1a6",
+        "receipt": "<receipt>",
+        "rejection_reason": null,
+        "session_id": "<session>",
+        "signed_boot_epoch": "<boot>",
+        "signed_timeline": 1,
+        "status": "quarantined",
+        "terminal_at": null,
+        "uploading_user_id": "<actor>"
+      },
+      "table": "mail_recovery_quarantine_artifacts"
+    }
+  ],
+  "format": 1,
+  "go_source": "206f9b0aa6c6aff8dc867ab84a6b6789aa940a6d",
+  "route": "POST /recovery/uploads/{sessionId}/finalize"
+}

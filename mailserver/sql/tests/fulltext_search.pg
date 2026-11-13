@@ -1,0 +1,161 @@
+-- pgTAP: full-text mail search — plain GIN + tsquery (2026-07-04 queue-B #2).
+--
+-- Replaces pg_search_bm25.pg. That file wrapped all 12 assertions in
+-- skip('pg_search/ParadeDB not installed') and unconditionally exited 0 — it
+-- never verified anything, which is exactly how 5 reducer/Go call sites shipped
+-- @@@/paradedb.* syntax with zero fallback while the live baseline only ever
+-- creates plain tsvector columns + GIN indexes (no pg_search extension anywhere).
+-- On any real deployment, every text/body search threw "schema paradedb does
+-- not exist" — reverted here to plain GIN + websearch_to_tsquery/ts_rank/
+-- ts_headline; no ParadeDB dependency, no skips.
+BEGIN;
+SELECT plan(15);
+
+CREATE TEMP TABLE _acct AS SELECT mk_account('ftstest') AS mb_id;
+
+-- =====================================================================
+-- Area 1: the GIN indexes are still live (never dropped — pg_search's
+-- migration never ran against this baseline).
+-- =====================================================================
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'messages' AND indexname = 'messages_body_tsv_idx'),
+  'GIN index messages_body_tsv_idx exists on messages'
+);
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'messages' AND indexname = 'messages_subject_tsv_idx'),
+  'GIN index messages_subject_tsv_idx exists on messages'
+);
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'messages' AND indexname = 'messages_from_tsv_idx'),
+  'GIN index messages_from_tsv_idx exists on messages'
+);
+
+-- =====================================================================
+-- Area 2: jmap_email_query 'text'/'body' filters — the RED case. Before the
+-- fix, every one of these threw "schema paradedb does not exist" because
+-- jmap_email.sql emitted `@@@`/`paradedb.score` against columns with no
+-- pg_search index. Proven red against the pre-fix reducer via a live psql
+-- session (see the plan doc + PR notes); these assertions pin the green
+-- behavior and regress if `@@@`/paradedb.* ever comes back.
+-- =====================================================================
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, size_bytes, thread_id, raw_ref, received_at)
+VALUES (960001, (SELECT mb_id FROM _acct), get_tag_id('Inbox', (SELECT mb_id FROM _acct)), '<fts1@t>', 'Quarterly report', 'boss@ext.com', 'please review the quarterly numbers', 100, 'thr-960001', 'raw-960001', now());
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"text":"quarterly"}'::JSONB)->>'total')::INT = 1,
+  '''text'' filter matches via body_tsv (plain GIN/tsquery, no ParadeDB throw)'
+);
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"text":"Quarterly"}'::JSONB)->>'total')::INT = 1,
+  '''text'' filter matches via subject_tsv'
+);
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, size_bytes, thread_id, raw_ref, received_at)
+VALUES (960002, (SELECT mb_id FROM _acct), get_tag_id('Inbox', (SELECT mb_id FROM _acct)), '<fts2@t>', 'unrelated', 'zephyrina@ext.com', 'nothing to see here', 100, 'thr-960002', 'raw-960002', now());
+
+-- 'simple' tsvector never splits an email address at '@' (it is one token,
+-- like a CJK run) — a partial local-part search needs the full literal.
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"text":"zephyrina@ext.com"}'::JSONB)->>'total')::INT = 1,
+  '''text'' filter matches via from_tsv (full email literal — ''simple'' does not tokenize @-parts)'
+);
+
+-- 'body' filter is body_tsv-only: a subject-only term must NOT match, using a
+-- message whose subject and body share no words (960001's subject/body both
+-- happen to contain "quarterly", so it can't prove the scoping).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, size_bytes, thread_id, raw_ref, received_at)
+VALUES (960004, (SELECT mb_id FROM _acct), get_tag_id('Inbox', (SELECT mb_id FROM _acct)), '<fts4@t>', 'Confidential memo', 'x@ext.com', 'the weather today is fine', 100, 'thr-960004', 'raw-960004', now());
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"body":"Confidential"}'::JSONB)->>'total')::INT = 0,
+  '''body'' filter does not match a subject-only term (scoped to body_tsv, not the 3-column OR)'
+);
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"body":"quarterly"}'::JSONB)->>'total')::INT = 1,
+  '''body'' filter matches via body_tsv'
+);
+
+-- =====================================================================
+-- Area 3: ts_rank ordering (the BM25-relevance replacement — a plain-Postgres
+-- signal, not BM25; documented product-quality tradeoff, not a defect).
+-- =====================================================================
+
+CREATE TEMP TABLE _rank AS SELECT mk_account('ftsrank') AS mb_id;
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, size_bytes, thread_id, raw_ref, received_at)
+VALUES
+  (960010, (SELECT mb_id FROM _rank), get_tag_id('Inbox', (SELECT mb_id FROM _rank)), '<fts10@t>', 'one mention', 'a@ext.com', 'widget appears once here', 100, 'thr-960010', 'raw-960010', now() - interval '1 hour'),
+  (960011, (SELECT mb_id FROM _rank), get_tag_id('Inbox', (SELECT mb_id FROM _rank)), '<fts11@t>', 'many mentions', 'b@ext.com', 'widget widget widget widget everywhere widget', 100, 'thr-960011', 'raw-960011', now() - interval '2 hours');
+
+SELECT is(
+  (jmap_email_query((SELECT mb_id FROM _rank), '{"text":"widget"}'::JSONB)->'ids'->0) #>> '{}',
+  '960011',
+  'higher term-frequency body ranks first via ts_rank (despite being older by received_at)'
+);
+
+-- =====================================================================
+-- Area 4: jmap_search_snippet_get — ts_headline replaces paradedb.snippet.
+-- =====================================================================
+
+SELECT ok(
+  (jmap_search_snippet_get((SELECT mb_id FROM _acct), '{"body":"quarterly"}'::JSONB, ARRAY[960001::BIGINT])
+    ->'list'->0->>'preview') LIKE '%<mark>quarterly</mark>%',
+  'jmap_search_snippet_get highlights the body match via ts_headline'
+);
+
+SELECT ok(
+  (jmap_search_snippet_get((SELECT mb_id FROM _acct), '{"subject":"Quarterly"}'::JSONB, ARRAY[960001::BIGINT])
+    ->'list'->0->>'subject') LIKE '%<mark>Quarterly</mark>%',
+  'jmap_search_snippet_get highlights the subject match via ts_headline'
+);
+
+-- Encrypted-message parity (C7): NULL body_text must not crash ts_headline —
+-- falls through to the existing left()/subject fallback, unchanged.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, body_html, body_tsv, size_bytes, thread_id, raw_ref, received_at, crypto_type)
+VALUES (960003, (SELECT mb_id FROM _acct), get_tag_id('Inbox', (SELECT mb_id FROM _acct)), '<fts3@t>', 'Encrypted subject', 'enc@ext.com', NULL, NULL, NULL, 100, 'thr-960003', 'raw-960003', now(), 'smime-encrypted');
+
+SELECT lives_ok(
+  format($$ SELECT jmap_search_snippet_get(%s, '{"subject":"Encrypted"}'::JSONB, ARRAY[960003::BIGINT]) $$, (SELECT mb_id FROM _acct)),
+  'jmap_search_snippet_get does not throw on a NULL body_text (encrypted message)'
+);
+
+-- =====================================================================
+-- Area 5: CJK — plain 'simple' config tokenizes a CJK run as ONE token (no
+-- ICU/per-character segmentation without a dedicated extension). Documents
+-- the real, honest recall footprint of the revert instead of overclaiming.
+-- =====================================================================
+
+CREATE TEMP TABLE _cjk AS SELECT mk_account('ftscjk') AS mb_id;
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, body_text, size_bytes, thread_id, raw_ref, received_at)
+VALUES (960020, (SELECT mb_id FROM _cjk), get_tag_id('Inbox', (SELECT mb_id FROM _cjk)), '<fts20@t>', 'CJK', 'c@ext.com', '你好世界', 100, 'thr-960020', 'raw-960020', now());
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _cjk), '{"body":"你好世界"}'::JSONB)->>'total')::INT = 1,
+  'CJK: an exact full-token match succeeds via plain GIN + websearch_to_tsquery'
+);
+
+SELECT ok(
+  (jmap_email_query((SELECT mb_id FROM _cjk), '{"body":"你好"}'::JSONB)->>'total')::INT = 0,
+  'CJK: a substring/partial term does NOT match under ''simple'' (documented recall limit of the plain-GIN revert, not a regression from this fix)'
+);
+
+-- =====================================================================
+-- Area 6: no match → zero rows, never an error (the correctness contract:
+-- a search throwing was the bug being fixed).
+-- =====================================================================
+
+SELECT is(
+  (jmap_email_query((SELECT mb_id FROM _acct), '{"text":"nonexistentxyz123"}'::JSONB)->>'total')::INT,
+  0,
+  'an unmatched text filter returns zero rows, not an error'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

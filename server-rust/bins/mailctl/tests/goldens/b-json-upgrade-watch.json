@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/intents/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/intents/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"state\": \"queued\",\n  \"updatedAt\": \"one\"\n}\n{\n  \"state\": \"verified\",\n  \"updatedAt\": \"two\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

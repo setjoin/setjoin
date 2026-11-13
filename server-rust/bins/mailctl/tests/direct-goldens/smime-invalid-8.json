@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: DB_ENCRYPTION_KEY is required to encrypt imported private keys (set it to the SAME value the gateway uses, or pass --dry-run to validate only)\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

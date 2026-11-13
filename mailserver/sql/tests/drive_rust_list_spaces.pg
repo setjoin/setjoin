@@ -1,0 +1,16 @@
+-- #274: public reducer result plus committed-scope isolation.
+BEGIN;
+SELECT plan(3);
+SELECT mk_account('drive2-list-owner') AS mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:mb \gset
+SELECT mk_account('drive2-list-foreign') AS other_mb \gset
+SELECT user_id AS foreign_actor FROM mailboxes WHERE id=:other_mb \gset
+SELECT drive_space_create(:foreign_actor,'Foreign','regular') AS foreign_space \gset
+SELECT set_config('app.current_user_id',:actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT is(jsonb_array_length(drive_rust_list_spaces(:actor)),1,'first list provisions one personal space');
+SELECT is(jsonb_array_length(drive_rust_list_spaces(:actor)),1,'repeat list is idempotent');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(drive_rust_list_spaces(:actor)) x WHERE (x->>'id')::bigint=:foreign_space),0::bigint,'foreign space remains invisible');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

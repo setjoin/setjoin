@@ -1,0 +1,143 @@
+{
+  "exit": 0,
+  "state": {
+    "status": "completed",
+    "blob_count": 1,
+    "blobs_copied": 0,
+    "blobs_skipped": 1,
+    "config_size": 256,
+    "blob_total_size": 24,
+    "error_log": [],
+    "manifest_timestamp": "$STAMP",
+    "started": true,
+    "completed": true
+  },
+  "objects": {
+    "backup/backup-manifest-$STAMP.json": {
+      "schema_version": 1,
+      "timestamp": "$STAMP",
+      "config_size_bytes": 256,
+      "config_sha256": "e14c30f8b6ac63ea1b6dd937a4bb8e00675f093cf89c3a091703c8bf8b004efb",
+      "blob_manifest": {
+        "timestamp": "$STAMP",
+        "type": "incr",
+        "hashes": [
+          "00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+        ],
+        "count": 1,
+        "total_size": 24
+      },
+      "blob_count": 1,
+      "blob_total_size_bytes": 24,
+      "signing_key_id": "139e3940e64b5491722088d9a0d741628fc826e09475d341a780acde3c4b8070",
+      "signing_public_key": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "signature": "$VERIFIED_ED25519"
+    },
+    "backup/backup-manifest.json": {
+      "schema_version": 1,
+      "timestamp": "$STAMP",
+      "config_size_bytes": 256,
+      "config_sha256": "e14c30f8b6ac63ea1b6dd937a4bb8e00675f093cf89c3a091703c8bf8b004efb",
+      "blob_manifest": {
+        "timestamp": "$STAMP",
+        "type": "incr",
+        "hashes": [
+          "00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+        ],
+        "count": 1,
+        "total_size": 24
+      },
+      "blob_count": 1,
+      "blob_total_size_bytes": 24,
+      "signing_key_id": "139e3940e64b5491722088d9a0d741628fc826e09475d341a780acde3c4b8070",
+      "signing_public_key": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "signature": "$VERIFIED_ED25519"
+    },
+    "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2": "TUNUTDQgd29ya2VyIGJsb2IA6ZuG5ZCI",
+    "backup/config-$STAMP.json": {
+      "backup.retention_policy": {
+        "value": "{\"gfs\": \"1d0w0m\"}",
+        "encrypted": false
+      },
+      "fixture.encrypted": {
+        "value": "{\"ciphertext\": \"synthetic opaque bytes\"}",
+        "encrypted": true
+      },
+      "fixture.escaped": {
+        "value": "[\"<node>\", \"&\"]",
+        "encrypted": false
+      }
+    },
+    "backup/config.json": {
+      "backup.retention_policy": {
+        "value": "{\"gfs\": \"1d0w0m\"}",
+        "encrypted": false
+      },
+      "fixture.encrypted": {
+        "value": "{\"ciphertext\": \"synthetic opaque bytes\"}",
+        "encrypted": true
+      },
+      "fixture.escaped": {
+        "value": "[\"<node>\", \"&\"]",
+        "encrypted": false
+      }
+    },
+    "backup/manifests/incr-$STAMP.json": {
+      "timestamp": "$STAMP",
+      "type": "incr",
+      "hashes": [
+        "00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+      ],
+      "count": 1,
+      "total_size": 24
+    },
+    "primary/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2": "TUNUTDQgd29ya2VyIGJsb2IA6ZuG5ZCI"
+  },
+  "requests": [
+    [
+      "HEAD",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "HEAD",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "PUT",
+      "backup/manifests/incr-$STAMP.json"
+    ],
+    [
+      "PUT",
+      "backup/config-$STAMP.json"
+    ],
+    [
+      "PUT",
+      "backup/config.json"
+    ],
+    [
+      "PUT",
+      "backup/backup-manifest-$STAMP.json"
+    ],
+    [
+      "PUT",
+      "backup/backup-manifest.json"
+    ],
+    [
+      "DELETE",
+      "backup/manifests/incr-20000101T000000Z.json"
+    ],
+    [
+      "DELETE",
+      "backup/config-20000101T000000Z.json"
+    ],
+    [
+      "DELETE",
+      "backup/backup-manifest-20000101T000000Z.json"
+    ]
+  ],
+  "old_run_removed": true
+}

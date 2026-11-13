@@ -1,0 +1,71 @@
+{
+  "case": "invalid",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "Office1 save",
+      "external_path": "/api/office/wopi/files/{id}/contents",
+      "headers": {
+        "x-setjoin-operation-key": "office1-save",
+        "x-wopi-lock": "office1-lock",
+        "x-wopi-override": "LOCK"
+      },
+      "method": "POST",
+      "path": "/office/wopi/files/{id}/contents",
+      "query": "access_token=<launch-token>"
+    },
+    "response": {
+      "body": {
+        "detail": "invalid WOPI file id",
+        "instance": "",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-oracle"
+      },
+      "status": 400
+    },
+    "responses": [
+      {
+        "body": {
+          "detail": "invalid WOPI file id",
+          "instance": "",
+          "status": 400,
+          "title": "Bad Request",
+          "type": "about:blank"
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-oracle"
+        },
+        "status": 400
+      }
+    ],
+    "storage": []
+  },
+  "route": "POST /office/wopi/files/{id}/contents"
+}

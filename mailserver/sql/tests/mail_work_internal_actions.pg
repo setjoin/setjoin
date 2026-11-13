@@ -1,0 +1,91 @@
+BEGIN;
+SELECT plan(22);
+SET LOCAL app.capture_notify='on';
+
+SELECT mk_shared_mailbox('work-actions-shared') AS shared_mb \gset
+SELECT mk_account('work-actions-owner') AS actor_mb \gset
+SELECT mk_account('work-actions-other') AS other_mb \gset
+SELECT user_id AS actor_user FROM mailboxes WHERE id=:actor_mb \gset
+SELECT user_id AS other_user FROM mailboxes WHERE id=:other_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by)
+VALUES(:shared_mb,:actor_user,'full_access',:actor_user);
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,size_bytes,
+  thread_id,raw_ref,received_at,is_read)
+VALUES(898205,:shared_mb,get_tag_id('Inbox',:shared_mb),'<actions-1@mk.test>',
+  'Customer escalation','sender@example.test',100,'actions-thread-1','s3://actions-1',statement_timestamp(),false);
+
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.shared_mail_integrations'),false,
+  'shared mail integrations default OFF');
+UPDATE feature_toggles SET enabled=true WHERE key IN
+  ('feature.shared_mail_work','feature.shared_mail_integrations','feature.chat','feature.drive');
+SELECT mail_work_set(:shared_mb,:actor_user,'actions-thread-1',gen_random_uuid(),'claim',0,
+  NULL,NULL,NULL,'claiming',repeat('a',64)) AS claimed \gset
+SELECT is(:'claimed'::jsonb->>'generation','1','work authority exists before an internal action');
+
+SELECT gen_random_uuid() AS task_op \gset
+SELECT mail_work_action_enqueue(:shared_mb,:actor_user,'actions-thread-1',:'task_op',1,
+  'task',NULL,repeat('b',64)) AS task_request \gset
+SELECT is(:'task_request'::jsonb->>'generation','2','task request advances work generation');
+SELECT is((SELECT consumer_kind FROM mail_work_outbox
+  WHERE id=(:'task_request'::jsonb->>'outboxId')::bigint),'task','task request creates one typed outbox item');
+SELECT is(jsonb_array_length(mail_work_outbox_claim(ARRAY['task'],10)),1,
+  'task worker claims exactly one action');
+SELECT mail_work_outbox_dispatch_internal((:'task_request'::jsonb->>'outboxId')::bigint) AS task_receipt \gset
+SELECT is(:'task_receipt'::jsonb->>'outcome','completed','task action returns a durable completion receipt');
+SELECT is((SELECT count(*) FROM tasks WHERE mailbox_id=:actor_mb AND title='Customer escalation')::int,1,
+  'task is created in the actor personal mailbox');
+SELECT is((SELECT description FROM tasks WHERE id=(:'task_receipt'::jsonb->>'resultId')::bigint),
+  'Setjoin shared mailbox '||:shared_mb||' thread actions-thread-1',
+  'task contains only the bounded internal locator');
+SELECT is((mail_work_outbox_dispatch_internal((:'task_request'::jsonb->>'outboxId')::bigint)->>'replayed')::boolean,true,
+  'response-loss replay returns the same task receipt');
+SELECT is((SELECT count(*) FROM tasks WHERE mailbox_id=:actor_mb AND title='Customer escalation')::int,1,
+  'task replay cannot duplicate the external effect');
+SELECT is((mail_work_action_enqueue(:shared_mb,:actor_user,'actions-thread-1',:'task_op',1,
+  'task',NULL,repeat('b',64))->>'replayed')::boolean,true,'request replay returns the admission receipt');
+
+SELECT chat_channel_create(:actor_user,'Work escalations') AS chat_id \gset
+SELECT gen_random_uuid() AS chat_op \gset
+SELECT mail_work_action_enqueue(:shared_mb,:actor_user,'actions-thread-1',:'chat_op',3,
+  'chat',:chat_id,repeat('c',64)) AS chat_request \gset
+SELECT is(jsonb_array_length(mail_work_outbox_claim(ARRAY['chat'],10)),1,'chat worker claims one action');
+SELECT mail_work_outbox_dispatch_internal((:'chat_request'::jsonb->>'outboxId')::bigint) AS chat_receipt \gset
+SELECT is((SELECT count(*) FROM chat_messages WHERE id=(:'chat_receipt'::jsonb->>'resultId')::bigint)::int,1,
+  'chat action posts exactly one message');
+SELECT is((SELECT body FROM chat_messages WHERE id=(:'chat_receipt'::jsonb->>'resultId')::bigint),
+  'Shared mailbox work: /inbox?accountId='||:shared_mb||'&threadId=actions-thread-1',
+  'chat receives only a safe internal locator');
+SELECT ok(NOT EXISTS(SELECT 1 FROM chat_messages
+  WHERE id=(:'chat_receipt'::jsonb->>'resultId')::bigint AND body LIKE '%sender@example.test%'),
+  'chat action does not copy sender or message content');
+
+SELECT drive_space_create(:actor_user,'Action targets','regular') AS actor_space \gset
+SELECT drive_node_create(:actor_user,:actor_space,NULL,'file','Case link') AS actor_node \gset
+SELECT gen_random_uuid() AS drive_op \gset
+SELECT mail_work_action_enqueue(:shared_mb,:actor_user,'actions-thread-1',:'drive_op',5,
+  'drive',:actor_node,repeat('d',64)) AS drive_request \gset
+SELECT is(jsonb_array_length(mail_work_outbox_claim(ARRAY['drive'],10)),1,'Drive worker claims one action');
+SELECT mail_work_outbox_dispatch_internal((:'drive_request'::jsonb->>'outboxId')::bigint) AS drive_receipt \gset
+SELECT is(:'drive_receipt'::jsonb->>'resultId',:actor_node::text,'Drive action records the authorized node identity');
+SELECT is((SELECT count(*) FROM mail_work_action_links WHERE mailbox_id=:shared_mb)::int,3,
+  'Task, Chat and Drive each leave one immutable association');
+
+SELECT drive_space_create(:other_user,'Hidden targets','regular') AS hidden_space \gset
+SELECT drive_node_create(:other_user,:hidden_space,NULL,'file','Hidden') AS hidden_node \gset
+SELECT throws_ok(format($q$SELECT mail_work_action_enqueue(%s,%s,'actions-thread-1',%L,7,'drive',%s,%L)$q$,
+  :shared_mb,:actor_user,gen_random_uuid(),:hidden_node,repeat('e',64)),
+  'BZ005',NULL,'an inaccessible Drive target fails closed before enqueue');
+SELECT ok((mail_work_retention_blockers(:shared_mb)) @> '[{"kind":"internal_action_links","count":3}]'::jsonb,
+  'retention blocks purge while internal action evidence exists');
+SELECT is((SELECT count(*) FROM mail_thread_work_events WHERE mailbox_id=:shared_mb
+  AND event_type IN ('action_requested','action_completed'))::int,6,
+  'three actions append exact request and completion events');
+
+SELECT set_config('app.current_user_id',:other_user::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::int FROM mail_work_action_links WHERE mailbox_id=:shared_mb),0,
+  'mail work action links hide another principal');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

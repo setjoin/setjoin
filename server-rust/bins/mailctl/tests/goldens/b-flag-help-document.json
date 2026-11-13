@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage:\n  -f string\n    \tPolicy document file (- for stdin)\nError: flag: help requested\n",
+  "exit": 1
+}

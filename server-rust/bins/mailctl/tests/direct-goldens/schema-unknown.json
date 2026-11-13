@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: unknown schema action: bogus. Try: check, apply\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,569 @@
+{
+  "case": "foreign-item",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "assignments": [
+            {
+              "granted_by": "<admin>",
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "granted_by": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "granted_by": "<admin>",
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            }
+          ],
+          "campaigns": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:00+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940001,
+              "name": "admin4-q1",
+              "status": "open"
+            },
+            {
+              "closed_at": "2026-10-01 12:30:00+00",
+              "closed_by": "<admin>",
+              "created_at": "2026-10-01 12:00:01.25+00",
+              "created_by": "<other>",
+              "domain_scope": "<target-domain>",
+              "id": 940002,
+              "name": "admin4-closed",
+              "status": "closed"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:02+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940003,
+              "name": "admin4-revokes",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:03+00",
+              "created_by": "<other>",
+              "domain_scope": "<other-domain>",
+              "id": 940004,
+              "name": "admin4-scoped",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:04+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940005,
+              "name": "admin4-orphan",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:05+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940006,
+              "name": "admin4-empty <&>",
+              "status": "open"
+            }
+          ],
+          "items": [
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950003,
+              "is_sso": false,
+              "live": true,
+              "note": "mine <&>",
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950002,
+              "is_sso": true,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950001,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940002,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950009,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": "2026-10-01 12:30:00+00",
+              "campaign": 940002,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950011,
+              "is_sso": false,
+              "live": false,
+              "note": "done",
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950008,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950007,
+              "is_sso": true,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950006,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940004,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950010,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940005,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950013,
+              "is_sso": true,
+              "live": false,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<orphan>"
+            }
+          ]
+        },
+        "before": {
+          "assignments": [
+            {
+              "granted_by": "<admin>",
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "granted_by": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "granted_by": "<admin>",
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            }
+          ],
+          "campaigns": [
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:00+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940001,
+              "name": "admin4-q1",
+              "status": "open"
+            },
+            {
+              "closed_at": "2026-10-01 12:30:00+00",
+              "closed_by": "<admin>",
+              "created_at": "2026-10-01 12:00:01.25+00",
+              "created_by": "<other>",
+              "domain_scope": "<target-domain>",
+              "id": 940002,
+              "name": "admin4-closed",
+              "status": "closed"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:02+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940003,
+              "name": "admin4-revokes",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:03+00",
+              "created_by": "<other>",
+              "domain_scope": "<other-domain>",
+              "id": 940004,
+              "name": "admin4-scoped",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:04+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940005,
+              "name": "admin4-orphan",
+              "status": "open"
+            },
+            {
+              "closed_at": null,
+              "closed_by": null,
+              "created_at": "2026-10-01 12:00:05+00",
+              "created_by": "<admin>",
+              "domain_scope": null,
+              "id": 940006,
+              "name": "admin4-empty <&>",
+              "status": "open"
+            }
+          ],
+          "items": [
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950003,
+              "is_sso": false,
+              "live": true,
+              "note": "mine <&>",
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950002,
+              "is_sso": true,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940001,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950001,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940002,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950009,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": "2026-10-01 12:30:00+00",
+              "campaign": 940002,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950011,
+              "is_sso": false,
+              "live": false,
+              "note": "done",
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "keep",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950008,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<admin-role>",
+              "user_id": "<admin>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950007,
+              "is_sso": true,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<sso>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940003,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950006,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940004,
+              "decided_at": "2026-10-01 12:10:00+00",
+              "decided_by": "<admin>",
+              "decision": "revoke",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": "<admin>",
+              "id": 950010,
+              "is_sso": false,
+              "live": true,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<target>"
+            },
+            {
+              "applied_at": null,
+              "campaign": 940005,
+              "decided_at": null,
+              "decided_by": null,
+              "decision": "undecided",
+              "domain_override": null,
+              "eligible": false,
+              "granted_at": "2026-10-01 10:00:00+00",
+              "granted_by": null,
+              "id": 950013,
+              "is_sso": true,
+              "live": false,
+              "note": null,
+              "role_group_id": "<reviewed-role>",
+              "user_id": "<orphan>"
+            }
+          ]
+        },
+        "table": "access_review_*"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"decision\":\"revoke\"}",
+      "external_path": "/api/admin/access-reviews/{id}/items/{itemId}",
+      "method": "PUT",
+      "path": "/admin/access-reviews/{id}/items/{itemId}"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz061\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"item out of scope\",\"instance\":\"/admin/access-reviews/940004/items/950010\",\"remediation\":\"Complete the required authorization, approval, or recovery step before retrying.\",\"code\":\"BZ061\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "301"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin4-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "PUT /admin/access-reviews/{id}/items/{itemId}"
+}

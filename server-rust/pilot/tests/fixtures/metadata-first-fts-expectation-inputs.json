@@ -1,0 +1,110 @@
+{
+  "schema": "setjoin.p0.metadata-first-fts-expectation-inputs/v1",
+  "status": "expected_recipes_only",
+  "run_id": "t03_metadata_20261027",
+  "source": {
+    "commit": "4399a2f5eacbfa50206bcbc84883f7b40a53bf6b",
+    "tree": "4bbaa6153513646a2bf9e7f3fb4aa7ef4e3aa0e0",
+    "fixture_json_sha256": "a398c4501f8fd49b5d3645c4321cd3a3fd59ace6d3ea83533952efd07583d934",
+    "fixture_contract_sha256": "ca21c4123b119b7ff82a8a14f8a23bdbf1f52d42e99974f90245b647f70950b6",
+    "mapping_sha256": "73434dafa967a815add90f1af13a495eff60db2bc2fb18cadf7cb5817a104acf",
+    "inventory_sha256": "557b1a3090e8a79bd595a4a3657295108bed2044cdd2891d954aabec4b790eda",
+    "v001_sha256": "a5cfe54ffeb452f51a14ac1d3d896a6ef9bb766f66cd0720051bd68d9b529a14",
+    "v029_sha256": "0b2538311ad766d0131a8eb947b3f73fed4437e7fc986111a017383e721fed46"
+  },
+  "setup": {
+    "app.skip_fts": "false",
+    "crypto_type": null,
+    "trigger": "public.messages messages_tsv_update BEFORE INSERT",
+    "function": "public.trg_messages_tsv() V029",
+    "text_search_config": "simple",
+    "representation": "PostgreSQL tsvector::text UTF-8 exact bytes",
+    "uid_branch": "accepted mapping requires V197 and pinned reducer UID allocator trigger installed and enabled"
+  },
+  "entries": [
+    {
+      "message": "root",
+      "field": "body_tsv",
+      "input_utf8": "T03 t03_metadata_20261027 root body",
+      "input_components": [
+        "body_text"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    },
+    {
+      "message": "root",
+      "field": "subject_tsv",
+      "input_utf8": "T03 t03_metadata_20261027",
+      "input_components": [
+        "subject"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    },
+    {
+      "message": "root",
+      "field": "from_tsv",
+      "input_utf8": "fixture-sender@fixture.test T03 Root Sender",
+      "input_components": [
+        "from_addr",
+        "U+0020",
+        "from_name"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    },
+    {
+      "message": "reply",
+      "field": "body_tsv",
+      "input_utf8": "T03 t03_metadata_20261027 reply body",
+      "input_components": [
+        "body_text"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    },
+    {
+      "message": "reply",
+      "field": "subject_tsv",
+      "input_utf8": "Re: T03 t03_metadata_20261027",
+      "input_components": [
+        "subject"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    },
+    {
+      "message": "reply",
+      "field": "from_tsv",
+      "input_utf8": "fixture-sender@fixture.test T03 Reply Sender",
+      "input_components": [
+        "from_addr",
+        "U+0020",
+        "from_name"
+      ],
+      "recipe": "to_tsvector('simple', input_utf8)",
+      "expected_representation": "tsvector::text encoded UTF-8, exact bytes",
+      "golden_output_status": "NOT_GENERATED_NOT_VERIFIED",
+      "golden_output": null
+    }
+  ],
+  "golden_generation_prerequisites": [
+    "exact PostgreSQL build identity",
+    "resolved simple configuration, parser and dictionary identities",
+    "database encoding and locale",
+    "effective session and relevant text-search settings",
+    "pinned schema, trigger and function identity"
+  ],
+  "runtime_executed": false
+}

@@ -1,0 +1,176 @@
+{
+  "case": "foreign",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "aliases": [
+            {
+              "domain": "<target-domain>",
+              "email": "admin1-alt@host-t.test",
+              "mailbox": "<target-mailbox>",
+              "primary": false
+            }
+          ],
+          "entitlements": [
+            {
+              "app": "chat",
+              "by": "<target>",
+              "enabled": false,
+              "user": "<target>"
+            }
+          ],
+          "passwords": [
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "<target>"
+            },
+            {
+              "name": "phone",
+              "revoked": true,
+              "user": "<target>"
+            },
+            {
+              "name": "watch",
+              "revoked": false,
+              "user": "<target>"
+            }
+          ],
+          "quota": [
+            {
+              "email": 0,
+              "mailbox": "<admin-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<other-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<target-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            }
+          ]
+        },
+        "before": {
+          "aliases": [
+            {
+              "domain": "<target-domain>",
+              "email": "admin1-alt@host-t.test",
+              "mailbox": "<target-mailbox>",
+              "primary": false
+            }
+          ],
+          "entitlements": [
+            {
+              "app": "chat",
+              "by": "<target>",
+              "enabled": false,
+              "user": "<target>"
+            }
+          ],
+          "passwords": [
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "<target>"
+            },
+            {
+              "name": "phone",
+              "revoked": true,
+              "user": "<target>"
+            },
+            {
+              "name": "watch",
+              "revoked": false,
+              "user": "<target>"
+            }
+          ],
+          "quota": [
+            {
+              "email": 0,
+              "mailbox": "<admin-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<other-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            },
+            {
+              "email": 0,
+              "mailbox": "<target-mailbox>",
+              "quota_bytes": 53687091200,
+              "sending_quota_day": 500,
+              "tags": 0
+            }
+          ]
+        },
+        "table": "users"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/users",
+      "method": "GET",
+      "path": "/admin/users",
+      "query": "q=admin1-"
+    },
+    "response": {
+      "body": "[{\"id\":\"other\",\"email\":\"admin1-other@host-b.test\",\"displayName\":\"admin1-other\",\"enabled\":true,\"isLocalAdmin\":false,\"createdAt\":\"2026-10-01T12:00:01.5Z\",\"mailboxId\":\"other-mailbox\",\"manageable\":true,\"isSelf\":false}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "215"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/users"
+}

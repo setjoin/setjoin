@@ -1,0 +1,38 @@
+BEGIN;
+SELECT plan(14);
+INSERT INTO domains(name,is_local) VALUES('idmfa2.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa2-a','a@idmfa2.test','a',:dom,'x') RETURNING id AS actor \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa2-b','b@idmfa2.test','b',:dom,'x') RETURNING id AS foreign_user \gset
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at)
+VALUES('proof',:actor,'sid','webauthn.register','password',0,'session',now()+interval '5 minutes');
+SELECT is(rust_identity_webauthn_begin(:foreign_user,'{"jti":"sid"}','proof','foreign','\x22')->>'status','reauth','foreign actor cannot use or burn the proof');
+SELECT ok(EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=:actor AND token_hash='proof'),'foreign refusal preserves original proof');
+SELECT is(rust_identity_webauthn_begin(:actor,'{"jti":"sid"}','proof','challenge','\x010203')->>'status','created','owned proof binds a ceremony');
+SELECT is(rust_identity_webauthn_begin(:actor,'{"jti":"sid"}','proof','replacement','\x030201')->>'status','bound','repeat does not replace the ceremony or handle');
+SELECT is((SELECT encode(webauthn_user_handle,'hex') FROM users WHERE id=:actor),'010203','stable handle preserved on resume');
+SELECT is(rust_identity_webauthn_finish(:actor,'{"jti":"sid"}','proof','challenge','\x1101','\xa0','none',7,true,'127.0.0.1')->>'status','registered','verified credential commits');
+SELECT ok((SELECT factor_generation=1 FROM users WHERE id=:actor)
+    AND EXISTS(SELECT 1 FROM passkey_credentials WHERE user_id=:actor AND id='\x1101')
+    AND NOT EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=:actor)
+    AND NOT EXISTS(SELECT 1 FROM webauthn_ceremonies WHERE user_id=:actor)
+    AND EXISTS(SELECT 1 FROM admin_audit_log WHERE user_id=:actor AND action='passkey_registered'),
+    'credential, single generation, proof consumption and audit commit together');
+SELECT is(rust_identity_webauthn_finish(:actor,'{"jti":"sid"}','proof','challenge','\x1101','\xa0','none',7,true,'127.0.0.1')->>'status','reauth_ceremony','replayed ceremony cannot register again');
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,target_ref,proof_method,proving_factor_id,bound_factor_generation,token_scope,expires_at)
+VALUES('revoke',:actor,'sid','webauthn.revoke','EQE','webauthn_uv','\x1101',1,'session',now()+interval '5 minutes');
+SELECT is(rust_identity_webauthn_revoke(:foreign_user,'{"jti":"sid"}','revoke','EQE','\x1101','127.0.0.1')->>'status','reauth_gate','foreign revoke has no authority');
+SELECT ok(EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=:actor AND token_hash='revoke'),'foreign revoke cannot burn actor proof');
+SELECT is(rust_identity_webauthn_revoke(:actor,'{"jti":"sid"}','revoke','EQE','\x1101','127.0.0.1')->>'status','revoked_credential','owned target-bound proof revokes');
+SELECT ok((SELECT factor_generation=2 FROM users WHERE id=:actor)
+    AND EXISTS(SELECT 1 FROM passkey_credentials WHERE user_id=:actor AND id='\x1101' AND revoked_at IS NOT NULL)
+    AND NOT EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=:actor)
+    AND EXISTS(SELECT 1 FROM admin_audit_log WHERE user_id=:actor AND action='passkey_revoked'),
+    'revocation, generation, proof deletion and audit commit together');
+SELECT is(rust_identity_webauthn_revoke(:actor,'{"jti":"sid"}','revoke','EQE','\x1101','127.0.0.1')->>'status','reauth_gate','revocation proof cannot replay');
+SELECT ok((SELECT factor_generation=2 FROM users WHERE id=:actor)
+    AND (SELECT count(*)=1 FROM admin_audit_log WHERE user_id=:actor AND action='passkey_revoked'),
+    'repeat cannot advance generation or duplicate audit');
+SELECT * FROM finish();
+ROLLBACK;

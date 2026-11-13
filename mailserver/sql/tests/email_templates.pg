@@ -1,0 +1,69 @@
+-- pgTAP: email_templates.sql — compose templates / Quick Parts (named per-mailbox
+-- reusable body snippets). Mirrors saved_searches.pg: create → list → verbatim
+-- body_html → upsert-by-name → validate empty name (BZ040) → delete → ownership
+-- (divergent-id mk_account so a foreign mailbox can neither list nor delete
+-- another's template).
+BEGIN;
+SELECT plan(10);
+
+-- ── Fixtures: two divergent-id accounts (user_id != mailbox_id via mk_account) ──
+CREATE TEMP TABLE _mb AS SELECT mk_account('eta') AS a, mk_account('etb') AS b;
+
+-- ── list empty initially ──
+SELECT is(jsonb_array_length(email_template_list((SELECT a FROM _mb))), 0, 'no templates yet');
+
+-- ── create a template; body_html is returned verbatim (webmail sanitizes later) ──
+SELECT is(
+  email_template_set((SELECT a FROM _mb), 'Signoff', 'Re: your request',
+    '<p>Thanks,<br><b>Alex</b></p>')->>'bodyHtml',
+  '<p>Thanks,<br><b>Alex</b></p>',
+  'set returns the body_html verbatim');
+
+SELECT is(jsonb_array_length(email_template_list((SELECT a FROM _mb))), 1, 'one template listed');
+
+-- list row carries id/name/subject/bodyHtml
+SELECT ok(
+  EXISTS (SELECT 1 FROM jsonb_array_elements(email_template_list((SELECT a FROM _mb))) e
+          WHERE e->>'name' = 'Signoff' AND e->>'subject' = 'Re: your request'
+            AND e->>'bodyHtml' = '<p>Thanks,<br><b>Alex</b></p>' AND e ? 'id'),
+  'list row has id/name/subject/bodyHtml');
+
+-- ── upsert-by-name: re-saving the same name replaces body/subject, no new row ──
+SELECT lives_ok($$
+  SELECT email_template_set((SELECT a FROM _mb), 'Signoff', 'Updated subject', '<p>Cheers</p>')
+$$, 'upsert existing template by name');
+SELECT ok(
+  jsonb_array_length(email_template_list((SELECT a FROM _mb))) = 1
+  AND EXISTS (SELECT 1 FROM jsonb_array_elements(email_template_list((SELECT a FROM _mb))) e
+              WHERE e->>'name' = 'Signoff' AND e->>'bodyHtml' = '<p>Cheers</p>'),
+  'upsert replaced body in place (still one row)');
+
+-- ── empty / blank name is rejected (BZ040 invalidArguments) ──
+SELECT throws_ok($$ SELECT email_template_set((SELECT a FROM _mb), '', '<p>x</p>', 's') $$,
+  'BZ040', NULL, 'reject empty name');
+SELECT throws_ok($$ SELECT email_template_set((SELECT a FROM _mb), '   ', 's', '<p>x</p>') $$,
+  'BZ040', NULL, 'reject blank name');
+
+-- ── delete removes it (ownership in the WHERE) ──
+SELECT is(
+  (SELECT email_template_delete((SELECT a FROM _mb),
+     (SELECT id FROM email_templates WHERE mailbox_id = (SELECT a FROM _mb) AND name = 'Signoff'))
+   )->>'deleted',
+  'true',
+  'delete reports the row removed');
+
+-- ── ownership: mailbox B can neither see nor delete mailbox A's template ──
+-- Re-seed A (as its own statement — AND-operand order is unspecified, so a
+-- side-effecting set must not live inside the boolean), then B's list is empty
+-- and B's delete of A's id is a no-op while A keeps the row — R1 (list) + R3
+-- (delete) both scope by mailbox.
+SELECT email_template_set((SELECT a FROM _mb), 'Keep', 's', '<p>keep</p>');
+SELECT ok(
+  jsonb_array_length(email_template_list((SELECT b FROM _mb))) = 0
+  AND (email_template_delete((SELECT b FROM _mb),
+        (SELECT id FROM email_templates WHERE mailbox_id = (SELECT a FROM _mb) LIMIT 1))->>'deleted') = 'false'
+  AND EXISTS (SELECT 1 FROM email_templates WHERE mailbox_id = (SELECT a FROM _mb)),
+  'foreign mailbox cannot list or delete another mailbox''s template (R1/R3)');
+
+SELECT * FROM finish();
+ROLLBACK;

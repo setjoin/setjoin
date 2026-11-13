@@ -1,0 +1,23 @@
+[
+  {
+    "key": "01010101010101010101010101010101",
+    "nonce": "000000000000000000000000",
+    "plaintext": "68656c6c6f20736d34",
+    "aad": "",
+    "ciphertext_tag": "e31c18f9d8e02999e111b8e11851e90d4b640b136723fc3307"
+  },
+  {
+    "key": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+    "nonce": "111111111111111111111111",
+    "plaintext": "",
+    "aad": "6161642d6279746573",
+    "ciphertext_tag": "92a36dd1cf12e8cc1febbbe289c864b2"
+  },
+  {
+    "key": "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+    "nonce": "abababababababababababab",
+    "plaintext": "e59bbde5af8620534d342061742d72657374",
+    "aad": "686472",
+    "ciphertext_tag": "0a8a679abd171cc1c1d6fbedc2d7b1ed7ab4b2d61141c3d9c947970ac53fec335d7d"
+  }
+]

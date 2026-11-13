@@ -1,0 +1,154 @@
+-- meet_semantic_recording_rls.pg — MEET plan M4 slice 1: the V266 semantic
+-- recording tables' FORCE-RLS proof (the meet_presentation_rls.pg genre,
+-- participant-scoped). Two orthogonal arms, both driven as the constrained
+-- non-owner runtime role setjoin_app with a SECOND tenant's rows present:
+--   · DENIAL — a foreign meeting's participant (and a GUC-less session)
+--     sees no semantic recording/segment/child/export rows; their UPDATE
+--     no-ops; their INSERT 42501s; the package read is the indistinguishable
+--     BZ278 not-found.
+--   · ALLOW — the meeting's own host drives the REAL reducer write path
+--     (meeting_semantic_recording_start + the worker-plane segment ingest)
+--     as setjoin_app under FORCE: the legitimate writers are never locked
+--     out (the V125/V134 flip-blocker class, arch review #A4).
+-- COVERED entries: scripts/rls-denial-allowlist.txt + rls-allow-allowlist.txt.
+BEGIN;
+SELECT plan(20);
+
+-- ── Fixtures as superuser: two disjoint meetings (two tenants). ──
+INSERT INTO domains (name, is_local) VALUES ('sem-rls.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id, 'sem-rls-' || id::text,
+       (SELECT id FROM domains WHERE name = 'sem-rls.test'),
+       'sem-rls-' || id::text || '@sem-rls.test', 'Sem RLS ' || id::text, 'x'
+  FROM generate_series(85, 88) AS ids(id)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('sem-a', 85, 'live')
+  RETURNING id AS ma \gset
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('sem-b', 87, 'live')
+  RETURNING id AS mb \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:ma, 85, 'u:85', 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:mb, 87, 'u:87', 'host', now());
+
+-- Tenant A's semantic package + one verified segment, seeded directly.
+INSERT INTO meeting_semantic_recordings
+  (meeting_id, capture_mode, rec_state, package_state, profile_class, started_by, stopped_at)
+VALUES (:ma, 'server_audio', 'stopped', 'ACTIVE', 'evidence_pending', 85, now())
+RETURNING id AS ra \gset
+INSERT INTO meeting_semantic_segments
+  (recording_id, seq, state, ack_state, content_sha256, byte_size,
+   mime_type, codec, container, start_ms, end_ms, wall_start_unix_ms, wall_end_unix_ms)
+VALUES (:ra, 1, 'verified', 'acknowledged', repeat('ab', 32), 100,
+        'audio/webm', 'opus', 'webm', 0, 1000, 1, 2);
+INSERT INTO meeting_semantic_children (recording_id, child, child_state, required)
+VALUES (:ra, 'manifest.json', 'retained', true);
+INSERT INTO meeting_semantic_exports (recording_id, generation, state, error)
+VALUES (:ra, 1, 'failed', 'exportCompositionFailed');
+
+-- Tenant B seeds its own package (the cross-tenant presence the denial
+-- arms require to be meaningful).
+INSERT INTO meeting_semantic_recordings
+  (meeting_id, capture_mode, rec_state, package_state, profile_class, started_by)
+VALUES (:mb, 'server_audio', 'active', 'ACTIVE', 'evidence_pending', 87)
+RETURNING id AS rb \gset
+
+-- FORCE state, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_semantic_recordings'::regclass),
+  TRUE, 'meeting_semantic_recordings RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_semantic_segments'::regclass),
+  TRUE, 'meeting_semantic_segments RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_semantic_children'::regclass),
+  TRUE, 'meeting_semantic_children RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_semantic_exports'::regclass),
+  TRUE, 'meeting_semantic_exports RLS FORCED');
+
+GRANT SELECT, INSERT, UPDATE ON public.meeting_semantic_recordings,
+  public.meeting_semantic_segments, public.meeting_semantic_children,
+  public.meeting_semantic_exports TO setjoin_app;
+GRANT SELECT, UPDATE ON public.meetings, public.meeting_participants TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_semantic_recording_start(bigint, bigint, text, jsonb)
+  TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_semantic_segment_ingest(
+  bigint, integer, text, text, bigint, text, text, text, bigint, bigint, bigint, bigint, text)
+  TO setjoin_app;
+GRANT EXECUTE ON FUNCTION meeting_semantic_package_read(bigint, bigint, bigint)
+  TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- DENIAL: load-bearing first — the policies MUST NOT recurse (the
+-- ARCH-018 scope-helper dodge; the child/segment/export policies nest the
+-- recordings lookup one hop deep).
+SELECT set_config('app.current_user_id', '85', true);
+SELECT lives_ok($$ SELECT count(*) FROM meeting_semantic_recordings $$,
+  'participant policy does not recurse');
+
+-- Positive control: tenant A's host sees exactly their own rows.
+SELECT is((SELECT count(*)::int FROM meeting_semantic_recordings), 1,
+  'tenant A sees exactly their own recording');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_segments), 1,
+  'tenant A sees exactly their own segment');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_children), 1,
+  'tenant A sees exactly their own child');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_exports), 1,
+  'tenant A sees exactly their own export');
+
+-- DENIAL: tenant B's host sees none of tenant A's rows.
+SELECT set_config('app.current_user_id', '87', true);
+SELECT is((SELECT count(*)::int FROM meeting_semantic_recordings WHERE meeting_id = :ma), 0,
+  'a foreign participant sees no semantic recording rows (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_segments WHERE recording_id = :ra), 0,
+  'a foreign participant sees no segment rows (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_children WHERE recording_id = :ra), 0,
+  'a foreign participant sees no child rows (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM meeting_semantic_exports WHERE recording_id = :ra), 0,
+  'a foreign participant sees no export rows (cross-tenant denial)');
+
+-- A foreign UPDATE no-ops (same-statement ownership posture, R3).
+UPDATE meeting_semantic_recordings SET package_state = 'DELETED'
+ WHERE meeting_id = :ma;
+SELECT set_config('app.current_user_id', '85', true);
+SELECT is((SELECT package_state FROM meeting_semantic_recordings WHERE id = :ra), 'ACTIVE',
+  'a foreign participant''s UPDATE no-ops (tenant A row untouched)');
+SELECT set_config('app.current_user_id', '87', true);
+
+-- A foreign INSERT 42501s (WITH CHECK denies the not-a-participant arm).
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_semantic_recordings
+              (meeting_id, capture_mode, rec_state, package_state, profile_class, started_by)
+            VALUES (%s, 'server_audio', 'active', 'ACTIVE', 'evidence_pending', 87) $$, :ma),
+  '42501', NULL, 'a foreign participant''s INSERT is denied (WITH CHECK)');
+
+-- The package read is the indistinguishable not-found for a non-attendee.
+SELECT throws_ok(
+  format($$ SELECT meeting_semantic_package_read(87, %s, %s) $$, :ma, :ra),
+  'BZ278', NULL, 'a non-attendee package read is the anti-oracle not-found');
+
+-- Fail-closed: no GUC at all.
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM meeting_semantic_recordings), 0,
+  'no GUC is fail-closed (no rows)');
+
+SELECT set_config('app.current_user_id', '85', true);
+
+-- ALLOW: the meeting's OWN host drives the REAL reducer paths as
+-- setjoin_app under FORCE — a start INSERT (the package row + seeded
+-- children), and the SECURITY DEFINER segment ingest (worker plane) that
+-- inserts a segment row as the function owner.
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_recording_start(85, %s, 'server_audio', NULL) $$, :ma),
+  'the host starts a semantic recording through the real reducer as setjoin_app (ALLOW)');
+SELECT is((SELECT rec_state FROM meeting_semantic_recordings WHERE meeting_id = :ma
+            AND rec_state = 'active'), 'active',
+  'the host''s own started row is visible back under their GUC');
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(
+              (SELECT id FROM meeting_semantic_recordings WHERE meeting_id = %s AND rec_state = 'active'),
+              7, 'capturing', NULL, NULL, '', '', '', 0, 10, 0, 20, NULL) $$, :ma),
+  'the worker-plane segment ingest commits under FORCE (ALLOW)');
+
+SELECT * FROM finish();
+ROLLBACK;

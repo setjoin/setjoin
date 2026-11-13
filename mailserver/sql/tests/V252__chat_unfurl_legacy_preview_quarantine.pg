@@ -1,0 +1,148 @@
+-- pgTAP: V252__chat_unfurl_legacy_preview_quarantine.pg — med-chat-unfurl-
+-- href-001 (r4 QUARANTINE arm). The forward migration strips payload.preview
+-- from EVERY chat_messages row that exists at migration time, marker-bearing
+-- or not: the appliedBy stamp's only writer, chat_message_unfurl_apply, is
+-- installed by this same delta and migrations run at startup before the new
+-- code serves traffic, so any at-migration row — a public-constant marker
+-- included — predates the legitimate writer and is unprovenanced attacker-
+-- controllable JSON (the old send path stored arbitrary payloads verbatim,
+-- so the constant could ride inside one).
+--
+-- The migration statement itself already ran at schema-load, BEFORE any fixture
+-- rows can exist (a data sweep cannot be observed acting on post-load rows) —
+-- so this test re-executes the migration's byte-identical UPDATE against a
+-- seeded at-migration population and proves its semantics end-to-end, the same
+-- prove-the-installed-statement posture V240 uses for its installed function.
+-- The reducer chain then runs AFTER the sweep — the production ordering, since
+-- the new code only serves traffic once migrations have applied — and its row
+-- is the trusted population: the only writer there is. The ledger assertion
+-- below pins that the migration actually applied.
+--
+-- Requires: V119 chat core, V126 compliance triggers, chat_unfurl.sql
+-- (the live reducer chain writes the post-migration fixture).
+BEGIN;
+SELECT plan(13);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 252),
+          1, 'schema_migrations records version 252');
+
+-- ── Fixture: the at-migration population, direct-INSERTed the way the PRE-r2
+--    send path actually stored it (post-r2 chat_message_send strips sender-
+--    supplied previews, so these rows can only be recreated directly) ────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'v252-quarantine', 931)
+  RETURNING id AS v252_ch \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:v252_ch, 931, 'owner');
+INSERT INTO chat_channels (kind, name, created_by, classification, retention_days, worm_mode)
+  VALUES ('channel', 'v252-gxp', 931, 'gxp', 30, 'governance')
+  RETURNING id AS v252_gxp_ch \gset
+
+-- Forged HTTPS card, no appliedBy — the classic attack row.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1001, 931, 'forged legacy card',
+   '{"preview":{"url":"https://evil.example/phish","title":"Forged title","description":"Forged description","imageSha256":null}}')
+  RETURNING id AS legacy_forged \gset
+-- The r3 HOLD finding: a legacy row that ALREADY carries the public marker.
+-- The old send path stored attacker payloads verbatim, so the constant could
+-- ride inside one — and at migration time the marker's only writer does not
+-- exist yet (migrations run before the new code serves traffic), so this row
+-- predates the legitimate writer and must be quarantined like the rest.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1002, 931, 'marker-bearing legacy card',
+   '{"preview":{"url":"https://evil.example/marker","title":"Forged title","description":"Forged description","imageSha256":null,"appliedBy":"chat_message_unfurl_apply"}}')
+  RETURNING id AS legacy_marked \gset
+-- Wrong appliedBy value: not THE marker, and no legitimate writer exists yet ⇒ stripped.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1003, 931, 'wrong marker',
+   '{"preview":{"url":"https://example.com","title":"t","description":null,"imageSha256":null,"appliedBy":"sender"}}')
+  RETURNING id AS legacy_wrong \gset
+-- Non-object preview (arbitrary stored shape): also the at-migration population.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1004, 931, 'non-object preview',
+   '{"preview":"https://evil.example/phish"}')
+  RETURNING id AS legacy_scalar \gset
+-- Preview WITH a sibling structured payload: only the preview key may go.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1005, 931, 'preview plus sibling',
+   '{"preview":{"url":"https://evil.example/x","title":"F","description":null,"imageSha256":null},"poll":{"question":"keep me"}}')
+  RETURNING id AS legacy_sibling \gset
+-- A plain message: no payload, must not be touched at all.
+INSERT INTO chat_messages (channel_id, seq, author_id, body)
+  VALUES (:v252_ch, 1006, 931, 'plain message')
+  RETURNING id AS plain_row \gset
+-- Preview-only payload: stripping must leave the empty object (the same shape
+-- chat_message_send's own strip leaves, per the chat_unfurl.pg precedent).
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_ch, 1007, 931, 'preview only',
+   '{"preview":{"url":"https://evil.example/y","title":"F","description":null,"imageSha256":null}}')
+  RETURNING id AS preview_only \gset
+-- A legacy forged card inside gxp retention: the payload-only WORM exemption
+-- (V126 §D) must let the sweep reach it.
+INSERT INTO chat_messages (channel_id, seq, author_id, body, payload) VALUES
+  (:v252_gxp_ch, 1001, 931, 'gxp legacy card',
+   '{"preview":{"url":"https://evil.example/g","title":"F","description":null,"imageSha256":null}}')
+  RETURNING id AS gxp_legacy \gset
+
+-- ── The sweep: V252's UPDATE, byte-identical ─────────────────────────────────
+UPDATE public.chat_messages
+   SET payload = payload - 'preview'
+ WHERE payload ? 'preview';
+
+-- ── At-migration rows stripped ───────────────────────────────────────────────
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :legacy_forged),
+          false,
+          'a legacy forged HTTPS preview lacking the marker is stripped');
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :legacy_marked),
+          false,
+          'a legacy row ALREADY carrying the public marker is stripped too — at migration time no legitimate marker writer exists yet, so the marker proves nothing');
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :legacy_wrong),
+          false,
+          'a preview carrying a wrong appliedBy value is stripped (the entire at-migration population is unprovenanced)');
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :legacy_scalar),
+          false,
+          'a non-object legacy preview is stripped');
+SELECT is((SELECT payload -> 'poll' ->> 'question' FROM chat_messages WHERE id = :legacy_sibling),
+          'keep me',
+          'the sweep removes ONLY the preview key — sibling structured payload survives');
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :legacy_sibling),
+          false,
+          'the legacy preview beside a surviving sibling key is stripped');
+
+-- ── Untouched rows stay untouched ────────────────────────────────────────────
+SELECT is((SELECT payload FROM chat_messages WHERE id = :plain_row),
+          NULL,
+          'a message with no payload is not updated');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :preview_only),
+          '{}'::jsonb,
+          'stripping the only payload key leaves the empty object (send-strip precedent)');
+
+-- ── WORM interaction ─────────────────────────────────────────────────────────
+SELECT is((SELECT payload ? 'preview' FROM chat_messages WHERE id = :gxp_legacy),
+          false,
+          'the sweep strips a legacy preview inside gxp retention (payload-only WORM exemption, body retained)');
+
+SELECT is((SELECT body FROM chat_messages WHERE id = :gxp_legacy),
+          'gxp legacy card',
+          'the gxp row''s retained body is untouched — the sweep never touches the record body');
+
+-- ── Post-migration traffic: the trusted population ───────────────────────────
+-- Production ordering: the sweep ran at startup before the new code served
+-- traffic, so no reducer-written preview ever coexists with it; every trusted
+-- preview is written AFTER it, by the live chain. Model that here — the reducer
+-- chain runs after the sweep and its row keeps its preview.
+SELECT chat_message_send(931, :v252_ch, 'reducer-written card') AS mk_json \gset
+SELECT (:'mk_json'::jsonb ->> 'messageId')::bigint AS marker_row \gset
+SELECT chat_link_preview_claim('urlhash-v252', 'https://example.com/v252');
+SELECT chat_link_preview_cache_write('urlhash-v252', 'Authoritative title', 'Authoritative description', NULL, 'ok');
+SELECT chat_message_unfurl_apply(:marker_row, 'urlhash-v252');
+SELECT is((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :marker_row),
+          'Authoritative title',
+          'a preview written by the reducer chain AFTER the migration — the only writer there is — keeps its card');
+SELECT is((SELECT payload -> 'preview' ->> 'appliedBy' FROM chat_messages WHERE id = :marker_row),
+          'chat_message_unfurl_apply',
+          'the surviving preview carries the provenance marker the reducer stamps');
+
+SELECT * FROM finish();
+ROLLBACK;

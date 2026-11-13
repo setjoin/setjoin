@@ -1,0 +1,25 @@
+-- pgTAP: V233__mail_export_permission.pg — dedicated mail.export catalog row
+BEGIN;
+SELECT plan(3);
+
+-- The permission is seeded, marked sensitive, and filed under Mail.
+SELECT is(
+  (SELECT category FROM admin_permissions WHERE permission_key = 'mail.export'),
+  'Mail',
+  'mail.export seeded with Mail category');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'mail.export'),
+  true,
+  'mail.export is marked sensitive');
+
+-- DELIBERATELY no role backfill (V020 precedent is explicitly NOT followed):
+-- no built-in role group may gain mail.export automatically — grant is an
+-- explicit admin decision after migration.
+SELECT is(
+  (SELECT count(*)::int FROM admin_role_groups WHERE 'mail.export' = ANY (permissions)),
+  0,
+  'no role group auto-granted mail.export');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,111 @@
+-- pgTAP: admin_protection_triggers.pg
+--
+-- 6 tests covering the two last-Super-Admin trigger backstops:
+--
+--   (a) delete a non-last SA's role assignment → OK (lives_ok)
+--   (b) delete the last SA's role assignment → BZ064
+--   (c) delete the last-SA USER (whole row) → BZ064 via FK cascade
+--       NOTE: the surviving SA's role is granted_by a THIRD user (95203) so
+--       the cascade-delete of 95201 does not hit an RI error on granted_by
+--       (granted_by has NO ON DELETE CASCADE — a dangling ref would error
+--       before the trigger fires). Seed 95203 as granter of 95202's role.
+--   (d) disable the last SA → BZ064
+--   (e) a DISABLED second SA does NOT count — deleting the lone enabled SA's
+--       role still raises BZ064
+--   (f) col_is_unique on admin_role_assignments (user_id, role_group_id)
+--
+-- Seed ids: 952xx (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(6);
+
+-- ── Seed ──────────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95201, 'trg-prot.test', TRUE);
+
+-- 95201 = primary Super Admin (enabled)
+-- 95202 = second Super Admin (enabled)  — used for test (a), then removed
+-- 95203 = granter user (non-admin, enabled) — grants 95202's role-1 assignment
+--         so that deleting 95201 (test c) does NOT violate the granted_by FK
+-- 95204 = disabled Super Admin — exists to prove disabled SAs do NOT count (e)
+INSERT INTO public.users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95201, 'trg_sa1',     95201, 'sa1@trg-prot.test',     'SA1',     TRUE),
+  (95202, 'trg_sa2',     95201, 'sa2@trg-prot.test',     'SA2',     TRUE),
+  (95203, 'trg_granter', 95201, 'granter@trg-prot.test', 'Granter', TRUE),
+  (95204, 'trg_disabl',  95201, 'disabl@trg-prot.test',  'Dis',     FALSE);
+
+-- 95201 → role 1 (Super Admin), granted_by 95203 (the granter)
+--         CRITICAL: ALL assignments that reference 95201 as granted_by must be
+--         changed to 95203 before test (c) deletes 95201. The granted_by FK has
+--         NO ON DELETE CASCADE, so any surviving row with granted_by = 95201
+--         raises an RI error BEFORE the cascade trigger fires.
+-- 95202 → role 1 (Super Admin), granted_by 95203
+-- 95204 → role 1 (disabled Super Admin), granted_by 95203
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by) VALUES
+  (95201, 1, 95203),
+  (95202, 1, 95203),
+  (95204, 1, 95203);
+
+-- ── (a) Delete a non-last SA's role assignment → OK ─────────────────────────
+-- At this point: 95201 + 95202 are enabled active SAs; 95204 is disabled.
+-- Deleting 95202's role leaves 95201 → v_remaining = 1 → ALLOW.
+SELECT lives_ok(
+    $$ DELETE FROM public.admin_role_assignments
+        WHERE user_id = 95202 AND role_group_id = 1 $$,
+    '(a) delete a non-last SA role assignment is allowed');
+
+-- ── (b) Delete the last SA's role assignment → BZ064 ───────────────────────
+-- After (a): only 95201 is the enabled active SA. 95204 is disabled (doesn't count).
+-- Deleting 95201's role → v_remaining = 0 → BZ064.
+SELECT throws_ok(
+    $$ DELETE FROM public.admin_role_assignments
+        WHERE user_id = 95201 AND role_group_id = 1 $$,
+    'BZ064', NULL,
+    '(b) deleting the last SA role raises BZ064');
+
+-- Re-grant 95202's role (95201's assignment still present — test b rolled back
+-- inside throws_ok; we are in the outer txn so both assignments restored).
+-- Re-insert 95202 assignment (it was deleted in test a — which ran lives_ok,
+-- so the delete committed into the savepoint). Re-add it for tests (c)+(d).
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95202, 1, 95203);
+
+-- ── (c) Delete the last-SA USER (whole row) → BZ064 via FK cascade ──────────
+-- We want to delete 95201 (the user) and confirm the FK cascade
+-- (admin_role_assignments.user_id → users.id ON DELETE CASCADE) fires the
+-- trigger which raises BZ064.
+-- Before doing this, remove 95202's assignment so 95201 is the LAST enabled SA.
+DELETE FROM public.admin_role_assignments WHERE user_id = 95202 AND role_group_id = 1;
+
+SELECT throws_ok(
+    $$ DELETE FROM public.users WHERE id = 95201 $$,
+    'BZ064', NULL,
+    '(c) deleting the last-SA user raises BZ064 via FK cascade');
+
+-- Confirm 95201 still exists (the DELETE was rolled back by the trigger).
+-- Also confirm no dangling granted_by: 95202's assignment (re-added above, then
+-- deleted before test c) does not reference 95201 as granted_by.
+
+-- ── (d) Disable the last SA → BZ064 ────────────────────────────────────────
+-- Current state: 95201 is the only enabled active SA (95202 assignment deleted,
+-- 95204 disabled). Disabling 95201 → v_remaining = 0 → BZ064.
+SELECT throws_ok(
+    $$ UPDATE public.users SET enabled = FALSE WHERE id = 95201 $$,
+    'BZ064', NULL,
+    '(d) disabling the last Super Admin raises BZ064');
+
+-- ── (e) Disabled second SA does NOT count → BZ064 ───────────────────────────
+-- 95204 holds role 1 but is DISABLED. Deleting 95201's role → count excludes
+-- disabled users → v_remaining = 0 → BZ064 (disabled SA doesn't count).
+SELECT throws_ok(
+    $$ DELETE FROM public.admin_role_assignments
+        WHERE user_id = 95201 AND role_group_id = 1 $$,
+    'BZ064', NULL,
+    '(e) disabled second SA does not count; deleting last enabled SA role raises BZ064');
+
+-- ── (f) Unique constraint on (user_id, role_group_id) ───────────────────────
+SELECT col_is_unique('admin_role_assignments', ARRAY['user_id', 'role_group_id'],
+    '(f) admin_role_assignments has unique constraint on (user_id, role_group_id)');
+
+SELECT * FROM finish();
+ROLLBACK;

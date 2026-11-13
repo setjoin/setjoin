@@ -1,0 +1,441 @@
+-- pgTAP: I1 restart, collision, lifecycle, RLS, and shadow behavior.
+BEGIN;
+SELECT plan(41);
+SET LOCAL app.capture_notify = 'on';
+
+CREATE TEMP TABLE i1_fixture (
+    name TEXT PRIMARY KEY,
+    user_id BIGINT,
+    mailbox_id BIGINT NOT NULL
+);
+
+INSERT INTO i1_fixture (name, mailbox_id) VALUES
+    ('local', mk_account('i1-local')),
+    ('ad', mk_account('i1-ad')),
+    ('ldap', mk_account('i1-ldap')),
+    ('scim', mk_account('i1-scim')),
+    ('oidc', mk_account('i1-oidc'));
+UPDATE i1_fixture f
+SET user_id = m.user_id
+FROM mailboxes m
+WHERE m.id = f.mailbox_id;
+
+UPDATE users SET sync_source = 'ad', ad_object_guid = gen_random_uuid()
+WHERE id = (SELECT user_id FROM i1_fixture WHERE name = 'ad');
+UPDATE users SET sync_source = 'scim', scim_external_id = 'scim-i1-stable'
+WHERE id = (SELECT user_id FROM i1_fixture WHERE name = 'scim');
+UPDATE users SET sync_source = 'ldap'
+WHERE id = (SELECT user_id FROM i1_fixture WHERE name = 'ldap');
+UPDATE users SET oidc_issuer = 'https://issuer.i1.example',
+                 oidc_subject = 'opaque-subject-i1'
+WHERE id = (SELECT user_id FROM i1_fixture WHERE name = 'oidc');
+
+SELECT lives_ok(
+    $$SELECT identity_legacy_backfill(0, 500)$$,
+    'bounded legacy backfill accepts all fixture archetypes'
+);
+SELECT lives_ok(
+    $$SELECT identity_legacy_backfill(0, 500)$$,
+    'legacy backfill is restart-safe'
+);
+-- Flush the backfill transaction's deferred proofs before testing later,
+-- independent transitions in this pgTAP file's outer rollback transaction.
+SET CONSTRAINTS ALL IMMEDIATE;
+SET CONSTRAINTS ALL DEFERRED;
+
+SELECT is(
+    (SELECT count(*)::integer
+     FROM user_identity_links
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad')),
+    1,
+    'AD hard anchor creates exactly one link after replay'
+);
+SELECT is(
+    (SELECT count(*)::integer
+     FROM user_identity_links
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'scim')),
+    1,
+    'SCIM hard anchor creates exactly one link after replay'
+);
+SELECT is(
+    (SELECT count(*)::integer
+     FROM user_identity_links
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'oidc')),
+    1,
+    'OIDC issuer plus subject creates exactly one link after replay'
+);
+SELECT is(
+    (SELECT count(*)::integer
+     FROM identity_link_events e
+     JOIN user_identity_links l ON l.id = e.link_id
+     WHERE l.user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad')
+       AND e.action = 'legacy_backfilled'),
+    1,
+    'restart does not duplicate the logical backfill event'
+);
+SELECT is(
+    (SELECT authority_kind
+     FROM user_lifecycle_authorities
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'local')),
+    'local',
+    'local person has local lifecycle authority without a synthetic link'
+);
+SELECT is(
+    (SELECT authority_kind
+     FROM user_lifecycle_authorities
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad')),
+    'source',
+    'AD person has exact source lifecycle authority'
+);
+SELECT is(
+    (SELECT authority_kind
+     FROM user_lifecycle_authorities
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'scim')),
+    'source',
+    'SCIM person has exact source lifecycle authority'
+);
+
+SELECT is(
+    (identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name = 'local')
+    ) ->> 'criticalDivergences')::integer,
+    0,
+    'local fixture has zero critical shadow divergence'
+);
+SELECT is(
+    (identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name = 'ad')
+    ) ->> 'criticalDivergences')::integer,
+    0,
+    'AD fixture has zero critical shadow divergence'
+);
+SELECT is(
+    (identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name = 'scim')
+    ) ->> 'criticalDivergences')::integer,
+    0,
+    'SCIM fixture has zero critical shadow divergence'
+);
+SELECT is(
+    (identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name = 'oidc')
+    ) ->> 'criticalDivergences')::integer,
+    0,
+    'OIDC fixture has zero critical shadow divergence'
+);
+SELECT is(
+    (identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name = 'ldap')
+    ) ->> 'expectedAmbiguities')::integer,
+    1,
+    'LDAP without a proven immutable anchor is an explicit ambiguity'
+);
+UPDATE identity_shadow_divergences
+SET state='explained',
+    explained_by=(SELECT user_id FROM i1_fixture WHERE name='local'),
+    explained_at=statement_timestamp()
+WHERE user_id=(SELECT user_id FROM i1_fixture WHERE name='ldap')
+  AND divergence_class='expected_legacy_ambiguity';
+SELECT lives_ok(
+    $$SELECT identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name='ldap')
+    )$$,
+    'explained LDAP divergence can be rescanned'
+);
+SELECT is(
+    (SELECT state FROM identity_shadow_divergences
+     WHERE user_id=(SELECT user_id FROM i1_fixture WHERE name='ldap')
+       AND divergence_class='expected_legacy_ambiguity'),
+    'explained',
+    'rescan preserves an operator explanation while the fact persists'
+);
+UPDATE users SET sync_source='local'
+WHERE id=(SELECT user_id FROM i1_fixture WHERE name='ldap');
+SELECT lives_ok(
+    $$SELECT identity_shadow_compare(
+        (SELECT user_id FROM i1_fixture WHERE name='ldap')
+    )$$,
+    'resolved explained divergence can be rescanned'
+);
+SELECT is(
+    (SELECT state FROM identity_shadow_divergences
+     WHERE user_id=(SELECT user_id FROM i1_fixture WHERE name='ldap')
+       AND divergence_class='expected_legacy_ambiguity'),
+    'resolved',
+    'explained divergence resolves when its underlying condition clears'
+);
+
+SELECT throws_ok(
+    format(
+        'UPDATE identity_sources SET source_key = %L WHERE source_key = %L',
+        'renamed:forbidden', 'legacy:ad'
+    ),
+    'BZ228',
+    'identity source key is immutable',
+    'stable source key cannot be renamed'
+);
+
+SELECT throws_ok(
+    $$SELECT identity_source_upsert(
+        1, NULL, 'bad:source', 'Bad source', 'oidc',
+        '{"authenticate":true,"provision_lifecycle":true,"stable_immutable_subject":true}'::jsonb,
+        'active', NULL, 1, 1, NULL, 'invalid capability test'
+    )$$,
+    'BZ228',
+    'identity source capability combination is unsafe',
+    'OIDC cannot claim lifecycle provisioning'
+);
+
+SELECT lives_ok(
+    $$SELECT identity_source_upsert(
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        NULL, 'oidc:i1-extra', 'I1 extra provider', 'oidc',
+        '{"authenticate":true,"provision_lifecycle":false,"stable_immutable_subject":true}'::jsonb,
+        'active', NULL, 1, 1, NULL, 'I1 valid source fixture'
+    )$$,
+    'valid source document is accepted'
+);
+SELECT is(notify_count('config_changed'), 1,
+    'source mutation emits one config-change notification');
+
+SELECT throws_ok(
+    $$SELECT identity_source_upsert(
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        (SELECT id FROM identity_sources WHERE source_key = 'oidc:i1-extra'),
+        'oidc:i1-extra', 'I1 extra provider', 'oidc',
+        '{"authenticate":true,"provision_lifecycle":false,"stable_immutable_subject":true}'::jsonb,
+        'paused', NULL, 1, 1, 999, 'stale update fixture'
+    )$$,
+    'BZ229',
+    'identity source generation is stale',
+    'stale source update mutates nothing'
+);
+SELECT throws_ok(
+    $$SELECT identity_source_upsert(
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        (SELECT id FROM identity_sources WHERE source_key = 'oidc:i1-extra'),
+        'legacy:ad', 'Misbound source', 'oidc',
+        '{"authenticate":true,"provision_lifecycle":false,"stable_immutable_subject":true}'::jsonb,
+        'paused', NULL, 1, 1,
+        (SELECT generation FROM identity_sources WHERE source_key='oidc:i1-extra'),
+        'mismatched source id and key'
+    )$$,
+    'BZ240',
+    'identity source id and key do not match',
+    'source updates bind the immutable source key to the selected id'
+);
+
+SELECT throws_ok(
+    format(
+        'INSERT INTO user_identity_links (user_id,source_id,external_subject,purposes,state,link_method) VALUES (%s,%s,%L,ARRAY[%L],%L,%L)',
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        (SELECT id FROM identity_sources WHERE source_key = 'legacy:ad'),
+        (SELECT external_subject FROM user_identity_links
+          WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad')),
+        'provision', 'active', 'operator'
+    ),
+    '23505',
+    NULL,
+    'source subject cannot move to another person even when retained'
+);
+
+SELECT throws_ok(
+    format(
+        'UPDATE user_identity_links SET state=%L,detached_at=statement_timestamp(),detached_by=%s,detached_reason=%L WHERE user_id=%s; SET CONSTRAINTS ALL IMMEDIATE',
+        'detached',
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        'invalid direct detach fixture',
+        (SELECT user_id FROM i1_fixture WHERE name = 'ad')
+    ),
+    'BZ233',
+    'a lifecycle link must remain active and provisioning-capable',
+    'source lifecycle link cannot detach before authority changes'
+);
+
+UPDATE user_lifecycle_authorities
+SET authority_kind = 'local', link_id = NULL, generation = generation + 1
+WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad');
+
+UPDATE user_identity_links
+SET state = 'detached',
+    detached_at = statement_timestamp(),
+    detached_by = (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+    detached_reason = 'tombstone reservation fixture'
+WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad');
+
+SELECT throws_ok(
+    format(
+        'INSERT INTO user_identity_links (user_id,source_id,external_subject,purposes,state,link_method) VALUES (%s,%s,%L,ARRAY[%L],%L,%L)',
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        (SELECT id FROM identity_sources WHERE source_key = 'legacy:ad'),
+        (SELECT external_subject FROM user_identity_links
+          WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'ad')),
+        'provision', 'active', 'operator'
+    ),
+    '23505',
+    NULL,
+    'detached tombstone continues reserving the source subject'
+);
+
+SELECT throws_ok(
+    $$UPDATE identity_link_events
+      SET reason = 'forbidden rewrite'
+      WHERE action = 'legacy_backfilled'$$,
+    '55000',
+    'identity link events are append-only',
+    'link event update is refused'
+);
+SELECT throws_ok(
+    $$DELETE FROM identity_link_events
+      WHERE action = 'legacy_backfilled'$$,
+    '55000',
+    'identity link events are append-only',
+    'link event delete is refused'
+);
+
+INSERT INTO i1_fixture (name, mailbox_id)
+VALUES ('guest', mk_account('i1-guest-excluded'));
+UPDATE i1_fixture f
+SET user_id = m.user_id
+FROM mailboxes m
+WHERE m.id = f.mailbox_id AND f.name = 'guest';
+
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id
+)
+SELECT f.user_id, u.email, 'inviter@mk.test', u.domain_id
+FROM i1_fixture f JOIN users u ON u.id = f.user_id
+WHERE f.name = 'guest';
+
+SELECT throws_ok(
+    format(
+        'INSERT INTO user_identity_links (user_id,source_id,external_subject,purposes,state,link_method) VALUES (%s,%s,%L,ARRAY[%L],%L,%L)',
+        (SELECT user_id FROM i1_fixture WHERE name = 'guest'),
+        (SELECT id FROM identity_sources WHERE source_key = 'legacy:scim'),
+        'guest-hard-anchor-forbidden', 'provision', 'active', 'operator'
+    ),
+    'BZ239',
+    'account class is excluded from identity links',
+    'Guest identity is excluded from normalized person linking'
+);
+
+SELECT throws_ok(
+    format(
+        'UPDATE user_lifecycle_authorities SET authority_kind=%L,link_id=%s WHERE user_id=%s; SET CONSTRAINTS ALL IMMEDIATE',
+        'source',
+        (SELECT id FROM user_identity_links
+         WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'oidc')),
+        (SELECT user_id FROM i1_fixture WHERE name = 'local')
+    ),
+    'BZ233',
+    'lifecycle authority requires an active provisioning link for the same person',
+    'lifecycle authority cannot borrow another person link'
+);
+
+INSERT INTO identity_sources (
+    source_key, display_name, kind, capabilities, state
+)
+SELECT
+    'oidc:i1-limit-' || n::text,
+    'I1 limit provider ' || n::text,
+    'oidc',
+    '{"authenticate":true,"provision_lifecycle":false,"stable_immutable_subject":true}'::jsonb,
+    'active'
+FROM generate_series(1, 9) AS n;
+
+INSERT INTO user_identity_links (
+    user_id, source_id, external_subject, purposes, state, link_method
+)
+SELECT
+    (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+    s.id,
+    'limit-subject-' || n::text,
+    ARRAY['authenticate']::text[],
+    'active',
+    'operator'
+FROM generate_series(1, 8) AS n
+JOIN identity_sources s ON s.source_key = 'oidc:i1-limit-' || n::text;
+
+SELECT throws_ok(
+    $$INSERT INTO user_identity_links (
+        user_id,source_id,external_subject,purposes,state,link_method
+      ) VALUES (
+        (SELECT user_id FROM i1_fixture WHERE name = 'local'),
+        (SELECT id FROM identity_sources WHERE source_key='oidc:i1-limit-9'),
+        'limit-subject-9',ARRAY['authenticate'],'active','operator'
+      );
+      SET CONSTRAINTS ALL IMMEDIATE$$,
+    'BZ232',
+    'a person may have at most eight active authentication links',
+    'ninth active authentication link is rejected under the person lock'
+);
+SELECT is(
+    (SELECT count(*)::integer
+     FROM user_identity_links
+     WHERE user_id = (SELECT user_id FROM i1_fixture WHERE name = 'local')
+       AND state = 'active'
+       AND 'authenticate' = ANY (purposes)),
+    8,
+    'failed ninth link leaves exactly eight active authentication links'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO identity_source_inbox (
+        source_id,batch_id,object_key,source_generation,remote_cursor,
+        remote_cursor_digest,immutable_subject,sanitized_payload,state
+      ) VALUES (
+        (SELECT id FROM identity_sources WHERE source_key='legacy:ad'),
+        gen_random_uuid(),'bad-terminal',1,'{}'::jsonb,digest('{}','sha256'),
+        'subject','{}'::jsonb,'applied'
+      )$$,
+    '23514',
+    NULL,
+    'applied inbox state requires event and timestamp evidence'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO identity_source_leases (
+        source_id,process_instance_id,source_generation,lease_until
+      ) VALUES (
+        (SELECT id FROM identity_sources WHERE source_key='legacy:ad'),
+        gen_random_uuid(),1,statement_timestamp() + interval '1 minute'
+      )$$,
+    'well-formed source lease is accepted'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO identity_source_leases (
+        source_id,process_instance_id,source_generation,lease_until
+      ) VALUES (
+        (SELECT id FROM identity_sources WHERE source_key='legacy:scim'),
+        gen_random_uuid(),1,statement_timestamp() - interval '1 minute'
+      )$$,
+    '23514',
+    NULL,
+    'expired-at-creation lease is rejected'
+);
+
+-- Direct app access sees no person/evidence rows; worker access remains
+-- available for the explicitly cross-person engine.
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::integer FROM user_identity_links), 0,
+    'setjoin_app direct link read is denied by FORCE RLS');
+SELECT is((SELECT count(*)::integer FROM identity_shadow_divergences), 0,
+    'setjoin_app direct shadow read is denied by FORCE RLS');
+RESET ROLE;
+
+SET LOCAL ROLE setjoin_worker;
+SELECT ok((SELECT count(*) FROM user_identity_links) >= 3,
+    'setjoin_worker can inspect cross-person links');
+SELECT ok((SELECT count(*) FROM user_lifecycle_authorities) >= 3,
+    'setjoin_worker can inspect cross-person lifecycle authority');
+RESET ROLE;
+
+SELECT is(
+    (SELECT enabled FROM feature_toggles WHERE key='feature.identity_model_v2'),
+    FALSE,
+    'all I1 behavior leaves the production gate off'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

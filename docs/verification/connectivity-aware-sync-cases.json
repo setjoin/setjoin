@@ -1,0 +1,1698 @@
+{
+  "schemaVersion": 1,
+  "program": "connectivity-aware-sync-resource-qos",
+  "authority": "docs/superpowers/plans/2026-08-11-connectivity-aware-sync-resource-qos.md",
+  "cases": [
+    {
+      "id": "CAS-E0-SYNC-STEP-SIGNATURES",
+      "introducedBy": "E0",
+      "owner": "webmail-offline-sync-contract",
+      "fixture": "mailserver/webmail/src/lib/offline/sync-step-contract.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/sync-step-signatures.json"
+      ],
+      "contract": {
+        "kind": "sync-step-signatures",
+        "assertions": [
+          "SyncStepOutcome = 'partial' | 'complete' | 'blocked'.",
+          "SyncStepResult = { checkpoint: SyncCheckpoint; progress: { done: number; total?: number; chargedUnits: number }; outcome: SyncStepOutcome }.",
+          "SyncStepOptions = { store: OfflineStore; accountId: string; signal: AbortSignal; budget: { maxRecords: 64; maxBytes: number; deadlineMonoMs: number }; checkpoint: SyncCheckpoint | null }.",
+          "syncWindowStep(opts: SyncStepOptions): Promise<SyncStepResult>.",
+          "syncDeltaStep(opts: SyncStepOptions): Promise<SyncStepResult>."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-ROLLOUT-MODE",
+      "introducedBy": "E0",
+      "owner": "shared-toggle-rollout",
+      "fixture": "shared/toggle/connectivity-aware-sync-rollout.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 90,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/rollout-mode-enum.json"
+      ],
+      "contract": {
+        "kind": "rollout-mode",
+        "values": [
+          "off",
+          "observe",
+          "execute"
+        ],
+        "assertions": [
+          "The winning rollout mode is exactly one of off, observe, or execute.",
+          "The feature flag and observe-only classification use one versioned mode contract."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-CRITICAL-ADMISSION-ABORT",
+      "introducedBy": "E0",
+      "owner": "webmail-optional-work-admission",
+      "fixture": "mailserver/webmail/src/lib/offline/critical-admission-abort.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/critical-admission-abort.json"
+      ],
+      "contract": {
+        "kind": "critical-admission",
+        "assertions": [
+          "Optional admission is allowed only while criticalActivity === 0.",
+          "A 0-to-1 criticalActivity transition aborts optional network I/O at the next checkpoint and preserves the last committed checkpoint.",
+          "New optional admission remains closed until the protected Critical lane is quiet."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-CRITICAL-PROTECTED-SLOT",
+      "introducedBy": "E0",
+      "owner": "webmail-optional-work-admission",
+      "fixture": "mailserver/webmail/src/lib/offline/critical-protected-slot.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/critical-protected-slot.json"
+      ],
+      "contract": {
+        "kind": "critical-protected-slot",
+        "assertions": [
+          "Optional work never reserves the transport or concurrency capacity required by Critical paths.",
+          "Saturated optional load keeps the protected Critical lane independently admissible and measurable."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-CRITICAL-QUIET-RESUME",
+      "introducedBy": "E0",
+      "owner": "webmail-optional-work-admission",
+      "fixture": "mailserver/webmail/src/lib/offline/critical-quiet-resume.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/critical-quiet-resume.json"
+      ],
+      "contract": {
+        "kind": "critical-quiet-resume",
+        "assertions": [
+          "Optional admission resumes only after five continuous seconds of Critical quiet.",
+          "A new Critical event during the quiet window resets the five-second timer."
+        ],
+        "thresholds": {
+          "quietResumeSeconds": 5
+        }
+      }
+    },
+    {
+      "id": "CAS-E0-BRIDGE-SCHEMA-V1",
+      "introducedBy": "E0",
+      "owner": "clients-native-bridge",
+      "fixture": "clients/native/background-work-bridge-v1.fixture.json",
+      "lane": "native",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/bridge-schema-v1.json"
+      ],
+      "contract": {
+        "kind": "native-bridge-schema",
+        "version": 1,
+        "assertions": [
+          "backgroundWork contractVersion is 1 and snapshot exposes only normalized network cost, power, thermal, storage pressure, and capability booleans.",
+          "schedule(jobId, kind, earliestAt, constraints) and cancel(jobId) are optional opportunity hints, not authorization.",
+          "Foreground durable-transfer operations accept only scoped token metadata, URL, validator, size/hash, and opaque IDs in memory/keychain scope.",
+          "Native-to-WebView events carry opportunity/job IDs and normalized reasons only; TypeScript reloads authoritative policy before work."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-BRIDGE-UNKNOWN-VERSION-DENIAL",
+      "introducedBy": "E0",
+      "owner": "clients-native-bridge",
+      "fixture": "clients/native/background-work-bridge-unknown-version.fixture.json",
+      "lane": "native",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/bridge-unknown-version-denial.json"
+      ],
+      "contract": {
+        "kind": "native-bridge-version-denial",
+        "version": 1,
+        "assertions": [
+          "Unknown contract versions or capability enum values are denied fail-closed.",
+          "A denied or throwing advertised operation narrows capability truth to foregroundReconnectOnly.",
+          "No unknown bridge version may silently widen execution or authorization."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E0-ATTACHMENT-ROUTE-TOKEN",
+      "introducedBy": "E0",
+      "owner": "mailserver-attachment-transfer",
+      "fixture": "mailserver/internal/attachment/transfer-route.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/attachment-route-token.json"
+      ],
+      "contract": {
+        "kind": "attachment-route-token-transport",
+        "assertions": [
+          "Native range reads use GET /mail-attachment/{sha256} and no alternate attachment-download route.",
+          "Authorization uses a scoped short-lived transfer token in the Authorization Bearer transport header; the token is never persisted, logged, or placed in a URL.",
+          "The route binds immutable SHA-256 identity, strong ETag, byte range, and live authorization on every request."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E1-OFF-JSON",
+      "introducedBy": "E0",
+      "owner": "e1-policy-off-compatibility",
+      "fixture": "mailserver/webmail/e2e/fixtures/connectivity-aware-sync-off-baseline.fixture.json",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/pre-v209-http.json",
+        "test-results/connectivity-aware-sync/<run-id>/e0/post-v209-http.json"
+      ],
+      "contract": {
+        "kind": "feature-off-baseline",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "values": [
+          "off"
+        ],
+        "assertions": [
+          "With feature.connectivity_aware_sync=false and mode=off, syncQoS and backgroundWork are omitted from JSON and HTTP projections.",
+          "New routes are absent or return 404 while the feature is OFF.",
+          "The pre-V209 and post-V209 OFF artifacts are compared exactly; no background job is admitted."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E1-PREV209-OLD-BINARY-POST-SCHEMA",
+      "introducedBy": "E0",
+      "owner": "e1-schema-compatibility",
+      "fixture": "mailserver/sql/tests/fixtures/connectivity-aware-sync-pre-v209.fixture.json",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 240,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e0/pre-v209-old-binary-post-schema.json"
+      ],
+      "contract": {
+        "kind": "pre-v209-old-binary-compatibility",
+        "assertions": [
+          "A pre-V209 binary starts against the ahead V209/V210 additive schema without requiring post-schema fields.",
+          "Legacy reducer signatures and OFF behavior remain compatible before the new projection is enabled.",
+          "The compatibility proof does not claim post-schema feature parity for an old binary."
+        ]
+      }
+    },
+    {
+      "id": "CAS-DX0-EVIDENCE-REGISTRY-BINDINGS",
+      "introducedBy": "DX0",
+      "owner": "verification-evidence-registry",
+      "fixture": "docs/verification/connectivity-aware-sync-registry.fixture.json",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 90,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/evidence-registry-bindings.json"
+      ],
+      "contract": {
+        "kind": "evidence-registry-bindings",
+        "assertions": [
+          "Every manifest case has exactly one requirementId, testId, resultId, lane, gate, and retained-artifact binding.",
+          "Bindings are exact IDs, never broad substring filters, and unknown or duplicated case IDs fail closed."
+        ]
+      }
+    },
+    {
+      "id": "CAS-DX0-FIVE-RUN-BASELINE",
+      "introducedBy": "DX0",
+      "owner": "verification-baseline",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-five-run-baseline.fixture.json",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 300,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/five-run-baseline.json"
+      ],
+      "contract": {
+        "kind": "local-native-baseline-threshold",
+        "assertions": [
+          "The local/native cold, weak, and reconnect baseline is retained only after five complete runs.",
+          "No candidate byte, time, concurrency, or resource budget is frozen from fewer than five runs."
+        ],
+        "thresholds": {
+          "minimumRuns": 5
+        }
+      }
+    },
+    {
+      "id": "CAS-DX0-20-SAMPLE-BASELINE",
+      "introducedBy": "DX0",
+      "owner": "verification-baseline",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-supported-host.fixture.json",
+      "lane": "browser",
+      "requiredState": "required",
+      "timeoutSeconds": 600,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/supported-host-20-sample-baseline.json"
+      ],
+      "contract": {
+        "kind": "supported-host-baseline-threshold",
+        "assertions": [
+          "The supported-host population contains twenty complete samples before candidate defaults are frozen.",
+          "A missing or skipped sample does not satisfy the population threshold."
+        ],
+        "thresholds": {
+          "minimumSamples": 20
+        }
+      }
+    },
+    {
+      "id": "CAS-DX0-DECISION-PRIVACY",
+      "introducedBy": "DX0",
+      "owner": "verification-privacy-safe-diagnostics",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-decision.fixture.json",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 90,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/decision-privacy.json"
+      ],
+      "contract": {
+        "kind": "decision-record-privacy",
+        "assertions": [
+          "Decision records expose only requested/effective normalized values, policy/capability source, eligibility, queue class/age, and pause reason.",
+          "Account, user, device, job, SSID, carrier, IP, subject, sender, filename, token, URL, and content fields are rejected at every object level."
+        ]
+      }
+    },
+    {
+      "id": "CAS-DX0-CLEANUP-IDEMPOTENCY",
+      "introducedBy": "DX0",
+      "owner": "verification-cleanup-receipt",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-cleanup.fixture.json",
+      "lane": "ubuntu",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/cleanup-receipt.json"
+      ],
+      "contract": {
+        "kind": "cleanup-receipt",
+        "assertions": [
+          "The receipt records qdisc, isolated database, ports/processes, temp files, and firewall before/after/status actions.",
+          "A second cleanup is valid with already_clean for every action and does not claim a new cleanup mutation.",
+          "Every failed action includes one exact manual recovery command."
+        ]
+      }
+    },
+    {
+      "id": "CAS-DX-MISSING-TOOL",
+      "introducedBy": "DX0",
+      "owner": "verification-doctor",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-missing-tool.fixture.json",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/missing-tool.json"
+      ],
+      "contract": {
+        "kind": "doctor-failure-diagnostic",
+        "assertions": [
+          "A missing or out-of-range required tool is a failure with its exact tool name and an actionable doctor command.",
+          "The verifier never turns missing tooling into a successful skip."
+        ]
+      }
+    },
+    {
+      "id": "CAS-DX-STALE-STATE",
+      "introducedBy": "DX0",
+      "owner": "verification-cleanup-receipt",
+      "fixture": "scripts/fixtures/connectivity-aware-sync-stale-state.fixture.json",
+      "lane": "ubuntu",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/dx0/stale-state.json"
+      ],
+      "contract": {
+        "kind": "stale-state-diagnostic",
+        "assertions": [
+          "A remaining isolated database, port, process, or qdisc is a failure naming the run ID and cleanup command.",
+          "The cleanup receipt remains valid only when every action is cleaned, already_clean, or an explicitly recovered failure."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E4I-TRIGGER-STEP-BOUNDS",
+      "introducedBy": "E4-I",
+      "owner": "webmail-e4i-coordinator",
+      "fixture": "mailserver/webmail/src/lib/offline/e4i.triggerStepBounds.test.ts",
+      "fixtureDigest": "a02301b3244c5d85846ee5fb598549d6a26704943cfa5762e7d9072e0b38cf3d",
+      "seed": "e4i-deterministic-clock-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e4i/trigger-step-bounds.json"
+      ],
+      "contract": {
+        "kind": "e4i-trigger-step-bounds",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/coordinator.ts:createCoordinator",
+          "mailserver/webmail/src/lib/offline/coordinator.ts:ingestTrigger",
+          "mailserver/webmail/src/lib/offline/coordinator.ts:runDueWork",
+          "mailserver/webmail/src/lib/offline/steps.ts:createSyncDeltaStep",
+          "mailserver/webmail/src/lib/offline/steps.ts:createSyncWindowStep",
+          "mailserver/webmail/src/lib/offline/steps.ts:isBoundedSyncStep",
+          "mailserver/webmail/src/lib/offline/scheduler.ts:scheduleNext",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTriggerStepBounds"
+        ],
+        "assertions": [
+          "Duplicate trigger generations coalesce onto one job keyed by coalescing key and never lose a newer trigger.",
+          "Each scheduled step applies at most one query/changes page of 64 metadata records within the injected byte/time budget.",
+          "An unbounded syncDelta/syncWindow wrapper is refused as scheduled work at coordinator construction.",
+          "A 0-to-1 Critical transition aborts optional I/O immediately and preserves the last committed checkpoint.",
+          "No server-state cursor advance is committed before the step's local page has committed; a store failure leaves the prior cursor durable.",
+          "Planted violations emit exactly 'FAIL CAS-E4I-TRIGGER-STEP-BOUNDS: scheduled step exceeded its bound or advanced an uncommitted cursor' with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E4I-PERSISTENCE-RECOVERY",
+      "introducedBy": "E4-I",
+      "owner": "webmail-e4i-persistence",
+      "fixture": "mailserver/webmail/src/lib/offline/e4i.persistenceRecovery.test.ts",
+      "fixtureDigest": "741d530b67ec6158864bd38bca8d58971d54e5c14e6c175712b2c13b7f39e6e3",
+      "seed": "e4i-contract-bridge-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 180,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e4i/persistence-recovery.json"
+      ],
+      "contract": {
+        "kind": "e4i-persistence-recovery",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/migrations.ts:MAIL_MIGRATION_MANIFEST",
+          "mailserver/webmail/src/lib/offline/migrations.ts:planMigration",
+          "mailserver/webmail/src/lib/offline/migrations.ts:applyMailMigrations",
+          "mailserver/webmail/src/lib/offline/nativeBatch.ts:admitBatch",
+          "mailserver/webmail/src/lib/offline/nativeBatch.ts:executeBatch",
+          "mailserver/webmail/src/lib/offline/jobStore.ts:createDurableJobPersistence",
+          "mailserver/webmail/src/lib/offline/jobStore.ts:createMemoryJobPersistence",
+          "mailserver/webmail/src/lib/native/types.ts:OfflineDbBridge.transactionBatch",
+          "mailserver/webmail/src/lib/native/types.ts:OfflineDbBridge.migrateStore",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditPersistenceRecovery"
+        ],
+        "assertions": [
+          "A committed atomic batch exposes the page and checkpoint together after reopen; a crash before commit exposes neither.",
+          "Migration interruption rolls back the interrupted step and retries cleanly; unknown, ahead and downgrade targets are refused before mutation.",
+          "Cross-app handles, ordinary DDL, ATTACH/DETACH/PRAGMA and bare/nested transaction control are refused through exec, query, transactionBatch, migrateStore and execSchemaInit by parsed-keyword engine semantics, never string-prefix matching.",
+          "Forged or caller-supplied migration manifests fail digest binding; no runtime registration entry exists.",
+          "CAS lease reclaim happens exactly once after expiry and a duplicate terminal result at the same generation is rejected.",
+          "The durable job persistence fails closed without the native atomic batch entry; a mock bridge cannot certify real SQLCipher durability, which stays with the native owner's crash harness lane."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E4I-TRANSFER-LIFECYCLE",
+      "introducedBy": "E4-I",
+      "owner": "webmail-e4i-transfer-executor",
+      "fixture": "mailserver/webmail/src/lib/offline/e4i.transferLifecycle.test.ts",
+      "fixtureDigest": "bb442a614b564479704c084ca169a309e32091d6a4b7a1a32896a2ddcdaaabd9",
+      "seed": "e4i-recording-ports-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e4i/transfer-lifecycle.json"
+      ],
+      "contract": {
+        "kind": "e4i-transfer-lifecycle",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/transferExecutor.ts:createTransferExecutor",
+          "mailserver/webmail/src/lib/offline/attachmentTransfer.ts:validateAttachmentRangeResponse",
+          "mailserver/webmail/src/lib/offline/attachmentTransfer.ts:rejectAttachmentRedirect",
+          "mailserver/webmail/src/lib/offline/transferDestination.ts:buildAttachmentTransferUrl",
+          "mailserver/webmail/src/lib/offline/transferDestination.ts:validateAttachmentTransferUrl",
+          "mailserver/webmail/src/lib/offline/criticalScope.ts:createCriticalActivityCounter",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditTransferLifecycle"
+        ],
+        "assertions": [
+          "The bearer is memory-only for one request lifetime and a restart remints under current authorization; no persisted row retains a bearer or URL.",
+          "The destination is constructed from the approved origin and caller URLs must match it exactly; redirects are rejected and never followed, including same-origin redirects.",
+          "Confirmed current-authorized 404/410 purges the partial and checkpoint; hidden/ambiguous 404/410 preserves valid encrypted state and pauses admission; stale-generation observations are ignored without purging.",
+          "Account change cancels account-scoped work and purges with zero cross-account reuse; revocation drops the bearer and pauses admission.",
+          "Critical security work suppresses optional transfer I/O; critical begin/end stays balanced under failure and cancellation.",
+          "Planted violations emit exactly 'FAIL CAS-E4I-TRANSFER-LIFECYCLE: transfer lifecycle escaped current authorization or retained a prohibited bearer' with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E4I-CONSUMER-PARITY",
+      "introducedBy": "E4-I",
+      "owner": "webmail-e4i-consumer-parity",
+      "fixture": "mailserver/webmail/src/lib/offline/e4i.consumerParity.test.ts",
+      "fixtureDigest": "11e1f9b03fc9c9fb6731c6db8a01e0223bc6d13a3025e37f945376ade9d24035",
+      "seed": "e4i-deterministic-clock-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e4i/consumer-parity.json"
+      ],
+      "contract": {
+        "kind": "e4i-consumer-parity",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/coordinator.ts:createCoordinator.readJobResult",
+          "mailserver/webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditConsumerParity"
+        ],
+        "assertions": [
+          "E4 capability-specific execution and E5 projections consume the same committed, unknown, and paused results through one read seam.",
+          "An unknown read maps to idle and never to an invented completion or currentness claim.",
+          "A committed paused result keeps its exact pause reason through the shared mapping.",
+          "Planted projection disagreement emits exactly 'FAIL CAS-E4I-CONSUMER-PARITY: consumer projection disagreed with the committed execution result' with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-NEVER-UNKNOWN",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.statusSemantics.test.ts",
+      "fixtureDigest": "df174e9adacc457c651489131c2f1e8c156eef4bb66e4c32563ae0eca26de869",
+      "seed": "e5-status-projection-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/never-unknown.json"
+      ],
+      "contract": {
+        "kind": "e5-never-unknown",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/statusProjection.ts:schedulerStateFromJobResult",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5SchedulerFromJobResult",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:freshnessLabelKey",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5StatusText",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5NeverUnknown"
+        ],
+        "assertions": [
+          "An unknown coordinator read maps to idle through the shared E4-I seam and is never displayed as a completion or currentness.",
+          "neverSynced displays the stable never_synced key (\"Not synced on this device\") and unknown the distinct unknown key (\"Sync status unavailable\"); the two never collapse.",
+          "A committed complete result is idle and a committed paused result keeps its exact reason through the same mapping.",
+          "Planted violations emit exactly \"FAIL CAS-E5-NEVER-UNKNOWN: E5 status invented a completion or mislabeled unknown freshness\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-TRANSFER-TERMINALS",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.transferTerminals.test.ts",
+      "fixtureDigest": "e56720e22e0ec4cc16a75bd0ec627ebac8b581c5625bdb8500e6ef5d2fe79f10",
+      "seed": "e5-transfer-display-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/transfer-terminals.json"
+      ],
+      "contract": {
+        "kind": "e5-transfer-terminals",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:e5TransferDisplay",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:pauseReasonKey",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:transferRowStateForPause",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5TransferTerminals"
+        ],
+        "assertions": [
+          "Terminal transfer expiry displays the download_expired key (\"Download expired\") with retry (newly authorized restart) and never Open/Save.",
+          "Authorized content-unavailable classification displays the content_unavailable key (\"Attachment unavailable\") with no retry action.",
+          "Integrity failure displays the verification_failed key (\"Verification failed\") without Open/Save and is the only alert-worthy terminal.",
+          "Every contract PauseReason maps to a distinct verbatim key and travels unchanged into the matching transfer row state.",
+          "Planted violations emit exactly \"FAIL CAS-E5-TRANSFER-TERMINALS: transfer terminal display offered a prohibited action\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-SAVE-ALL-PARTIAL",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
+      "seed": "e5-saveall-group-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/save-all-partial.json"
+      ],
+      "contract": {
+        "kind": "e5-save-all-partial",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:summarizeSaveAll",
+          "mailserver/webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllPartial"
+        ],
+        "assertions": [
+          "Save all keeps independent child identities and reports completed/total plus failed/cancelled/expired child counts.",
+          "Partial completion never reports success: allComplete is true only when every requested child is complete.",
+          "Unknown child sizes make aggregate progress genuinely indeterminate (bytes.total absent).",
+          "Planted violations emit exactly \"FAIL CAS-E5-SAVE-ALL-PARTIAL: save-all group misreported partial progress as success\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-SAVE-ALL-CANCEL-RETRY",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
+      "seed": "e5-saveall-group-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/save-all-cancel-retry.json"
+      ],
+      "contract": {
+        "kind": "e5-save-all-cancel-retry",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:saveAllRetryIds",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:saveAllCancelPlan",
+          "mailserver/webmail/src/lib/offline/e5SaveAll.ts:createSaveAllGroup",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5SaveAllCancelRetry"
+        ],
+        "assertions": [
+          "Cancel stops exactly the unfinished children and preserves every completed download.",
+          "Group retry selects only eligible failed children (recoverable errors and newly authorized expired restarts), never unavailable, cancelled, or verification-failed children.",
+          "Component unmount does not cancel the group: the controller lives outside the card.",
+          "Planted violations emit exactly \"FAIL CAS-E5-SAVE-ALL-CANCEL-RETRY: save-all cancel/retry escaped the eligible-child contract\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-GROUP-ANNOUNCER",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.saveAllGroup.test.ts",
+      "fixtureDigest": "6b5e70a8b7a2dc885c2af94f46106529c79f73dd2473b021a4963fdd9f7147c8",
+      "seed": "e5-saveall-group-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/group-announcer.json"
+      ],
+      "contract": {
+        "kind": "e5-group-announcer",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:groupAnnouncement",
+          "mailserver/webmail/src/lib/offline/e5.uiProjection.ts:shouldAnnounceTransferProgress",
+          "mailserver/webmail/src/lib/offline/e5ui.svelte.ts:announceSaveAllGroup",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5GroupAnnouncer"
+        ],
+        "assertions": [
+          "One accessible group announcement replaces the per-child burst: a settled batch of three children produces exactly one announcement.",
+          "Transfer progress announces phase changes and 10% thresholds only; intra-band movement never announces.",
+          "Planted violations emit exactly \"FAIL CAS-E5-GROUP-ANNOUNCER: group announcer burst or announced per-chunk noise\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-PREFERENCE-SAVE-FAILURE",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
+      "seed": "e5-settings-controller-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/preference-save-failure.json"
+      ],
+      "contract": {
+        "kind": "e5-preference-save-failure",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceSaveFailure"
+        ],
+        "assertions": [
+          "A failed save preserves the user drafts verbatim, leaves the acknowledged effective state untouched, and surfaces a remedy — it never reports success.",
+          "Only the authoritative server response updates the acknowledged state; the client never recomputes precedence.",
+          "Planted violations emit exactly \"FAIL CAS-E5-PREFERENCE-SAVE-FAILURE: preference save failure reported success or lost drafts\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-PREFERENCE-DOUBLE-SUBMIT",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
+      "seed": "e5-settings-controller-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/preference-double-submit.json"
+      ],
+      "contract": {
+        "kind": "e5-preference-double-submit",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceDoubleSubmit"
+        ],
+        "assertions": [
+          "A pending save refuses duplicate submission without disturbing the in-flight request.",
+          "Planted violations emit exactly \"FAIL CAS-E5-PREFERENCE-DOUBLE-SUBMIT: a second preference submission escaped the pending guard\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-PREFERENCE-ACCOUNT-RACE",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
+      "seed": "e5-settings-controller-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/preference-account-race.json"
+      ],
+      "contract": {
+        "kind": "e5-preference-account-race",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5Settings.ts:createE5SettingsController",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreferenceAccountRace"
+        ],
+        "assertions": [
+          "An account/device change invalidates the pending response: the in-flight reply resolves to a stale-binding refusal and can never update the new binding.",
+          "The previous binding's acknowledged values and drafts never carry across; the new binding starts from defaults.",
+          "Planted violations emit exactly \"FAIL CAS-E5-PREFERENCE-ACCOUNT-RACE: a pending preference response survived an account change\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-PREVIEW-TARGET-RACE",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.adminPreview.test.ts",
+      "fixtureDigest": "fc24beff7a954402478f96bc66a39308bbe26a1960ba4db42b3ecd2587e62548",
+      "seed": "e5-admin-preview-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/preview-target-race.json"
+      ],
+      "contract": {
+        "kind": "e5-preview-target-race",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:createAdminPreviewController",
+          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewEnvelope",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewTargetRace"
+        ],
+        "assertions": [
+          "Every preview response binds the selected target and the request generation: an old-generation response cannot replace a newer selection.",
+          "A payload whose device identity does not match the selected target is refused before display.",
+          "Planted violations emit exactly \"FAIL CAS-E5-PREVIEW-TARGET-RACE: a stale preview response replaced a newer selection\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-PREVIEW-UNAVAILABLE",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.adminPreview.test.ts",
+      "fixtureDigest": "fc24beff7a954402478f96bc66a39308bbe26a1960ba4db42b3ecd2587e62548",
+      "seed": "e5-admin-preview-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/preview-unavailable.json"
+      ],
+      "contract": {
+        "kind": "e5-preview-unavailable",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5AdminPreview.ts:parsePreviewProjection",
+          "mailserver/webmail/src/lib/admin/offline/OfflinePolicyPreview.svelte",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5PreviewUnavailable"
+        ],
+        "assertions": [
+          "Failed refreshes label retained facts stale; unavailable and unauthorized are distinct honest states, never displayed as current.",
+          "Malformed or ahead-version envelopes fail closed; a disabled winning policy stays visible with its source facts.",
+          "Planted violations emit exactly \"FAIL CAS-E5-PREVIEW-UNAVAILABLE: preview failure was displayed as success or current facts\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E5-CROSSED-NETWORK-ATTACHMENT",
+      "introducedBy": "E5",
+      "owner": "webmail-e5-ui-accessibility",
+      "fixture": "mailserver/webmail/src/lib/offline/e5.settingsPreferences.test.ts",
+      "fixtureDigest": "d1f15e922104f1d25aa7467e60937d07c263818eb9cba4711c8175482f300efa",
+      "seed": "e5-settings-controller-v1",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e5/crossed-network-attachment.json"
+      ],
+      "contract": {
+        "kind": "e5-crossed-network-attachment",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e5Settings.ts:explainCrossedAdmission",
+          "mailserver/webmail/src/lib/native/testing/backgroundWorkHarness.ts:auditE5CrossedNetworkAttachment"
+        ],
+        "assertions": [
+          "The four crossed combinations (refresh Never/attachments permitted, refresh permitted/attachments Never, policy/metered narrowing, Background sync Off with permissive stored preferences) each explain actual admission from server-resolved values.",
+          "The explanation never promises \"all network disabled\": background-off still allows explicit actions, and refresh Never never implies attachment Never.",
+          "Wire enums stay scoped: any for refresh, always for attachments.",
+          "Planted violations emit exactly \"FAIL CAS-E5-CROSSED-NETWORK-ATTACHMENT: crossed settings explanation promised more than actual admission\" with distinct finite subOracleId cause lines."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E6-PROFILE-FROZEN",
+      "introducedBy": "E6",
+      "owner": "verification-e6-comparison",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "seed": "e6-profile-freeze-v1",
+      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E6-PROFILE-FROZEN",
+      "lane": "quick",
+      "requiredState": "required",
+      "timeoutSeconds": 60,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/profile-frozen.json"
+      ],
+      "contract": {
+        "kind": "e6-profile-frozen",
+        "assertions": [
+          "The versioned E6 comparison profile document exists, parses, and validates: freeze semantics, measurement protocol (20 pairs, 120 s warmup, 300 s measurement, 1,000 observations per Critical class per run, nearest-rank percentiles, 10,000 paired bootstrap resamples, upper one-sided 95% bound), and the section 8 regression ceilings are pinned exactly.",
+          "Every platform is explicitly selected (a frozen profile entry binding host/shell/tool builds, corpus/cache, clients, Critical request classes/mix, optional saturation, network faults, process metric boundaries, clocks and seeds) or explicitly unselected with a freeze-before-any-results-qualify rule; selection is never inferred.",
+          "The profile states that results qualify only their exact frozen profile and that post-result workload/metric/seed/stopping changes are prohibited; any binding change requires a new profileVersion and manifest rebinding.",
+          "A manifest case that binds requiredProfiles fails closed unless every referenced profile exists in the document with status frozen."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E6-CRITICAL-SAMPLE-FLOOR",
+      "introducedBy": "E6",
+      "owner": "verification-e6-comparison",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "seed": "e6-pair-runbook-v1",
+      "command": "RUN_ID=<run-id> bash scripts/verify-connectivity-aware-sync.sh core --case CAS-E6-CRITICAL-SAMPLE-FLOOR",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 14400,
+      "expectedDisposition": "planned",
+      "requiredProfiles": [
+        "e6-electron-macos-arm64-v3"
+      ],
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/critical-sample-floor.json"
+      ],
+      "contract": {
+        "kind": "e6-critical-sample-floor",
+        "assertions": [
+          "Each claimed Critical class records at least 1,000 completed observations per run; a class below the floor cannot make any claim.",
+          "Insufficient observations mean unavailable claims, never interpolated or borrowed evidence from another profile or run.",
+          "The run binds exactly the frozen profile selected in requiredProfiles; results qualify only that profile."
+        ],
+        "thresholds": {
+          "minimumObservations": 1000
+        }
+      }
+    },
+    {
+      "id": "CAS-E6-PAIRED-REGRESSION",
+      "introducedBy": "E6",
+      "owner": "verification-e6-comparison",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "seed": "e6-pair-runbook-v1",
+      "command": "RUN_ID=<run-id> bash scripts/verify-connectivity-aware-sync.sh core --case CAS-E6-PAIRED-REGRESSION",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 14400,
+      "expectedDisposition": "planned",
+      "requiredProfiles": [
+        "e6-electron-macos-arm64-v3"
+      ],
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/paired-regression.json"
+      ],
+      "contract": {
+        "kind": "e6-paired-regression",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "values": [
+          "off",
+          "execute"
+        ],
+        "assertions": [
+          "At least 20 independent flag-OFF versus execute pairs run with identical workloads and randomized order, each with a two-minute warmup and five-minute measurement window.",
+          "Nearest-rank p95/p99 with 10,000 seeded paired-bootstrap resamples use the upper one-sided 95% bound for each existing relative and absolute regression ceiling; a breach fails E6 rather than being explained away.",
+          "A changed workload, metric, seed, or stopping rule after results exist requires a new profileVersion and a new separately identified run; results never transfer across profiles."
+        ],
+        "thresholds": {
+          "minimumSamples": 20,
+          "warmupSeconds": 120,
+          "measurementSeconds": 300
+        }
+      }
+    },
+    {
+      "id": "CAS-E6-FAILED-REQUEST-ACCOUNTING",
+      "introducedBy": "E6",
+      "owner": "verification-e6-comparison",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "seed": "e6-attempt-accounting-v1",
+      "command": "RUN_ID=<run-id> bash scripts/verify-connectivity-aware-sync.sh core --case CAS-E6-FAILED-REQUEST-ACCOUNTING",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 14400,
+      "expectedDisposition": "planned",
+      "requiredProfiles": [
+        "e6-electron-macos-arm64-v3"
+      ],
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/failed-request-accounting.json"
+      ],
+      "contract": {
+        "kind": "e6-failed-request-accounting",
+        "assertions": [
+          "Failures and timeouts are reported separately from completed observations for every run and class.",
+          "A latency improvement obtained by dropping failures cannot pass: all attempts are retained and every comparison includes the failed attempts.",
+          "No post-result change to the attempt population, workload, metric, seed, or stopping rule is permitted inside a frozen profile run."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
+      "introducedBy": "E6",
+      "owner": "verification-e6-comparison",
+      "fixture": "docs/verification/connectivity-e6-profile.json",
+      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+      "seed": "e6-saturation-v1",
+      "command": "RUN_ID=<run-id> bash scripts/verify-connectivity-aware-sync.sh core --case CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 3600,
+      "expectedDisposition": "planned",
+      "requiredProfiles": [
+        "e6-electron-macos-arm64-v3"
+      ],
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/crossprocess-critical-saturation.json"
+      ],
+      "contract": {
+        "kind": "e6-crossprocess-critical-saturation",
+        "featureFlag": "feature.connectivity_aware_sync",
+        "assertions": [
+          "Cross-process contention under saturated optional load keeps Critical p95 within 5% and 50 ms, p99 within 10% and 100 ms, and peak process CPU/RSS within 10% of the paired flag-OFF run; both limits of each pair apply.",
+          "The protected Critical lane stays independently admissible and measurable while optional work saturates the declared concurrency limits.",
+          "High-cardinality job/account IDs and content never enter the recorded metrics."
+        ],
+        "thresholds": {
+          "maxP95RegressionPercent": 5,
+          "maxP95RegressionMilliseconds": 50,
+          "maxP99RegressionPercent": 10,
+          "maxP99RegressionMilliseconds": 100,
+          "maxCpuRssRegressionPercent": 10
+        }
+      }
+    },
+    {
+      "id": "CAS-E6-DIAGNOSTIC-BOUNDS",
+      "introducedBy": "E6",
+      "owner": "webmail-e6-diagnostics",
+      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
+      "seed": "e6-diagnostics-bounds-v1",
+      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-DIAGNOSTIC-BOUNDS",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/diagnostic-bounds.json"
+      ],
+      "contract": {
+        "kind": "e6-diagnostic-bounds",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsStore",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_RECORDS_PER_DEVICE",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_DIAGNOSTIC_BYTES_PER_DEVICE",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:DIAGNOSTIC_RECORD_TTL_MS",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_BYTES"
+        ],
+        "assertions": [
+          "The per-device diagnostics store holds at most 1,000 records and 1 MiB; whenever any limit is hit the oldest records are evicted until all limits hold.",
+          "Records expire after seven days; an already-expired append is never served.",
+          "One export is at most 1 MiB and always carries exact omitted-count metadata (exported + omitted === stored).",
+          "The bounds are a restriction enforced at the only entry points, not a flag-gated feature."
+        ],
+        "thresholds": {
+          "maxDiagnosticRecords": 1000,
+          "maxDiagnosticBytes": 1048576,
+          "diagnosticExpiryDays": 7,
+          "maximumExportBytes": 1048576
+        }
+      }
+    },
+    {
+      "id": "CAS-E6-EXPORTER-FAILURE",
+      "introducedBy": "E6",
+      "owner": "webmail-e6-diagnostics",
+      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
+      "seed": "e6-diagnostics-bounds-v1",
+      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-EXPORTER-FAILURE",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/exporter-failure.json"
+      ],
+      "contract": {
+        "kind": "e6-exporter-failure",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:createE6DiagnosticsExporter",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MAX_EXPORT_ATTEMPTS"
+        ],
+        "assertions": [
+          "An exporter failure (sync throw or rejection) is returned as a failed outcome and never propagates into a mail path.",
+          "An export is exactly one attempt; no retry queue exists, so repeated failures cannot grow any backlog.",
+          "Mail paths keep working across exporter failures: appends and exports remain available afterwards."
+        ],
+        "thresholds": {
+          "maxExportAttempts": 1
+        }
+      }
+    },
+    {
+      "id": "CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "introducedBy": "E6",
+      "owner": "webmail-e6-diagnostics",
+      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
+      "seed": "e6-diagnostics-bounds-v1",
+      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "lane": "core",
+      "requiredState": "required",
+      "timeoutSeconds": 120,
+      "expectedDisposition": "planned",
+      "retainedArtifacts": [
+        "test-results/connectivity-aware-sync/<run-id>/e6/metric-label-allowlist.json"
+      ],
+      "contract": {
+        "kind": "e6-metric-label-allowlist",
+        "symbols": [
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:E6_METRIC_LABELS",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:isE6MetricLabel",
+          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:parseE6DiagnosticRecord"
+        ],
+        "assertions": [
+          "Metric labels are exactly the finite plan section 8 enum (time-to-cached-list through critical-p99); unknown labels such as job or account identifiers are rejected, never stored.",
+          "Dimension values are the existing finite work-contract enums: pause-reason requires a PauseReason and queue-age requires an OptionalWorkClass; both are forbidden on every other metric.",
+          "Malformed values, kinds, timestamps, extra fields, and ahead schema versions fail closed."
+        ]
+      }
+    },
+    {
+      "id": "CAS-E6-SMALL-COHORT-SUPPRESSION",
+      "introducedBy": "E6",
+      "owner": "webmail-e6-diagnostics",
+      "fixture": "mailserver/webmail/src/lib/offline/e6Diagnostics.test.ts",
+      "fixtureDigest": "600f1eb3739cfe0e0e0f027bf9d173ef82bfb665fcbdeae0617113d0e45badac",
+      "seed": "e6-diagnostics-bounds-v1",
+	      "command": "cd mailserver/webmail && npx vitest run src/lib/offline/e6Diagnostics.test.ts -t CAS-E6-SMALL-COHORT-SUPPRESSION",
+	      "lane": "core",
+	      "requiredState": "required",
+	      "timeoutSeconds": 120,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e6/small-cohort-suppression.json"
+	      ],
+	      "contract": {
+	        "kind": "e6-small-cohort-suppression",
+	        "symbols": [
+	          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:releaseCrossUserBuckets",
+	          "mailserver/webmail/src/lib/offline/e6Diagnostics.ts:MIN_AGGREGATE_CONTRIBUTORS"
+	        ],
+	        "assertions": [
+	          "A cross-user bucket releases only with at least 10 DISTINCT authorized contributors; below the threshold it is suppressed as below-minimum-cohort.",
+	          "One unauthorized contribution suppresses its whole bucket (unavailable proof means omit), even when every other contributor is authorized.",
+	          "Contributor tokens are used only to count distinctness and never appear in any released bucket: released envelopes carry counts and sums only, never identity telemetry.",
+	          "Bucket keys are bounded: unknown metrics, unknown dimension values, and dimensions on non-dimensional metrics are malformed and suppressed."
+	        ],
+	        "thresholds": {
+	          "minimumAggregateContributors": 10
+	        }
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-OUTCOME-CONTRACT-FROZEN",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+	      "seed": "e7-outcome-contract-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-OUTCOME-CONTRACT-FROZEN",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/outcome-contract-frozen.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-outcome-contract-frozen",
+	        "assertions": [
+	          "The versioned E7 useful-outcome contract document exists, parses, and validates: contractId, frozenAtUtc, freeze semantics, capability scoping, outcome bindings, the incomplete-outcome rule, the usefulness-not-safety-only distinction, the expansion rule, and the pilot scope are pinned exactly.",
+	          "Every bound outcome name is a verbatim name from the plan's Metrics and initial success criteria list; an outcome name absent from that list is rejected fail-closed.",
+	          "At least one primary foreground/reconnect usefulness outcome is bound, and every outcome names the E4-I/E5 capabilities it applies to.",
+	          "A pilot may not begin while any required outcome field (threshold, sample rule, missing-data rule, cohort, observation window, denominator, OFF comparator) is unspecified; all outcome evidence stays planned until the separately gated pilot run."
+	        ]
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+	      "seed": "e7-outcome-contract-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/usefulness-not-safety-only.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-usefulness-not-safety-only",
+	        "assertions": [
+	          "Usefulness outcomes never substitute for the E6 safety/SLO gates; the contract records usefulnessOutcomesSubstituteForSafetyGates=false fail-closed.",
+	          "E6 Critical-path regression ceilings, resource budgets, and security/privacy gates remain nonwaivable; missing usefulness evidence holds only the affected expansion or claim.",
+	          "Metrics that stay E6-owned (foreground latency/CPU contention under background work) are not rebranded as pilot usefulness outcomes."
+	        ]
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+	      "seed": "e7-outcome-contract-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/incomplete-outcome-no-expansion.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-incomplete-outcome-no-expansion",
+	        "assertions": [
+	          "A pilot with unspecified required outcome fields cannot begin: pilotMayNotBeginWithUnspecifiedFields=true fails closed.",
+	          "Every bound outcome carries threshold, sample-rule, and missing-data-rule fields, and the pilot scope carries cohort, observation-window, denominator, and OFF-comparator fields.",
+	          "A baseline-justified threshold carries its finite numeric value and basis; pending thresholds stay honestly pending-q0-baseline instead of a fabricated number.",
+	          "The retained pilot decision precedes expansion, and scope fields that are planned-until-pilot-admission keep the begin-gate engaged."
+	        ]
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+	      "seed": "e7-outcome-contract-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/capability-scoped-outcome.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-capability-scoped-outcome",
+	        "assertions": [
+	          "Every outcome binding names a non-empty set of E4-I/E5 capabilities from the contract's capability registry; unscoped outcomes and unknown capabilities fail closed.",
+	          "The pilot scope binds frozen selected profiles from the E6 profile document; unknown or unfrozen profile IDs fail closed.",
+	          "Attachment prefetch stays excluded from pilot admission unless explicitly widened, and results qualify only their exact frozen profile."
+	        ]
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-LOCAL-ALL-NOT-RELEASE",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e6-profile.json",
+	      "fixtureDigest": "e0f441195858370dcf1026a7987126f7c82ef6f3988354a45c62ab5d9f9f9516",
+	      "seed": "e7-local-all-not-release-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-LOCAL-ALL-NOT-RELEASE",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/local-all-not-release.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-local-all-not-release",
+	        "assertions": [
+	          "The all profile selection is a local deterministic aggregate, not E7 release readiness: the frozen E6 profile document keeps platform selection explicit — every platform is a frozen selected profile or explicitly unselected with freeze-before-any-results-qualify — and results qualify only their exact frozen profile, never an inferred all.",
+	          "The sustained selected-profile runtime evidence cases (CAS-E6-CRITICAL-SAMPLE-FLOOR, CAS-E6-PAIRED-REGRESSION, CAS-E6-FAILED-REQUEST-ACCOUNTING, CAS-E6-CROSSPROCESS-CRITICAL-SATURATION) stay present, requiredState required, and bound to non-empty frozen requiredProfiles; removing or downgrading one fails closed because the local aggregate cannot substitute for selected-profile runtime evidence.",
+	          "A case bound to requiredProfiles can never carry the local manifest-checker command as its runtime evidence, and all is rejected as a pseudo-profile binding: release readiness requires the selected-profile runtime evidence."
+	        ]
+	      }
+	    },
+	    {
+	      "id": "CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+	      "introducedBy": "E7",
+	      "owner": "verification-e7-outcome-contract",
+	      "fixture": "docs/verification/connectivity-e7-outcome-contract.json",
+	      "fixtureDigest": "180eee16b7091dad7ef21ef64971a69a450df89950ea9a81f3df660bddbcbb67",
+	      "seed": "e7-capability-evidence-binding-v1",
+	      "command": "node scripts/check-connectivity-aware-sync-cases.mjs docs/verification/connectivity-aware-sync-cases.json --case CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+	      "lane": "quick",
+	      "requiredState": "required",
+	      "timeoutSeconds": 60,
+	      "expectedDisposition": "planned",
+	      "retainedArtifacts": [
+	        "test-results/connectivity-aware-sync/<run-id>/e7/capability-evidence-binding.json"
+	      ],
+	      "contract": {
+	        "kind": "e7-capability-evidence-binding",
+	        "assertions": [
+	          "Capability-scoped outcomes bind only to capability evidence that exists: the frozen contract's capabilityScoping stays fail-closed — unscoped outcomes prohibited, non-empty capability sets from the registry, unknown capabilities rejected.",
+	          "Every pilot-admitted capability's owning unit (E4-I/E5) has at least one actual capability evidence binding in the manifest evidence registry; an admitted-without-evidence capability fails closed.",
+	          "A primary-usefulness outcome must bind at least one pilot-admitted capability from the registry: a capability that is not admitted to the pilot (attachment-prefetch) cannot inherit a usefulness claim."
+	        ]
+	      }
+	    }
+	  ],
+  "evidenceRegistry": [
+    {
+      "caseId": "CAS-E0-SYNC-STEP-SIGNATURES",
+      "requirementId": "connectivity-aware-sync/e0/sync-step-signatures",
+      "testId": "CAS-E0-SYNC-STEP-SIGNATURES",
+      "resultId": "result-CAS-E0-SYNC-STEP-SIGNATURES",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/sync-step-signatures.json"
+    },
+    {
+      "caseId": "CAS-E0-ROLLOUT-MODE",
+      "requirementId": "connectivity-aware-sync/e0/rollout-mode",
+      "testId": "CAS-E0-ROLLOUT-MODE",
+      "resultId": "result-CAS-E0-ROLLOUT-MODE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/rollout-mode-enum.json"
+    },
+    {
+      "caseId": "CAS-E0-CRITICAL-ADMISSION-ABORT",
+      "requirementId": "connectivity-aware-sync/e0/critical-admission-abort",
+      "testId": "CAS-E0-CRITICAL-ADMISSION-ABORT",
+      "resultId": "result-CAS-E0-CRITICAL-ADMISSION-ABORT",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/critical-admission-abort.json"
+    },
+    {
+      "caseId": "CAS-E0-CRITICAL-PROTECTED-SLOT",
+      "requirementId": "connectivity-aware-sync/e0/critical-protected-slot",
+      "testId": "CAS-E0-CRITICAL-PROTECTED-SLOT",
+      "resultId": "result-CAS-E0-CRITICAL-PROTECTED-SLOT",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/critical-protected-slot.json"
+    },
+    {
+      "caseId": "CAS-E0-CRITICAL-QUIET-RESUME",
+      "requirementId": "connectivity-aware-sync/e0/critical-quiet-resume",
+      "testId": "CAS-E0-CRITICAL-QUIET-RESUME",
+      "resultId": "result-CAS-E0-CRITICAL-QUIET-RESUME",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/critical-quiet-resume.json"
+    },
+    {
+      "caseId": "CAS-E0-BRIDGE-SCHEMA-V1",
+      "requirementId": "connectivity-aware-sync/e0/bridge-schema-v1",
+      "testId": "CAS-E0-BRIDGE-SCHEMA-V1",
+      "resultId": "result-CAS-E0-BRIDGE-SCHEMA-V1",
+      "gate": "merge",
+      "lane": "native",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/bridge-schema-v1.json"
+    },
+    {
+      "caseId": "CAS-E0-BRIDGE-UNKNOWN-VERSION-DENIAL",
+      "requirementId": "connectivity-aware-sync/e0/bridge-unknown-version-denial",
+      "testId": "CAS-E0-BRIDGE-UNKNOWN-VERSION-DENIAL",
+      "resultId": "result-CAS-E0-BRIDGE-UNKNOWN-VERSION-DENIAL",
+      "gate": "merge",
+      "lane": "native",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/bridge-unknown-version-denial.json"
+    },
+    {
+      "caseId": "CAS-E0-ATTACHMENT-ROUTE-TOKEN",
+      "requirementId": "connectivity-aware-sync/e0/attachment-route-token",
+      "testId": "CAS-E0-ATTACHMENT-ROUTE-TOKEN",
+      "resultId": "result-CAS-E0-ATTACHMENT-ROUTE-TOKEN",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/attachment-route-token.json"
+    },
+    {
+      "caseId": "CAS-E1-OFF-JSON",
+      "requirementId": "connectivity-aware-sync/e0/off-json-baseline",
+      "testId": "CAS-E1-OFF-JSON",
+      "resultId": "result-CAS-E1-OFF-JSON",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/post-v209-http.json"
+    },
+    {
+      "caseId": "CAS-E1-PREV209-OLD-BINARY-POST-SCHEMA",
+      "requirementId": "connectivity-aware-sync/e0/pre-v209-old-binary-post-schema",
+      "testId": "CAS-E1-PREV209-OLD-BINARY-POST-SCHEMA",
+      "resultId": "result-CAS-E1-PREV209-OLD-BINARY-POST-SCHEMA",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e0/pre-v209-old-binary-post-schema.json"
+    },
+    {
+      "caseId": "CAS-DX0-EVIDENCE-REGISTRY-BINDINGS",
+      "requirementId": "connectivity-aware-sync/dx0/evidence-registry-bindings",
+      "testId": "CAS-DX0-EVIDENCE-REGISTRY-BINDINGS",
+      "resultId": "result-CAS-DX0-EVIDENCE-REGISTRY-BINDINGS",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/evidence-registry-bindings.json"
+    },
+    {
+      "caseId": "CAS-DX0-FIVE-RUN-BASELINE",
+      "requirementId": "connectivity-aware-sync/dx0/five-run-baseline",
+      "testId": "CAS-DX0-FIVE-RUN-BASELINE",
+      "resultId": "result-CAS-DX0-FIVE-RUN-BASELINE",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/five-run-baseline.json"
+    },
+    {
+      "caseId": "CAS-DX0-20-SAMPLE-BASELINE",
+      "requirementId": "connectivity-aware-sync/dx0/20-sample-baseline",
+      "testId": "CAS-DX0-20-SAMPLE-BASELINE",
+      "resultId": "result-CAS-DX0-20-SAMPLE-BASELINE",
+      "gate": "release",
+      "lane": "browser",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/supported-host-20-sample-baseline.json"
+    },
+    {
+      "caseId": "CAS-DX0-DECISION-PRIVACY",
+      "requirementId": "connectivity-aware-sync/dx0/decision-privacy",
+      "testId": "CAS-DX0-DECISION-PRIVACY",
+      "resultId": "result-CAS-DX0-DECISION-PRIVACY",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/decision-privacy.json"
+    },
+    {
+      "caseId": "CAS-DX0-CLEANUP-IDEMPOTENCY",
+      "requirementId": "connectivity-aware-sync/dx0/cleanup-idempotency",
+      "testId": "CAS-DX0-CLEANUP-IDEMPOTENCY",
+      "resultId": "result-CAS-DX0-CLEANUP-IDEMPOTENCY",
+      "gate": "release",
+      "lane": "ubuntu",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/cleanup-receipt.json"
+    },
+    {
+      "caseId": "CAS-DX-MISSING-TOOL",
+      "requirementId": "connectivity-aware-sync/dx0/missing-tool",
+      "testId": "CAS-DX-MISSING-TOOL",
+      "resultId": "result-CAS-DX-MISSING-TOOL",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/missing-tool.json"
+    },
+    {
+      "caseId": "CAS-DX-STALE-STATE",
+      "requirementId": "connectivity-aware-sync/dx0/stale-state",
+      "testId": "CAS-DX-STALE-STATE",
+      "resultId": "result-CAS-DX-STALE-STATE",
+      "gate": "release",
+      "lane": "ubuntu",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/dx0/stale-state.json"
+    },
+    {
+      "caseId": "CAS-E4I-TRIGGER-STEP-BOUNDS",
+      "requirementId": "connectivity-aware-sync/e4i/trigger-step-bounds",
+      "testId": "CAS-E4I-TRIGGER-STEP-BOUNDS",
+      "resultId": "result-CAS-E4I-TRIGGER-STEP-BOUNDS",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e4i/trigger-step-bounds.json"
+    },
+    {
+      "caseId": "CAS-E4I-PERSISTENCE-RECOVERY",
+      "requirementId": "connectivity-aware-sync/e4i/persistence-recovery",
+      "testId": "CAS-E4I-PERSISTENCE-RECOVERY",
+      "resultId": "result-CAS-E4I-PERSISTENCE-RECOVERY",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e4i/persistence-recovery.json"
+    },
+    {
+      "caseId": "CAS-E4I-TRANSFER-LIFECYCLE",
+      "requirementId": "connectivity-aware-sync/e4i/transfer-lifecycle",
+      "testId": "CAS-E4I-TRANSFER-LIFECYCLE",
+      "resultId": "result-CAS-E4I-TRANSFER-LIFECYCLE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e4i/transfer-lifecycle.json"
+    },
+    {
+      "caseId": "CAS-E4I-CONSUMER-PARITY",
+      "requirementId": "connectivity-aware-sync/e4i/consumer-parity",
+      "testId": "CAS-E4I-CONSUMER-PARITY",
+      "resultId": "result-CAS-E4I-CONSUMER-PARITY",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e4i/consumer-parity.json"
+    },
+    {
+      "caseId": "CAS-E5-NEVER-UNKNOWN",
+      "requirementId": "connectivity-aware-sync/e5/never-unknown",
+      "testId": "CAS-E5-NEVER-UNKNOWN",
+      "resultId": "result-CAS-E5-NEVER-UNKNOWN",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/never-unknown.json"
+    },
+    {
+      "caseId": "CAS-E5-TRANSFER-TERMINALS",
+      "requirementId": "connectivity-aware-sync/e5/transfer-terminals",
+      "testId": "CAS-E5-TRANSFER-TERMINALS",
+      "resultId": "result-CAS-E5-TRANSFER-TERMINALS",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/transfer-terminals.json"
+    },
+    {
+      "caseId": "CAS-E5-SAVE-ALL-PARTIAL",
+      "requirementId": "connectivity-aware-sync/e5/save-all-partial",
+      "testId": "CAS-E5-SAVE-ALL-PARTIAL",
+      "resultId": "result-CAS-E5-SAVE-ALL-PARTIAL",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/save-all-partial.json"
+    },
+    {
+      "caseId": "CAS-E5-SAVE-ALL-CANCEL-RETRY",
+      "requirementId": "connectivity-aware-sync/e5/save-all-cancel-retry",
+      "testId": "CAS-E5-SAVE-ALL-CANCEL-RETRY",
+      "resultId": "result-CAS-E5-SAVE-ALL-CANCEL-RETRY",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/save-all-cancel-retry.json"
+    },
+    {
+      "caseId": "CAS-E5-GROUP-ANNOUNCER",
+      "requirementId": "connectivity-aware-sync/e5/group-announcer",
+      "testId": "CAS-E5-GROUP-ANNOUNCER",
+      "resultId": "result-CAS-E5-GROUP-ANNOUNCER",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/group-announcer.json"
+    },
+    {
+      "caseId": "CAS-E5-PREFERENCE-SAVE-FAILURE",
+      "requirementId": "connectivity-aware-sync/e5/preference-save-failure",
+      "testId": "CAS-E5-PREFERENCE-SAVE-FAILURE",
+      "resultId": "result-CAS-E5-PREFERENCE-SAVE-FAILURE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/preference-save-failure.json"
+    },
+    {
+      "caseId": "CAS-E5-PREFERENCE-DOUBLE-SUBMIT",
+      "requirementId": "connectivity-aware-sync/e5/preference-double-submit",
+      "testId": "CAS-E5-PREFERENCE-DOUBLE-SUBMIT",
+      "resultId": "result-CAS-E5-PREFERENCE-DOUBLE-SUBMIT",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/preference-double-submit.json"
+    },
+    {
+      "caseId": "CAS-E5-PREFERENCE-ACCOUNT-RACE",
+      "requirementId": "connectivity-aware-sync/e5/preference-account-race",
+      "testId": "CAS-E5-PREFERENCE-ACCOUNT-RACE",
+      "resultId": "result-CAS-E5-PREFERENCE-ACCOUNT-RACE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/preference-account-race.json"
+    },
+    {
+      "caseId": "CAS-E5-PREVIEW-TARGET-RACE",
+      "requirementId": "connectivity-aware-sync/e5/preview-target-race",
+      "testId": "CAS-E5-PREVIEW-TARGET-RACE",
+      "resultId": "result-CAS-E5-PREVIEW-TARGET-RACE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/preview-target-race.json"
+    },
+    {
+      "caseId": "CAS-E5-PREVIEW-UNAVAILABLE",
+      "requirementId": "connectivity-aware-sync/e5/preview-unavailable",
+      "testId": "CAS-E5-PREVIEW-UNAVAILABLE",
+      "resultId": "result-CAS-E5-PREVIEW-UNAVAILABLE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/preview-unavailable.json"
+    },
+    {
+      "caseId": "CAS-E5-CROSSED-NETWORK-ATTACHMENT",
+      "requirementId": "connectivity-aware-sync/e5/crossed-network-attachment",
+      "testId": "CAS-E5-CROSSED-NETWORK-ATTACHMENT",
+      "resultId": "result-CAS-E5-CROSSED-NETWORK-ATTACHMENT",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e5/crossed-network-attachment.json"
+    },
+    {
+      "caseId": "CAS-E6-PROFILE-FROZEN",
+      "requirementId": "connectivity-aware-sync/e6/profile-frozen",
+      "testId": "CAS-E6-PROFILE-FROZEN",
+      "resultId": "result-CAS-E6-PROFILE-FROZEN",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/profile-frozen.json"
+    },
+    {
+      "caseId": "CAS-E6-CRITICAL-SAMPLE-FLOOR",
+      "requirementId": "connectivity-aware-sync/e6/critical-sample-floor",
+      "testId": "CAS-E6-CRITICAL-SAMPLE-FLOOR",
+      "resultId": "result-CAS-E6-CRITICAL-SAMPLE-FLOOR",
+      "gate": "release",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/critical-sample-floor.json"
+    },
+    {
+      "caseId": "CAS-E6-PAIRED-REGRESSION",
+      "requirementId": "connectivity-aware-sync/e6/paired-regression",
+      "testId": "CAS-E6-PAIRED-REGRESSION",
+      "resultId": "result-CAS-E6-PAIRED-REGRESSION",
+      "gate": "release",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/paired-regression.json"
+    },
+    {
+      "caseId": "CAS-E6-FAILED-REQUEST-ACCOUNTING",
+      "requirementId": "connectivity-aware-sync/e6/failed-request-accounting",
+      "testId": "CAS-E6-FAILED-REQUEST-ACCOUNTING",
+      "resultId": "result-CAS-E6-FAILED-REQUEST-ACCOUNTING",
+      "gate": "release",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/failed-request-accounting.json"
+    },
+    {
+      "caseId": "CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
+      "requirementId": "connectivity-aware-sync/e6/crossprocess-critical-saturation",
+      "testId": "CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
+      "resultId": "result-CAS-E6-CROSSPROCESS-CRITICAL-SATURATION",
+      "gate": "release",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/crossprocess-critical-saturation.json"
+    },
+    {
+      "caseId": "CAS-E6-DIAGNOSTIC-BOUNDS",
+      "requirementId": "connectivity-aware-sync/e6/diagnostic-bounds",
+      "testId": "CAS-E6-DIAGNOSTIC-BOUNDS",
+      "resultId": "result-CAS-E6-DIAGNOSTIC-BOUNDS",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/diagnostic-bounds.json"
+    },
+    {
+      "caseId": "CAS-E6-EXPORTER-FAILURE",
+      "requirementId": "connectivity-aware-sync/e6/exporter-failure",
+      "testId": "CAS-E6-EXPORTER-FAILURE",
+      "resultId": "result-CAS-E6-EXPORTER-FAILURE",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/exporter-failure.json"
+    },
+    {
+      "caseId": "CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "requirementId": "connectivity-aware-sync/e6/metric-label-allowlist",
+      "testId": "CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "resultId": "result-CAS-E6-METRIC-LABEL-ALLOWLIST",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/metric-label-allowlist.json"
+    },
+    {
+      "caseId": "CAS-E6-SMALL-COHORT-SUPPRESSION",
+      "requirementId": "connectivity-aware-sync/e6/small-cohort-suppression",
+      "testId": "CAS-E6-SMALL-COHORT-SUPPRESSION",
+      "resultId": "result-CAS-E6-SMALL-COHORT-SUPPRESSION",
+      "gate": "merge",
+      "lane": "core",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e6/small-cohort-suppression.json"
+    },
+    {
+      "caseId": "CAS-E7-OUTCOME-CONTRACT-FROZEN",
+      "requirementId": "connectivity-aware-sync/e7/outcome-contract-frozen",
+      "testId": "CAS-E7-OUTCOME-CONTRACT-FROZEN",
+      "resultId": "result-CAS-E7-OUTCOME-CONTRACT-FROZEN",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/outcome-contract-frozen.json"
+    },
+    {
+      "caseId": "CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+      "requirementId": "connectivity-aware-sync/e7/usefulness-not-safety-only",
+      "testId": "CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+      "resultId": "result-CAS-E7-USEFULNESS-NOT-SAFETY-ONLY",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/usefulness-not-safety-only.json"
+    },
+    {
+      "caseId": "CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+      "requirementId": "connectivity-aware-sync/e7/incomplete-outcome-no-expansion",
+      "testId": "CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+      "resultId": "result-CAS-E7-INCOMPLETE-OUTCOME-NO-EXPANSION",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/incomplete-outcome-no-expansion.json"
+    },
+    {
+      "caseId": "CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+      "requirementId": "connectivity-aware-sync/e7/capability-scoped-outcome",
+      "testId": "CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+      "resultId": "result-CAS-E7-CAPABILITY-SCOPED-OUTCOME",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/capability-scoped-outcome.json"
+    },
+    {
+      "caseId": "CAS-E7-LOCAL-ALL-NOT-RELEASE",
+      "requirementId": "connectivity-aware-sync/e7/local-all-not-release",
+      "testId": "CAS-E7-LOCAL-ALL-NOT-RELEASE",
+      "resultId": "result-CAS-E7-LOCAL-ALL-NOT-RELEASE",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/local-all-not-release.json"
+    },
+    {
+      "caseId": "CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+      "requirementId": "connectivity-aware-sync/e7/capability-evidence-binding",
+      "testId": "CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+      "resultId": "result-CAS-E7-CAPABILITY-EVIDENCE-BINDING",
+      "gate": "merge",
+      "lane": "quick",
+      "retainedArtifact": "test-results/connectivity-aware-sync/<run-id>/e7/capability-evidence-binding.json"
+    }
+  ]
+}

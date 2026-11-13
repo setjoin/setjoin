@@ -1,0 +1,17 @@
+{
+  "loaded": true,
+  "database_unchanged": true,
+  "closed_sessions": [
+    "family",
+    "jti",
+    "old"
+  ],
+  "revoked": {
+    "expired": false,
+    "family": true,
+    "jti": true,
+    "new": false,
+    "old": true,
+    "other_user": false
+  }
+}

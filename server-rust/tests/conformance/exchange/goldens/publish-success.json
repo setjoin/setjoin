@@ -1,0 +1,334 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "exchange.assessment.publish",
+        "after_state": {
+          "projectionDigest": "<projection-sha256>",
+          "receiptArtifactId": "<artifact-0>"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<run-a>",
+        "target_type": "exchange_assessment_run",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "artifacts": [
+            {
+              "aad_sha256": "<binding-sha256>",
+              "ciphertext_size": "<receipt ciphertext size>",
+              "created_at": "<timestamp>",
+              "crypto_profile": "standard",
+              "deleted_at": null,
+              "disposition": "active",
+              "id": "<artifact-0>",
+              "key_id": "db-encryption-key:v1",
+              "kind": "receipt",
+              "nonce": "<12-byte nonce>",
+              "object_key": "exchange-assessment/<domain-a>/<project-a>/<run-a>/receipts/<object-0>.sjae",
+              "retention_until": null,
+              "run_id": "<run-a>",
+              "sha256": "<receipt-sha256>",
+              "wrapped_dek": "<wrapped-DEK>"
+            }
+          ],
+          "claims": [
+            {
+              "id": "<claim-0>",
+              "invalidated_at": null,
+              "invalidation_reason": null,
+              "projection": {
+                "rows": [
+                  {
+                    "capabilityId": "EX-CALENDAR-VISIBILITY",
+                    "claimState": "supported",
+                    "outcomeMapping": "native"
+                  }
+                ],
+                "runGeneration": 1,
+                "runId": "<run-a>",
+                "schemaVersion": "setjoin.exchange.claim-projection/v1",
+                "supportCellStale": false
+              },
+              "projection_digest": "<projection-sha256>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "resolved_at": "<timestamp>",
+              "resolved_by": "<other>",
+              "run_generation": 1,
+              "run_id": "<run-a>",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963"
+            }
+          ],
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "publications": [
+            {
+              "id": "<publication-0>",
+              "projection_digest": "<projection-sha256>",
+              "published_at": "<timestamp>",
+              "published_by": "<admin>",
+              "receipt_artifact_id": "<artifact-0>",
+              "revoked_at": null,
+              "run_id": "<run-a>"
+            }
+          ],
+          "receipts": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "id": "<receipt-0>",
+              "kind": "publication",
+              "receipt": {
+                "algorithm": "ed25519",
+                "claims": {
+                  "disposition": "published_evidence_snapshot",
+                  "installationId": "<installation>",
+                  "issuedAt": "<timestamp>",
+                  "keyId": "blobs1-test-continuity",
+                  "kind": "publication",
+                  "projectId": "<project-a>",
+                  "receiptId": "<receipt-id>",
+                  "schemaVersion": "setjoin.exchange.receipt/v1",
+                  "subjectSha256": "<projection-sha256>",
+                  "tenantId": "<domain-a>"
+                },
+                "signature": "<Ed25519 signature>"
+              },
+              "run_id": "<run-a>",
+              "signature": "<64-byte Ed25519 signature>",
+              "signature_algorithm": "ed25519",
+              "signing_key_id": "blobs1-test-continuity",
+              "subject_digest": "<projection-sha256>"
+            }
+          ],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "ready",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "artifacts": [],
+          "claims": [
+            {
+              "id": "<claim-0>",
+              "invalidated_at": null,
+              "invalidation_reason": null,
+              "projection": {
+                "rows": [
+                  {
+                    "capabilityId": "EX-CALENDAR-VISIBILITY",
+                    "claimState": "supported",
+                    "outcomeMapping": "native"
+                  }
+                ],
+                "runGeneration": 1,
+                "runId": "<run-a>",
+                "schemaVersion": "setjoin.exchange.claim-projection/v1",
+                "supportCellStale": false
+              },
+              "projection_digest": "<projection-sha256>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "resolved_at": "<timestamp>",
+              "resolved_by": "<other>",
+              "run_generation": 1,
+              "run_id": "<run-a>",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963"
+            }
+          ],
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "publications": [],
+          "receipts": [],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "ready",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "exchange_assessment"
+      }
+    ],
+    "io": [
+      {
+        "body_len": "<encoded envelope>",
+        "body_sha256": "<AEAD-validated envelope>",
+        "content_type": "application/vnd.setjoin.exchange-artifact+json",
+        "method": "PUT",
+        "path": "/mailblobs/exchange-assessment/<domain-a>/<project-a>/<run-a>/receipts/<object-0>.sjae"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "exchange_assessment",
+        "payload": {
+          "event": "publication.created",
+          "runId": "<run-a>"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"projectionDigest\":\"<projection-sha256>\"}",
+      "external_path": "/api/admin/exchange-replacement/runs/{runId}/publications",
+      "method": "POST",
+      "path": "/admin/exchange-replacement/runs/{runId}/publications"
+    },
+    "response": {
+      "body": "{\"id\":\"<publication-0>\",\"run_id\":\"<run-a>\",\"revoked_at\":null,\"published_at\":\"<timestamp>\",\"published_by\":\"<admin>\",\"projection_digest\":\"<projection-sha256>\",\"receiptArtifactId\":\"<artifact-0>\",\"receipt_artifact_id\":\"<artifact-0>\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "230"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox3"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /admin/exchange-replacement/runs/{runId}/publications"
+}

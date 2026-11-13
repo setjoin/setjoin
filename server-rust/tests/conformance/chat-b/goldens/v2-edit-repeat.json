@@ -1,0 +1,241 @@
+{
+  "case": "edit-repeat-v2",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "chainValid": true,
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 3,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat3-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "public",
+            "worm_mode": null
+          }
+        ],
+        "chat_message_pins": [],
+        "chat_message_reactions": [],
+        "chat_message_revisions": [
+          {
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "edited_by": "<actor>",
+            "id": "<chat_message_revisions-0>",
+            "message_id": "<message>",
+            "prior_body": "chat3 root"
+          },
+          {
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "edited_by": "<actor>",
+            "id": "<chat_message_revisions-1>",
+            "message_id": "<message>",
+            "prior_body": "chat3 edited"
+          }
+        ],
+        "chat_messages": [
+          {
+            "author_id": "<actor>",
+            "body": "chat3 edited",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": "<timestamp>",
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'chat3':1 'edited':2",
+            "seq": 3,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "chat_saved_messages": [
+          {
+            "created_at": "<timestamp>",
+            "message_id": "<message>",
+            "user_id": "<actor>"
+          }
+        ],
+        "coreAudit": []
+      },
+      "before": {
+        "chainValid": true,
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 1,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat3-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "public",
+            "worm_mode": null
+          }
+        ],
+        "chat_message_pins": [],
+        "chat_message_reactions": [],
+        "chat_message_revisions": [],
+        "chat_messages": [
+          {
+            "author_id": "<actor>",
+            "body": "chat3 root",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message>",
+            "msg_type": "text",
+            "parent_message_id": null,
+            "payload": null,
+            "search_tsv": "'chat3':1 'root':2",
+            "seq": 1,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "chat_saved_messages": [
+          {
+            "created_at": "<timestamp>",
+            "message_id": "<message>",
+            "user_id": "<actor>"
+          }
+        ],
+        "coreAudit": []
+      }
+    },
+    "firstResponse": {
+      "body": {
+        "seq": 2
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat3-oracle"
+      },
+      "status": 200
+    },
+    "notify": [
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_edited",
+          "messageId": "<message>",
+          "seq": 2
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_edited",
+          "messageId": "<message>",
+          "seq": 3
+        },
+        "recipient": "actor"
+      }
+    ],
+    "request": {
+      "method": "PATCH",
+      "path": "/chat/messages/{id}",
+      "wireMethod": "PATCH"
+    },
+    "response": {
+      "body": {
+        "seq": 3
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat3-oracle"
+      },
+      "status": 200
+    }
+  },
+  "route": "PATCH /chat/messages/{id}"
+}

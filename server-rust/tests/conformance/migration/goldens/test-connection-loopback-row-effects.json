@@ -1,0 +1,145 @@
+{
+  "case": "loopback-row-effects",
+  "effects": [
+    {
+      "after": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [],
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "before": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [],
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "table": "migration_jobs+messages+tags+objects"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/migration/test-connection"
+}

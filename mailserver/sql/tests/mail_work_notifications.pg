@@ -1,0 +1,102 @@
+BEGIN;
+SELECT plan(29);
+
+SELECT mk_shared_mailbox('notify-shared') AS shared_mb \gset
+SELECT mk_account('notify-full') AS full_mb \gset
+SELECT mk_account('notify-a2') AS a2_mb \gset
+SELECT mk_account('notify-a3') AS a3_mb \gset
+SELECT mk_account('notify-a4') AS a4_mb \gset
+SELECT mk_account('notify-a5') AS a5_mb \gset
+SELECT mk_account('notify-read') AS read_mb \gset
+SELECT user_id AS full_user FROM mailboxes WHERE id=:full_mb \gset
+SELECT user_id AS a2 FROM mailboxes WHERE id=:a2_mb \gset
+SELECT user_id AS a3 FROM mailboxes WHERE id=:a3_mb \gset
+SELECT user_id AS a4 FROM mailboxes WHERE id=:a4_mb \gset
+SELECT user_id AS a5 FROM mailboxes WHERE id=:a5_mb \gset
+SELECT user_id AS read_user FROM mailboxes WHERE id=:read_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by) VALUES
+  (:shared_mb,:full_user,'full_access',:full_user),(:shared_mb,:a2,'send_as',:full_user),
+  (:shared_mb,:a3,'send_as',:full_user),(:shared_mb,:a4,'send_as',:full_user),
+  (:shared_mb,:a5,'send_as',:full_user),(:shared_mb,:read_user,'read',:full_user);
+
+SELECT throws_ok(format($q$SELECT mail_work_notification_preferences_set(%s,%s,%L,'assignment','digest','UTC',9,0,%L)$q$,
+  :shared_mb,:full_user,gen_random_uuid(),repeat('a',64)),'BZ300',NULL,'notification preferences fail closed while OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_notifications';
+SELECT gen_random_uuid() AS pref_op \gset
+SELECT is(mail_work_notification_preferences_set(:shared_mb,:full_user,:'pref_op','assignment','digest','Asia/Shanghai',9,0,repeat('b',64))->>'generation',
+  '1','initial notification preference has generation one');
+SELECT is((mail_work_notification_preferences_set(:shared_mb,:full_user,:'pref_op','assignment','digest','Asia/Shanghai',9,0,repeat('b',64))->>'replayed')::boolean,
+  true,'exact notification preference replay is idempotent');
+SELECT throws_ok(format($q$SELECT mail_work_notification_preferences_set(%s,%s,%L,'assignment','off','UTC',8,1,%L)$q$,
+  :shared_mb,:full_user,:'pref_op',repeat('c',64)),'BZ303',NULL,'notification preference UUID reuse conflicts');
+SELECT throws_ok(format($q$SELECT mail_work_notification_preferences_set(%s,%s,%L,'assignment','off','UTC',8,0,%L)$q$,
+  :shared_mb,:full_user,gen_random_uuid(),repeat('d',64)),'BZ304',NULL,'notification preference stale generation conflicts');
+SELECT is(mail_work_notification_preferences_get(:shared_mb,:full_user)->'list'->0->>'timezone',
+  'Asia/Shanghai','notification preference read returns the committed timezone');
+SELECT is(jsonb_array_length(mail_work_notification_preferences_get(:shared_mb,:full_user)->'list'),8,
+  'notification preference read projects every explicit category including defaults');
+SELECT is((SELECT item->>'delivery' FROM jsonb_array_elements(
+  mail_work_notification_preferences_get(:shared_mb,:full_user)->'list') item
+  WHERE item->>'category'='due'),'digest','due-soon defaults to the calm digest channel');
+
+SELECT gen_random_uuid() AS out_event \gset
+INSERT INTO mail_thread_work_events(id,mailbox_id,thread_id,generation,event_type,actor_user_id,
+  actor_display_snapshot,before_state,after_state,reason)
+VALUES(:'out_event',:shared_mb,'notify-outbox',1,'assigned',:full_user,'notify-full','{}','{}','test');
+INSERT INTO mail_work_outbox(event_id,consumer_kind,dedupe_key,payload)
+VALUES(:'out_event','push',:'out_event'||':push','{"version":1}');
+SELECT is(jsonb_array_length(mail_work_outbox_claim(ARRAY['push'],10)),1,'worker claims one bounded outbox item');
+SELECT is((SELECT state FROM mail_work_outbox WHERE event_id=:'out_event'),'claimed','claim leases the outbox row');
+SELECT ok(mail_work_outbox_finish((SELECT id FROM mail_work_outbox WHERE event_id=:'out_event'),false,NULL,'retry me'),
+  'failed delivery is recorded');
+SELECT is((SELECT state FROM mail_work_outbox WHERE event_id=:'out_event'),'pending','retryable failure returns to pending');
+SELECT is((mail_work_outbox_claim(ARRAY['push'],10)->0->>'attempts')::integer,2,'retry claim increments attempts exactly once');
+SELECT ok(mail_work_outbox_finish((SELECT id FROM mail_work_outbox WHERE event_id=:'out_event'),true,'{"provider":"test"}',NULL),
+  'successful delivery terminalizes the claim');
+SELECT is((SELECT receipt->>'provider' FROM mail_work_outbox WHERE event_id=:'out_event'),'test','delivery receipt is retained');
+
+INSERT INTO mail_thread_work(mailbox_id,thread_id,status,assignee_user_id,completed_at)
+SELECT :shared_mb,'metric-'||g,'done',
+  (ARRAY[:full_user,:a2,:a3,:a4,:a5]::bigint[])[1+((g-1)%5)],statement_timestamp()
+FROM generate_series(1,20) g;
+INSERT INTO mail_thread_work_events(id,mailbox_id,thread_id,generation,event_type,actor_user_id,
+  actor_display_snapshot,before_state,after_state,reason,occurred_at)
+SELECT gen_random_uuid(),:shared_mb,'metric-'||g,1,'completed',
+  (ARRAY[:full_user,:a2,:a3,:a4,:a5]::bigint[])[1+((g-1)%5)],'actor','{}','{}','completed',statement_timestamp()
+FROM generate_series(1,20) g;
+SELECT throws_ok(format($q$SELECT mail_work_metrics_rebuild(%s,%s,current_date,current_date,1)$q$,:shared_mb,:full_user),
+  'BZ300',NULL,'analytics rebuild fails closed while OFF');
+SELECT throws_ok(format($q$SELECT mail_work_metrics_get(%s,%s,current_date,current_date,1)$q$,:shared_mb,:full_user),
+  'BZ300',NULL,'analytics reads fail closed while OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_analytics';
+SELECT (statement_timestamp() AT TIME ZONE 'UTC')::date AS metric_day \gset
+SELECT throws_ok(format($q$SELECT mail_work_metrics_rebuild(%s,%s,%L::date,%L::date,1)$q$,
+  :shared_mb,:read_user,:'metric_day',:'metric_day'),
+  'BZ005',NULL,'read-only delegate cannot rebuild analytics');
+SELECT is((mail_work_metrics_rebuild(:shared_mb,:full_user,:'metric_day'::date,:'metric_day'::date,1)->>'daysRebuilt')::integer,
+  1,'metric projector rebuilds the requested day deterministically');
+SELECT is((SELECT conversation_count FROM mail_work_metric_daily WHERE mailbox_id=:shared_mb AND metric_day=:'metric_day'::date),
+  20,'metric projection counts only conversations with authoritative work state');
+SELECT is((SELECT actor_cohort_count FROM mail_work_metric_daily WHERE mailbox_id=:shared_mb AND metric_day=:'metric_day'::date),
+  5,'metric projection records only aggregate actor cohort size');
+SELECT is((mail_work_metrics_get(:shared_mb,:full_user,:'metric_day'::date,:'metric_day'::date,1)->>'available')::boolean,
+  true,'aggregate view opens only after the 5-actor/20-conversation floor');
+SELECT ok(mail_work_metrics_get(:shared_mb,:full_user,:'metric_day'::date,:'metric_day'::date,1)::text !~ 'user_id|actor_user',
+  'analytics response contains no individual score or actor projection');
+SELECT is((SELECT first_response_count FROM mail_work_metric_daily WHERE mailbox_id=:shared_mb AND metric_day=:'metric_day'::date),
+  0,'missing first-response events remain explicit zero rather than inferred');
+
+SELECT is((mail_work_sla_scan(10)->>'disabled')::boolean,true,'SLA scanner is inert while work is OFF');
+UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.shared_mail_work','feature.shared_mail_integrations');
+INSERT INTO mail_thread_work(mailbox_id,thread_id,status,assignee_user_id,due_at)
+VALUES(:shared_mb,'overdue-thread','owned',:a2,statement_timestamp()-interval '1 minute');
+SELECT is((mail_work_sla_scan(10)->>'scanned')::integer,1,'SLA scanner marks one bounded overdue row');
+SELECT is((SELECT count(*)::integer FROM mail_thread_work_events WHERE mailbox_id=:shared_mb
+  AND thread_id='overdue-thread' AND event_type='sla_breached'),1,'SLA scanner appends one immutable breach event');
+SELECT is((SELECT count(*)::integer FROM mail_work_outbox o JOIN mail_thread_work_events e ON e.id=o.event_id
+  WHERE e.mailbox_id=:shared_mb AND e.thread_id='overdue-thread' AND o.consumer_kind='webhook'),1,
+  'approved integration flag queues one deduplicated webhook effect');
+SELECT is((mail_work_sla_scan(10)->>'scanned')::integer,0,'SLA scanner replay does not duplicate the breach');
+
+SELECT * FROM finish();
+ROLLBACK;

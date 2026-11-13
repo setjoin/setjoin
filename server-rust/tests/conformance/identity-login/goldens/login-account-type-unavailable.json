@@ -1,0 +1,29 @@
+{
+  "case": "login-account-type-unavailable",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@<domain>\",\"password\":\"Password1!\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"detail\":\"conditional access context unavailable\",\"instance\":\"/auth/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 503,
+      "tokens": []
+    }
+  },
+  "route": "POST /auth/login"
+}

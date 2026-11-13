@@ -1,0 +1,125 @@
+-- pgTAP: contact_groups schema + group reducers (A4 — personal contact groups).
+-- DIVERGENT IDS (regression guard): users.id (5601) != mailbox id (5901).
+-- p_account_id is the JMAP accountId = the primary MAILBOX id. Every ownership
+-- join is mailbox_id = p_account_id, NEVER user_id = p_account_id; coincident ids
+-- would mask a re-scoping regression.
+BEGIN;
+SELECT plan(19);
+
+INSERT INTO domains (name, is_local) VALUES ('grp.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (5601, 'grpuser', (SELECT id FROM domains WHERE name='grp.test'), 'g@grp.test', 'Group User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (5901, 5601, (SELECT id FROM domains WHERE name='grp.test'), 'g@grp.test', 'Group User', 'personal', TRUE);
+
+-- A second, foreign mailbox (different user) used for ownership-isolation checks.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (5602, 'foreign', (SELECT id FROM domains WHERE name='grp.test'), 'f@grp.test', 'Foreign User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (5902, 5602, (SELECT id FROM domains WHERE name='grp.test'), 'f@grp.test', 'Foreign User', 'personal', TRUE);
+
+-- Task 1: schema.
+SELECT has_table('contact_groups', 'contact_groups table exists');
+SELECT has_table('contact_group_members', 'contact_group_members table exists');
+SELECT col_is_pk('contact_group_members', ARRAY['id'], 'members has surrogate pk');
+
+-- Task 2: group create.
+SELECT lives_ok($$ SELECT jmap_contact_group_set_create(5901,
+  '{"k1":{"name":"Team"}}'::JSONB) $$, 'create group');
+SELECT is(
+  (SELECT (jmap_contact_group_set_create(5901,'{"k2":{"name":"Marketing"}}'::JSONB)->'created') ? 'k2'),
+  true, 'create returns client key');
+
+-- duplicate name (case-insensitive) is rejected → notCreated (BZ044 caught).
+SELECT is(
+  (SELECT (jmap_contact_group_set_create(5901,'{"k3":{"name":"team"}}'::JSONB)->'notCreated') ? 'k3'),
+  true, 'duplicate name (case-insensitive) lands in notCreated');
+
+-- seed a contact + addressbook (divergent mailbox 5901) to add as member.
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (5901, 5901, 'Default', TRUE);
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, emails)
+  VALUES (5901, 5901, 'u1', 'Alice', '[{"type":"work","address":"alice@grp.test","is_primary":true}]'::JSONB);
+
+-- add member by contact_id.
+SELECT lives_ok($$ SELECT contact_group_members_set(5901,
+  (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'),
+  '[{"contactId":5901}]'::JSONB, '[]'::JSONB) $$, 'add contact member');
+
+-- add member by free email.
+SELECT lives_ok($$ SELECT contact_group_members_set(5901,
+  (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'),
+  '[{"email":"bob@ext.test"}]'::JSONB, '[]'::JSONB) $$, 'add email member');
+
+-- expand returns both recipients (contact's primary email + the free email).
+SELECT is(
+  (SELECT jsonb_array_length(expand_contact_group(5901,
+    (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team')))),
+  2, 'expand returns 2 recipients');
+
+-- expand resolves the contact to its primary email.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements(expand_contact_group(5901,
+    (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'))) r
+   WHERE r->>'email' = 'alice@grp.test'),
+  1, 'expand resolves contact member to its primary email');
+
+-- ownership isolation: a different mailbox cannot expand the group (no exception, empty).
+SELECT is(
+  (SELECT jsonb_array_length(expand_contact_group(5902,
+    (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team')))),
+  0, 'foreign mailbox cannot expand');
+
+-- a foreign mailbox cannot add members (BZ045).
+SELECT throws_ok($$ SELECT contact_group_members_set(5902,
+  (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'),
+  '[{"email":"evil@x.test"}]'::JSONB, '[]'::JSONB) $$,
+  'BZ045', NULL, 'foreign mailbox cannot mutate members (BZ045)');
+
+-- remove a member by email.
+SELECT lives_ok($$ SELECT contact_group_members_set(5901,
+  (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'),
+  '[]'::JSONB, '[{"email":"bob@ext.test"}]'::JSONB) $$, 'remove email member');
+SELECT is(
+  (SELECT jsonb_array_length(expand_contact_group(5901,
+    (SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team')))),
+  1, 'expand returns 1 recipient after removal');
+
+-- query lists both groups, ordered.
+SELECT is(
+  (SELECT jsonb_array_length(jmap_contact_group_query(5901)->'ids')),
+  2, 'query lists groups');
+
+-- JMAP Id[] elements are STRINGS (numeric ids 400 in ContactGroup/get, Go Ids []string).
+SELECT is(
+  (SELECT jsonb_typeof(jmap_contact_group_query(5901)->'ids'->0)),
+  'string',
+  'contact group query ids are JMAP Id strings, not numbers');
+
+-- get returns the group with member detail + memberCount.
+SELECT is(
+  (SELECT (jmap_contact_group_get(5901,
+    ARRAY[(SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team')])
+    ->'list'->0->>'memberCount')),
+  '1', 'get returns memberCount');
+
+-- ── GOLDEN ENVELOPE (seam adoption, behavior-preserving) ──────────────────────
+-- jmap_contact_group_get routes through build_jmap_get_response (already scoped).
+-- Pin accountId/state/notFound byte-for-byte for [own_group, foreign_group].
+-- The foreign group (mailbox 5902) MUST be in notFound (it always was — this is a
+-- BYTE-IDENTICAL check that routing did not change the scoped behavior).
+INSERT INTO contact_groups (id, mailbox_id, name) VALUES (5950, 5902, 'Foreign');
+SELECT is(
+  jmap_contact_group_get(5901,
+    ARRAY[(SELECT id FROM contact_groups WHERE mailbox_id=5901 AND name='Team'), 5950])
+    ->'notFound',
+  jsonb_build_array('5950'),
+  'group_get golden notFound: a foreign group id stays in notFound (scoped, unchanged)');
+
+-- p_ids NULL ⇒ notFound present + JSON null (the all-objects edge, unchanged).
+SELECT ok(
+  (jmap_contact_group_get(5901, NULL) ? 'notFound')
+  AND jsonb_typeof(jmap_contact_group_get(5901, NULL)->'notFound') = 'null',
+  'group_get with NULL ids ⇒ notFound present + JSON null');
+
+SELECT * FROM finish();
+ROLLBACK;

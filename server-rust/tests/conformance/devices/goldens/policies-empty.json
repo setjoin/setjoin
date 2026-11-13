@@ -1,0 +1,303 @@
+{
+  "case": "empty",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "device_events": [],
+          "devices": [
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": "<admin>",
+              "id": 960001,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "enrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": true,
+              "approved_by": "<admin>",
+              "enrolled_by": "<admin>",
+              "id": 960002,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "approved",
+              "touched": false,
+              "user_id": "<other>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960003,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "unenrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960004,
+              "revoked": true,
+              "secret_rotated": false,
+              "state": "revoked",
+              "touched": false,
+              "user_id": "<other>"
+            }
+          ],
+          "enroll_events": [
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960001,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "first",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "wave",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "enrolled",
+              "new": false,
+              "reason": "ok",
+              "to": "approved"
+            },
+            {
+              "actor_user_id": null,
+              "device_id": 960004,
+              "from": "approved",
+              "new": false,
+              "reason": "lost",
+              "to": "revoked"
+            }
+          ],
+          "mdm_state": [
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d001",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d002",
+              "level": "device",
+              "requested": true,
+              "touched": false,
+              "user_id": "<other>",
+              "wipe": "pending"
+            },
+            {
+              "acked": true,
+              "device_id": "00000000-0000-4000-8000-00000000d003",
+              "level": "account",
+              "requested": true,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "executed"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d004",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            }
+          ],
+          "policies": []
+        },
+        "before": {
+          "device_events": [],
+          "devices": [
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": "<admin>",
+              "id": 960001,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "enrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": true,
+              "approved_by": "<admin>",
+              "enrolled_by": "<admin>",
+              "id": 960002,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "approved",
+              "touched": false,
+              "user_id": "<other>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960003,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "unenrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960004,
+              "revoked": true,
+              "secret_rotated": false,
+              "state": "revoked",
+              "touched": false,
+              "user_id": "<other>"
+            }
+          ],
+          "enroll_events": [
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960001,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "first",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "wave",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "enrolled",
+              "new": false,
+              "reason": "ok",
+              "to": "approved"
+            },
+            {
+              "actor_user_id": null,
+              "device_id": 960004,
+              "from": "approved",
+              "new": false,
+              "reason": "lost",
+              "to": "revoked"
+            }
+          ],
+          "mdm_state": [
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d001",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d002",
+              "level": "device",
+              "requested": true,
+              "touched": false,
+              "user_id": "<other>",
+              "wipe": "pending"
+            },
+            {
+              "acked": true,
+              "device_id": "00000000-0000-4000-8000-00000000d003",
+              "level": "account",
+              "requested": true,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "executed"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d004",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            }
+          ],
+          "policies": []
+        },
+        "table": "mdm_device_state+devices+device_enroll_events+device_events+mdm_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/mdm/policies",
+      "method": "GET",
+      "path": "/admin/mdm/policies"
+    },
+    "response": {
+      "body": "{\"policies\":[],\"total\":0}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "26"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/mdm/policies"
+}

@@ -1,0 +1,87 @@
+-- smime_harvest_recipient_cert.pg — pgTAP for the SP1 Phase-2 harvest UPSERT reducer.
+--
+-- The reducer is the "logic where the data is" write seam the inbound harvest hook
+-- calls: one UPSERT into recipient_smime_certs keyed on the table's
+-- UNIQUE(owner_user_id, email, fingerprint). On conflict it bumps last_seen only
+-- (first_seen is preserved). Email is lower-cased + trimmed on write; source is
+-- fixed to 'harvested'. Returns the id of the inserted-or-existing row.
+BEGIN;
+SELECT plan(11);
+
+-- Seed an owner user in a fresh test domain (high disjoint ids avoid collisions).
+INSERT INTO domains (id, name, is_local)
+  VALUES (880001, 'harvest.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (880001, 'harvest-owner', 880001, 'owner@harvest.test', 'Harvest Owner', 'x');
+
+SELECT has_function('smime_harvest_recipient_cert');
+
+-- First harvest: one row created, lower-cased email, source='harvested', metadata set.
+SELECT lives_ok(
+  $$SELECT smime_harvest_recipient_cert(
+      880001, 'Signer@EXAMPLE.com', 'pem-A', 'fp-A',
+      '2026-01-01T00:00:00Z'::timestamptz, '2027-01-01T00:00:00Z'::timestamptz)$$,
+  'first harvest call succeeds');
+
+SELECT is(
+  (SELECT count(*)::int FROM recipient_smime_certs WHERE owner_user_id = 880001),
+  1, 'exactly one row after first harvest');
+
+SELECT is(
+  (SELECT email FROM recipient_smime_certs WHERE owner_user_id = 880001 AND fingerprint = 'fp-A'),
+  'signer@example.com', 'email is lower-cased on write');
+
+SELECT is(
+  (SELECT source FROM recipient_smime_certs WHERE owner_user_id = 880001 AND fingerprint = 'fp-A'),
+  'harvested', 'source is fixed to harvested');
+
+SELECT ok(
+  (SELECT not_before IS NOT NULL AND not_after IS NOT NULL
+     FROM recipient_smime_certs WHERE owner_user_id = 880001 AND fingerprint = 'fp-A'),
+  'not_before / not_after are populated');
+
+-- Capture first_seen + last_seen, then re-harvest the SAME (owner,email,fingerprint).
+-- The reducer stamps last_seen = now(), which is TRANSACTION time: all now() calls in
+-- this single pgTAP txn are identical, so last_seen can only be >= the first value
+-- (never strictly >). The load-bearing invariant is that first_seen is PRESERVED on
+-- conflict (only last_seen is touched by the DO UPDATE) — asserted below.
+SELECT first_seen AS fs, last_seen AS ls
+  INTO TEMP _h1
+  FROM recipient_smime_certs WHERE owner_user_id = 880001 AND fingerprint = 'fp-A';
+
+SELECT lives_ok(
+  $$SELECT smime_harvest_recipient_cert(
+      880001, 'signer@example.com', 'pem-A', 'fp-A',
+      '2026-01-01T00:00:00Z'::timestamptz, '2027-01-01T00:00:00Z'::timestamptz)$$,
+  'second harvest (same key) succeeds');
+
+SELECT is(
+  (SELECT count(*)::int FROM recipient_smime_certs WHERE owner_user_id = 880001),
+  1, 'still exactly one row after re-harvest (upsert, not insert)');
+
+SELECT ok(
+  (SELECT r.last_seen >= _h1.ls AND r.first_seen = _h1.fs
+     FROM recipient_smime_certs r, _h1
+    WHERE r.owner_user_id = 880001 AND r.fingerprint = 'fp-A'),
+  'last_seen bumped (>=), first_seen unchanged on conflict');
+
+-- A DIFFERENT fingerprint for the same owner+email is a distinct cert → coexists.
+SELECT smime_harvest_recipient_cert(
+    880001, 'signer@example.com', 'pem-B', 'fp-B',
+    '2026-01-01T00:00:00Z'::timestamptz, '2027-01-01T00:00:00Z'::timestamptz);
+
+SELECT is(
+  (SELECT count(*)::int FROM recipient_smime_certs WHERE owner_user_id = 880001),
+  2, 'a different fingerprint coexists (distinct cert for the same address)');
+
+-- Mixed-case + surrounding whitespace email canonicalizes to lower+trim.
+SELECT smime_harvest_recipient_cert(
+    880001, '  Bob@EXAMPLE.com  ', 'pem-C', 'fp-C', NULL, NULL);
+
+SELECT is(
+  (SELECT email FROM recipient_smime_certs WHERE owner_user_id = 880001 AND fingerprint = 'fp-C'),
+  'bob@example.com', 'mixed-case + padded email stored lower-cased and trimmed');
+
+SELECT * FROM finish();
+ROLLBACK;

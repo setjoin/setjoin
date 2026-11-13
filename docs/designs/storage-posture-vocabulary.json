@@ -1,0 +1,99 @@
+{
+  "documentFormatVersion": 1,
+  "status": "proposed-documentation-only",
+  "productionWireSchema": false,
+  "authority": "retired-docs:superpowers/plans/2026-09-01-storage-encryption-and-provider-migration.md",
+  "contract": "storage-posture-vocabulary.md",
+  "layers": ["host_volume", "provider_sse", "setjoin_object_envelope"],
+  "postures": {
+    "enabled": "Current scoped evidence establishes required protection for explicitly claimed coverage.",
+    "disabled": "Current scoped evidence establishes that this layer is not enabled.",
+    "unsupported": "Evidence identifies a target/profile incompatibility, not merely missing implementation or observation.",
+    "unknown": "No sufficiently current authorized evidence establishes another posture."
+  },
+  "independentDimensions": [
+    "requested_protection",
+    "observed_posture",
+    "evidence_freshness",
+    "data_coverage",
+    "implementation_maturity",
+    "operational_admission"
+  ],
+  "requiredObservationConcepts": [
+    "observation_identity_and_verifier_profile_revision",
+    "authorized_scope_target_and_relevant_generation_bindings",
+    "single_layer_and_explicit_coverage",
+    "outcome_observation_time_evidence_and_validity_rules",
+    "requested_policy_and_independent_owner_admission",
+    "safe_reason_correlation_and_owner_remedy"
+  ],
+  "invariants": [
+    "Requested configuration is not observed protection.",
+    "Unknown cannot satisfy required encryption.",
+    "View denial removes protected observations rather than projecting target existence as unknown.",
+    "Stale historical evidence is not a current enabled observation.",
+    "No layer implies another layer, all-class coverage, independent backup, WORM or compliance.",
+    "Protection observation does not grant operational authority.",
+    "Key access failure does not imply ciphertext became plaintext.",
+    "The existing extension capability registry remains authoritative; these are semantic concepts, not new capability IDs."
+  ],
+  "syntheticFixtures": [
+    {
+      "id": "missing_disk_probe",
+      "layer": "host_volume",
+      "facts": ["encryption_requested", "no_current_probe"],
+      "expectedCurrentPosture": "unknown",
+      "forbiddenClaims": ["disk_encryption_verified", "required_policy_satisfied"]
+    },
+    {
+      "id": "disk_enabled_object_unimplemented",
+      "layer": "setjoin_object_envelope",
+      "facts": ["disk_encryption_verified", "object_envelope_not_implemented", "no_current_object_probe"],
+      "expectedCurrentPosture": "unknown",
+      "forbiddenClaims": ["object_encryption_verified", "all_layers_enabled"]
+    },
+    {
+      "id": "qualified_sse_single_bucket",
+      "layer": "provider_sse",
+      "facts": ["current_qualified_sse_evidence_for_bucket_a"],
+      "expectedCurrentPosture": "enabled",
+      "forbiddenClaims": ["bucket_b_protected", "object_envelopes_enabled", "independent_backup_verified", "regulatory_compliance"]
+    },
+    {
+      "id": "generation_changed",
+      "layer": "setjoin_object_envelope",
+      "facts": ["old_generation_enabled_receipt", "active_generation_changed", "no_current_generation_evidence"],
+      "expectedCurrentPosture": "unknown",
+      "forbiddenClaims": ["historical_receipt_authorizes_current_generation"]
+    },
+    {
+      "id": "locked_key_slot_with_current_at_rest_proof",
+      "layer": "setjoin_object_envelope",
+      "facts": ["current_at_rest_protection_evidence", "key_slot_locked", "content_admission_denied"],
+      "expectedCurrentPosture": "enabled",
+      "forbiddenClaims": ["content_access_allowed", "plaintext_fallback"]
+    },
+    {
+      "id": "qualified_first_wave_only",
+      "layer": "setjoin_object_envelope",
+      "facts": ["current_qualified_evidence_for_explicit_first_wave_coverage_only"],
+      "illustrativeCoverage": ["mail_blobs", "drive_chunks", "generated_previews", "office_wopi_content"],
+      "expectedCurrentPosture": "enabled",
+      "forbiddenClaims": ["meet_recordings_qualified", "third_party_app_volumes_qualified", "installation_wide_envelope_coverage"]
+    },
+    {
+      "id": "view_permission_revoked",
+      "layer": "setjoin_object_envelope",
+      "facts": ["view_authority_denied"],
+      "expectedProjection": "omit_protected_observation",
+      "forbiddenClaims": ["target_existence", "provider_identity", "historical_protected_observation", "protected_diagnostic_link"]
+    },
+    {
+      "id": "acknowledged_unencrypted_disk",
+      "layer": "host_volume",
+      "facts": ["current_unencrypted_disk_probe", "operator_acknowledgment_retained"],
+      "expectedCurrentPosture": "disabled",
+      "forbiddenClaims": ["encrypted", "warning_suppressed", "compliant"]
+    }
+  ]
+}

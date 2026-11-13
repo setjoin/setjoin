@@ -1,0 +1,83 @@
+-- smime_journal_cert.pg — pgTAP for SP1 Phase 3 Task 3.1: the journal-cert
+-- config surface SP1 enforces against (V026) + the two domain-lookup reducers.
+--
+-- Covers: (a) table shape (smime_journal_certs columns); (b) the partial-unique
+-- index (fingerprint, domain_id) NULLS NOT DISTINCT; (c)
+-- journaling_required_for_domain(dom) FALSE with no policy, TRUE after an enabled
+-- outbound policy; (d) journal_cert_pem_for_domain(dom) NULL when no cert, the
+-- domain cert when valid, NULL when the only cert is expired, and the
+-- domain-specific cert in preference to a deployment-wide (NULL-domain) cert.
+BEGIN;
+SELECT plan(14);
+
+-- (a) table shape
+SELECT has_table('smime_journal_certs');
+SELECT col_is_pk('smime_journal_certs', 'id');
+SELECT has_column('smime_journal_certs', 'domain_id');
+SELECT has_column('smime_journal_certs', 'cert_pem');
+SELECT col_not_null('smime_journal_certs', 'cert_pem');
+SELECT has_column('smime_journal_certs', 'fingerprint');
+SELECT has_column('smime_journal_certs', 'not_before');
+SELECT has_column('smime_journal_certs', 'not_after');
+
+-- (b) the partial-unique index exists (mirrors smime_trust_anchors).
+SELECT has_index('smime_journal_certs', 'smime_journal_certs_fp_domain_key');
+
+-- Fixtures: one local domain + a journal mailbox (any mailbox id works for the
+-- policy FK — journaling_policies.journal_mailbox_id is NOT NULL). mk_account
+-- takes a LABEL (it builds its own @mk.test email + domain); we use it only for
+-- a valid mailbox id and insert our own test domain for the journal lookups.
+DO $$
+DECLARE
+  v_dom BIGINT;
+  v_mb  BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('jc-test.example', TRUE)
+    RETURNING id INTO v_dom;
+  SELECT mk_account('jc-journal') INTO v_mb;
+  PERFORM set_config('test.dom', v_dom::TEXT, FALSE);
+  PERFORM set_config('test.mb',  v_mb::TEXT,  FALSE);
+END $$;
+
+-- (c) journaling_required_for_domain
+SELECT is(
+  journaling_required_for_domain(current_setting('test.dom')::BIGINT),
+  FALSE,
+  'no policy -> journaling not required');
+
+INSERT INTO journaling_policies (domain_id, direction, journal_mailbox_id, enabled)
+VALUES (current_setting('test.dom')::BIGINT, 'outbound', current_setting('test.mb')::BIGINT, TRUE);
+
+SELECT is(
+  journaling_required_for_domain(current_setting('test.dom')::BIGINT),
+  TRUE,
+  'enabled outbound policy -> journaling required');
+
+-- (d) journal_cert_pem_for_domain
+SELECT is(
+  journal_cert_pem_for_domain(current_setting('test.dom')::BIGINT),
+  NULL,
+  'no cert -> NULL');
+
+-- Insert a valid domain cert, an EXPIRED domain cert, and a deployment-wide cert.
+INSERT INTO smime_journal_certs (domain_id, cert_pem, fingerprint, not_before, not_after)
+VALUES (current_setting('test.dom')::BIGINT, 'DOMAIN-PEM', 'fp-domain',
+        now() - interval '1 day', now() + interval '365 days');
+
+SELECT is(
+  journal_cert_pem_for_domain(current_setting('test.dom')::BIGINT),
+  'DOMAIN-PEM',
+  'valid domain cert is returned');
+
+-- A deployment-wide (NULL-domain) cert must NOT win over the domain-specific one.
+INSERT INTO smime_journal_certs (domain_id, cert_pem, fingerprint, not_before, not_after)
+VALUES (NULL, 'WIDE-PEM', 'fp-wide',
+        now() - interval '1 day', now() + interval '365 days');
+
+SELECT is(
+  journal_cert_pem_for_domain(current_setting('test.dom')::BIGINT),
+  'DOMAIN-PEM',
+  'domain-specific cert preferred over deployment-wide');
+
+SELECT * FROM finish();
+ROLLBACK;

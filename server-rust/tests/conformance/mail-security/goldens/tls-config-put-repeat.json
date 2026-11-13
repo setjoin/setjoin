@@ -1,0 +1,343 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "tls_config_set",
+        "after_state": {
+          "description": "TLS configuration",
+          "keys": [
+            "tls_a",
+            "tls_b",
+            "tls_big",
+            "tls_c",
+            "tls_d",
+            "tls_e",
+            "tls_exp",
+            "tls_neg",
+            "tls_small"
+          ]
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "tls_a,tls_b,tls_big,tls_c,tls_d,tls_e,tls_exp,tls_neg,tls_small",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "system_config",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_a",
+              "value": "x"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_b",
+              "value": 5
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_big",
+              "value": 12345678901234567000
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_c",
+              "value": true
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_d",
+              "value": null
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_e",
+              "value": {
+                "a": [
+                  1.5e300,
+                  "<&>"
+                ],
+                "z": 1
+              }
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_exp",
+              "value": 1e21
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_neg",
+              "value": -0.5
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_small",
+              "value": 1e-7
+            }
+          ],
+          "files": []
+        },
+        "before": {
+          "config": [
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_a",
+              "value": "x"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_b",
+              "value": 5
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_big",
+              "value": 12345678901234567000
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_c",
+              "value": true
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_d",
+              "value": null
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_e",
+              "value": {
+                "a": [
+                  1.5e300,
+                  "<&>"
+                ],
+                "z": 1
+              }
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_exp",
+              "value": 1e21
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_neg",
+              "value": -0.5
+            },
+            {
+              "description": "TLS configuration",
+              "encrypted": false,
+              "key": "tls_small",
+              "value": 1e-7
+            }
+          ],
+          "files": []
+        },
+        "table": "tls"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_a",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_b",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_big",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_c",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_d",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_e",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_exp",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_neg",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "tls_small",
+          "operation": "update"
+        }
+      }
+    ],
+    "request": {
+      "external_path": "/api/admin/tls/config",
+      "method": "PUT",
+      "path": "/admin/tls/config"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/tls/config"
+}

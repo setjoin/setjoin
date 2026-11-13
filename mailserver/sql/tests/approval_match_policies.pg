@@ -1,0 +1,37 @@
+-- approval_match_policies.pg — pgTAP tests for the IAM-hybrid policy evaluator.
+-- Covers: any-match required, who-hole regression (winner filters requires_approval=true),
+--         no-match returns false, 3-way mid-priority requiring wins.
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO approval_policies(id,consumer_type,name,priority,conditions,requires_approval,approver_spec)
+  OVERRIDING SYSTEM VALUE VALUES
+  (990001,'mail.external_send','exempt',5,'{"external":true}'::jsonb,false,'{"kind":"named","user_id":1}'::jsonb),  -- higher priority, NOT requiring
+  (990002,'mail.external_send','need',10,'{"external":true}'::jsonb,true,'{"kind":"manager"}'::jsonb);              -- lower priority, requiring
+
+-- required = any matched policy has requires_approval=true
+SELECT is(
+  (SELECT required FROM approval_match_policies('mail.external_send','{"external":true}'::jsonb)),
+  true, 'any-match requires');
+
+-- WINNER must be the requires_approval=true policy (id 2), NOT the higher-priority exempt one (id 1)
+SELECT is(
+  (SELECT winner_policy_id FROM approval_match_policies('mail.external_send','{"external":true}'::jsonb)),
+  990002::bigint, 'winner filters requires_approval');
+
+-- no match → not required
+SELECT is(
+  (SELECT required FROM approval_match_policies('mail.external_send','{"external":false}'::jsonb)),
+  false, 'no match');
+
+-- 3-way: insert a mid-priority requiring policy (priority 7); it should become the winner
+INSERT INTO approval_policies(id,consumer_type,name,priority,conditions,requires_approval,approver_spec)
+  OVERRIDING SYSTEM VALUE VALUES
+  (990003,'mail.external_send','mid',7,'{"external":true}'::jsonb,true,'{"kind":"role_group","role_group_id":5}'::jsonb);
+
+SELECT is(
+  (SELECT winner_policy_id FROM approval_match_policies('mail.external_send','{"external":true}'::jsonb)),
+  990003::bigint, '3-way: mid-priority requiring wins');
+
+SELECT * FROM finish();
+ROLLBACK;

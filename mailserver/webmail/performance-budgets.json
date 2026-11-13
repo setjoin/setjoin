@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "budgets": {
+    "loginJs": {
+      "metric": "publicLoginInitialJsBrotliBytes",
+      "limitBytes": 204800,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 public-login JavaScript gate"
+    },
+    "loginCss": {
+      "metric": "publicLoginInitialCssBrotliBytes",
+      "limitBytes": 40960,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 public-login CSS gate"
+    },
+    "sharedChunk": {
+      "metric": "largestSynchronousSharedJsBrotliBytes",
+      "limitBytes": 153600,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 synchronous shared-chunk gate"
+    },
+    "serviceWorker": {
+      "metric": "serviceWorkerBrotliBytes",
+      "limitBytes": 102400,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 service-worker script gate"
+    },
+    "candidateShell": {
+      "metric": "candidateShellBrotliBytes",
+      "limitBytes": 1048576,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 candidate install-shell gate"
+    },
+    "inboxJs": {
+      "metric": "inboxInitialJsBrotliBytes",
+      "limitBytes": 358400,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 authenticated Inbox JavaScript gate"
+    },
+    "inboxCss": {
+      "metric": "inboxInitialCssBrotliBytes",
+      "limitBytes": 61440,
+      "unit": "bytes",
+      "representation": "brotli",
+      "required": true,
+      "owner": "webmail-performance",
+      "rationale": "Normative Task 1 authenticated Inbox CSS gate"
+    }
+  }
+}

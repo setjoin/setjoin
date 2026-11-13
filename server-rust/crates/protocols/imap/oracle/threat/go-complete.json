@@ -1,0 +1,182 @@
+[
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "",
+    "device_auths": 1,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "allow",
+    "payload": "",
+    "reply": "a OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 1
+  },
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 1,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "allow",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a OK AUTHENTICATE completed\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 1
+  },
+  {
+    "attempts": [],
+    "continuation": "",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "feed",
+    "payload": "",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "feed",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "ip",
+    "payload": "",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "ip",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "lockout",
+    "payload": "",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "lockout",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a NO Authentication temporarily unavailable\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "rate",
+    "payload": "",
+    "reply": "a NO Too many authentication attempts — try again later\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "rate",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a NO Too many authentication attempts — try again later\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "",
+    "device_auths": 1,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "policy",
+    "payload": "",
+    "reply": "a NO [conditional_access_blocked] Access blocked by policy\r\n",
+    "request": "a LOGIN alice@imap1.test IMAP1-correct-password!\r\n",
+    "signins": 1
+  },
+  {
+    "attempts": [
+      "success|imap|||127.0.0.0"
+    ],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 1,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "policy",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+    "reply": "a NO [conditional_access_blocked] Access blocked by policy\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 1
+  },
+  {
+    "attempts": [
+      "failure|imap|||127.0.0.0"
+    ],
+    "continuation": "",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "LOGIN",
+    "name": "wrong_password",
+    "payload": "",
+    "reply": "a NO Authentication failed\r\n",
+    "request": "a LOGIN alice@imap1.test wrong\r\n",
+    "signins": 0
+  },
+  {
+    "attempts": [
+      "failure|imap|||127.0.0.0"
+    ],
+    "continuation": "+ Ready for additional data\r\n",
+    "device_auths": 0,
+    "greeting": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\n",
+    "method": "AUTHENTICATE",
+    "name": "wrong_password",
+    "payload": "AGFsaWNlQGltYXAxLnRlc3QAd3Jvbmc=\r\n",
+    "reply": "a NO Authentication failed\r\n",
+    "request": "a AUTHENTICATE PLAIN\r\n",
+    "signins": 0
+  }
+]

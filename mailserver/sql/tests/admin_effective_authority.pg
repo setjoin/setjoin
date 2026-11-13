@@ -1,0 +1,76 @@
+-- pgTAP: admin_effective_authority.pg
+--
+-- 6 tests covering:
+--   1. non-admin → empty perms, NULL scope
+--   2. global-role holder → union of perms
+--   3. global-role holder → scope IS NULL (global)
+--   4. domain-role holder → scope = that domain
+--   5. expired assignment is excluded
+--   6. multi-role (global + domain) → broadest-reach scope IS NULL (global wins)
+--
+-- NOTE: test 6 is the "broadest reach" property test — scope NULL wins even when
+-- the same user also holds a domain-scoped role. This proves the broadest-reach
+-- semantics (opposite of Go permissions.Resolve narrowest-non-NULL-wins).
+
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (95001,'apg-eff.test',TRUE);
+INSERT INTO departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95001,'EffOU','/effou','ou=EffOU,dc=apg,dc=test');
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95001,'eff_none',95001,'none@apg-eff.test','N',TRUE),
+  (95002,'eff_glob',95001,'glob@apg-eff.test','G',TRUE),
+  (95003,'eff_dom', 95001,'dom@apg-eff.test', 'D',TRUE),
+  (95004,'eff_exp', 95001,'exp@apg-eff.test', 'E',TRUE),
+  (95005,'eff_both',95001,'both@apg-eff.test','B',TRUE),
+  (95006,'eff_ou',  95001,'ou@apg-eff.test',  'O',TRUE);   -- OU-scoped only
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (95001,'apg-glob', ARRAY['users.suspend','mail.pipeline'], NULL),
+  (95002,'apg-dom',  ARRAY['users.suspend'], 95001);
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by, expires_at) OVERRIDING SYSTEM VALUE VALUES
+  (95002, 95002, 95001, 95001, NULL),                  -- global role
+  (95003, 95003, 95002, 95001, NULL),                  -- domain role
+  (95004, 95004, 95001, 95001, now() - interval '1d'), -- EXPIRED global role
+  (95005, 95005, 95001, 95001, NULL),                  -- global role (for multi-role user)
+  (95006, 95005, 95002, 95001, NULL);                  -- domain role (for multi-role user)
+-- OU-scoped (object-confined) assignment for the is_unconfined=false case.
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, scope_type, scope_id, granted_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95007, 95006, 95001, 'ou', 95001, 95001);
+
+-- 1. non-admin → empty perms, NULL scope
+SELECT is( (admin_effective_authority(95001)).perms, '{}'::text[], 'non-admin → empty perms');
+
+-- 2. global-role holder → union, scope NULL (global)
+SELECT set_eq( $$ SELECT unnest((admin_effective_authority(95002)).perms) $$,
+               $$ VALUES ('users.suspend'),('mail.pipeline') $$, 'global holder unions perms');
+
+-- 3. global role → scope IS NULL (global)
+SELECT ok( (admin_effective_authority(95002)).scope IS NULL, 'global role → scope NULL');
+
+-- 4. domain-role holder → scope = the domain
+SELECT is( (admin_effective_authority(95003)).scope, 95001::bigint, 'domain role → that domain scope');
+
+-- 5. expired assignment is excluded
+SELECT is( (admin_effective_authority(95004)).perms, '{}'::text[], 'expired assignment excluded');
+
+-- 6. multi-role (global + domain) → scope IS NULL (broadest-reach: global wins)
+-- The user holds both a global role (scope=NULL) and a domain-scoped role.
+-- broadest-reach semantics: NULL wins, even though a non-NULL domain scope exists.
+-- This is the OPPOSITE of Go permissions.Resolve narrowest-non-NULL-wins.
+SELECT ok( (admin_effective_authority(95005)).scope IS NULL,
+           'multi-role global+domain → scope NULL (broadest-reach: global wins)');
+
+-- 7. is_unconfined: an object-unrestricted (scope_type NULL) holder → TRUE.
+--    The global holder 95002 has a scope_type-NULL assignment → unconfined.
+SELECT ok( (SELECT is_unconfined FROM admin_effective_authority(95002)),
+           'global (object-unrestricted) holder → is_unconfined TRUE');
+
+-- 8. is_unconfined: an OU-only holder (every grant scope_type='ou') → FALSE.
+--    NEVER inferred from ou_reach — proven object-confined despite holding a perm.
+SELECT ok( NOT (SELECT is_unconfined FROM admin_effective_authority(95006)),
+           'OU-only holder → is_unconfined FALSE (object-confined)');
+
+SELECT * FROM finish();
+ROLLBACK;

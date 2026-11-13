@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "route": "POST /admin/retention/policies",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "Evidence",
+            "domain_id": null,
+            "id": 960101,
+            "is_default": false,
+            "name": "New <policy>",
+            "retain_days": 14
+          }
+        ]
+      },
+      "before": {
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          }
+        ]
+      },
+      "table": "retention_policies"
+    }
+  ]
+}

@@ -1,0 +1,312 @@
+{
+  "case": "ews-foreign",
+  "format": 1,
+  "go_source": "ad5c2e3480ddd3776062cbc03f9fac49814d968b",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "org-wide-only surface (domain-scoped principal; domain=<domain-a>)",
+          "target": "/admin/migration/jobs/<job-failed>/pause"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/migration/jobs/<job-failed>/pause",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "jobs": [
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": false,
+              "config": {
+                "ews": {
+                  "impersonateAs": "source@example.test"
+                },
+                "m365": {
+                  "source_email": "source@example.test"
+                },
+                "self_service": false,
+                "source_type": "ews",
+                "use_global_auth": true
+              },
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "ews",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<target>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<target>"
+            }
+          ],
+          "messages": [],
+          "objects": [],
+          "provider_effects": {
+            "checkpoints": [],
+            "consents": [],
+            "contacts": [],
+            "events": [],
+            "instances": [],
+            "m365_config": {
+              "client_id": "client",
+              "client_secret": "secret",
+              "cloud": "global",
+              "source_email": "source@example.test",
+              "tenant_id": "tenant"
+            },
+            "operations": [],
+            "source_objects": [],
+            "states": [
+              {
+                "calendar": [
+                  0
+                ],
+                "contact": [
+                  0
+                ],
+                "email": 0,
+                "mailbox": "<mailbox-a>",
+                "thread": 0
+              },
+              {
+                "calendar": [
+                  0
+                ],
+                "contact": [
+                  0
+                ],
+                "email": 0,
+                "mailbox": "<mailbox-b>",
+                "thread": 0
+              }
+            ]
+          },
+          "s3": [],
+          "tags": [
+            {
+              "color": null,
+              "mailbox": "<mailbox-a>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            },
+            {
+              "color": null,
+              "mailbox": "<mailbox-b>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            }
+          ]
+        },
+        "before": {
+          "jobs": [
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": false,
+              "config": {
+                "ews": {
+                  "impersonateAs": "source@example.test"
+                },
+                "m365": {
+                  "source_email": "source@example.test"
+                },
+                "self_service": false,
+                "source_type": "ews",
+                "use_global_auth": true
+              },
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "ews",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<target>"
+            },
+            {
+              "completed": false,
+              "config": null,
+              "cursor": null,
+              "error_log": [],
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": true,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<target>"
+            }
+          ],
+          "messages": [],
+          "objects": [],
+          "provider_effects": {
+            "checkpoints": [],
+            "consents": [],
+            "contacts": [],
+            "events": [],
+            "instances": [],
+            "m365_config": {
+              "client_id": "client",
+              "client_secret": "secret",
+              "cloud": "global",
+              "source_email": "source@example.test",
+              "tenant_id": "tenant"
+            },
+            "operations": [],
+            "source_objects": [],
+            "states": [
+              {
+                "calendar": [
+                  0
+                ],
+                "contact": [
+                  0
+                ],
+                "email": 0,
+                "mailbox": "<mailbox-a>",
+                "thread": 0
+              },
+              {
+                "calendar": [
+                  0
+                ],
+                "contact": [
+                  0
+                ],
+                "email": 0,
+                "mailbox": "<mailbox-b>",
+                "thread": 0
+              }
+            ]
+          },
+          "s3": [],
+          "tags": [
+            {
+              "color": null,
+              "mailbox": "<mailbox-a>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            },
+            {
+              "color": null,
+              "mailbox": "<mailbox-b>",
+              "name": "Oracle Label",
+              "parent": null,
+              "sort": 0,
+              "type": "user"
+            }
+          ]
+        },
+        "table": "migration_jobs+messages+tags+objects"
+      }
+    ],
+    "notify": [],
+    "provider_requests": [],
+    "request": {
+      "external_path": "/api/admin/migration/jobs/{id}/pause",
+      "method": "POST",
+      "path": "/admin/migration/jobs/{id}/pause"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox6-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /admin/migration/jobs/{id}/pause"
+}

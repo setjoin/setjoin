@@ -1,0 +1,104 @@
+-- notify_contact_state.pg: the contact secondary seam (bump addressbooks.jmap_state
+-- for the mailbox + push on contact:{mailbox_id}; folds in bump_contact_group_state).
+-- Mirrors notify_state_change.pg: bump-once (MAX advances by 1), push-fires (call
+-- lives), NULL-safe, mailbox-scoped, and the contact_id NULL (group-domain) path.
+-- Requires: notify_contact_state, bump_contact_group_state.
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (name, is_local) VALUES ('ncts.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- DIVERGENT ids (ADR-003): user 291101 != mailbox 91201.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (291101, 'ncts', (SELECT id FROM domains WHERE name = 'ncts.test'),
+        'ncts@ncts.test', 'NCTS')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (91201, 291101, (SELECT id FROM domains WHERE name = 'ncts.test'),
+        'ncts@ncts.test', 'NCTS', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- A second, foreign mailbox for the mailbox-scope isolation check.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (291102, 'ncts2', (SELECT id FROM domains WHERE name = 'ncts.test'),
+        'ncts2@ncts.test', 'NCTS2')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (91202, 291102, (SELECT id FROM domains WHERE name = 'ncts.test'),
+        'ncts2@ncts.test', 'NCTS2', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- Two address books for the owner mailbox: the domain token is MAX(jmap_state)
+-- over the mailbox, and the seam bumps EVERY book — so MAX advances by exactly 1.
+INSERT INTO addressbooks (id, mailbox_id, name, is_default, jmap_state)
+VALUES (91211, 91201, 'Default', TRUE, 4),
+       (91212, 91201, 'Work',    FALSE, 2)
+ON CONFLICT (id) DO NOTHING;
+-- A foreign book that must NOT move.
+INSERT INTO addressbooks (id, mailbox_id, name, is_default, jmap_state)
+VALUES (91221, 91202, 'Foreign', TRUE, 9)
+ON CONFLICT (id) DO NOTHING;
+
+LISTEN "contact:91201";
+
+-- Test 1: returns the new MAX(addressbooks.jmap_state) for the mailbox (= 4+1 = 5).
+SELECT is(
+  notify_contact_state(91201, 'contact_created', 1234),
+  5::BIGINT,
+  'returns new MAX(addressbooks.jmap_state) (old MAX + 1)');
+
+-- Test 2: every owner book bumped (Default 4→5, Work 2→3) → MAX = 5.
+SELECT is(
+  (SELECT MAX(jmap_state) FROM addressbooks WHERE mailbox_id = 91201),
+  5::BIGINT,
+  'all owner address books bumped (MAX advances by one)');
+SELECT is(
+  (SELECT jmap_state FROM addressbooks WHERE id = 91212),
+  3::BIGINT,
+  'the non-default owner book also bumped (2 -> 3)');
+
+-- Test 3: the foreign mailbox's book is untouched (mailbox-scoped, R1).
+SELECT is(
+  (SELECT jmap_state FROM addressbooks WHERE id = 91221),
+  9::BIGINT,
+  'foreign mailbox address book untouched (mailbox-scoped)');
+
+-- Test 4: the group-domain path (contact_id NULL) lives — folds in
+-- bump_contact_group_state.
+SELECT lives_ok(
+  $$ SELECT notify_contact_state(91201, 'contact_group_changed', NULL) $$,
+  'group-domain push (contact_id NULL) lives');
+
+-- Test 5: bump_contact_group_state now delegates to the seam and still bumps once.
+SELECT lives_ok(
+  $$ SELECT bump_contact_group_state(91201) $$,
+  'bump_contact_group_state (delegates to notify_contact_state) lives');
+SELECT is(
+  (SELECT MAX(jmap_state) FROM addressbooks WHERE mailbox_id = 91201),
+  7::BIGINT,
+  'two more group-domain bumps advance MAX 5 -> 7');
+
+-- Test 6: a NULL mailbox raises BZ034 (NULL-safe).
+SELECT throws_ok(
+  $$ SELECT notify_contact_state(NULL, 'contact_created', 1) $$,
+  'BZ034', NULL,
+  'NULL mailbox raises BZ034');
+
+-- ── REAL push assertion (WAVE 4 Phase 3): capture the app_notify tee and prove
+-- the contact seam pushes on contact:{mailbox} with the verbatim event name (the
+-- LISTEN above can never observe the rolled-back NOTIFY). ──
+SET LOCAL app.capture_notify = 'on';
+SELECT notify_contact_state(91201, 'contact_updated', 555);
+
+SELECT is(
+  notify_count('contact:91201'),
+  1,
+  'notify_contact_state pushes once on contact:{mailbox}');
+SELECT is(
+  last_notify_event('contact:91201'),
+  'contact_updated',
+  'the contact push carries the verbatim event name');
+
+SELECT * FROM finish();
+ROLLBACK;

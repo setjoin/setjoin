@@ -1,0 +1,62 @@
+-- mailserver/sql/tests/drive_nodes.pg (part 1: create/rename/move; Task 10 appends trash/restore/destroy)
+BEGIN;
+SELECT plan(21);
+SELECT mk_account('dn') AS mb \gset
+SELECT mk_account('dnV') AS mbv \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS uv FROM mailboxes WHERE id = :mbv \gset
+SELECT drive_space_create(:u, 'N', 'regular') AS sid \gset
+SELECT drive_member_grant(:u, :sid, :uv, 'viewer');
+
+SELECT drive_node_create(:u, :sid, NULL, 'folder', 'docs') AS fid \gset
+SELECT ok(:fid > 0, 'root folder created');
+SELECT drive_node_create(:u, :sid, :fid, 'file', 'a.txt', 'text/plain') AS nid \gset
+SELECT is((SELECT count(*) FROM drive_files WHERE node_id=:nid)::int, 1, 'file kind also inserts the drive_files row');
+SELECT throws_ok(format($$ SELECT drive_node_create(%s, %s, %s, 'file', 'A.TXT') $$, :u, :sid, :fid),
+  'BZ260', NULL, 'case-insensitive live-name collision → opaque nameUnavailable');
+SELECT throws_ok(format($$ SELECT drive_node_create(%s, %s, %s, 'file', 'b.txt') $$, :uv, :sid, :fid),
+  'BZ140', NULL, 'viewer cannot create (editor+ write)');
+SELECT throws_ok(format($$ SELECT drive_node_create(%s, %s, %s, 'file', 'c.txt') $$, :u, :sid, :nid),
+  'BZ141', NULL, 'parent must be a folder');
+SELECT throws_ok(format($$ SELECT drive_node_create(%s, %s, 999999, 'file', 'd.txt') $$, :u, :sid),
+  'BZ139', NULL, 'unknown parent → BZ139');
+UPDATE drive_spaces SET export_policy = '{"upload_ext_deny":["exe"]}' WHERE id = :sid;
+SELECT throws_ok(format($$ SELECT drive_node_create(%s, %s, %s, 'file', 'virus.exe') $$, :u, :sid, :fid),
+  'BZ148', NULL, 'denied extension → BZ148');
+UPDATE drive_spaces SET export_policy = '{}' WHERE id = :sid;
+
+SELECT lives_ok(format($$ SELECT drive_node_rename(%s, %s, 'a2.txt') $$, :u, :nid), 'rename ok');
+SELECT is((SELECT op FROM drive_changes WHERE space_id=:sid ORDER BY seq DESC LIMIT 1), 'rename', 'rename journaled');
+SELECT drive_node_create(:u, :sid, NULL, 'folder', 'sub') AS sub \gset
+SELECT lives_ok(format($$ SELECT drive_node_move(%s, %s, %s) $$, :u, :sub, :fid), 'move under sibling folder');
+SELECT throws_ok(format($$ SELECT drive_node_move(%s, %s, %s) $$, :u, :fid, :sub),
+  'BZ141', NULL, 'moving under own descendant (cycle) → BZ141');
+SELECT throws_ok(format($$ SELECT drive_node_move(%s, %s, %s) $$, :u, :nid, :nid),
+  'BZ141', NULL, 'file as move target parent → BZ141');
+
+-- ── part 2: trash / restore / destroy ──
+SELECT drive_node_create(:u, :sid, :fid, 'file', 'gone.txt') AS gid \gset
+SELECT lives_ok(format($$ SELECT drive_node_trash(%s, %s) $$, :u, :fid), 'trash a folder');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE space_id=:sid AND deleted_at IS NOT NULL)::int, 4,
+  'subtree trashed recursively (docs + a2.txt + sub + gone.txt)');
+SELECT lives_ok(format($$ SELECT drive_node_create(%s, %s, NULL, 'folder', 'docs') $$, :u, :sid),
+  'trashed name is free for reuse (partial unique index)');
+SELECT currval(pg_get_serial_sequence('drive_nodes','id')) AS docs2 \gset
+SELECT throws_ok(format($$ SELECT drive_node_restore(%s, %s) $$, :u, :fid),
+  'BZ260', NULL, 'restore collision → opaque nameUnavailable');
+SELECT drive_node_trash(:u, :docs2);
+SELECT drive_node_destroy(:u, :docs2);   -- clear the collision via destroy (P6: purges docs2 to tier 2, no longer removes the row)
+SELECT lives_ok(format($$ SELECT drive_node_restore(%s, %s) $$, :u, :fid), 'restore succeeds once the name is free');
+-- P6 (V117): destroy no longer hard-deletes, so docs2 lingers as a tier-2
+-- (purged_at IS NOT NULL) row with deleted_at still set -- scope to the
+-- tier-1/live-trash view (purged_at IS NULL) to assert the :fid subtree
+-- specifically, not the whole space's row count.
+SELECT is((SELECT count(*) FROM drive_nodes WHERE space_id=:sid AND deleted_at IS NOT NULL AND purged_at IS NULL)::int, 0, 'subtree restored');
+SELECT throws_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :u, :gid),
+  'BZ141', NULL, 'destroy requires the node to be trashed first');
+SELECT drive_node_trash(:u, :gid);
+SELECT throws_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :uv, :gid),
+  'BZ140', NULL, 'destroy is manager-only');
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :u, :gid), 'manager destroys a trashed node');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,287 @@
+{
+  "case": "poll-repeat",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 2,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [
+          {
+            "author_id": "<actor>",
+            "body": "oracle poll",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-1>",
+            "msg_type": "poll",
+            "parent_message_id": null,
+            "payload": {
+              "pollId": "<poll-1>"
+            },
+            "search_tsv": "'oracle':1 'poll':2",
+            "seq": 1,
+            "spam_quarantined": false,
+            "spam_reason": null
+          },
+          {
+            "author_id": "<actor>",
+            "body": "oracle poll",
+            "broadcast": null,
+            "channel_id": "<channel>",
+            "created_at": "<timestamp>",
+            "deleted_at": null,
+            "delivered_at": null,
+            "edited_at": null,
+            "federated_origin_domain": null,
+            "federated_sender_addr": null,
+            "federated_stanza_id": null,
+            "id": "<message-2>",
+            "msg_type": "poll",
+            "parent_message_id": null,
+            "payload": {
+              "pollId": "<poll-2>"
+            },
+            "search_tsv": "'oracle':1 'poll':2",
+            "seq": 2,
+            "spam_quarantined": false,
+            "spam_reason": null
+          }
+        ],
+        "chat_polls": [
+          {
+            "channel_id": "<channel>",
+            "closes_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "id": "<poll-1>",
+            "message_id": "<message-1>",
+            "multi": false,
+            "question": "oracle poll"
+          },
+          {
+            "channel_id": "<channel>",
+            "closes_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "id": "<poll-2>",
+            "message_id": "<message-2>",
+            "multi": false,
+            "question": "oracle poll"
+          }
+        ],
+        "chat_push_intents": [],
+        "chat_send_counters": [
+          {
+            "sent_count": 2,
+            "user_id": "<actor>",
+            "window_start": "<timestamp>"
+          }
+        ],
+        "message_details": {
+          "chat_mentions": [],
+          "chat_message_attachments": [],
+          "chat_poll_options": [
+            {
+              "id": "<option-1>",
+              "label": "yes",
+              "ordinal": 1,
+              "poll_id": "<poll-1>"
+            },
+            {
+              "id": "<option-2>",
+              "label": "no",
+              "ordinal": 2,
+              "poll_id": "<poll-1>"
+            },
+            {
+              "id": "<option-3>",
+              "label": "yes",
+              "ordinal": 1,
+              "poll_id": "<poll-2>"
+            },
+            {
+              "id": "<option-4>",
+              "label": "no",
+              "ordinal": 2,
+              "poll_id": "<poll-2>"
+            }
+          ],
+          "chat_poll_votes": []
+        }
+      },
+      "before": {
+        "chat_audit_log": [],
+        "chat_channel_members": [
+          {
+            "can_post": null,
+            "channel_id": "<channel>",
+            "history_floor_seq": null,
+            "joined_at": "<timestamp>",
+            "last_read_seq": 0,
+            "notif_level": "all",
+            "role": "owner",
+            "user_id": "<actor>"
+          }
+        ],
+        "chat_channels": [
+          {
+            "broadcast_permission": "admins",
+            "change_seq": 0,
+            "classification": "regular",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "federated_local_key": null,
+            "federated_peer_domain": null,
+            "federated_remote_id": null,
+            "federated_room_id": null,
+            "federated_room_removed_at": null,
+            "id": "<channel>",
+            "is_archived": false,
+            "kind": "channel",
+            "last_purged_seq": 0,
+            "legal_hold": false,
+            "legal_hold_reason": null,
+            "member_key": null,
+            "name": "chat2-oracle",
+            "post_permission": "all",
+            "retention_days": null,
+            "topic": null,
+            "visibility": "private",
+            "worm_mode": null
+          }
+        ],
+        "chat_messages": [],
+        "chat_polls": [],
+        "chat_push_intents": [],
+        "chat_send_counters": [],
+        "message_details": {
+          "chat_mentions": [],
+          "chat_message_attachments": [],
+          "chat_poll_options": [],
+          "chat_poll_votes": []
+        }
+      },
+      "chainValid": true
+    },
+    "firstResponse": {
+      "body": {
+        "messageId": "<message-1>",
+        "pollId": "<poll-1>",
+        "seq": 1
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat2-oracle"
+      },
+      "status": 201
+    },
+    "notify": [
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-1>",
+          "seq": 1
+        },
+        "recipient": "actor"
+      },
+      {
+        "payload": {
+          "channelId": "<channel>",
+          "event": "message_created",
+          "messageId": "<message-2>",
+          "seq": 2
+        },
+        "recipient": "actor"
+      }
+    ],
+    "request": {
+      "body": {
+        "actorId": 0,
+        "mailboxId": 0,
+        "multi": false,
+        "options": [
+          "yes",
+          "no"
+        ],
+        "question": "oracle poll"
+      },
+      "method": "POST",
+      "path": "/chat/channels/{id}/polls"
+    },
+    "response": {
+      "body": {
+        "messageId": "<message-2>",
+        "pollId": "<poll-2>",
+        "seq": 2
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat2-oracle"
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /chat/channels/{id}/polls"
+}

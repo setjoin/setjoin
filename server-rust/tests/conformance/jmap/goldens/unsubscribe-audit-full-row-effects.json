@@ -1,0 +1,40 @@
+{
+  "case": "unsubscribe-audit-full-row-effects",
+  "effects": [
+    {
+      "after": {
+        "action": "unsubscribe_newsletter",
+        "after_state": null,
+        "before_state": null,
+        "ip": null,
+        "notes": "List-Unsubscribe POST",
+        "occurred_at": "<timestamp>",
+        "target_id": "<inbox-only>",
+        "target_type": "message",
+        "user_id": "<user>"
+      },
+      "change": "insert",
+      "row": "1",
+      "table": "admin_audit_log"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "list_type": "blocked",
+        "sender": "news@news.example",
+        "user_id": "<user>"
+      },
+      "change": "insert",
+      "row": "news@news.example:blocked",
+      "table": "user_sender_list"
+    }
+  ],
+  "format": 1,
+  "go_source": "5401e459c13f9847960747644c802b496caae35e",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /messages/{emailId}/unsubscribe"
+}

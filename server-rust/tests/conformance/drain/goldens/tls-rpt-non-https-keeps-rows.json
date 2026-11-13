@@ -1,0 +1,70 @@
+{
+  "case": "tls-rpt-non-https-keeps-rows",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "requests": [],
+    "rows": [
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f1.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": "http://127.0.0.1:1/plain"
+      },
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f2.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": "ftp://x.test/r"
+      },
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f3.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": "mailto:ops@f3.test!10m"
+      },
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f4.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": "https://x.test/a,mailto:ops@f4.test"
+      },
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f5.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": "<null>"
+      },
+      {
+        "count": 1,
+        "day": -1,
+        "domain": "f6.test",
+        "failure": "<null>",
+        "ip": "192.0.2.1",
+        "mx": "mx1.remote.test",
+        "result": "success",
+        "uri": ""
+      }
+    ]
+  }
+}

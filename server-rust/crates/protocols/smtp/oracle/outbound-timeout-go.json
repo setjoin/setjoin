@@ -1,0 +1,316 @@
+[
+  {
+    "case": {
+      "timeout_ms": 200,
+      "data_timeout_ms": 250,
+      "hang_at": "greeting",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "timeout-greeting",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: greeting: read tcp \u003clocal\u003e-\u003e\u003cpeer\u003e: i/o timeout",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "greeting: read tcp \u003clocal\u003e-\u003e\u003cpeer\u003e: i/o timeout",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "timeout_ms": 200,
+      "data_timeout_ms": 250,
+      "hang_at": "ehlo",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "timeout-ehlo",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: ehlo response: read tcp \u003clocal\u003e-\u003e\u003cpeer\u003e: i/o timeout",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "ehlo response: read tcp \u003clocal\u003e-\u003e\u003cpeer\u003e: i/o timeout",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "timeout_ms": 200,
+      "data_timeout_ms": 250,
+      "hang_at": "data",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "timeout-data",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: data rejected: ",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "data rejected: ",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": []
+      }
+    ]
+  },
+  {
+    "case": {
+      "timeout_ms": 200,
+      "data_timeout_ms": 250,
+      "hang_at": "final",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "timeout-final",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "all recipients failed: delivery to one@dest.test failed: delivery rejected: ",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": null,
+          "smtp_text": "delivery rejected: ",
+          "outcome": "error",
+          "tls": false
+        }
+      ],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClRvOiByZW1vdGVAZGVzdC50ZXN0DQpTdWJqZWN0OiBvdXRib3VuZA0KDQpoZWxsbw0KLi5kb3QNCmxhc3QNCg0KLg0K"
+        ]
+      }
+    ]
+  }
+]

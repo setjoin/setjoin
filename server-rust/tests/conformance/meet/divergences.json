@@ -1,0 +1,26 @@
+[
+  {
+    "baseline": "goldens/get-foreign.json",
+    "sha256": "bd2e6a5391b8a518a496f5dc38a8f87b88ce25eff1271b44caf2f470e809cc3b",
+    "expectation": "security/get-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#378: a caller unrelated to a meeting no longer receives its roomName, ownerUserId or (by id) slug); owner-approved 2026-11-06 (#531: nor its chatChannelId or calendarEventId)",
+    "issue": "#378",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/meet_recorded.rs::get_foreign",
+    "mutant": "sql:meeting-read-org-wide"
+  },
+  {
+    "baseline": "goldens/by_slug-foreign.json",
+    "sha256": "86ddc3551bd61b157b9043d100f8d4712bb2893bd066219a5c119c4f820f2589",
+    "expectation": "security/by_slug-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#378: a caller unrelated to a meeting no longer receives its roomName, ownerUserId or (by id) slug); owner-approved 2026-11-06 (#531: nor its chatChannelId or calendarEventId)",
+    "issue": "#378",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/meet_recorded.rs::get_foreign",
+    "mutant": "sql:meeting-read-org-wide"
+  }
+]

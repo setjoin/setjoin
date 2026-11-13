@@ -1,0 +1,51 @@
+{
+  "stdout": "ID   NAME                     SOURCE                   CREATED              LAST USED            EXPIRES              STATUS       POLICY HASH\n\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n9900001 a-very-long-token-name\u2026  scim:gofree-mctl3        2020-01-02T03:04:05Z -                    never                active       soft   $2a$10$a...\n9900002 token-2                  scim:gofree-mctl3        2020-01-02T03:04:05Z 2020-02-03T04:05:06Z never                active       hard   $2a$10$a...\n9900003 token-3                  scim:gofree-mctl3        2020-01-02T03:04:05Z -                    2000-01-01T00:00:00Z expired      soft   $2a$10$a...\n9900004 token-4                  scim:gofree-mctl3        2020-01-02T03:04:05Z -                    2100-01-01T00:00:00Z active       hard   $2a$10$a...\n9900005 token-5                  scim:gofree-mctl3        2020-01-02T03:04:05Z -                    never                revoked      soft   $2a$10$a...\n\n5 token(s)\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "tokens": [
+      {
+        "name": "a-very-long-token-name-for-truncate",
+        "source": "scim:gofree-mctl3",
+        "policy": "soft",
+        "created_by": "mailctl",
+        "expires": false,
+        "hash_format": "$2a$10$"
+      },
+      {
+        "name": "token-2",
+        "source": "scim:gofree-mctl3",
+        "policy": "hard",
+        "created_by": "mailctl",
+        "expires": false,
+        "hash_format": "$2a$10$"
+      },
+      {
+        "name": "token-3",
+        "source": "scim:gofree-mctl3",
+        "policy": "soft",
+        "created_by": "mailctl",
+        "expires": true,
+        "hash_format": "$2a$10$"
+      },
+      {
+        "name": "token-4",
+        "source": "scim:gofree-mctl3",
+        "policy": "hard",
+        "created_by": "mailctl",
+        "expires": true,
+        "hash_format": "$2a$10$"
+      },
+      {
+        "name": "token-5",
+        "source": "scim:gofree-mctl3",
+        "policy": "soft",
+        "created_by": "mailctl",
+        "expires": false,
+        "hash_format": "$2a$10$"
+      }
+    ],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

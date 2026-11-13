@@ -1,0 +1,27 @@
+{
+  "case": "telemetry-proof-body-mismatch-row-effects",
+  "effects": [
+    {
+      "rows": [],
+      "table": "device_telemetry"
+    },
+    {
+      "rows": [],
+      "table": "device_auth_nonces"
+    },
+    {
+      "rows": [
+        {
+          "key_id": "v1",
+          "opens": true,
+          "plaintext": false,
+          "sealed": true
+        }
+      ],
+      "table": "devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "route": "POST /telemetry device-proof"
+}

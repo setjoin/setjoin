@@ -1,0 +1,35 @@
+{
+  "case": "null-details-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "blobs": null,
+          "scans": [
+            {
+              "id": 9601,
+              "reimported": 0,
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "before": [
+        {
+          "blobs": null,
+          "scans": [
+            {
+              "id": 9601,
+              "reimported": 0,
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "table": "storage-reconcile"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/storage/dr-scan/{id}/reconcile"
+}

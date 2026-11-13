@@ -1,0 +1,46 @@
+{
+  "case": "drive-preview-failures",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|<empty>|5|drive/g/<empty>|rc=1",
+      "g|<fail>|8|drive/g/<fail>|rc=1",
+      "g|<nopdf>|5|drive/g/<nopdf>|rc=1",
+      "g|<missing>|4|drive/g/<missing>|rc=1"
+    ],
+    "preview_chunks": [],
+    "s3": {
+      "keys": [
+        "drive/g/<empty>",
+        "drive/g/<fail>",
+        "drive/g/<nopdf>"
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<empty>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<fail>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<missing>"
+        },
+        {
+          "method": "GET",
+          "path": "/mailblobs/drive/g/<nopdf>"
+        }
+      ]
+    },
+    "versions": [
+      "1:failed:-",
+      "2:failed:-",
+      "3:failed:-",
+      "4:failed:-",
+      "5:failed:-"
+    ]
+  }
+}

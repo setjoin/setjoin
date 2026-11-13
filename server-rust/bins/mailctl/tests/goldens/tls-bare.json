@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "Usage: mailctl tls status | set --challenge <c> --domains <d> --email <e> --dns-provider <p>\n\nFlags (all subcommands): --json, --quiet, --yes/-y\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,376 @@
+{
+  "case": "activity-success",
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "normalization": [
+    "fixture identities",
+    "generated timestamps",
+    "verified audit checksums"
+  ],
+  "observation": {
+    "effects": {
+      "authorizations": [],
+      "changes": [
+        {
+          "at": "<timestamp>",
+          "node_id": 0,
+          "op": "space",
+          "seq": 1,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<timestamp>",
+          "node_id": "<file>",
+          "op": "create",
+          "seq": 2,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<timestamp>",
+          "node_id": "<file>",
+          "op": "create",
+          "seq": 3,
+          "space_id": "<space>"
+        },
+        {
+          "at": "<timestamp>",
+          "node_id": "<file>",
+          "op": "update",
+          "seq": 4,
+          "space_id": "<space>"
+        }
+      ],
+      "chunks": [
+        {
+          "created_at": "<timestamp>",
+          "ref_count": 1,
+          "retain_until": null,
+          "scope_key": "g",
+          "sha256": "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882",
+          "size_bytes": 10,
+          "storage_ref": "drive/g/84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882",
+          "worm_applied_until": null,
+          "worm_pending": false
+        }
+      ],
+      "claims": [],
+      "core_audit": [],
+      "drive_audit": [
+        {
+          "action": "space.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "classification": "regular",
+            "isPersonal": false,
+            "name": "Office1"
+          },
+          "before_state": null,
+          "id": "<drive-audit:0>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<timestamp>",
+          "space_id": "<space>",
+          "target_id": "<space>",
+          "target_type": "space",
+          "user_id": "<actor>"
+        },
+        {
+          "action": "node.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "kind": "file",
+            "name": "proposal.docx",
+            "parentId": null
+          },
+          "before_state": null,
+          "id": "<drive-audit:1>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<timestamp>",
+          "space_id": "<space>",
+          "target_id": "<file>",
+          "target_type": "node",
+          "user_id": "<actor>"
+        },
+        {
+          "action": "version.create",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "branchId": null,
+            "conflict": false,
+            "fileNodeId": "<file>",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "size": 10
+          },
+          "before_state": null,
+          "id": "<drive-audit:2>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<timestamp>",
+          "space_id": "<space>",
+          "target_id": "<version:0>",
+          "target_type": "version",
+          "user_id": "<actor>"
+        },
+        {
+          "action": "office.launch",
+          "after_state": {
+            "_checksum": "<verified-drive-checksum>",
+            "baseVersionId": "<version:0>",
+            "launchId": "<launch:0>",
+            "providerId": "office1",
+            "sessionId": "<session:0>"
+          },
+          "before_state": null,
+          "id": "<drive-audit:3>",
+          "ip": null,
+          "notes": null,
+          "occurred_at": "<timestamp>",
+          "space_id": "<space>",
+          "target_id": "<file>",
+          "target_type": "file",
+          "user_id": "<actor>"
+        }
+      ],
+      "files": [
+        {
+          "content_type": "application/octet-stream",
+          "head_version_id": "<version:0>",
+          "node_id": "<file>",
+          "size_bytes": 10,
+          "space_id": "<space>"
+        }
+      ],
+      "health": [
+        {
+          "app_revision_id": null,
+          "capacity_state": "available",
+          "expires_at": "<timestamp>",
+          "facts": {},
+          "id": "<health:0>",
+          "observed_at": "<timestamp>",
+          "provider_generation": 2,
+          "provider_id": "office1",
+          "state": "healthy"
+        }
+      ],
+      "launches": [
+        {
+          "action": "edit_online",
+          "actor_user_id": "<actor>",
+          "created_at": "<timestamp>",
+          "device_id": "device1",
+          "expires_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<launch:0>",
+          "provenance_confidence": "actor",
+          "revocation_generation": 1,
+          "revoked_at": null,
+          "session_id": "<session:0>",
+          "space_id": "<space>",
+          "token_hash": "<launch-hash>"
+        }
+      ],
+      "locks": [],
+      "nodes": [
+        {
+          "created_at": "<timestamp>",
+          "created_by": "<actor>",
+          "deleted_at": null,
+          "id": "<file>",
+          "kind": "file",
+          "name": "proposal.docx",
+          "parent_id": null,
+          "purged_at": null,
+          "purged_by": null,
+          "space_id": "<space>"
+        }
+      ],
+      "providers": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/launch",
+            "proofMode": "test_disabled",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": true,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 2,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "active_for_scope",
+          "updated_at": "<timestamp>",
+          "updated_by": null
+        }
+      ],
+      "qualifications": [
+        {
+          "app_revision_id": null,
+          "build_digest": null,
+          "checks": {
+            "discovery": "pass",
+            "editor": "pass",
+            "proof": "pass",
+            "wopiSave": "pass"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "created_at": "<timestamp>",
+          "created_by": "<actor>",
+          "discovery_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "expires_at": "<timestamp>",
+          "id": "<qualification:0>",
+          "profile": "existing-provider",
+          "provider_generation": 1,
+          "provider_id": "office1",
+          "route_revision": 1,
+          "status": "passed",
+          "synthetic_receipt_id": null
+        }
+      ],
+      "receipts": [],
+      "sessions": [
+        {
+          "base_version_id": "<version:0>",
+          "branch_id": null,
+          "cohort_key": "cohort1",
+          "created_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "id": "<session:0>",
+          "lease_expires_at": "<timestamp>",
+          "lock_epoch": 1,
+          "provider_id": "office1",
+          "space_id": "<space>",
+          "status": "active",
+          "terminal_reason": null,
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "spaces": [
+        {
+          "acl_irreversible_at": null,
+          "acl_mode": "legacy",
+          "acl_protocol_version": 1,
+          "change_seq": 4,
+          "chat_channel_id": null,
+          "classification": "regular",
+          "created_at": "<timestamp>",
+          "export_policy": {},
+          "id": "<space>",
+          "is_personal": false,
+          "meeting_id": null,
+          "name": "Office1",
+          "owner_user_id": "<actor>",
+          "quota_bytes": null,
+          "retention_days": null,
+          "used_bytes": 10,
+          "vault_quota_mb": null,
+          "worm_mode": null
+        }
+      ],
+      "version_chunks": [
+        {
+          "chunk_sha256": "84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882",
+          "ordinal": 0,
+          "scope_key": "g",
+          "stream": "content",
+          "version_id": "<version:0>"
+        }
+      ],
+      "versions": [
+        {
+          "author_user_id": "<actor>",
+          "branch_id": null,
+          "chunk_size": 4194304,
+          "conflict_of": null,
+          "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "content_type": "application/octet-stream",
+          "created_at": "<timestamp>",
+          "device_label": "test",
+          "file_node_id": "<file>",
+          "id": "<version:0>",
+          "merged_from_version_id": null,
+          "note": "v1",
+          "parent_version_id": null,
+          "preview_sha256": null,
+          "preview_status": "none",
+          "size_bytes": 10,
+          "space_id": "<space>"
+        }
+      ]
+    },
+    "notify": [],
+    "response": {
+      "body": {
+        "items": [
+          {
+            "action": "office.launch",
+            "actorId": "<actor>",
+            "actorName": "office1-owner",
+            "at": "<timestamp>",
+            "id": "<drive-audit:3>",
+            "notes": null,
+            "targetId": "<file>",
+            "targetType": "file"
+          },
+          {
+            "action": "version.create",
+            "actorId": "<actor>",
+            "actorName": "office1-owner",
+            "at": "<timestamp>",
+            "id": "<drive-audit:2>",
+            "notes": null,
+            "targetId": "<file>",
+            "targetType": "version"
+          },
+          {
+            "action": "node.create",
+            "actorId": "<actor>",
+            "actorName": "office1-owner",
+            "at": "<timestamp>",
+            "id": "<drive-audit:1>",
+            "notes": null,
+            "targetId": "<file>",
+            "targetType": "node"
+          },
+          {
+            "action": "space.create",
+            "actorId": "<actor>",
+            "actorName": "office1-owner",
+            "at": "<timestamp>",
+            "id": "<drive-audit:0>",
+            "notes": null,
+            "targetId": "<file>",
+            "targetType": "space"
+          }
+        ]
+      },
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /drive/spaces/{id}/activity"
+}

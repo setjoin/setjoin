@@ -1,0 +1,161 @@
+{
+  "case": "inbound-dates",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "before": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "table": "trace"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/messages/<in1>/trace",
+      "method": "GET",
+      "path": "/messages/{emailId}/trace"
+    },
+    "response": {
+      "body": "{\"direction\":\"inbound\",\"hopCount\":5,\"totalTransitMs\":10000,\"slowestHopIndex\":4,\"hops\":[{\"index\":0,\"fromHost\":\"h5.example\",\"byHost\":\"h4.example\",\"withProtocol\":\"ESMTPS\",\"ip\":\"203.0.113.5\",\"rdns\":\"mx.h5.example\",\"timestamp\":\"2026-10-02T17:00:00.5Z\",\"delayMs\":null,\"tlsActive\":true,\"isOurInfra\":false,\"parseOk\":true,\"rawLine\":\"from h5.example (mx.h5.example [203.0.113.5]) by h4.example with ESMTPS id 1; Mon, 02 Oct 2026 10:00:00.5 -0700 (PDT)\"},{\"index\":1,\"fromHost\":\"h4.example\",\"byHost\":\"h3.example\",\"withProtocol\":\"ESMTPS\",\"ip\":\"203.0.113.5\",\"rdns\":\"mx.h4.example\",\"timestamp\":\"2026-10-02T10:00:00Z\",\"delayMs\":-25200500,\"tlsActive\":true,\"isOurInfra\":false,\"parseOk\":true,\"rawLine\":\"from h4.example (mx.h4.example [203.0.113.5]) by h3.example with ESMTPS id 1; 2 Oct 26 10:00 EST\"},{\"index\":2,\"fromHost\":\"h3.example\",\"byHost\":\"h2.example\",\"withProtocol\":\"ESMTPS\",\"ip\":\"203.0.113.5\",\"rdns\":\"mx.h3.example\",\"timestamp\":null,\"delayMs\":null,\"tlsActive\":true,\"isOurInfra\":false,\"parseOk\":true,\"rawLine\":\"from h3.example (mx.h3.example [203.0.113.5]) by h2.example with ESMTPS id 1; garbage\"},{\"index\":3,\"fromHost\":\"h2.example\",\"byHost\":\"h1.example\",\"withProtocol\":\"ESMTPS\",\"ip\":\"203.0.113.5\",\"rdns\":\"mx.h2.example\",\"timestamp\":\"2026-10-02T09:59:50Z\",\"delayMs\":null,\"tlsActive\":true,\"isOurInfra\":false,\"parseOk\":true,\"rawLine\":\"from h2.example (mx.h2.example [203.0.113.5]) by h1.example with ESMTPS id 1; Mon, 02 Oct 2026 09:59:50 +0000\"},{\"index\":4,\"fromHost\":\"h1.example\",\"byHost\":\"mail.test\",\"withProtocol\":\"ESMTPS\",\"ip\":\"203.0.113.5\",\"rdns\":\"mx.h1.example\",\"timestamp\":\"2026-10-02T10:00:00Z\",\"delayMs\":10000,\"tlsActive\":true,\"isOurInfra\":true,\"parseOk\":true,\"rawLine\":\"from h1.example (mx.h1.example [203.0.113.5]) by mail.test with ESMTPS id 1; Mon, 02 Oct 2026 10:00:00 +0000\"}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1782"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /messages/{emailId}/trace"
+}

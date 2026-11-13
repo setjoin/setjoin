@@ -1,0 +1,35 @@
+{
+  "case": "revoke-members-and-actor-lacks-perms",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "assignments": [
+          "<t1>:880002:true:true",
+          "<t2>:880002:true:true"
+        ],
+        "jobs": [
+          "880001:done:3/3::[{\"reason\": \"domination\", \"status\": \"blocked\", \"userId\": <t1>}, {\"reason\": \"domination\", \"status\": \"blocked\", \"userId\": <t2>}, {\"reason\": \"out_of_scope\", \"status\": \"blocked\", \"userId\": <t3>}]",
+          "880002:error:0/1:actor no longer holds all permissions this role grants:[]"
+        ]
+      }
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "assignments": [
+          "<t1>:880002:true:true",
+          "<t2>:880002:true:true"
+        ],
+        "jobs": [
+          "880001:queued:0/3::[]",
+          "880002:queued:0/1::[]"
+        ]
+      }
+    },
+    "notifies": []
+  },
+  "worker": "bulk-role-jobs"
+}

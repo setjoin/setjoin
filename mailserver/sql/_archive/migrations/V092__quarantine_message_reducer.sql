@@ -1,0 +1,26 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- V092__quarantine_message_reducer.sql
+-- WAVE 12-B / go-translator Cand 4, PIECE 2 — thin the SMTP inbound quarantine
+-- translator. Plan: docs/superpowers/plans/archive/2026-06-18-gotranslator-thin-imap-smtp.md.
+--
+-- The misplacement: smtp/inbound.go processQuarantine hand-rolled a folder-move +
+-- quarantined_messages audit insert in FIVE separate non-atomic pool statements
+-- (resolve mailbox, look up Inbox tag id, look up Quarantined tag id, DELETE the
+-- Inbox message_tags row, INSERT the Quarantined message_tags row, INSERT the
+-- audit row). A partial failure left a message half-quarantined, and it emitted NO
+-- pg_notify so the webmail never saw the quarantine until a manual refresh.
+--
+-- The move: the new quarantine_message() reducer owns the triad (remove the real
+-- location-group tag(s) + add the Quarantined quarantine-group tag + write ONE
+-- audit row) in one txn, R3-scoped (BZ074 on foreign-mailbox/not-found), records
+-- the REAL original_tag (not a hard-coded 'Inbox'), and — Decision 3, the named
+-- fix — PERFORMs notify_state_change by default so the client learns of it. The Go
+-- side shrinks to resolve-mailbox + one quarantine_message() call.
+--
+-- This migration converges an EXISTING DB onto the same end-state the fresh-load
+-- path (load-test-schema.sh → reducers glob) reaches: it loads the new reducer.
+-- CREATE OR REPLACE FUNCTION is replay-safe; no schema/table change (the
+-- quarantined_messages table + 'quarantine' exclusive-group already shipped in
+-- schema/033_quarantine.sql).
+
+\i ../reducers/quarantine_message.sql

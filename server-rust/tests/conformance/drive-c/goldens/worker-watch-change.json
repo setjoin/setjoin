@@ -1,0 +1,25 @@
+{
+  "case": "seed-one-tick-change",
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "observation": {
+    "pushes": {
+      "outsider": [],
+      "owner": [
+        {
+          "nodeId": "<created>",
+          "op": "create",
+          "spaceId": "<space>"
+        }
+      ],
+      "peer": [
+        {
+          "nodeId": "<created>",
+          "op": "create",
+          "spaceId": "<space>"
+        }
+      ]
+    }
+  },
+  "worker": "drive-watch"
+}

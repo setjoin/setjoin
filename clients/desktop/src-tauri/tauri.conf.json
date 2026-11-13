@@ -1,0 +1,25 @@
+{
+  "productName": "SetJoin",
+  "version": "0.1.0",
+  "identifier": "com.setjoin.desktop",
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "build": {
+    "frontendDist": "../../../mailserver/webmail/build",
+    "beforeBuildCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../mailserver/webmail && npm run build",
+    "beforeDevCommand": "bash src-tauri/android-integration/apply-android-integration.sh && cd ../../mailserver/webmail && npm run dev",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [],
+    "withGlobalTauri": true
+  }
+}

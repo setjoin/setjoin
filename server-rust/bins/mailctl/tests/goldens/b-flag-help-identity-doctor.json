@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity doctor:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -source string\n    \toptional normalized source key\nError: flag: help requested\n",
+  "exit": 1
+}

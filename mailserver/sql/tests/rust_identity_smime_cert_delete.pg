@@ -1,0 +1,36 @@
+-- #494: public database transaction contract (ownership + atomic promotion).
+BEGIN;
+SELECT plan(13);
+SELECT mk_account('idlogin4-cert-a') AS amb \gset
+SELECT mk_account('idlogin4-cert-b') AS bmb \gset
+SELECT user_id AS au FROM account_scope(:amb) \gset
+SELECT user_id AS bu FROM account_scope(:bmb) \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default,created_at)
+VALUES(:au,'primary','public-a',true,'2026-10-01T10:00:00Z') RETURNING id AS aid \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default,created_at)
+VALUES(:au,'survivor','public-a2',false,'2026-10-01T11:00:00Z') RETURNING id AS sid \gset
+INSERT INTO user_smime_certs(user_id,label,cert_pem,is_default)
+VALUES(:bu,'foreign','public-b',true) RETURNING id AS bid \gset
+SELECT isnt(:au::bigint,:amb::bigint,'user and mailbox currency diverge');
+SELECT is(rust_identity_smime_cert_delete(:bu,:aid),'delete','foreign deletion is refused');
+SELECT is((SELECT count(*) FROM user_smime_certs WHERE id IN (:aid,:bid) AND is_default),2::bigint,'foreign refusal preserves both defaults');
+CREATE FUNCTION pg_temp.idlogin4_reject_promote() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'injected promotion fault' USING ERRCODE='BZ001',HINT='{"type":"forbidden"}';
+END;
+$$;
+CREATE TRIGGER gofree_idlogin4_reject_promote BEFORE UPDATE ON user_smime_certs
+FOR EACH ROW WHEN (NEW.is_default) EXECUTE FUNCTION pg_temp.idlogin4_reject_promote();
+SELECT is(rust_identity_smime_cert_delete(:au,:aid),'promote','promotion error retains its frozen HTTP phase');
+SELECT ok(EXISTS(SELECT 1 FROM user_smime_certs WHERE id=:aid AND user_id=:au),'failed promotion rolls back deletion');
+SELECT ok(NOT (SELECT is_default FROM user_smime_certs WHERE id=:sid AND user_id=:au),'failed promotion leaves survivor unchanged');
+DROP TRIGGER gofree_idlogin4_reject_promote ON user_smime_certs;
+SELECT is(rust_identity_smime_cert_delete(:au,:aid),'ok','owned default deletion succeeds');
+SELECT ok(NOT EXISTS(SELECT 1 FROM user_smime_certs WHERE id=:aid AND user_id=:au),'selected certificate is deleted');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:sid AND user_id=:au),'newest owned survivor is promoted');
+SELECT ok((SELECT is_default FROM user_smime_certs WHERE id=:bid AND user_id=:bu),'foreign default stays untouched');
+SELECT is(rust_identity_smime_cert_delete(:au,:aid),'delete','repeat keeps Go missing-row verdict');
+SELECT is(rust_identity_smime_cert_delete(:au,:sid),'ok','last owned certificate can be deleted');
+SELECT is((SELECT count(*) FROM user_smime_certs WHERE user_id=:au),0::bigint,'no artificial default is created');
+SELECT * FROM finish();
+ROLLBACK;

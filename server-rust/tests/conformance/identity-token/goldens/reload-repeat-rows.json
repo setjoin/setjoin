@@ -1,0 +1,7 @@
+{
+  "case": "reload-repeat-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /admin/reload"
+}

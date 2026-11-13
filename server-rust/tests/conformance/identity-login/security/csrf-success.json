@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "access_type": "access",
+      "forwarded_host": "",
+      "proto": "",
+      "refresh_type": "refresh",
+      "same_family": true,
+      "status": 200,
+      "tls": true,
+      "verified_principal": true
+    },
+    {
+      "access_type": "access",
+      "forwarded_host": "bad.example,mail.test",
+      "proto": "https",
+      "refresh_type": "refresh",
+      "same_family": true,
+      "status": 200,
+      "tls": false,
+      "verified_principal": true
+    },
+    {
+      "access_type": "access",
+      "forwarded_host": "bad host",
+      "proto": "https",
+      "refresh_type": "refresh",
+      "same_family": true,
+      "status": 200,
+      "tls": false,
+      "verified_principal": true
+    }
+  ],
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "route": "POST /auth/login"
+}

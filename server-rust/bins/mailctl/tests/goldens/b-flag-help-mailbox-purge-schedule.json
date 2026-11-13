@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: invalid purge-schedule flags\n",
+  "exit": 1
+}

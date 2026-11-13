@@ -1,0 +1,20 @@
+BEGIN;
+SELECT plan(4);
+SELECT has_function('admin_is_super');
+-- seed: domain + three users
+INSERT INTO domains (name, is_local) VALUES ('isuper.test', TRUE) ON CONFLICT DO NOTHING;
+DO $$ DECLARE d bigint; BEGIN
+  SELECT id INTO d FROM domains WHERE name='isuper.test';
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash) VALUES
+    (88001,'su_active',d,'a@isuper.test','A','x'),
+    (88002,'su_expired',d,'b@isuper.test','B','x'),
+    (88003,'su_none',d,'c@isuper.test','C','x') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (88001,1,88001);
+  INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, expires_at)
+    VALUES (88002,1,88002, now() - interval '1 day');
+END $$;
+SELECT ok(admin_is_super(88001),        'active role-1 assignment ⇒ true');
+SELECT ok(NOT admin_is_super(88002),    'expired role-1 assignment ⇒ false');
+SELECT ok(NOT admin_is_super(88003),    'no role-1 assignment ⇒ false');
+SELECT * FROM finish();
+ROLLBACK;

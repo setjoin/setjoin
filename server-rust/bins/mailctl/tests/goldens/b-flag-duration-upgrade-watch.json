@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-a-duration\" for flag -interval: parse error\nUsage of upgrade watch:\n  -interval duration\n    \tpoll interval (default 2s)\n  -timeout duration\n    \tmaximum watch duration (default 10m0s)\nError: invalid watch interval or timeout\n",
+  "exit": 1
+}

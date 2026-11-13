@@ -1,0 +1,70 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "external_path": "/api/office/wopi/files/{id}/contents",
+      "headers": {
+        "x-setjoin-operation-key": "office1-save",
+        "x-wopi-lock": "office1-lock",
+        "x-wopi-override": "LOCK"
+      },
+      "method": "GET",
+      "path": "/office/wopi/files/{id}/contents",
+      "query": "access_token=<launch-token>"
+    },
+    "response": {
+      "body": "0123456789",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/octet-stream",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-oracle",
+        "x-wopi-itemversion": "<base-version>"
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": "0123456789",
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/octet-stream",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-oracle",
+          "x-wopi-itemversion": "<base-version>"
+        },
+        "status": 200
+      }
+    ],
+    "storage": [
+      {
+        "body": "",
+        "content_type": "",
+        "copy_source": "",
+        "key": "mailblobs/drive/g/84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882",
+        "method": "GET",
+        "signature_valid": true
+      }
+    ]
+  },
+  "route": "GET /office/wopi/files/{id}/contents"
+}

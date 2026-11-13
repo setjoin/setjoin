@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/sources/directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/sources/directory/dry-run",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "if-match": "\"3\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"expectedGeneration\":\"3\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "{\n  \"sourceId\": \"\",\n  \"sourceKey\": \"directory\",\n  \"state\": \"\",\n  \"generation\": \"\",\n  \"replayed\": null,\n  \"secretConfigured\": {},\n  \"valid\": false,\n  \"transport\": \"failed\",\n  \"personWrites\": 0\n}\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000001\nError: identity source dry-run is blocked\n",
+  "exit": 1
+}

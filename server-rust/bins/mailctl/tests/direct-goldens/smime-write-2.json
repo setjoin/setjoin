@@ -1,0 +1,28 @@
+{
+  "stdout": "  [1] alice@gofree-mctl3.test: WARN \u2014 stored, but set-default failed: ERROR: fixture set-default failure (SQLSTATE P0001)\n  [1] alice@gofree-mctl3.test: imported (label=\"signing\")\nsmime import: 1 imported, 0 skipped (of 1 rows)\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "host_unchanged": true,
+    "tables": {
+      "user_smime_certs": {
+        "added": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDSTCCAjGgAwIBAgIUcECuGYHds/MVTHcEv4qxYMsfzbcwDQYJKoZIhvcNAQEL\nBQAwIjEgMB4GA1UEAwwXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwHhcNMjYxMDMx\nMTAxMDEyWhcNMzYxMDI4MTAxMDEyWjAiMSAwHgYDVQQDDBdhbGljZUBnb2ZyZWUt\nbWN0bDMudGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANt04jfp\n7MVEAkebP5J8q3I2C/qV5UIh0nevc/ERma1IUo7gQZgye3GiM4xDJtyLsK5MFkDX\nhRnR2aQ30W+3xhZ7UtjCO3fWYEk0hzw2L7ShwTAOdnIrCYQTcLpfYf628f5Zx7ry\nkDMKm0tNIbgvLG2aGnEY7QDoAci5XnVX0zwML13VrMhnkwch5wAOmiCbrh5OsE9q\ngeUhJQV+YicpUiljVGQFLpeSmibxiZm1C6P1NTnlF8vgXvPik1QpnrgrAQrg31z1\n9X40DHLTMvKgCc4Mi1hcYrWcJse3RYHExf1bXRTCHs7ygns7kSCgbDiDD1hM/ufJ\nEsfhysyYJNDoMu8CAwEAAaN3MHUwHQYDVR0OBBYEFEQBqbtVVwd74/cV4BkNw3WM\nFw/HMB8GA1UdIwQYMBaAFEQBqbtVVwd74/cV4BkNw3WMFw/HMA8GA1UdEwEB/wQF\nMAMBAf8wIgYDVR0RBBswGYEXYWxpY2VAZ29mcmVlLW1jdGwzLnRlc3QwDQYJKoZI\nhvcNAQELBQADggEBAKSiFBFSCPwnR2bJCNZ1ZQ/5ZUN6q/VDp4FqMeUqmRhZ6yTr\n49rvQzMCAB1lewW5Sfyi/hZxAiMVMZF93VU5it3aDdK2ORSQXFO2VvyoKnorBeI7\nsekNKDsbKFdg3+VIejcpqghppMQU4PnORn4oMegpe2mjvt5M2bZ8u9UgenvDUJZE\nuo4NZv5kFiYYmJ4nAqdsqFX0XAwZESjoBQhWsSOU/rXMKA37lvcDucdfSDi/n/y/\nZzsFyva9SHxKTVeiaxpHrTi4EqygEid6Y9FdSPhC1jUr2y9y7bJx8U+KElQMkBUB\nzUzdfzUsI1NxvZakmsgXI3qD4bSShQpmvToa+X0=\n-----END CERTIFICATE-----\n",
+            "created_at": "{TIME}",
+            "expires_at": "2036-10-28T10:10:12+00:00",
+            "id": "{user_smime_certs:1}",
+            "is_default": true,
+            "issued_at": "2026-10-31T10:10:12+00:00",
+            "label": "signing",
+            "private_key_enc": "{VERIFIED_ENCRYPTED_PRIVATE_KEY}",
+            "user_id": 9900201
+          }
+        ],
+        "removed": []
+      }
+    },
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

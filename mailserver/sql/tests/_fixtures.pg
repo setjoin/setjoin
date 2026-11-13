@@ -1,0 +1,149 @@
+-- pgTAP: _fixtures.pg — self-test for the mk_account / mk_shared_mailbox helpers.
+-- ADR-003: the helpers exist to make divergent ids (user_id != mailbox_id) the
+-- DEFAULT for fixture setup, so the user_id/mailbox_id confusion stays observable.
+-- These assertions prove the invariant the rest of the suite leans on.
+BEGIN;
+SELECT plan(25);
+
+-- ── mk_account: returns a mailbox id, with a DIVERGENT owning user ──
+CREATE TEMP TABLE _mk AS SELECT mk_account('alice') AS mb_id;
+
+SELECT is(
+  (SELECT count(*) FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)),
+  1::BIGINT, 'mk_account creates exactly one mailbox at the returned id');
+
+SELECT is(
+  (SELECT is_primary FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)),
+  TRUE, 'mk_account mailbox is the primary mailbox');
+
+-- The owning user exists and its id is DIVERGENT from the mailbox id.
+SELECT ok(
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)) IS NOT NULL,
+  'mk_account mailbox has an owning user');
+
+SELECT isnt(
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)),
+  (SELECT mb_id FROM _mk),
+  'mk_account: user_id != mailbox_id (DIVERGENT by construction)');
+
+-- user id is in the 70000+ range, mailbox id in the disjoint 90000+ range.
+SELECT cmp_ok((SELECT mb_id FROM _mk), '>=', 90000::BIGINT,
+  'mk_account mailbox id is from the 90000+ source');
+SELECT cmp_ok(
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)), '>=', 70000::BIGINT,
+  'mk_account user id is from the 70000+ source');
+SELECT cmp_ok(
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)), '<', 90000::BIGINT,
+  'mk_account user id is below the mailbox id range (disjoint sources)');
+
+-- account_scope() — the ADR-003 seam — resolves the divergent user correctly.
+SELECT is(
+  (SELECT user_id FROM account_scope((SELECT mb_id FROM _mk))),
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk)),
+  'account_scope(mk_account) returns the real divergent user_id');
+
+-- ── mk_shared_mailbox: user_id IS NULL (shared case) ──
+CREATE TEMP TABLE _mks AS SELECT mk_shared_mailbox('teambox') AS mb_id;
+
+SELECT ok(
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mks)) IS NULL,
+  'mk_shared_mailbox has user_id IS NULL (shared mailbox)');
+
+-- Two calls return distinct ids (no collision across calls in a session).
+SELECT isnt((SELECT mb_id FROM _mk), (SELECT mb_id FROM _mks),
+  'distinct calls return distinct mailbox ids');
+
+-- ── notify-capture side-channel: app_notify tee + the three helpers ──────────
+-- ADR: app_notify is the single choke point for pg_notify; with the
+-- app.capture_notify GUC OFF it must capture NOTHING (the prod path), and ON it
+-- tees each push to _test_notify_log so a test can assert it fired.
+
+-- GUC OFF (the default / production posture) → ZERO capture. Asserted FIRST so a
+-- sticky GUC from a prior statement would surface here (SET LOCAL resets at txn
+-- end, but this catches any in-txn bleed too).
+SELECT app_notify('cap:test', '{"event":"off"}');
+SELECT is(notify_count('cap:test'), 0,
+  'GUC off (default): app_notify captures nothing (prod path)');
+
+-- GUC ON → the push is teed and readable in-txn.
+SET LOCAL app.capture_notify = 'on';
+SELECT app_notify('cap:test', '{"event":"hello","n":1}');
+
+SELECT is(notify_count('cap:test'), 1,
+  'GUC on: one app_notify captures exactly one row');
+SELECT is(last_notify_event('cap:test'), 'hello',
+  'last_notify_event returns payload->>event of the latest capture');
+SELECT is(
+  (SELECT count(*)::INT FROM notified_on('cap:test')), 1,
+  'notified_on returns the captured payload rows for the channel');
+SELECT is(
+  (SELECT notified_on FROM notified_on('cap:test') LIMIT 1), '{"event":"hello","n":1}',
+  'notified_on returns the exact captured payload text');
+
+-- A second push on the same channel → count climbs, last_event updates, fire
+-- order preserved (catches double-push and proves ordering).
+SELECT app_notify('cap:test', '{"event":"world","n":2}');
+SELECT is(notify_count('cap:test'), 2,
+  'a second push on the channel makes notify_count = 2 (double-push observable)');
+SELECT is(last_notify_event('cap:test'), 'world',
+  'last_notify_event tracks the most recent push (fire order)');
+
+-- last_notify_payload returns the RAW latest payload text (so a test can cast to
+-- JSONB and assert key ABSENCE — e.g. no 'body'/'preview' on an encrypted push).
+SELECT is(last_notify_payload('cap:test'), '{"event":"world","n":2}',
+  'last_notify_payload returns the raw text of the most recent capture');
+SELECT ok(
+  NOT ((last_notify_payload('cap:test'))::jsonb ? 'body'),
+  'last_notify_payload supports JSONB key-absence assertions (no "body")');
+
+-- ── state-bump ⇒ push guard: snapshot + predicate + assert helper ────────────
+-- INVARIANT: a reducer that advances a mailbox jmap_*_state token MUST push on
+-- 'tag:'||mailbox_id in the same txn. These self-tests prove the guard both
+-- PASSES on the correct bump+push pairing and FIRES when the push is omitted.
+-- We use the _mk mailbox (mb_id) created above; capture is already armed ON.
+
+-- (a) snapshot captures every jmap_*_state column as a jsonb bag.
+SELECT ok(
+  (SELECT notify_guard_snapshot((SELECT mb_id FROM _mk)) ? 'jmap_email_state'),
+  'notify_guard_snapshot includes jmap_email_state');
+SELECT ok(
+  (SELECT notify_guard_snapshot((SELECT mb_id FROM _mk)) ? 'jmap_reminder_state'),
+  'notify_guard_snapshot includes jmap_reminder_state (dynamic column discovery)');
+
+-- (b) NO bump → guard is vacuously satisfied (no push required).
+CREATE TEMP TABLE _g0 AS SELECT notify_guard_snapshot((SELECT mb_id FROM _mk)) AS s;
+SELECT ok(
+  reducer_pushed_if_bumped((SELECT mb_id FROM _mk), (SELECT s FROM _g0)),
+  'guard holds when no state column advanced (nothing to push)');
+
+-- (c) POSITIVE: a correct bump+push pairing (bump_email_state + a push on the
+--     mailbox tag: channel) → guard holds.
+CREATE TEMP TABLE _g1 AS SELECT notify_guard_snapshot((SELECT mb_id FROM _mk)) AS s;
+SELECT bump_email_state((SELECT mb_id FROM _mk));
+SELECT app_notify('tag:' || (SELECT mb_id FROM _mk), '{"event":"state_change"}');
+SELECT ok(
+  reducer_pushed_if_bumped((SELECT mb_id FROM _mk), (SELECT s FROM _g1)),
+  'guard PASSES when a state bump is paired with a push on tag:{mailbox}');
+
+-- (d) NEGATIVE self-test: state advances but NO push is emitted → guard FIRES.
+--     We bump the state column directly WITHOUT app_notify (simulating a reducer
+--     that forgot to push). The mb_id channel has had pushes from (c); use a
+--     FRESH mailbox so its tag: channel is empty, isolating the omission.
+CREATE TEMP TABLE _gn AS SELECT mk_account('nopush') AS mb_id;
+CREATE TEMP TABLE _g2 AS SELECT notify_guard_snapshot((SELECT mb_id FROM _gn)) AS s;
+UPDATE mailboxes SET jmap_email_state = jmap_email_state + 1
+  WHERE id = (SELECT mb_id FROM _gn);   -- bump, but deliberately NO push
+SELECT ok(
+  NOT reducer_pushed_if_bumped((SELECT mb_id FROM _gn), (SELECT s FROM _g2)),
+  'guard FIRES (predicate FALSE) when state advanced but no push captured');
+
+-- (e) the assert_reducer_pushed convenience emits a passing TAP line for (c)-style
+--     correct pairing — proves the SETOF TEXT one-liner wiring works end to end.
+CREATE TEMP TABLE _g3 AS SELECT notify_guard_snapshot((SELECT mb_id FROM _mk)) AS s;
+SELECT bump_email_state((SELECT mb_id FROM _mk));
+SELECT app_notify('tag:' || (SELECT mb_id FROM _mk), '{"event":"state_change"}');
+SELECT * FROM assert_reducer_pushed((SELECT mb_id FROM _mk), (SELECT s FROM _g3),
+  'assert_reducer_pushed one-liner passes on a correct bump+push');
+
+SELECT * FROM finish();
+ROLLBACK;

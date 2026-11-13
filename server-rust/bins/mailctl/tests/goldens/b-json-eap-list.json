@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/email-address-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"id\": 7,\n    \"priority\": 1,\n    \"name\": \"Sales\",\n    \"enabled\": true,\n    \"overwriteDirectoryAddress\": false,\n    \"primaryTemplate\": \"{given_name}@{domain}\",\n    \"duplicateResolution\": \"\",\n    \"updatedAt\": \"\"\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

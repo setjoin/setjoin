@@ -1,0 +1,22 @@
+-- pgTAP: rust_settings_signature.sql (#306) — frozen Go's PUT /settings/signatures as one
+-- transaction. Proves ownership by the actor argument, the default flip, the role flip and
+-- the 100-row cap (updates of an existing alias stay allowed at the cap).
+BEGIN;
+SELECT plan(9);
+SELECT mk_account('sgown') AS mb \gset
+SELECT mk_account('sgoth') AS omb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ou FROM mailboxes WHERE id = :omb \gset
+
+SELECT ok(rust_settings_signature_put(:u, 'a@sg.test', '<p>A</p>', 'A', TRUE, 'new') > 0, 'creates a default signature');
+SELECT ok(rust_settings_signature_put(:u, 'b@sg.test', '<p>B</p>', 'B', TRUE, 'reply') > 0, 'a second default replaces the first');
+SELECT is((SELECT count(*)::int FROM user_signatures WHERE user_id = :u AND is_default), 1, 'at most one is_default per user');
+SELECT is((SELECT default_for FROM user_signatures WHERE user_id = :u AND alias_email = 'a@sg.test'), 'new', 'the role flip left the other role alone');
+SELECT is(rust_settings_signature_put(:ou, 'a@sg.test', 'x', 'x', FALSE, 'none') > 0, true, 'the same alias for another user is another row');
+SELECT is((SELECT signature_text FROM user_signatures WHERE user_id = :u AND alias_email = 'a@sg.test'), 'A', 'the other user did not touch the first row');
+INSERT INTO user_signatures (user_id, alias_email) SELECT :u, 'bulk' || g || '@sg.test' FROM generate_series(1, 98) g;
+SELECT is(rust_settings_signature_put(:u, 'over@sg.test', '', '', FALSE, 'none'), -1::bigint, 'a new alias beyond 100 rows is refused');
+SELECT ok(rust_settings_signature_put(:u, 'bulk1@sg.test', 'upd', '', FALSE, 'none') > 0, 'an existing alias still updates at the cap');
+SELECT is((SELECT signature_html FROM user_signatures WHERE user_id = :u AND alias_email = 'bulk1@sg.test'), 'upd', 'the update landed');
+SELECT * FROM finish();
+ROLLBACK;

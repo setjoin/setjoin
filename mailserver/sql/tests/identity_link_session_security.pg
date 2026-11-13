@@ -1,0 +1,187 @@
+BEGIN;
+SELECT plan(14);
+
+CREATE TEMP TABLE ils_fixture(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT INTO ils_fixture VALUES
+ ('mailbox',mk_account('identity-link-session-security')::text);
+INSERT INTO ils_fixture
+SELECT 'user',user_id::text FROM mailboxes
+ WHERE id=(SELECT value::bigint FROM ils_fixture WHERE key='mailbox');
+
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method)
+VALUES(
+ 'link-session-1',
+ (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+ digest('link-access-1','sha256'),
+ statement_timestamp()+interval '15 minutes',
+ 'webauthn'
+);
+SELECT is(
+ identity_auth_link_elevation_begin(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  '11111111-1111-4111-8111-111111111111',
+  'link-session-1',digest('link-access-1','sha256'),
+  'oidc','oidc:session-security',
+  statement_timestamp()+interval '10 minutes'
+ )->>'started',
+ 'true',
+ 'fresh live session creates a one-use link elevation'
+);
+SELECT is(
+ identity_auth_link_authorized(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  'oidc','https://session-security.example','subject-1',
+  'oidc:session-security','explicit fresh-AAL2 link',
+  '11111111-1111-4111-8111-111111111111',
+  digest('link-access-1','sha256')
+ )->>'linked',
+ 'true',
+ 'authorized reducer consumes the elevation and links atomically'
+);
+SELECT throws_ok(
+ $$SELECT identity_auth_link_authorized(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  'oidc','https://session-security.example','subject-1',
+  'oidc:session-security','replay',
+  '11111111-1111-4111-8111-111111111111',
+  digest('link-access-1','sha256')
+ )$$,
+ 'BZ234',
+ 'identity link authorization is unavailable',
+ 'consumed elevation cannot be replayed'
+);
+
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method)
+VALUES(
+ 'link-session-2',
+ (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+ digest('link-access-2','sha256'),
+ statement_timestamp()+interval '15 minutes',
+ 'webauthn'
+);
+SELECT lives_ok(
+ $$SELECT identity_auth_link_elevation_begin(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  '22222222-2222-4222-8222-222222222222',
+  'link-session-2',digest('link-access-2','sha256'),
+  'saml','saml:session-security',
+  statement_timestamp()+interval '10 minutes'
+ )$$,
+ 'a second live session can begin a link flow'
+);
+SELECT lives_ok(
+ $$SELECT revoke_user_sessions(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  'all','test revocation',NULL,NULL,NULL
+ )$$,
+ 'session revocation commits under the person fence'
+);
+SELECT is(
+ (SELECT count(*)::integer FROM identity_auth_link_elevations
+   WHERE flow_id='22222222-2222-4222-8222-222222222222'),
+ 0,
+ 'revocation deletes pending link elevations'
+);
+SELECT throws_ok(
+ $$SELECT identity_auth_link_authorized(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  'saml','https://saml-session-security.example','subject-2',
+  'saml:session-security','revoked callback',
+  '22222222-2222-4222-8222-222222222222',
+  digest('link-access-2','sha256')
+ )$$,
+ 'BZ234',
+ 'identity link authorization is unavailable',
+ 'callback cannot complete after revocation'
+);
+
+INSERT INTO oauth_tokens(
+ user_id,token_hash,token_type,expires_at,family_id
+) VALUES(
+ (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+ digest('unlink-refresh','sha256'),'refresh',
+ statement_timestamp()+interval '1 hour',
+ '33333333-3333-4333-8333-333333333333'
+);
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method)
+VALUES(
+ 'unlink-session',
+ (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+ digest('unlink-access','sha256'),
+ statement_timestamp()+interval '15 minutes',
+ 'oidc'
+);
+INSERT INTO ws_subscriptions(connection_id,session_id,user_id)
+VALUES(
+ 'unlink-ws','unlink-session',
+ (SELECT value::bigint FROM ils_fixture WHERE key='user')
+);
+INSERT INTO identity_media_admissions(user_id,room_name,identity,expires_at)
+VALUES(
+ (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+ 'unlink-room',
+ 'u:'||(SELECT value FROM ils_fixture WHERE key='user'),
+ statement_timestamp()+interval '60 seconds'
+);
+INSERT INTO ils_fixture
+SELECT 'link',id::text FROM user_identity_links
+ WHERE user_id=(SELECT value::bigint FROM ils_fixture WHERE key='user')
+   AND external_subject='subject-1';
+
+SELECT is(
+ identity_auth_unlink(
+  (SELECT value::bigint FROM ils_fixture WHERE key='user'),
+  (SELECT value::bigint FROM ils_fixture WHERE key='link'),
+  'compromised provider'
+ )->>'sessionsRevoked',
+ 'true',
+ 'unlink reports atomic session revocation'
+);
+SELECT is(
+ (SELECT revoked_at IS NOT NULL FROM oauth_tokens
+   WHERE token_hash=digest('unlink-refresh','sha256')),
+ true,
+ 'unlink revokes refresh-token families'
+);
+SELECT is(
+ (SELECT count(*)::integer FROM sessions
+   WHERE user_id=(SELECT value::bigint FROM ils_fixture WHERE key='user')),
+ 0,
+ 'unlink removes HTTP session rows'
+);
+SELECT is(
+ (SELECT count(*)::integer FROM ws_subscriptions
+   WHERE user_id=(SELECT value::bigint FROM ils_fixture WHERE key='user')),
+ 0,
+ 'unlink removes websocket subscriptions'
+);
+SELECT is(
+ (SELECT count(*)::integer FROM identity_session_eviction_intents
+   WHERE user_id=(SELECT value::bigint FROM ils_fixture WHERE key='user')
+     AND room_name='unlink-room'
+     AND completed_at IS NULL),
+ 1,
+ 'unlink durably snapshots the exact LiveKit target'
+);
+SELECT is(
+ (SELECT state FROM user_identity_links
+   WHERE id=(SELECT value::bigint FROM ils_fixture WHERE key='link')),
+ 'detached',
+ 'session revocation and outbox commit with the detached tombstone'
+);
+SELECT ok(
+ (SELECT count(*) FROM session_revocations
+   WHERE user_id=(SELECT value::bigint FROM ils_fixture WHERE key='user')
+     AND scope='all')=1
+ AND
+ (SELECT count(*) FROM admin_audit_log
+   WHERE action='revoke_user_sessions'
+     AND target_id=(SELECT value::bigint FROM ils_fixture WHERE key='user'))=2,
+ 'repeated all-scope revokes compact live enforcement while preserving both audit events'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

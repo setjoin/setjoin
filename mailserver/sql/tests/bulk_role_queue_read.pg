@@ -1,0 +1,14 @@
+-- bulk_role_queue_read.pg: pgTAP tests for bulk_role queue visibility in the
+-- /admin/jobs console (queue_status_normalized view + get_queue_summary +
+-- list_queue). Task 4 of the RBAC P3 program.
+BEGIN;
+SELECT plan(3);
+INSERT INTO bulk_role_jobs (op, role_id, actor_id, user_ids, total, status) VALUES
+  ('assign', 1, 1, '{1}', 1, 'queued'),
+  ('assign', 1, 1, '{1}', 1, 'done'),
+  ('revoke', 1, 1, '{1}', 1, 'error');
+SELECT is((SELECT active FROM get_queue_summary('bulk_role')), 1, 'queued → active');
+SELECT is((SELECT failed FROM get_queue_summary('bulk_role')), 1, 'error → failed');
+SELECT is((SELECT count(*)::int FROM list_queue('bulk_role', 'all', 50, 0)), 3, 'lists all 3');
+SELECT * FROM finish();
+ROLLBACK;

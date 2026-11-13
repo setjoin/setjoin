@@ -1,0 +1,50 @@
+// Recording-only overlay (#407): runs frozen Go's real cron Worker for one tick
+// of ONE named task at a fixed local wall-clock time. GO_WORKERS_OFF is read by
+// the unchanged scheduler exactly as in production.
+package cron
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeCronCatalogTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_CRON_DSN"), 1, "", os.Getenv("GOFREE_CRON_HMAC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	w := New(pgxutil.WorkerPool{Pool: pool}, slog.Default())
+	var picked []*Task
+	for _, task := range AllTasks() {
+		if task.Name == os.Getenv("GOFREE_CRON_TASK") {
+			picked = append(picked, task)
+		}
+	}
+	if len(picked) != 1 {
+		t.Fatalf("want exactly one task %q, got %d", os.Getenv("GOFREE_CRON_TASK"), len(picked))
+	}
+	if err := w.Register(picked...); err != nil {
+		t.Fatal(err)
+	}
+	at, err := time.ParseInLocation("2006-01-02 15:04", os.Getenv("GOFREE_CRON_AT"), time.Local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	w.accepting = true
+	w.mu.Unlock()
+	w.runDueTasks(ctx, at)
+	w.wg.Wait()
+	for _, task := range picked {
+		if task.lastErr != "" {
+			t.Fatalf("%s failed: %s", task.Name, task.lastErr)
+		}
+	}
+}

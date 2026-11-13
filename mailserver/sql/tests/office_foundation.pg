@@ -1,0 +1,206 @@
+-- Office broker authority, RLS, WOPI lock, idempotent receipt, and Drive branch integration.
+BEGIN;
+SELECT plan(61);
+
+SELECT has_table('public','office_provider_policies','provider policies table exists');
+SELECT has_table('public','office_user_preferences','user preferences table exists');
+SELECT has_table('public','office_editor_sessions','editor sessions table exists');
+SELECT has_table('public','office_editor_launches','editor launches table exists');
+SELECT has_table('public','office_wopi_locks','WOPI locks table exists');
+SELECT has_table('public','office_save_receipts','save receipts table exists');
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'office_provider_policies'::regclass,'office_user_preferences'::regclass,
+  'office_editor_sessions'::regclass,'office_editor_launches'::regclass,
+  'office_wopi_locks'::regclass,'office_save_receipts'::regclass) AND relrowsecurity),6,
+  'all Office tables enable RLS');
+SELECT is((SELECT count(*)::int FROM pg_class WHERE oid IN (
+  'office_provider_policies'::regclass,'office_user_preferences'::regclass,
+  'office_editor_sessions'::regclass,'office_editor_launches'::regclass,
+  'office_wopi_locks'::regclass,'office_save_receipts'::regclass) AND relforcerowsecurity),6,
+  'all Office tables force RLS');
+
+SELECT mk_account('office-owner') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id=:mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:u,1,:u);
+SELECT mk_account('office-viewer') AS viewer_mb \gset
+SELECT user_id AS viewer_u FROM mailboxes WHERE id=:viewer_mb \gset
+SELECT mk_account('office-editor') AS editor_mb \gset
+SELECT user_id AS editor_u FROM mailboxes WHERE id=:editor_mb \gset
+SELECT drive_space_create(:u,'Office','regular') AS sid \gset
+SELECT drive_member_grant(:u,:sid,:viewer_u,'viewer');
+SELECT drive_member_grant(:u,:sid,:editor_u,'editor');
+SELECT drive_node_create(:u,:sid,NULL,'file','proposal.docx') AS nid \gset
+SELECT drive_chunk_register(:u,:sid,repeat('1',64),10);
+SELECT drive_file_put_version(:u,:nid,repeat('a',64),10,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',NULL,
+  format('[{"sha256":"%s","size":10}]',repeat('1',64))::jsonb,'v1','test') AS v1r \gset
+SELECT (:'v1r'::jsonb->>'versionId')::bigint AS v1 \gset
+
+UPDATE feature_toggles SET enabled=true WHERE key IN ('feature.drive','feature.drive_history','feature.office_editing');
+INSERT INTO office_provider_policies(provider_id,enabled,entitlement_state,build_id,config)
+VALUES('fake',true,'valid','test-1','{"editorUrl":"https://editor.test/launch","wopiPublicBaseUrl":"https://setjoin.test"}');
+INSERT INTO office_provider_qualifications(
+  provider_id,provider_generation,config_sha256,status,profile,checks,
+  discovery_fingerprint,route_revision,created_by,expires_at
+) SELECT 'fake',1,config_sha256,'passed','existing-provider',
+  '{"discovery":"pass","proof":"pass","editor":"pass","wopiSave":"pass"}',
+  repeat('f',64),1,:u,now()+interval '1 hour'
+  FROM office_provider_policies WHERE provider_id='fake'
+RETURNING id AS fake_qualification \gset
+UPDATE office_provider_policies
+   SET generation=2,route_state='active_for_scope',active_qualification_id=:'fake_qualification'::uuid
+ WHERE provider_id='fake';
+INSERT INTO office_provider_health_observations(
+  provider_id,provider_generation,state,capacity_state,facts,expires_at
+) VALUES('fake',2,'healthy','available','{"source":"test"}',now()+interval '1 hour');
+
+SELECT is((office_choice_query(:u,:nid,'web')->'choices'->0->>'providerId'),'fake','authorized choice is projected');
+SELECT throws_ok(format($$SELECT office_choice_query(%s,%s,'mobile')$$,:u,:nid),'BZ322',NULL,'unknown platform rejected');
+SELECT office_launch_begin(:u,:nid,:v1,'fake','dev-1','cohort-1',repeat('b',64),3600) AS launch \gset
+SELECT ok((:'launch'::jsonb->>'launchId') IS NOT NULL,'launch minted');
+SELECT is((SELECT count(*)::int FROM office_editor_sessions WHERE file_node_id=:nid),1,'one session created');
+SELECT is((SELECT count(*)::int FROM office_editor_launches WHERE file_node_id=:nid),1,'one launch created');
+SELECT is((SELECT count(*)::int FROM drive_audit_log WHERE action='office.launch' AND target_id=:nid),1,'launch audited');
+SELECT office_launch_begin(:editor_u,:nid,:v1,'fake','dev-2','cohort-1',repeat('6',64),3600) AS launch2 \gset
+SELECT is((:'launch2'::jsonb->>'sessionId'),(:'launch'::jsonb->>'sessionId'),
+  'second editor joins the existing provider cohort');
+SELECT is((SELECT count(*)::int FROM office_editor_launches WHERE file_node_id=:nid),2,
+  'cohort join creates a distinct actor launch');
+
+SELECT lives_ok(format($$SELECT office_wopi_lock_apply(%L::uuid,%L,'LOCK',%L,NULL,1800)$$,
+  :'launch'::jsonb->>'launchId',repeat('b',64),repeat('c',64)),'WOPI lock accepted');
+SELECT is((SELECT count(*)::int FROM office_wopi_locks WHERE file_node_id=:nid),1,'lock persisted as hash');
+SELECT is((office_wopi_lock_apply((:'launch'::jsonb->>'launchId')::uuid,repeat('b',64),
+  'REFRESH_LOCK',repeat('d',64),NULL,1800)->>'conflict')::boolean,true,
+  'wrong opaque lock returns a WOPI conflict');
+UPDATE office_editor_launches SET fence_generation=fence_generation+1
+ WHERE id=(:'launch'::jsonb->>'launchId')::uuid;
+SELECT throws_ok(format($$SELECT office_wopi_lock_apply(%L::uuid,%L,'REFRESH_LOCK',%L,NULL,1800)$$,
+  :'launch'::jsonb->>'launchId',repeat('b',64),repeat('c',64)),'BZ324',NULL,'stale launch fence rejected');
+UPDATE office_editor_launches SET fence_generation=fence_generation-1
+ WHERE id=(:'launch'::jsonb->>'launchId')::uuid;
+SELECT lives_ok(format($$SELECT office_wopi_lock_apply(%L::uuid,%L,'UNLOCK_AND_RELOCK',%L,%L,1800)$$,
+  :'launch'::jsonb->>'launchId',repeat('b',64),'replacement-lock',repeat('c',64)),
+  'UNLOCK_AND_RELOCK replaces the current opaque lock');
+SELECT is((SELECT lock_epoch::int FROM office_wopi_locks WHERE file_node_id=:nid),2,
+  'UNLOCK_AND_RELOCK advances the lock epoch');
+SELECT encode(digest('replacement-lock','sha256'),'hex') AS lockhash \gset
+
+SELECT drive_chunk_register(:u,:sid,repeat('2',64),20);
+SELECT throws_ok(format($$SELECT office_save_accept(%L::uuid,%L,'save-wrong-lock',%s,%L,20,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  %L::jsonb,%L)$$, :'launch'::jsonb->>'launchId',repeat('b',64),:v1,repeat('e',64),
+  format('[{"sha256":"%s","size":20}]',repeat('2',64)),repeat('0',64)),
+  'BZ325',NULL,'save with a mismatched WOPI lock is rejected');
+SELECT office_save_accept((:'launch'::jsonb->>'launchId')::uuid,repeat('b',64),'save-1',:v1,
+  repeat('e',64),20,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  format('[{"sha256":"%s","size":20}]',repeat('2',64))::jsonb,:'lockhash') AS save1 \gset
+SELECT is((:'save1'::jsonb->>'conflict')::boolean,false,'current-base save advances main');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:nid),(:'save1'::jsonb->>'versionId')::bigint,'Drive head advanced');
+SELECT is((SELECT count(*)::int FROM office_save_receipts WHERE file_node_id=:nid),1,'one receipt persisted');
+SELECT is((SELECT count(*)::int FROM drive_audit_log WHERE action='office.save' AND target_id=:nid),1,'Office provenance audited');
+SELECT office_save_accept((:'launch'::jsonb->>'launchId')::uuid,repeat('b',64),'save-1',:v1,
+  repeat('e',64),20,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  format('[{"sha256":"%s","size":20}]',repeat('2',64))::jsonb,:'lockhash') AS replay \gset
+SELECT is((:'replay'::jsonb->>'replayed')::boolean,true,'identical operation-key replay returns receipt');
+SELECT office_save_accept((:'launch'::jsonb->>'launchId')::uuid,repeat('b',64),'save-1',
+  (:'save1'::jsonb->>'versionId')::bigint,repeat('e',64),20,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  format('[{"sha256":"%s","size":20}]',repeat('2',64))::jsonb,:'lockhash') AS advanced_replay \gset
+SELECT is((:'advanced_replay'::jsonb->>'replayed')::boolean,true,
+  'transport retry replays after the session base advances');
+SELECT is((SELECT count(*)::int FROM office_save_receipts WHERE file_node_id=:nid),1,'replay does not duplicate receipt');
+SELECT throws_ok(format($$SELECT office_save_accept(%L::uuid,%L,'save-1',%s,%L,20,NULL,'[]'::jsonb,%L)$$,
+  :'launch'::jsonb->>'launchId',repeat('b',64),:v1,repeat('f',64),repeat('c',64)),
+  'BZ326',NULL,'mismatched operation-key replay rejected');
+
+SELECT drive_chunk_register(:u,:sid,repeat('3',64),30);
+SELECT office_save_accept((:'launch'::jsonb->>'launchId')::uuid,repeat('b',64),'save-stale',:v1,
+  repeat('9',64),30,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  format('[{"sha256":"%s","size":30}]',repeat('3',64))::jsonb,:'lockhash') AS stale \gset
+SELECT is((:'stale'::jsonb->>'conflict')::boolean,true,'stale Office save creates a conflict branch');
+SELECT ok((:'stale'::jsonb->>'branchId') IS NOT NULL,'stale Office save returns a branch id');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:nid),(:'save1'::jsonb->>'versionId')::bigint,'stale Office save leaves Main unchanged');
+
+SELECT is((drive_file_history_query(:u,:nid,100,NULL,NULL,NULL)->'items'->0->>'source') IS NOT NULL,true,
+  'History includes authoritative facts');
+SELECT ok(EXISTS(SELECT 1 FROM jsonb_array_elements(drive_file_history_query(:u,:nid,100,NULL,NULL,NULL)->'items') x
+  WHERE x->>'source'='office'),'History contains Office save receipt');
+SELECT ok(NOT EXISTS(
+  SELECT 1 FROM jsonb_array_elements(drive_file_history_query(:viewer_u,:nid,100,NULL,NULL,NULL)->'items') x
+   WHERE x->>'source'='audit'
+     AND (x->'details'->'before' IS DISTINCT FROM 'null'::jsonb
+       OR x->'details'->'after' IS DISTINCT FROM 'null'::jsonb)),
+  'History withholds audit before/after state from a viewer without view_audit');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.office_local_open';
+SELECT is((office_local_open_accept(:u,:nid,'libreoffice','dev-1')->>'accepted')::boolean,true,
+  'local Office open is authorized through its reducer');
+SELECT is((SELECT count(*)::int FROM drive_audit_log WHERE action='office.local_open' AND target_id=:nid),1,
+  'local Office open is audited');
+
+SELECT lives_ok(format($$SELECT office_preference_set(%s,'dev-1','word','fake','edit_online')$$,:u),
+  'preference mutation uses reducer');
+SELECT is((SELECT count(*)::int FROM office_user_preferences),1,'preference persisted');
+SELECT throws_ok(format($$SELECT office_preference_set(%s,'dev-1','word','missing','edit_online')$$,:u),
+  'BZ327',NULL,'preference rejects an unavailable provider');
+
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:u::text,true);
+SELECT throws_like(format($$INSERT INTO office_user_preferences(user_id,device_id,file_family,provider_id,mode)
+  VALUES(%s,'evil','word','fake','edit_online')$$,:u),'%row-level security%',
+  'direct preference writes are denied');
+SELECT set_config('app.current_user_id','999999',true);
+SELECT is((SELECT count(*)::int FROM office_provider_policies),0,
+  'office_provider_policies hides provider control state from an unrelated app user');
+SELECT is((SELECT count(*)::int FROM office_user_preferences),0,
+  'office_user_preferences hides another principal preference from an unrelated app user');
+SELECT is((SELECT count(*)::int FROM office_editor_sessions),0,
+  'office_editor_sessions hides another principal session from an unrelated app user');
+SELECT is((SELECT count(*)::int FROM office_editor_launches),0,
+  'office_editor_launches hides another principal launch from an unrelated app user');
+SELECT is((SELECT count(*)::int FROM office_wopi_locks),0,
+  'office_wopi_locks hides another principal lock from an unrelated app user');
+SELECT is((SELECT count(*)::int FROM office_save_receipts),0,
+  'office_save_receipts hides another principal receipt from an unrelated app user');
+RESET ROLE;
+
+SELECT lives_ok(format($$SELECT office_launch_revoke(%s,%s,%L::uuid)$$,:u,:nid,:'launch'::jsonb->>'launchId'),
+  'actor can revoke launch');
+SELECT ok((SELECT revoked_at IS NOT NULL FROM office_editor_launches WHERE id=(:'launch'::jsonb->>'launchId')::uuid),'launch marked revoked');
+SELECT is((SELECT s.status FROM office_editor_sessions s JOIN office_editor_launches l ON l.session_id=s.id WHERE l.id=(:'launch'::jsonb->>'launchId')::uuid),'revoked','session fenced on revoke');
+SELECT is((SELECT count(*)::int FROM office_wopi_locks WHERE file_node_id=:nid),0,'revoke removes WOPI lock');
+SELECT throws_ok(format($$SELECT office_save_accept(%L::uuid,%L,'save-2',%s,%L,0,NULL,'[]'::jsonb,NULL)$$,
+  :'launch'::jsonb->>'launchId',repeat('b',64),:v1,repeat('0',64)),
+  'BZ321',NULL,'revoked launch cannot save');
+
+SELECT office_launch_begin(:u,:nid,(:'save1'::jsonb->>'versionId')::bigint,'fake',
+  'dev-finish','cohort-finish',repeat('7',64),3600) AS finishlaunch \gset
+SELECT office_wopi_lock_apply((:'finishlaunch'::jsonb->>'launchId')::uuid,repeat('7',64),
+  'LOCK','finish-lock',NULL,1800);
+SELECT throws_ok(format($$SELECT office_cohort_finish(999999,%L::uuid,'closed')$$,
+  :'finishlaunch'::jsonb->>'sessionId'),'BZ321',NULL,
+  'unrelated actor cannot finish an Office cohort');
+SELECT lives_ok(format($$SELECT office_cohort_finish(%s,%L::uuid,'closed')$$,
+  :u,:'finishlaunch'::jsonb->>'sessionId'),'cohort actor can finish the session');
+SELECT is((SELECT count(*)::int FROM office_wopi_locks
+  WHERE session_id=(:'finishlaunch'::jsonb->>'sessionId')::uuid),0,
+  'cohort finish removes its WOPI lock');
+
+SELECT drive_node_trash(:u,:nid);
+SELECT throws_ok(format($$SELECT office_launch_begin(%s,%s,%s,'fake','deleted','deleted',%L,3600)$$,
+  :u,:nid,(:'save1'::jsonb->>'versionId')::bigint,repeat('8',64)),
+  'BZ321',NULL,'deleted Office file cannot launch');
+
+SELECT throws_ok($$SELECT office_provider_remove(999999,'fake','unauthorized provider removal')$$,
+  'BZ323',NULL,'provider removal requires Office management permission');
+SELECT lives_ok(format($$SELECT office_provider_remove(%s,'fake','test provider removal')$$,:u),
+  'Office manager can tombstone and fence a provider');
+SELECT ok((SELECT removed_at IS NOT NULL AND NOT enabled AND config='{}'::jsonb
+             FROM office_provider_policies WHERE provider_id='fake'),
+  'provider removal clears routing/config while preserving its tombstone');
+
+SELECT * FROM finish();
+ROLLBACK;

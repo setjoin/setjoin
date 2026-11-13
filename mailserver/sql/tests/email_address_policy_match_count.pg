@@ -1,0 +1,51 @@
+-- pgTAP: email_address_policy_match_count — counts policy-eligible recipients
+-- matching the given conditions (same predicate as the apply matcher).
+BEGIN;
+SELECT plan(2);
+
+-- Seed: a domain
+INSERT INTO domains (name, is_local) VALUES ('mc.test', TRUE);
+
+-- Seed: Sales department (id 5001 already used in email_address_policy.pg so use 6001)
+INSERT INTO departments (id, name, path, ldap_ou)
+  VALUES (6001, 'SalesTest', '/SalesTest', 'OU=SalesTest,DC=mc,DC=test');
+
+-- Two users in the department with primary mailboxes
+INSERT INTO users (id, username, domain_id, email, display_name, department_id)
+  VALUES (80001, 'mc_u1', (SELECT id FROM domains WHERE name='mc.test'),
+          'u1@mc.test', 'U1', 6001);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (91001, 80001, (SELECT id FROM domains WHERE name='mc.test'),
+          'u1@mc.test', 'U1', 'personal', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name, department_id)
+  VALUES (80002, 'mc_u2', (SELECT id FROM domains WHERE name='mc.test'),
+          'u2@mc.test', 'U2', 6001);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (91002, 80002, (SELECT id FROM domains WHERE name='mc.test'),
+          'u2@mc.test', 'U2', 'personal', TRUE);
+
+-- One user in no department
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (80003, 'mc_u3', (SELECT id FROM domains WHERE name='mc.test'),
+          'u3@mc.test', 'U3');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (91003, 80003, (SELECT id FROM domains WHERE name='mc.test'),
+          'u3@mc.test', 'U3', 'personal', TRUE);
+
+-- Department filter: SalesTest matches exactly 2 users
+SELECT is(
+  email_address_policy_match_count(ARRAY['SalesTest'], NULL, NULL, NULL),
+  2,
+  'SalesTest dept filter returns 2 matching recipients'
+);
+
+-- NULL = any: must include all 3 policy-enabled users in mc.test domain at minimum
+-- (there may be other users in the test DB from other test files; >=3 is correct)
+SELECT ok(
+  email_address_policy_match_count(NULL, NULL, NULL, NULL) >= 3,
+  'NULL=any returns at least 3 (all 3 seeded users are policy-enabled by default)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,58 @@
+{
+  "case": "remove-success",
+  "format": 1,
+  "go_source": "db12f37ff",
+  "observation": {
+    "effects": {
+      "audit": [
+        {
+          "action": "totp_removed",
+          "ip": "127.0.0.1/32",
+          "notes": null,
+          "owner": "actor",
+          "target_type": "user"
+        }
+      ],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 0
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "users": [
+        {
+          "backups": null,
+          "enabled": false,
+          "failures": 0,
+          "generation": 3,
+          "locked": false,
+          "owner": "actor",
+          "secret": false,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": true,
+          "used": false
+        }
+      ]
+    },
+    "response": {
+      "body": "",
+      "headers": {},
+      "status": 204
+    }
+  },
+  "route": "POST /auth/totp/remove"
+}

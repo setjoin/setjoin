@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca create:\n  -actions string\n    \tActions JSON (default \"{}\")\n  -conditions string\n    \tConditions JSON (default \"{}\")\n  -desc string\n    \tDescription\n  -enabled string\n    \tDEPRECATED: use --state. true→on, false→off\n  -name string\n    \tPolicy name (required)\n  -scope string\n    \tScope type: user, group, domain, global (default \"user\")\n  -state string\n    \tPolicy state: report_only, on, off (default \"report_only\")\n  -target string\n    \tScope target\nError: flag: help requested\n",
+  "exit": 1
+}

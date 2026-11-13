@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"id\": 0,\n    \"priority\": 1,\n    \"name\": \"Example\",\n    \"description\": \"\",\n    \"enabled\": true,\n    \"scope_type\": \"domain\",\n    \"scope_target\": \"example.test\",\n    \"updated_at\": \"now\"\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

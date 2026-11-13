@@ -1,0 +1,45 @@
+-- pgTAP: V018__welcome_email_config.pg — the seeded welcome_email config key.
+BEGIN;
+SELECT plan(7);
+
+-- 1. The key is seeded.
+SELECT isnt(
+  get_system_config('welcome_email'), NULL,
+  'welcome_email config key is seeded');
+
+-- 2. Enabled by default (spec §7).
+SELECT is(
+  (get_system_config('welcome_email')->>'enabled')::boolean,
+  true, 'welcome_email is enabled by default');
+
+-- 3. Default locale is en.
+SELECT is(
+  get_system_config('welcome_email')->>'default_locale',
+  'en', 'default_locale is en');
+
+-- 4. All three locales present.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_object_keys(get_system_config('welcome_email')->'locales')),
+  3, 'en/zh/de locales seeded');
+
+-- 5. English subject is non-empty.
+SELECT ok(
+  length(get_system_config('welcome_email')->'locales'->'en'->>'subject') > 0,
+  'en subject seeded non-empty');
+
+-- 6. English plain-text body is non-empty.
+SELECT ok(
+  length(get_system_config('welcome_email')->'locales'->'en'->>'body_text') > 0,
+  'en body_text seeded non-empty');
+
+-- 7. set/get round-trip (in-txn, rolled back) preserves a nested edit.
+SELECT set_system_config(
+  'welcome_email',
+  jsonb_set(get_system_config('welcome_email'), '{enabled}', 'false'),
+  false, NULL);
+SELECT is(
+  (get_system_config('welcome_email')->>'enabled')::boolean,
+  false, 'set_system_config round-trips a nested enabled edit');
+
+SELECT * FROM finish();
+ROLLBACK;

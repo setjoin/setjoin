@@ -1,0 +1,42 @@
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directories:
+      - "/mailserver"
+      - "/authserver"
+      - "/shared"
+      - "/mailctl"
+      - "/asrbot"
+      - "/tools/setjoin-release"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # aws-sdk-go-v2 modules release in lockstep: ungrouped updates arrive as
+    # overlapping PRs whose go.sum hunks invalidate each other. One PR per wave.
+    groups:
+      aws-sdk-go-v2:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2*"
+
+  - package-ecosystem: "cargo"
+    directories:
+      - "/clients"
+      - "/clients/desktop/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/mailserver/webmail"
+      - "/clients/desktop"
+      - "/clients/desktop/electron"
+      - "/clients/rust/desktop-native"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

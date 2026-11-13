@@ -1,0 +1,15 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/audit/csv",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 599: unexpected request\n",
+  "exit": 1
+}

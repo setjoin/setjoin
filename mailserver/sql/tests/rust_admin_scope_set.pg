@@ -1,0 +1,52 @@
+-- Public seam for the F01 scope-set transactions (#279): every refusal is a
+-- status (no rows), duplicates raise 23505, data and audit commit together.
+BEGIN;
+SELECT plan(27);
+CREATE TEMP TABLE adm3_acc(kind text,mailbox_id bigint,user_id bigint);
+INSERT INTO adm3_acc(kind,mailbox_id) VALUES('admin',mk_account('adm3-admin')),('stranger',mk_account('adm3-stranger')),('target',mk_account('adm3-target'));
+UPDATE adm3_acc a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE adm3_role AS WITH r AS (INSERT INTO admin_role_groups(name,permissions) VALUES('adm3-role','{scope_sets.manage}') RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm3_role),a.user_id FROM adm3_acc a WHERE a.kind='admin';
+CREATE TEMP TABLE adm3_set AS SELECT rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='admin'),'adm3-set',NULL,'d','127.0.0.1') AS id;
+SELECT is((SELECT created_by FROM admin_scope_sets WHERE id=(SELECT id FROM adm3_set)),(SELECT user_id FROM adm3_acc WHERE kind='admin'),'create records the actor as owner');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='scope_set_create' AND target_id=(SELECT id FROM adm3_set)),1,'create audits in the same transaction');
+SELECT throws_ok($$SELECT rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='admin'),'adm3-set',NULL,'','')$$,'23505',NULL,'a duplicate global name raises 23505');
+SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),99999999,'x',NULL,''),false,'update of a missing set reports no row');
+SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'adm3-renamed',NULL,''),true,'update patches the set');
+SELECT is((SELECT description FROM admin_scope_sets WHERE id=(SELECT id FROM adm3_set)),'d','absent fields keep their value');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),99999999,'user',1,'')->>'status','404','a missing set is 404');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'team',1,'')->>'status','400','an unknown member type is 400');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_set),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','404','an actor without any scope_sets.manage grant sees no set (#510)');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','201','add inserts the member');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','200','a repeat is an idempotent no-op');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='scope_set_member_add' AND target_id=(SELECT id FROM adm3_set)),1,'only the first add is audited');
+SELECT is(rust_admin_scope_set_member_remove((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','204','remove deletes the member');
+SELECT is(rust_admin_scope_set_member_remove((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','404','a second remove is 404');
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by,scope_type,scope_id) SELECT a.user_id,(SELECT id FROM adm3_role),a.user_id,'set',(SELECT id FROM adm3_set) FROM adm3_acc a WHERE a.kind='target';
+SELECT is(rust_admin_scope_set_delete((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'')->>'detail','1 admin grant(s) are scoped to this set; reassign them first','a set in use is refused with the grant count');
+DELETE FROM admin_role_assignments WHERE scope_type='set';
+SELECT is(rust_admin_scope_set_delete((SELECT user_id FROM adm3_acc WHERE kind='admin'),(SELECT id FROM adm3_set),'')->>'status','204','delete removes an unused set');
+-- Owner-approved security fix 2026-11-05 (#384, #510): the reducers derive the actor's domain
+-- restriction from its live scope_sets.manage grants (admin_domain_restriction).
+CREATE TEMP TABLE adm3_dom AS WITH d AS (INSERT INTO domains(name) VALUES('adm3-a.test'),('adm3-b.test') RETURNING id,name) SELECT (SELECT id FROM d WHERE name='adm3-a.test') AS own,(SELECT id FROM d WHERE name='adm3-b.test') AS other;
+CREATE TEMP TABLE adm3_wide AS SELECT rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='admin'),'adm3-wide2',NULL,'','') AS id;
+CREATE TEMP TABLE adm3_other AS SELECT rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='admin'),'adm3-other',(SELECT other FROM adm3_dom),'','') AS id;
+CREATE TEMP TABLE adm3_srole AS WITH r AS (INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES('adm3-scoped','{scope_sets.manage}',(SELECT own FROM adm3_dom)) RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm3_srole),a.user_id FROM adm3_acc a WHERE a.kind='stranger';
+SELECT is(rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='stranger'),'adm3-own',(SELECT own FROM adm3_dom),'','') IS NOT NULL,true,'a scoped actor creates a set in its own domain');
+SELECT is(rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='stranger'),'adm3-nowide',NULL,'',''),NULL,'a scoped actor cannot create an organization-wide set');
+SELECT is(rust_admin_scope_set_create((SELECT user_id FROM adm3_acc WHERE kind='stranger'),'adm3-foreign',(SELECT other FROM adm3_dom),'',''),NULL,'a scoped actor cannot create in another domain');
+SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_other),'adm3-hijack',NULL,''),false,'a scoped actor cannot update another domain''s set');
+SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_wide),'adm3-x',NULL,''),false,'a scoped actor cannot update an organization-wide set');
+SELECT is(rust_admin_scope_set_member_add((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_other),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','404','a scoped actor cannot add members to another domain''s set');
+SELECT is(rust_admin_scope_set_member_remove((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_wide),'user',(SELECT user_id FROM adm3_acc WHERE kind='target'),'')->>'status','404','a scoped actor cannot touch an organization-wide set''s members');
+SELECT is(rust_admin_scope_set_delete((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_other),'')->>'status','404','a scoped actor cannot delete another domain''s set');
+SELECT is(rust_admin_scope_set_delete((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM admin_scope_sets WHERE name='adm3-own'),'')->>'status','204','a scoped actor deletes its own domain''s set');
+-- an OU-confined holder of a domain-less role group has no domain and no org-wide grant: refused
+INSERT INTO departments(name,path,ldap_ou) VALUES('adm3-ou','adm3-ou','ou=x');
+UPDATE admin_role_groups SET domain_scope=NULL WHERE id=(SELECT id FROM adm3_srole);
+UPDATE admin_role_assignments SET scope_type='ou',scope_id=(SELECT id FROM departments WHERE name='adm3-ou') WHERE user_id=(SELECT user_id FROM adm3_acc WHERE kind='stranger') AND role_group_id=(SELECT id FROM adm3_srole);
+SELECT is(admin_domain_restriction((SELECT user_id FROM adm3_acc WHERE kind='stranger'),ARRAY['scope_sets.manage']),-1::bigint,'a domain-less confined holder has no restriction value');
+SELECT is(rust_admin_scope_set_update((SELECT user_id FROM adm3_acc WHERE kind='stranger'),(SELECT id FROM adm3_wide),'adm3-y',NULL,''),false,'a domain-less confined holder cannot update an organization-wide set');
+SELECT * FROM finish();
+ROLLBACK;

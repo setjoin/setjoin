@@ -1,0 +1,163 @@
+{
+  "case": "confirm-impersonated-row-effects",
+  "effects": [
+    {
+      "after": {
+        "active_secrets": [
+          {
+            "owner": "actor",
+            "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+          },
+          {
+            "owner": "foreign",
+            "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+          }
+        ],
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [
+          {
+            "bound_factor_generation": 2,
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "operation": "totp.replace",
+            "proof_method": "totp",
+            "proving_factor_id": null,
+            "refresh_family_id": null,
+            "session_jti": "idmfa1-actor",
+            "target_ref": "<enrollment>",
+            "token_hash": "0c12120cd0e8e0a52c2bf27969e0214a772b9fe47666cec5d359d309e2dcfde0",
+            "token_scope": "session",
+            "user_id": "actor"
+          }
+        ],
+        "totp_pending_enrollments": [
+          {
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "id": "<enrollment>",
+            "secret_enc": "<encrypted pending secret>",
+            "staged_by_jti": "idmfa1-actor",
+            "staged_via": "totp_setup",
+            "user_id": "actor"
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "active_secrets": [
+          {
+            "owner": "actor",
+            "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+          },
+          {
+            "owner": "foreign",
+            "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+          }
+        ],
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [
+          {
+            "bound_factor_generation": 2,
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "operation": "totp.replace",
+            "proof_method": "totp",
+            "proving_factor_id": null,
+            "refresh_family_id": null,
+            "session_jti": "idmfa1-actor",
+            "target_ref": "<enrollment>",
+            "token_hash": "0c12120cd0e8e0a52c2bf27969e0214a772b9fe47666cec5d359d309e2dcfde0",
+            "token_scope": "session",
+            "user_id": "actor"
+          }
+        ],
+        "totp_pending_enrollments": [
+          {
+            "created_at": "<time>",
+            "expires_at": "<time>",
+            "id": "<enrollment>",
+            "secret_enc": "<encrypted pending secret>",
+            "staged_by_jti": "idmfa1-actor",
+            "staged_via": "totp_setup",
+            "user_id": "actor"
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/confirm"
+}

@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: flag provided but not defined: -unknown\n",
+  "exit": 1,
+  "database_effects": {
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

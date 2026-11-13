@@ -1,0 +1,216 @@
+{
+  "case": "head",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "encrypted": true,
+              "key": "m365.app",
+              "opened": {
+                "client_id": "app-123",
+                "client_secret": "s3cret",
+                "cloud": "global",
+                "source_email": "src@example.com",
+                "tenant_id": "tenant-1"
+              },
+              "touched": false,
+              "value": "<sealed>"
+            }
+          ],
+          "consent": [
+            {
+              "actor_user_id": "<admin>",
+              "cloud": "global",
+              "consumed": false,
+              "live": true,
+              "stale": false,
+              "token_length": 64
+            }
+          ],
+          "jobs": [
+            {
+              "completed": true,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {
+                "imported": 3,
+                "phase": "done"
+              },
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": true,
+              "error_log": [
+                "boom <x> & y",
+                "second"
+              ],
+              "has_config": false,
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {
+                "n": 1.5,
+                "phase": "fetching",
+                "tags": [
+                  "<a>",
+                  "b&c"
+                ]
+              },
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<other>"
+            },
+            {
+              "completed": false,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": false,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<other>"
+            }
+          ]
+        },
+        "before": {
+          "config": [
+            {
+              "encrypted": true,
+              "key": "m365.app",
+              "opened": {
+                "client_id": "app-123",
+                "client_secret": "s3cret",
+                "cloud": "global",
+                "source_email": "src@example.com",
+                "tenant_id": "tenant-1"
+              },
+              "touched": false,
+              "value": "<sealed>"
+            }
+          ],
+          "consent": [],
+          "jobs": [
+            {
+              "completed": true,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-completed>",
+              "mailbox": "<mailbox-a>",
+              "progress": {
+                "imported": 3,
+                "phase": "done"
+              },
+              "source": "imap",
+              "started": true,
+              "status": "completed",
+              "strategy": "skip",
+              "user_id": "<admin>"
+            },
+            {
+              "completed": true,
+              "error_log": [
+                "boom <x> & y",
+                "second"
+              ],
+              "has_config": false,
+              "id": "<job-failed>",
+              "mailbox": "<mailbox-b>",
+              "progress": {
+                "n": 1.5,
+                "phase": "fetching",
+                "tags": [
+                  "<a>",
+                  "b&c"
+                ]
+              },
+              "source": "imap",
+              "started": true,
+              "status": "failed",
+              "strategy": "skip",
+              "user_id": "<other>"
+            },
+            {
+              "completed": false,
+              "error_log": [],
+              "has_config": false,
+              "id": "<job-cancelled>",
+              "mailbox": "<mailbox-b>",
+              "progress": {},
+              "source": "imap",
+              "started": false,
+              "status": "cancelled",
+              "strategy": "skip",
+              "user_id": "<other>"
+            }
+          ]
+        },
+        "table": "migration_jobs+system_config+m365_consent_states"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/migration/m365/connect",
+      "head": true,
+      "method": "GET",
+      "path": "/admin/migration/m365/connect"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/html; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "location": [
+          "https://login.microsoftonline.com/organizations/adminconsent?client_id=app-123&redirect_uri=https%3A%2F%2Fmail.test%2Fadmin%2Fmigration%2Fm365%2Fcallback&state=<state>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "set-cookie": [
+          "m365_oauth_state=<state>; Path=/admin/migration/m365; Max-Age=600; HttpOnly; SameSite=Lax"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox2-oracle"
+        ]
+      },
+      "status": 302
+    }
+  },
+  "route": "GET /admin/migration/m365/connect"
+}

@@ -1,0 +1,42 @@
+{
+  "case": "acme-http80-token-responder",
+  "format": 1,
+  "go_source": "3490f2b4fbddc34164d3ed7aa129fd446599a226",
+  "observation": [
+    {
+      "body": "tok-1.thumbprint",
+      "content_type": "text/plain",
+      "method": "GET",
+      "path": "/.well-known/acme-challenge/tok-1",
+      "status": 200
+    },
+    {
+      "body": "tok-1.thumbprint",
+      "content_type": "text/plain",
+      "method": "POST",
+      "path": "/.well-known/acme-challenge/tok-1",
+      "status": 200
+    },
+    {
+      "body": "next",
+      "content_type": "",
+      "method": "GET",
+      "path": "/.well-known/acme-challenge/unknown",
+      "status": 418
+    },
+    {
+      "body": "next",
+      "content_type": "",
+      "method": "GET",
+      "path": "/.well-known/acme-challenge/",
+      "status": 418
+    },
+    {
+      "body": "next",
+      "content_type": "",
+      "method": "GET",
+      "path": "/other",
+      "status": 418
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "cases": [
+    {
+      "name": "model-0",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3fe0000000000000",
+      "steps": 23,
+      "user": -17
+    },
+    {
+      "name": "model-1",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3fe0cca12729afb8",
+      "steps": 23,
+      "user": -16
+    },
+    {
+      "name": "model-2",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3fde66bdb1aca090",
+      "steps": 23,
+      "user": -15
+    },
+    {
+      "name": "model-3",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3fe561cb52a19476",
+      "steps": 23,
+      "user": -14
+    },
+    {
+      "name": "model-4",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3fb753d5997936a7",
+      "steps": 23,
+      "user": -13
+    },
+    {
+      "name": "model-5",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "3ff0000000000000",
+      "steps": 23,
+      "user": -12
+    },
+    {
+      "name": "model-6",
+      "raw": "RnJvbTogU2VuZGVyIDxTRU5ERVJARXhhbXBsZS50ZXN0Pg0KU3ViamVjdDogVVJHRU5UIEZSRUUgT0ZGRVIgMTIzDQoJTElNSVRFRCB0aW1lDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8cD5DbGljayBodHRwczovL1Nob3AuRXhhbXBsZS50ZXN0OjgwODAvb2ZmZXIlMjBub3cvV2luP3g9MSBmcmVlIHByaXplIG1pbGxpb24hPC9wPgpGcm9tOiBmb3JnZWRAYm9keS50ZXN0Cg==",
+      "score_bits": "00d14f2b0fb9307f",
+      "steps": 23,
+      "user": -11
+    },
+    {
+      "name": "model-7",
+      "raw": "U3ViamVjdDogRmlyc3QKU3ViamVjdDogU0VDT05ECglmb2xkZWQKQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluCkRhdGU6Ck1lc3NhZ2UtSUQ6CgpIZWxsbyA8Yj5XT1JMRDwvYj4gbG90dGVyeQ==",
+      "score_bits": "3fe0000000000000",
+      "steps": 9,
+      "user": 8
+    },
+    {
+      "name": "model-8",
+      "raw": "QmFkIGhlYWRlcgogY29udGludWF0aW9uCkZyb206IE5vIGFkZHJlc3MKU3ViamVjdDogxLDihKrOo8eF4oWjIM6RzpLOkwoKaHR0cHM6Ly/kvovlrZAu5rWL6K+VL2ElMkZiLy9DIGh0dHA6Ly94LnRlc3Q6YmFkL3BhdGggaHR0cDovL3gudGVzdC9hJXp6",
+      "score_bits": "3fe0000000000000",
+      "steps": 9,
+      "user": 9
+    },
+    {
+      "name": "model-9",
+      "raw": "U3ViamVjdDogbm8gYm9keQ==",
+      "score_bits": "3fe0000000000000",
+      "steps": 9,
+      "user": 10
+    },
+    {
+      "name": "model-10",
+      "raw": "//4KCnh5ev9BQkM=",
+      "score_bits": "3fe0000000000000",
+      "steps": 9,
+      "user": 11
+    },
+    {
+      "name": "model-11",
+      "raw": "RnJvbTogeEB5LnRlc3QKCmh0dHA6Ly91c2VyOnB3QEVYQU1QTEUudGVzdC9BLy4uL0I/eCNmcmFnIGh0dHBzOi8vWzo6MV06ODgvYSBodHRwczovL3gudGVzdC9hK2I=",
+      "score_bits": "3fe0000000000000",
+      "steps": 9,
+      "user": 12
+    }
+  ],
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7"
+}

@@ -1,0 +1,123 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "check_name": "big",
+            "details": "wide",
+            "status": "ok",
+            "value": 1.2345678901234567e19
+          },
+          {
+            "check_name": "db",
+            "details": "older",
+            "status": "ok",
+            "value": 12.5
+          },
+          {
+            "check_name": "db",
+            "details": "newer <&>",
+            "status": "warn",
+            "value": 13
+          },
+          {
+            "check_name": "disk",
+            "details": "",
+            "status": "ok",
+            "value": 0
+          },
+          {
+            "check_name": "queue",
+            "details": "idle",
+            "status": "ok",
+            "value": null
+          }
+        ],
+        "before": [
+          {
+            "check_name": "big",
+            "details": "wide",
+            "status": "ok",
+            "value": 1.2345678901234567e19
+          },
+          {
+            "check_name": "db",
+            "details": "older",
+            "status": "ok",
+            "value": 12.5
+          },
+          {
+            "check_name": "db",
+            "details": "newer <&>",
+            "status": "warn",
+            "value": 13
+          },
+          {
+            "check_name": "disk",
+            "details": "",
+            "status": "ok",
+            "value": 0
+          },
+          {
+            "check_name": "queue",
+            "details": "idle",
+            "status": "ok",
+            "value": null
+          }
+        ],
+        "table": "health_history"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/health",
+      "method": "GET",
+      "path": "/admin/health"
+    },
+    "response": {
+      "body": "{\"checks\":[{\"check_name\":\"big\",\"status\":\"ok\",\"value\":12345678901234567000,\"threshold\":1e-7,\"details\":\"wide\",\"checked_at\":\"2026-10-01T12:00:00Z\"},{\"check_name\":\"db\",\"status\":\"warn\",\"value\":13,\"threshold\":20,\"details\":\"newer \\u003c\\u0026\\u003e\",\"checked_at\":\"2026-10-01T10:00:00.123456Z\"},{\"check_name\":\"disk\",\"status\":\"ok\",\"value\":0,\"threshold\":0,\"details\":\"\",\"checked_at\":\"2026-10-01T11:00:00Z\"},{\"check_name\":\"queue\",\"status\":\"ok\",\"details\":\"idle\",\"checked_at\":\"2026-10-01T10:00:00Z\"}],\"status\":\"warn\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "504"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/health"
+}

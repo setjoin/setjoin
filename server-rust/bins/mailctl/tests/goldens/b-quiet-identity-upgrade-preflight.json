@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/upgrade/preflight",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "preflight.json": {
+      "body": "{\n  \"manifestVersion\": \"1\",\n  \"generatedAt\": \"2026-01-01T00:00:00Z\",\n  \"phase\": \"preflight\",\n  \"checks\": [\n    {\n      \"name\": \"schema\",\n      \"severity\": \"info\",\n      \"passed\": true,\n      \"facts\": {},\n      \"nextAction\": \"continue\"\n    }\n  ],\n  \"blockers\": [],\n  \"safeToBackfill\": true,\n  \"featureFlags\": {\n    \"identityModelV2\": true,\n    \"normalizedReads\": false,\n    \"transitions\": false\n  },\n  \"estimates\": {\n    \"people\": 2,\n    \"maximumBatchSize\": 500,\n    \"maximumDurationSeconds\": 900\n  },\n  \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n}\n",
+      "mode": 384
+    }
+  }
+}

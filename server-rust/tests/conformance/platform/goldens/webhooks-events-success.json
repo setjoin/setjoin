@@ -1,0 +1,61 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "webhook_subscriptions"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/webhooks/events",
+      "method": "GET",
+      "path": "/admin/webhooks/events"
+    },
+    "response": {
+      "body": "[{\"category\":\"admin\",\"source\":\"mailserver/auth\",\"type\":\"user.created\"},{\"category\":\"admin\",\"source\":\"mailserver/auth\",\"type\":\"user.deleted\"},{\"category\":\"admin\",\"source\":\"mailserver/auth\",\"type\":\"user.updated\"},{\"category\":\"admin\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\"},{\"category\":\"admin\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\"},{\"category\":\"admin\",\"source\":\"mailserver/gateway\",\"type\":\"mailbox.quota_warning\"},{\"category\":\"admin\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\"},{\"category\":\"admin\",\"source\":\"mailserver/gateway\",\"type\":\"migration.completed\"},{\"category\":\"admin\",\"source\":\"mailserver/gateway\",\"type\":\"migration.failed\"},{\"category\":\"mailbox\",\"source\":\"mailserver/gateway\",\"type\":\"mail.received\"},{\"category\":\"mailbox\",\"source\":\"mailserver/gateway\",\"type\":\"mail.sent\"},{\"category\":\"mailbox\",\"source\":\"mailserver/gateway\",\"type\":\"mail.rule_triggered\"},{\"category\":\"mailbox\",\"source\":\"mailserver/gateway\",\"type\":\"calendar.invitation\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.suspended\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.resumed\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.detached\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.reconnected\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.purge_scheduled\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.purge_cancelled\"},{\"category\":\"admin\",\"source\":\"mailserver/lifecycle\",\"type\":\"mailbox.purged\"},{\"category\":\"mailbox\",\"source\":\"mailserver/mailwork\",\"type\":\"mailwork.claimed\"},{\"category\":\"mailbox\",\"source\":\"mailserver/mailwork\",\"type\":\"mailwork.assigned\"},{\"category\":\"mailbox\",\"source\":\"mailserver/mailwork\",\"type\":\"mailwork.handed_off\"},{\"category\":\"mailbox\",\"source\":\"mailserver/mailwork\",\"type\":\"mailwork.completed\"},{\"category\":\"mailbox\",\"source\":\"mailserver/mailwork\",\"type\":\"mailwork.sla_breached\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1965"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat4-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/webhooks/events"
+}

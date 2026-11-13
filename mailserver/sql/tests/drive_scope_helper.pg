@@ -1,0 +1,94 @@
+-- mailserver/sql/tests/drive_scope_helper.pg — arch review #A3/#A6 proof.
+--
+-- #A3: drive_user_can_write_regular now DELEGATES to drive_member_role
+-- (was: all 3 arms inlined VOLATILE, EXECUTE-to-setjoin_app-only, per an
+-- undiagnosed "nested DEFINER call silently returns no rows" workaround —
+-- root-caused as a red herring, docs/adr/ARCH-018-force-rls-scope-helper-
+-- recipe.md row 8 postmortem). Proves: (a) the function is now STABLE,
+-- worker-owned, EXECUTE-granted to the app/owner/worker trio; (b) parity
+-- across all three drive_member_role derivation arms (explicit member,
+-- chat-derived, meeting-derived) with NO duplicated inline logic to drift;
+-- (c) a genuine setjoin_app WITH CHECK proof on a PLAIN insert (no ON
+-- CONFLICT — see the postmortem for why ON CONFLICT is a different,
+-- orthogonal failure mode this reducer's real callers never hit) so the
+-- delegate is exercised through the real RLS policy, not just as a bare
+-- function call.
+--
+-- #A6: also stands as the reducers/-side test for the drive family scope
+-- helpers now living in drive_scope_helper.sql (drive_member_role,
+-- drive_space_owner, drive_has_admin_perm, drive_user_can_write_regular)
+-- instead of scattered across V114/V120/V129/V135.
+BEGIN;
+SELECT plan(12);
+
+SELECT has_function('drive_user_can_write_regular', ARRAY['bigint'], 'drive_user_can_write_regular exists');
+SELECT is((SELECT provolatile FROM pg_proc WHERE proname='drive_user_can_write_regular'), 's',
+  'drive_user_can_write_regular is STABLE (was VOLATILE)');
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='drive_user_can_write_regular'), TRUE,
+  'still SECURITY DEFINER');
+SELECT is((SELECT proowner::regrole::text FROM pg_proc WHERE proname='drive_user_can_write_regular'),
+  'setjoin_worker', 'worker-owned');
+SELECT ok((SELECT prosrc ~ 'drive_member_role' FROM pg_proc WHERE proname='drive_user_can_write_regular'),
+  'delegates to drive_member_role (no inlined arms)');
+SELECT is((SELECT count(*) FROM information_schema.role_routine_grants
+             WHERE routine_name='drive_user_can_write_regular' AND privilege_type='EXECUTE'
+               AND grantee IN ('setjoin_app','setjoin_owner','setjoin_worker'))::int, 3,
+  'EXECUTE granted to the app/owner/worker trio (was app-only)');
+
+-- Fixtures: domain + 3 users, a chat channel (user 8801 owner / 8802
+-- member), a meeting (user 8803 host), and a plain regular space owned by
+-- 8801 with an explicit drive_space_members manager row for 8801 only.
+INSERT INTO domains (id, name) VALUES (8800, 'a3-probe.example') ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (8801,'a3o',8800,'a3o@a3-probe.example','A3 O'),
+  (8802,'a3m',8800,'a3m@a3-probe.example','A3 M'),
+  (8803,'a3h',8800,'a3h@a3-probe.example','A3 H'),
+  (8899,'a3x',8800,'a3x@a3-probe.example','A3 X')
+  ON CONFLICT DO NOTHING;
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel','a3t1',8801);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 8801, 'owner' FROM chat_channels WHERE name='a3t1';
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 8802, 'member' FROM chat_channels WHERE name='a3t1';
+INSERT INTO drive_spaces (name, classification, owner_user_id, chat_channel_id)
+  SELECT 'a3-chat-space', 'regular', 8801, id FROM chat_channels WHERE name='a3t1';
+
+INSERT INTO meetings (title, owner_user_id) VALUES ('a3-standup', 8803);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+  SELECT id, 8803, 'u:8803', 'host' FROM meetings WHERE title='a3-standup';
+INSERT INTO drive_spaces (name, classification, owner_user_id, meeting_id)
+  SELECT 'a3-meet-space', 'regular', 8803, id FROM meetings WHERE title='a3-standup';
+
+INSERT INTO drive_spaces (name, classification, owner_user_id) VALUES ('a3-plain-space', 'regular', 8801);
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+  SELECT id, 8801, 'manager', 8801 FROM drive_spaces WHERE name='a3-plain-space';
+
+-- Parity across all three drive_member_role arms, via the delegate.
+SELECT is(drive_user_can_write_regular(8801), TRUE, 'arm 1 (explicit manager) grants write-regular');
+SELECT is(drive_user_can_write_regular(8802), TRUE, 'arm 2 (chat-derived editor) grants write-regular');
+SELECT is(drive_user_can_write_regular(8803), TRUE, 'arm 3 (meeting host, derived manager) grants write-regular');
+SELECT is(drive_user_can_write_regular(8899), FALSE, 'a total stranger gets no write-regular grant');
+
+-- Real WITH CHECK proof, as setjoin_app, PLAIN insert (no ON CONFLICT — see
+-- the row-8 postmortem for why that distinction matters): the chat-derived
+-- member (8802, zero drive_space_members rows — DES-009 blocks ad-hoc grants
+-- on a chat-bound space) can write a 'g'-scope chunk row directly through
+-- the real drive_chunks_insert policy; the stranger (8899) cannot.
+GRANT INSERT ON public.drive_chunks TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '8802', true);
+SELECT lives_ok(
+  $$ INSERT INTO drive_chunks (scope_key, sha256, size_bytes, ref_count, storage_ref)
+       VALUES ('g', repeat('1',64), 10, 0, 'drive/g/a3-1') $$,
+  'chat-derived member: plain INSERT passes drive_chunks_insert WITH CHECK as setjoin_app');
+SELECT set_config('app.current_user_id', '8899', true);
+SELECT throws_ok(
+  $$ INSERT INTO drive_chunks (scope_key, sha256, size_bytes, ref_count, storage_ref)
+       VALUES ('g', repeat('2',64), 10, 0, 'drive/g/a3-2') $$,
+  '42501', NULL, 'stranger: plain INSERT denied by drive_chunks_insert WITH CHECK as setjoin_app');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT finish();
+ROLLBACK;

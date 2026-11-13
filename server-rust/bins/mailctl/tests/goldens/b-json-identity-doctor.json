@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/doctor?source=directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"generatedAt\": \"2026-01-01T00:00:00Z\",\n  \"sourceKey\": null,\n  \"passed\": true,\n  \"blockingCount\": 0,\n  \"checks\": [\n    {\n      \"name\": \"schema\",\n      \"severity\": \"info\",\n      \"passed\": true,\n      \"facts\": {},\n      \"nextAction\": \"continue\"\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

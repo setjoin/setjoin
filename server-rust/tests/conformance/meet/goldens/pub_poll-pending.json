@@ -1,0 +1,200 @@
+{
+  "case": "pub_poll-pending",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "fixture identities",
+    "generated ids, slugs, room names, secrets and timestamps; join tokens replaced by verified claims; chat and core audit chains verified"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {
+      "chat_audit_log": [],
+      "chat_channel_members": [
+        {
+          "can_post": null,
+          "channel_id": "<channel-owner-1>",
+          "history_floor_seq": null,
+          "joined_at": "<timestamp>",
+          "last_read_seq": 0,
+          "notif_level": "all",
+          "role": "owner",
+          "user_id": "<owner>"
+        },
+        {
+          "can_post": null,
+          "channel_id": "<channel-foreign-1>",
+          "history_floor_seq": null,
+          "joined_at": "<timestamp>",
+          "last_read_seq": 0,
+          "notif_level": "all",
+          "role": "owner",
+          "user_id": "<foreign>"
+        }
+      ],
+      "chat_channels": [
+        {
+          "broadcast_permission": "admins",
+          "change_seq": 0,
+          "classification": "regular",
+          "created_at": "<timestamp>",
+          "created_by": "<owner>",
+          "federated_local_key": null,
+          "federated_peer_domain": null,
+          "federated_remote_id": null,
+          "federated_room_id": null,
+          "federated_room_removed_at": null,
+          "id": "<channel-owner-1>",
+          "is_archived": false,
+          "kind": "channel",
+          "last_purged_seq": 0,
+          "legal_hold": false,
+          "legal_hold_reason": null,
+          "member_key": null,
+          "name": "Meet2 seed owner",
+          "post_permission": "all",
+          "retention_days": null,
+          "topic": null,
+          "visibility": "private",
+          "worm_mode": null
+        },
+        {
+          "broadcast_permission": "admins",
+          "change_seq": 0,
+          "classification": "regular",
+          "created_at": "<timestamp>",
+          "created_by": "<foreign>",
+          "federated_local_key": null,
+          "federated_peer_domain": null,
+          "federated_remote_id": null,
+          "federated_room_id": null,
+          "federated_room_removed_at": null,
+          "id": "<channel-foreign-1>",
+          "is_archived": false,
+          "kind": "channel",
+          "last_purged_seq": 0,
+          "legal_hold": false,
+          "legal_hold_reason": null,
+          "member_key": null,
+          "name": "Meet2 seed foreign",
+          "post_permission": "all",
+          "retention_days": null,
+          "topic": null,
+          "visibility": "private",
+          "worm_mode": null
+        }
+      ],
+      "guest_notification_intents": [],
+      "meeting_breakouts": [],
+      "meeting_join_requests": [
+        {
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by": null,
+          "display_name": "Meet2 guest",
+          "expires_at": "<timestamp>",
+          "id": "<request-1>",
+          "meeting_id": "<meeting-owner-1>",
+          "secret": "<secret>",
+          "state": "pending",
+          "user_id": null
+        }
+      ],
+      "meeting_lobby_mint_fences": [],
+      "meeting_participants": [
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "created_at": "<timestamp>",
+          "guest_display_name": null,
+          "id": "<participant-<meeting-owner-1>-<owner>>",
+          "identity": "u:<owner>",
+          "joined_at": null,
+          "left_at": null,
+          "meeting_id": "<meeting-owner-1>",
+          "role": "host",
+          "user_id": "<owner>"
+        },
+        {
+          "banned_at": null,
+          "breakout_id": null,
+          "created_at": "<timestamp>",
+          "guest_display_name": null,
+          "id": "<participant-<meeting-foreign-1>-<foreign>>",
+          "identity": "u:<foreign>",
+          "joined_at": null,
+          "left_at": null,
+          "meeting_id": "<meeting-foreign-1>",
+          "role": "host",
+          "user_id": "<foreign>"
+        }
+      ],
+      "meeting_recordings": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_id": "<channel-owner-1>",
+          "chat_channel_provisioned": true,
+          "created_at": "<timestamp>",
+          "ended_at": null,
+          "id": "<meeting-owner-1>",
+          "locked": false,
+          "owner_user_id": "<owner>",
+          "room_name": "<room-owner-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {
+            "guestAllowed": true
+          },
+          "slug": "<slug-owner-1>",
+          "state": "scheduled",
+          "title": "Meet2 seed owner"
+        },
+        {
+          "calendar_event_id": null,
+          "chat_channel_id": "<channel-foreign-1>",
+          "chat_channel_provisioned": true,
+          "created_at": "<timestamp>",
+          "ended_at": null,
+          "id": "<meeting-foreign-1>",
+          "locked": false,
+          "owner_user_id": "<foreign>",
+          "room_name": "<room-foreign-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {
+            "guestAllowed": false
+          },
+          "slug": "<slug-foreign-1>",
+          "state": "scheduled",
+          "title": "Meet2 seed foreign"
+        }
+      ]
+    },
+    "notify": [],
+    "peripherals": [],
+    "request": {
+      "method": "GET",
+      "path": "/public/meet/{slug}/join-request/{id}"
+    },
+    "response": {
+      "body": {
+        "recordingActive": false,
+        "state": "pending"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "meet2-oracle"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /public/meet/{slug}/join-request/{id}"
+}

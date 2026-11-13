@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity transition export <UUID> --output <file>\n",
+  "exit": 1
+}

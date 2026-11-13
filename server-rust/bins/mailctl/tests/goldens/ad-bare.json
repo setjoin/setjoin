@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "Usage: mailctl ad sync|sync-log|health\n  ad sync                 trigger an immediate AD sync (POST /admin/ad/sync)\n  ad sync-log             show recent sync log entries (GET /admin/ad/sync-log)\n  ad health               show connectivity + last-sync status (GET /admin/ad/health)\n\nFlags (all subcommands): --json, --quiet, --yes/-y\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl office recover --operation UUID --generation N --reason TEXT --yes\n",
+  "exit": 1
+}

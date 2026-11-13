@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of role apply:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tDelete live roles/members absent from the document\n  -reason string\n    \tAudit reason (required)\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

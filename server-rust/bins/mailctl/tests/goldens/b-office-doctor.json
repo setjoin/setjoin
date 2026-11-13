@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/features",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"source\": \"admin feature registry\",\n  \"endpoint\": \"/admin/features\",\n  \"flags\": [\n    {\n      \"key\": \"feature.office_editing\",\n      \"label\": \"Office online editing\",\n      \"present\": true,\n      \"state\": \"on\",\n      \"enabled\": true,\n      \"defaultEnabled\": false,\n      \"defaultOff\": true,\n      \"configured\": false,\n      \"gatewayEffective\": true,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ],\n      \"confirmationRequired\": false,\n      \"hint\": \"configure only after an approved Office provider and Drive policy are ready\"\n    },\n    {\n      \"key\": \"feature.office_local_open\",\n      \"label\": \"Office local open\",\n      \"present\": true,\n      \"state\": \"off\",\n      \"enabled\": false,\n      \"defaultEnabled\": false,\n      \"defaultOff\": true,\n      \"configured\": false,\n      \"gatewayEffective\": false,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ],\n      \"confirmationRequired\": false,\n      \"hint\": \"default-OFF; configure with 'mailctl feature set feature.office_local_open on' only after the required policy and evidence are ready\"\n    },\n    {\n      \"key\": \"feature.drive_history\",\n      \"label\": \"Drive History\",\n      \"present\": true,\n      \"state\": \"off\",\n      \"enabled\": false,\n      \"defaultEnabled\": false,\n      \"defaultOff\": true,\n      \"configured\": false,\n      \"gatewayEffective\": false,\n      \"gatewaySource\": \"unknown\",\n      \"dependencies\": [\n        \"feature.drive\"\n      ],\n      \"confirmationRequired\": false,\n      \"hint\": \"default-OFF; configure with 'mailctl feature set feature.drive_history on' only after the required policy and evidence are ready\"\n    }\n  ],\n  \"hints\": [\n    \"feature.office_editing: configure only after an approved Office provider and Drive policy are ready\",\n    \"feature.office_local_open: default-OFF; configure with 'mailctl feature set feature.office_local_open on' only after the required policy and evidence are ready\",\n    \"feature.drive_history: default-OFF; configure with 'mailctl feature set feature.drive_history on' only after the required policy and evidence are ready\",\n    \"All Office and Drive History capabilities are default-OFF; no capability is enabled until explicitly configured.\",\n    \"Enabled Office/History capabilities require feature.drive to be enabled before admission can succeed.\"\n  ]\n}\n",
+  "stderr": "Error: office doctor: one or more enabled flags have disabled Drive dependencies\n",
+  "exit": 1
+}

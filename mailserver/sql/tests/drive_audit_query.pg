@@ -1,0 +1,86 @@
+-- mailserver/sql/tests/drive_audit_query.pg — P6 Task 7 audit query layer
+BEGIN;
+SELECT plan(13);
+
+SELECT mk_account('daqM') AS mbm \gset
+SELECT mk_account('daqE') AS mbe \gset
+SELECT mk_account('daqA') AS mba \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS a FROM mailboxes WHERE id = :mba \gset
+
+SELECT drive_space_create(:m, 'AuditSpace', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+-- :a holds drive.manage+drive.view (role_group_id 1, Super Admin, V114 §E)
+-- but is NOT a space member.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:a, 1, :a);
+
+-- drive_space_create + drive_member_grant above already wrote 2 rows
+-- ('space.create', 'member.grant'); 6 more seeded here: 2 'view' by :m,
+-- 2 'view' by :e, 1 'node.rename' by :m (with a note), 1 'export.deny' by
+-- :e — 8 rows total.
+SELECT drive_access_audit(:m, :sid, 'view', 'node', 1, NULL, NULL, NULL, NULL);
+SELECT drive_access_audit(:m, :sid, 'view', 'node', 1, NULL, NULL, NULL, NULL);
+SELECT drive_access_audit(:e, :sid, 'view', 'node', 2, NULL, NULL, NULL, NULL);
+SELECT drive_access_audit(:e, :sid, 'view', 'node', 2, NULL, NULL, NULL, NULL);
+SELECT drive_access_audit(:m, :sid, 'node.rename', 'node', 1, NULL, NULL, NULL, 'renamed to X');
+SELECT drive_access_audit(:e, :sid, 'export.deny', 'version', 3, NULL, NULL, NULL, NULL);
+
+-- 1) manager queries own space -> all 8 rows, raw (never collapsed)
+SELECT is(jsonb_array_length((drive_audit_query(:m, :sid, NULL, NULL, NULL, NULL, NULL, 500, NULL))->'items'),
+          8, 'manager sees all 8 raw per-access rows');
+
+-- 2) drive.view admin queries any space, even not-a-member
+SELECT is(jsonb_array_length((drive_audit_query(:a, :sid, NULL, NULL, NULL, NULL, NULL, 500, NULL))->'items'),
+          8, 'drive.view admin (non-member) sees the space audit log — batch-2 #4');
+
+-- 3) plain member, non-manager -> BZ140
+SELECT throws_ok(format($$ SELECT drive_audit_query(%s, %s, NULL, NULL, NULL, NULL, NULL, 500, NULL) $$, :e, :sid),
+  'BZ140', NULL, 'editor (non-manager, non-admin) -> BZ140');
+
+-- 4) NULL space -> BZ141
+SELECT throws_ok(format($$ SELECT drive_audit_query(%s, NULL, NULL, NULL, NULL, NULL, NULL, 500, NULL) $$, :m),
+  'BZ141', NULL, 'NULL space -> BZ141');
+
+-- 5) actor filter
+SELECT is(jsonb_array_length((drive_audit_query(:m, :sid, :e, NULL, NULL, NULL, NULL, 500, NULL))->'items'),
+          3, 'actor filter narrows to actor e''s 3 rows');
+
+-- 6) action filter
+SELECT is(jsonb_array_length((drive_audit_query(:m, :sid, NULL, 'view', NULL, NULL, NULL, 500, NULL))->'items'),
+          4, 'action filter narrows to the 4 view rows');
+
+-- 7) keyword filter over notes
+SELECT is(jsonb_array_length((drive_audit_query(:m, :sid, NULL, NULL, NULL, NULL, 'renamed', 500, NULL))->'items'),
+          1, 'keyword filter matches notes');
+
+-- 8) from/to filter
+SELECT is(jsonb_array_length((drive_audit_query(:m, :sid, NULL, NULL, now() + interval '1 hour', NULL, NULL, 500, NULL))->'items'),
+          0, 'from in the future -> zero rows');
+
+-- 9) keyset pagination: p_max=2 -> newest 2 + hasMore true
+SELECT (drive_audit_query(:m, :sid, NULL, NULL, NULL, NULL, NULL, 2, NULL)) AS page1 \gset
+SELECT is(jsonb_array_length(:'page1'::jsonb->'items'), 2, 'page size honors p_max');
+SELECT is((:'page1'::jsonb->>'hasMore')::boolean, true, 'hasMore true when more rows remain');
+
+-- 10) p_before_id continues without overlap (id keyset, not offset)
+SELECT ((:'page1'::jsonb->'items'->1)->>'id')::bigint AS last_id \gset
+SELECT (drive_audit_query(:m, :sid, NULL, NULL, NULL, NULL, NULL, 2, :last_id)) AS page2 \gset
+SELECT ARRAY(SELECT (e->>'id')::bigint FROM jsonb_array_elements(:'page1'::jsonb->'items') e) AS p1ids \gset
+SELECT ARRAY(SELECT (e->>'id')::bigint FROM jsonb_array_elements(:'page2'::jsonb->'items') e) AS p2ids \gset
+SELECT is(:'p1ids'::bigint[] && :'p2ids'::bigint[], false, 'page2''s ids never overlap page1''s (keyset advances)');
+SELECT is(jsonb_array_length(:'page2'::jsonb->'items'), 2, 'page2 also returns 2 rows');
+
+-- 13) RLS denial: drive_audit_alarms is FORCE'd + gated by the drive.manage
+-- policy. A non-admin (editor :e) sees ZERO rows under bound setjoin_app —
+-- not even the org-wide seeded 'export.deny' alarm. (Superuser pgTAP bypasses
+-- RLS, so this MUST run under SET LOCAL ROLE setjoin_app to be a real proof.)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :e::text, true);
+SELECT is((SELECT count(*) FROM drive_audit_alarms)::int,
+          0, 'RLS denial: non-drive.manage user sees zero audit-alarm rows under bound setjoin_app');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unknown\nUsage of push test:\n  -user string\n    \trecipient email address\nError: flag provided but not defined: -unknown\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

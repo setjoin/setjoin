@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity upgrade retirement-check:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\nError: flag: help requested\n",
+  "exit": 1
+}

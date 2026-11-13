@@ -1,0 +1,47 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": "<admin>",
+          "value": {
+            "default_locale": "en",
+            "enabled": true,
+            "locales": {
+              "en": {
+                "body_html": "",
+                "body_text": "Hello",
+                "subject": "Welcome"
+              }
+            }
+          }
+        }
+      ],
+      "before": [
+        {
+          "encrypted": false,
+          "key": "welcome_email",
+          "updated_by": "<admin>",
+          "value": {
+            "default_locale": "en",
+            "enabled": true,
+            "locales": {
+              "en": {
+                "body_html": "",
+                "body_text": "Hello",
+                "subject": "Welcome"
+              }
+            }
+          }
+        }
+      ],
+      "table": "system_config"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/system/welcome-email"
+}

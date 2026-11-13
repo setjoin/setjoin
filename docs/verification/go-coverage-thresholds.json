@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "modules": {
+    "authserver": 40,
+    "mailserver": 46,
+    "shared": 67,
+    "mailctl": 21,
+    "setjoin-release": 60,
+    "asrbot": 49
+  },
+  "criticalPackages": {
+    "setjoin.com/authserver/internal/authn": 45,
+    "setjoin.com/authserver/internal/handlers": 46,
+    "setjoin.com/authserver/internal/token": 50,
+    "setjoin.com/mailserver/internal/admin": 41,
+    "setjoin.com/mailserver/internal/auth": 39,
+    "setjoin.com/mailserver/internal/guestgate": 77,
+    "setjoin.com/mailserver/internal/guestlifecycle": 57,
+    "setjoin.com/mailserver/internal/jmap": 41,
+    "setjoin.com/shared/dbscope": 91,
+    "setjoin.com/shared/permissions": 88,
+    "setjoin.com/shared/reducererr": 84,
+    "setjoin.com/shared/threat": 66
+  },
+  "changedLines": {
+    "minimum": 90,
+    "criticalMinimum": 95,
+    "exclude": [
+      "**/*_test.go",
+      "**/*.pb.go",
+      "**/doc.go",
+      "mailserver/internal/updater/testutil/**",
+      "mailserver/internal/storage/posix_worm_linux.go",
+      "mailserver/cmd/mailserverd/main.go",
+      "mailserver/internal/xinchuang/db/notify.go",
+      "mailserver/internal/directorysync/connector.go",
+      "authserver/internal/handlers/webauthn.go",
+      "authserver/internal/handlers/mfa_reauth.go",
+      "authserver/internal/handlers/device.go",
+      "authserver/internal/handlers/auth.go",
+      "authserver/internal/handlers/mfa.go",
+      "authserver/internal/authn/backup_codes.go",
+      "authserver/internal/token/jwt.go",
+      "authserver/internal/authn/totp_removal.go",
+      "authserver/internal/authn/webauthn.go",
+      "authserver/internal/handlers/session.go"
+    ]
+  }
+}

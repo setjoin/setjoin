@@ -1,0 +1,14 @@
+[Unit]
+Description=Setjoin Rust front door listener (ARCH-027)
+ConditionPathExists={{RUNTIME_DIR}}/setjoin-gateway
+
+[Socket]
+# Plaintext HTTP on loopback for the existing TLS terminator; one listener
+# handed to the gateway (LISTEN_FDS=1).
+ListenStream={{GATEWAY_LISTEN}}
+Accept=no
+NoDelay=true
+Backlog=4096
+
+[Install]
+WantedBy=sockets.target

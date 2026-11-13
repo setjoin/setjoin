@@ -1,0 +1,46 @@
+{
+  "case": "mailbox-lifecycle-media-malformed",
+  "format": 1,
+  "go_source": "0c656855bb0d2e35f47da1f44c37e135448d95ca",
+  "observation": {
+    "calls": [
+      {
+        "body": {
+          "identity": "u:one",
+          "room": "a-room"
+        },
+        "grant": {
+          "room": "a-room",
+          "roomAdmin": true
+        },
+        "method": "RemoveParticipant",
+        "service": "livekit.RoomService"
+      }
+    ],
+    "effects": [
+      [
+        "failed",
+        1,
+        "twirp error internal: failed to unmarshal proto response: proto: cannot parse invalid wire-format data",
+        false
+      ]
+    ],
+    "targets": [
+      [
+        "a-room",
+        "u:one",
+        false
+      ],
+      [
+        "completed-room",
+        "u:gone",
+        true
+      ],
+      [
+        "z-room",
+        "u:two",
+        false
+      ]
+    ]
+  }
+}

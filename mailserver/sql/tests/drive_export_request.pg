@@ -1,0 +1,74 @@
+-- mailserver/sql/tests/drive_export_request.pg — export-request policy routing.
+BEGIN;
+SELECT plan(12);
+
+UPDATE feature_toggles SET enabled = true WHERE key IN ('feature.drive','feature.drive_compliance');
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (94000, 'dxp.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, manager_id) OVERRIDING SYSTEM VALUE VALUES
+  (94001, 'dxp_owner', 94000, 'own@dxp.test', 'Owner',   TRUE, 94002),
+  (94002, 'dxp_mgr',   94000, 'mgr@dxp.test', 'Manager', TRUE, NULL),
+  (94003, 'dxp_out',   94000, 'out@dxp.test', 'Outsider',TRUE, NULL);
+
+-- Fixture spaces via the real reducer (owner becomes manager member):
+SELECT drive_space_create(94001, 'Reg',  'regular') AS id \gset reg_
+SELECT drive_space_create(94001, 'Gxp',  'gxp', false, 30, 'compliance') AS id \gset gxp_
+-- One file + version per space (direct INSERTs; refcount triggers fire — fine):
+INSERT INTO drive_nodes (id, space_id, kind, name, created_by) OVERRIDING SYSTEM VALUE VALUES
+  (94010, :reg_id, 'file', 'r.pdf', 94001), (94011, :gxp_id, 'file', 'g.pdf', 94001);
+INSERT INTO drive_files (node_id, space_id) VALUES (94010, :reg_id), (94011, :gxp_id);
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g',            repeat('a',64), 10, 'drive/g/'||repeat('a',64), NULL, NULL),
+  ('s'||:gxp_id,   repeat('b',64), 10, 'drive/s'||:gxp_id||'/'||repeat('b',64),
+   now() + interval '30 days', now() + interval '30 days');   -- gxp chunk, WORM APPLIED
+INSERT INTO drive_file_versions (id, file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  OVERRIDING SYSTEM VALUE VALUES
+  (94020, 94010, :reg_id, repeat('a',64), 10, 94001),
+  (94021, 94011, :gxp_id, repeat('b',64), 10, 94001);
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES
+  (94020, 0, 'g', repeat('a',64)), (94021, 0, 's'||:gxp_id, repeat('b',64));
+
+SELECT set_config('app.current_user_id', '94001', false);
+
+-- 1-3: regular space, export policy 'allow' → direct grant.
+SELECT is(drive_export_request(94001, 94020, 'download', repeat('1',64))->>'status',
+          'granted', 'regular allow → granted');
+SELECT is((SELECT grantee FROM drive_export_grants WHERE token_hash = repeat('1',64)), 94001::bigint,
+          'grant row minted for requester');
+SELECT ok((SELECT expires_at BETWEEN now() + interval '55 minutes' AND now() + interval '65 minutes'
+             FROM drive_export_grants WHERE token_hash = repeat('1',64)),
+          'direct grant TTL anchored at request time');
+
+-- 4: gxp NEVER grants directly, even with NO drive.export policy configured
+--    (fail-closed manager/default-approver resolution — I-7 first leg).
+SELECT is(drive_export_request(94001, 94021, 'download', repeat('2',64))->>'status',
+          'pending', 'gxp with no policy → pending (fail-closed), never granted');
+SELECT is((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('2',64)), 0::bigint,
+          'no grant row before decide');
+SELECT is((SELECT consumer_type FROM approval_requests
+            WHERE payload->>'token_hash' = repeat('2',64)), 'drive.export',
+          'approval request created under the drive.export consumer');
+SELECT is((SELECT approver_ref FROM approval_requests
+            WHERE payload->>'token_hash' = repeat('2',64)), 94002::bigint,
+          'fail-closed approver = requester manager');
+
+-- 5: gxp ignores a requires_approval=false (skip) policy — hard floor §9.2.
+INSERT INTO approval_policies (consumer_type, name, priority, conditions, requires_approval, approver_spec)
+  VALUES ('drive.export', 'skip-all', 1, '{}', false, '{"kind":"manager"}');
+SELECT is(drive_export_request(94001, 94021, 'download', repeat('3',64))->>'status',
+          'pending', 'gxp ignores skip policies — still pending');
+DELETE FROM approval_policies WHERE name = 'skip-all';
+
+-- 6: bad action → BZ141; non-member/unknown version → BZ139 (opaque).
+SELECT throws_ok($$SELECT drive_export_request(94001, 94020, 'email', repeat('4',64))$$,
+                 'BZ141', NULL, 'invalid action → BZ141');
+SELECT throws_ok($$SELECT drive_export_request(94003, 94020, 'download', repeat('5',64))$$,
+                 'BZ139', NULL, 'non-member → BZ139 (no oracle)');
+SELECT throws_ok($$SELECT drive_export_request(94001, 999999, 'download', repeat('6',64))$$,
+                 'BZ139', NULL, 'unknown version → BZ139 (indistinguishable)');
+
+-- 7: audit trail.
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE space_id = :gxp_id AND action = 'export.request') >= 1,
+          'export.request audited on the space chain');
+
+SELECT * FROM finish();
+ROLLBACK;

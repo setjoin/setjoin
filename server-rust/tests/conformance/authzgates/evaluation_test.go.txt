@@ -1,0 +1,56 @@
+// Recording-only overlay; frozen runtime files are unchanged.
+package threat
+
+import (
+ "context"
+ "errors"
+ "encoding/json"
+ "io"
+ "log/slog"
+ "os"
+ "testing"
+)
+
+func TestRecordAUTHZGATESEvaluation(t *testing.T) {
+ var cases []struct {
+  Name string `json:"name"`
+  Context PolicyEvalContext `json:"context"`
+  Policies []struct {
+   ID int64 `json:"id"`; Priority int `json:"priority"`; Name string `json:"name"`
+   State string `json:"state"`; ScopeType string `json:"scope_type"`; ScopeTarget string `json:"scope_target"`
+   Conditions map[string]interface{} `json:"conditions"`; Actions map[string]interface{} `json:"actions"`
+   ExcludeUsers []int64 `json:"exclude_users"`; ExcludeGroups []int64 `json:"exclude_groups"`
+  } `json:"policies"`
+  Locations []NamedLocation `json:"locations"`; Strengths []AuthStrength `json:"strengths"`; BreakGlass []int64 `json:"break_glass"`
+ }
+ raw,err:=os.ReadFile(os.Getenv("AUTHZGATES_CASES"));if err!=nil {t.Fatal(err)}
+ if err=json.Unmarshal(raw,&cases);err!=nil{t.Fatal(err)}
+ var observations []map[string]interface{}
+ for _,c:=range cases{
+  engine:=NewPolicyEngine(nil,nil,nil,nil,slog.New(slog.NewTextHandler(io.Discard,nil)),false)
+  engine.SetBreakGlass(c.BreakGlass)
+  var policies []PolicyRow
+  for _,p:=range c.Policies { policies=append(policies,PolicyRow{ID:p.ID,Priority:p.Priority,Name:p.Name,State:p.State,ScopeType:p.ScopeType,ScopeTarget:p.ScopeTarget,Conditions:p.Conditions,Actions:p.Actions,ExcludeUsers:p.ExcludeUsers,ExcludeGroups:p.ExcludeGroups}) }
+  r:=engine.EvaluateWithPolicies(context.Background(),c.Context,policies,c.Locations,c.Strengths)
+  simulated:=engine.SimulateWithPolicies(context.Background(),c.Context,policies,c.Locations,c.Strengths)
+  observations=append(observations,map[string]interface{}{"name":c.Name,"decision":r.Decision.String(),"reason":r.Reason,"remediation":r.Remediation,"terms_id":r.RemediationTermsID,"limited_web":r.LimitedWeb,"simulation":simulated})
+ }
+ out,err:=json.MarshalIndent(observations,"","  ");if err!=nil{t.Fatal(err)}
+ if err=os.WriteFile(os.Getenv("AUTHZGATES_OUTPUT"),append(out,'\n'),0644);err!=nil{t.Fatal(err)}
+}
+
+type authzgatesLocationFault struct { *fakeStore }
+func (*authzgatesLocationFault) LoadNamedLocations(context.Context) ([]NamedLocation,error) {return nil,errors.New("location read unavailable")}
+
+// Pins the live Engine error boundary separately from pure snapshot evaluation.
+func TestAUTHZGATESNilLocationsWithPresentCondition(t *testing.T) {
+ for _,value:=range []interface{}{nil,""} {
+  rows:=[]PolicyRow{
+   {ID:1,Name:"first allow",State:"on",ScopeType:"global",Conditions:map[string]interface{}{"location_in":value},Actions:map[string]interface{}{"action":"allow"}},
+   {ID:2,Name:"other enforcing policy",State:"on",ScopeType:"global",Conditions:map[string]interface{}{"auth_method":"password"},Actions:map[string]interface{}{"action":"block"}},
+  }
+  engine:=NewPolicyEngine(&authzgatesLocationFault{&fakeStore{rows:rows}},nil,nil,nil,slog.New(slog.NewTextHandler(io.Discard,nil)),false)
+  r:=engine.Evaluate(context.Background(),PolicyEvalContext{AuthMethod:"jwt_bearer",RevocationSensitive:true})
+  if r.Decision!=DecisionBlock||r.Reason!="eval error (fail closed)" {t.Fatalf("value=%v: %+v",value,r)}
+ }
+}

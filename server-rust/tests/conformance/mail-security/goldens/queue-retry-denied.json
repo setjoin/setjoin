@@ -1,0 +1,219 @@
+{
+  "case": "denied",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "queue.write",
+          "target": "/admin/queue/<q2>/retry"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/queue/<q2>/retry",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "queue": [
+            {
+              "attempt_count": 0,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q1",
+              "status": "pending"
+            },
+            {
+              "attempt_count": 3,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": "temp <fail> & retry  ",
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q2",
+              "status": "deferred"
+            },
+            {
+              "attempt_count": 10,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": "held for good",
+              "mailbox_id": "<mailbox-other>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q3",
+              "status": "deferred"
+            },
+            {
+              "attempt_count": 5,
+              "delivered_at": "<timestamp>",
+              "dsn_actions": [
+                {
+                  "dedup_matches": true,
+                  "kind": "dsn",
+                  "mailbox_id": null,
+                  "status": "pending"
+                }
+              ],
+              "last_error": "550 no such user",
+              "mailbox_id": null,
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q4",
+              "status": "bounced"
+            },
+            {
+              "attempt_count": 1,
+              "delivered_at": "<timestamp>",
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q5",
+              "status": "delivered"
+            },
+            {
+              "attempt_count": 2,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q6",
+              "status": "sending"
+            }
+          ]
+        },
+        "before": {
+          "queue": [
+            {
+              "attempt_count": 0,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q1",
+              "status": "pending"
+            },
+            {
+              "attempt_count": 3,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": "temp <fail> & retry  ",
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q2",
+              "status": "deferred"
+            },
+            {
+              "attempt_count": 10,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": "held for good",
+              "mailbox_id": "<mailbox-other>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q3",
+              "status": "deferred"
+            },
+            {
+              "attempt_count": 5,
+              "delivered_at": "<timestamp>",
+              "dsn_actions": [
+                {
+                  "dedup_matches": true,
+                  "kind": "dsn",
+                  "mailbox_id": null,
+                  "status": "pending"
+                }
+              ],
+              "last_error": "550 no such user",
+              "mailbox_id": null,
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q4",
+              "status": "bounced"
+            },
+            {
+              "attempt_count": 1,
+              "delivered_at": "<timestamp>",
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q5",
+              "status": "delivered"
+            },
+            {
+              "attempt_count": 2,
+              "delivered_at": null,
+              "dsn_actions": [],
+              "last_error": null,
+              "mailbox_id": "<mailbox-actor>",
+              "next_attempt_at": "2026-10-01T11:00:00+00:00",
+              "seed": "q6",
+              "status": "sending"
+            }
+          ]
+        },
+        "table": "queue"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/queue/<q2>/retry",
+      "method": "POST",
+      "path": "/admin/queue/{id}/retry"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /admin/queue/{id}/retry"
+}

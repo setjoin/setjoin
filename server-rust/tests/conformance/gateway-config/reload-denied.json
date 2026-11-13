@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "route": "POST /admin/reload",
+  "case": "denied",
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "observation": {
+    "request": {
+      "method": "POST",
+      "path": "/admin/reload"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gwconfig-oracle"
+      },
+      "status": 403
+    },
+    "effects": [],
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "system.config",
+          "target": "/admin/reload"
+        },
+        "ip": null,
+        "notes": "/admin/reload",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "notify": []
+  }
+}

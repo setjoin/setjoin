@@ -1,0 +1,36 @@
+# Pinned URL-root prefixes — the ONLY surfaces served outside /api.
+# Everything else registered on the gateway mux is JSON API, canonically
+# served under /api (cmd/mailserverd/main.go mounts the API mux via
+# StripPrefix; apiPinnedPrefixes in main.go MUST match this file —
+# check-api-namespace.sh enforces the sync).
+#
+# A prefix belongs here ONLY if the outside world pins it:
+#   protocol (RFC/spec-fixed), IdP/OAuth-registered redirect URIs,
+#   links embedded in already-sent email, pre-auth bootstrap (installer/DR),
+#   ops probes, or the /api namespace itself.
+/auth	# authserver proxy — SAML/OIDC/WebAuthn callbacks are IdP-registered
+/jmap	# JMAP protocol surface (RFC 8620) + ws/download/upload
+/.well-known	# jmap session + setjoin autodiscovery
+/caldav	# CalDAV protocol clients
+/carddav	# CardDAV protocol clients
+/scim	# SCIM Location headers returned to external IdPs
+/setup	# pre-auth bootstrap: installer, mailctl DR restore, first-boot wizard
+/approvals/email	# approve-by-email links embedded in ALREADY-SENT mail
+/link-protect	# rewritten links inside DELIVERED mail bodies
+/admin/migration/m365	# Azure-registered OAuth redirect URI + Path-scoped CSRF cookie
+/updates	# desktop auto-updater appcast (embedded in shipped binaries)
+/downloads	# gateway-rendered HTML downloads page (the SPA duplicate was dead code — deleted 2026-07-02)
+/health	# ops probe
+/ready	# ops probe
+/metrics	# ops scrape
+/api	# the namespace itself (docs, discover, cert-hint live here already)
+/mail-attachment	# native attachment transfer URLs are minted with this exact root path
+/favicon.ico	# browser asset
+/terms	# authserver-proxied ToU surface used pre-remediation
+/rtc	# LiveKit SFU signal WS proxy — join/poll responses hand the client a literal bare wsPath:"/rtc"; webmail connects to wss://<host>/rtc directly, no /api prefix
+/authorize	# OIDC Provider authorization endpoint advertised by discovery
+/oauth	# OIDC Provider namespace: only exact token/introspection routes proxy; unknown children terminate at the gateway with 404
+/userinfo	# OIDC Provider UserInfo endpoint
+/keys	# OIDC Provider RS256 JWKS endpoint
+/end_session	# OIDC Provider RP-initiated logout endpoint
+/revoke	# OAuth token revocation endpoint

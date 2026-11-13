@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown office action: unsupported (try: doctor, diagnostics, status, configure, qualify, activate, install, recover)\n",
+  "exit": 1
+}

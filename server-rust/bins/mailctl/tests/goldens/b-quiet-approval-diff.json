@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/approval-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"drift\": true,\n  \"added\": [\n    \"New\"\n  ],\n  \"changed\": [],\n  \"removed\": [\n    \"Old\"\n  ]\n}\n",
+  "stderr": "Error: changes present\n",
+  "exit": 2
+}

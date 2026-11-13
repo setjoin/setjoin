@@ -1,0 +1,32 @@
+{
+  "case": "periodic-authorization",
+  "format": 1,
+  "go_source": "c517ac13d77b7ed50f96b098249354483212109a",
+  "normalization": [
+    "fixture mailbox IDs",
+    "guest readiness is observed through HTTP presence; all idle streams must close with the recorded chunk termination"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/eventsource"
+    },
+    "response": {
+      "closed": [
+        "abrupt",
+        "abrupt",
+        "abrupt"
+      ],
+      "frames": [
+        "event: state\ndata: {\"@type\":\"StateChange\",\"changed\":{\"<member-mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"0\",\"Mailbox\":\"0\",\"Task\":\"0\",\"Thread\":\"0\"}}}\n\n",
+        "event: state\ndata: {\"@type\":\"StateChange\",\"changed\":{\"<admin-mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"0\",\"Mailbox\":\"0\",\"Task\":\"0\",\"Thread\":\"0\"}}}\n\n",
+        ""
+      ],
+      "status": 200
+    }
+  },
+  "route": "GET /jmap/eventsource"
+}

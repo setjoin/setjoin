@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "setjoin.exchange.compatibility/v1",
+  "serverContract": "V1A",
+  "acceptedBundleSchemas": ["setjoin.exchange.bundle/v1"],
+  "acceptedRegistryVersions": [1],
+  "acceptedCatalogVersions": [1],
+  "collectorVersions": ["1"],
+  "explicitlyRejected": [
+    "setjoin.exchange.a0.input/v0",
+    "setjoin.exchange.a0.report/v0",
+    "setjoin.exchange.bundle/v0"
+  ],
+  "unknownFieldPolicy": "reject_before_import",
+  "nMinusOnePolicy": "not_applicable_until_a_second_product_bundle_contract_exists",
+  "featureDefault": "off"
+}

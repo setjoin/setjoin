@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/upgrade/backfill",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"action\":\"start\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"preflightChecksum\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "{\n  \"jobId\": \"00000000-0000-4000-8000-000000000001\",\n  \"kind\": \"upgrade_backfill\",\n  \"state\": \"completed\",\n  \"snapshotId\": \"00000000-0000-4000-8000-000000000002\",\n  \"sourceKey\": null,\n  \"transitionId\": null,\n  \"createdAt\": \"2026-01-01T00:00:00Z\",\n  \"expiresAt\": \"2026-01-01T00:00:00Z\",\n  \"progress\": {},\n  \"nextAction\": \"review\",\n  \"terminal\": true,\n  \"cancelRequested\": false,\n  \"manifestVersion\": \"\",\n  \"byteCount\": null,\n  \"sha256\": \"\",\n  \"redactionCounts\": null\n}\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000001\n",
+  "exit": 0
+}

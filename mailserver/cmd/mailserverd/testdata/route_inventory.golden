@@ -1,0 +1,708 @@
+# Golden route inventory — every registered route and its middleware chain
+# (outermost wrapper first). Regenerate after an INTENTIONAL route change:
+#   UPDATE_GOLDEN=1 go test ./cmd/mailserverd/ -run TestRouteInventoryGolden
+# and review the diff in the commit. See route_inventory_test.go.
+/auth/admin/	authLimit > requireAuth > requireIdentityWrite
+/auth/backup-codes/	authLimit
+/auth/oidc/	authLimit
+/auth/push/	authLimit
+/auth/saml/	authLimit
+/auth/totp/	authLimit
+/auth/webauthn/	authLimit
+/authorize	(none)
+/authorize/	(none)
+/authorize/callback	(none)
+/caldav/	requireAuth > requireApp(calendar)
+/carddav/	requireAuth > requireApp(contacts)
+/chat/	requireAuth > requireAppFeatureFirst(feature.chat,chat)
+/contacts/export/	requireAuth > requireApp(contacts)
+/contacts/import/	requireAuth > requireApp(contacts)
+/drive/	requireAuth > requireAppFeatureFirst(feature.drive,drive)
+/end_session	(none)
+/meet	requireAuth > requireAppFeatureFirst(feature.meet,meet)
+/meet/	requireAuth > requireAppFeatureFirst(feature.meet,meet)
+/oauth	(none)
+/oauth/	(none)
+/oauth/introspect	(none)
+/oauth/token	(none)
+/revoke	(none)
+/rtc	(none)
+/rtc/	(none)
+/userinfo	(none)
+DELETE /admin/approval-policies/{id}	adminLimit > requireAuth > requireApprovalsManage
+DELETE /admin/chat-retention-policies/{id}	adminLimit > requireAuth > requireChatComplianceManage
+DELETE /admin/conditional-access/auth-strengths/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+DELETE /admin/conditional-access/named-locations/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+DELETE /admin/conditional-access/policies/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+DELETE /admin/departments/{id}	adminLimit > requireAuth > requireUsersCreate
+DELETE /admin/domains/{id}	adminLimit > requireAuth > requireDomainsWrite
+DELETE /admin/ediscovery/cases/{id}	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+DELETE /admin/email-address-policies/{id}	adminLimit > requireAuth > requireIdentityWrite
+DELETE /admin/features/{key}	adminLimit > requireAuth > requireSystemConfig > requireReason(system.config)
+DELETE /admin/federation/peers/{domain}	adminLimit > requireAuth > requireFederationManage
+DELETE /admin/guest-invite-domains/{domain}	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+DELETE /admin/guest-profiles/{id}	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+DELETE /admin/guests/{userId}/invite	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+DELETE /admin/identity/v2/diagnostics/{id}	adminLimit > requireAuth > requireAuditExport > requireReason(audit.export)
+DELETE /admin/mailboxes/{id}	adminLimit > requireAuth > requireUsersCreate
+DELETE /admin/mailboxes/{id}/folders/{folderId}	adminLimit > requireAuth > requireUsersCreate
+DELETE /admin/mam/devices/{device_id}/policy/{key}	adminLimit > requireAuth > requireMamWrite
+DELETE /admin/mam/policies/group/{type}/{id}/{key}	adminLimit > requireAuth > requireMamWrite
+DELETE /admin/mdm/policies/{id}	adminLimit > requireAuth > requireMamWrite > requireOrgWideSurface
+DELETE /admin/migration/jobs/{id}	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+DELETE /admin/migration/source/{type}	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+DELETE /admin/office/providers/{providerId}	adminLimit > requireAuth > requireOfficeManage > requireReason(office.manage)
+DELETE /admin/offline/policies/{id}	adminLimit > requireAuth > requireOfflinePolicy
+DELETE /admin/retention/policies/{id}	adminLimit > requireAuth > requireComplianceWrite
+DELETE /admin/roles/{id}	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+DELETE /admin/roles/{id}/members/{userId}	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+DELETE /admin/roles/{id}/members:bulk	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+DELETE /admin/rule-templates/{id}	adminLimit > requireAuth > requireMailPipeline
+DELETE /admin/rules/{id}	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+DELETE /admin/scope-sets/{id}	adminLimit > requireAuth > requireScopeSetsManage > requireReason(scope_sets.manage)
+DELETE /admin/scope-sets/{id}/members/{memberType}/{memberId}	adminLimit > requireAuth > requireScopeSetsManage > requireReason(scope_sets.manage)
+DELETE /admin/sharing/defaults/{id}	adminLimit > requireAuth > requireSharingManage > requireReason(sharing.manage)
+DELETE /admin/smime/trust-anchors/{id}	adminLimit > requireAuth > requireMailSecurity
+DELETE /admin/spam/models/{userId}	adminLimit > requireAuth > requireSecurityWrite
+DELETE /admin/system/backup	adminLimit > requireAuth > requireBackupWrite
+DELETE /admin/terms-of-use/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+DELETE /admin/threat/ip-rules/{id}	adminLimit > requireAuth > requireSecurityWrite
+DELETE /admin/users/{id}	adminLimit > requireAuth > requireUsersDelete
+DELETE /admin/users/{id}/aliases/{aliasId}	adminLimit > requireAuth > requireUsersCreate
+DELETE /admin/users/{userId}/app-passwords/{apId}	adminLimit > requireAuth > requireUsersCreate
+DELETE /admin/webhooks/{id}	adminLimit > requireAuth > requireSystemConfig
+DELETE /auth/identity-links/{id}	authLimit > requireAuth
+DELETE /auth/me/app-passwords/{id}	adminLimit > requireAuth
+DELETE /auth/me/migration	requireAuth
+DELETE /auth/me/smime/certs/{id}	requireAuth
+DELETE /auth/me/smime/recipient-certs/{id}	requireAuth
+DELETE /auth/me/webhooks/{id}	adminLimit > requireAuth
+DELETE /booking/pages	requireAuth
+DELETE /calendar/subscriptions/{id}	requireAuth
+DELETE /me/sharing/default/{id}	requireAuth
+DELETE /me/sharing/delegates/{userId}	requireAuth
+DELETE /recovery/uploads/{sessionId}	adminLimit > requireAuth
+DELETE /settings/rules/{id}	requireAuth
+DELETE /settings/signatures/{id}	requireAuth
+DELETE /settings/trusted-senders/{sender}	requireAuth
+DELETE /user/sessions/{id}	requireAuth
+GET /.well-known/autoconfig/mail/config-v1.1.xml	(none)
+GET /.well-known/caldav	(none)
+GET /.well-known/carddav	(none)
+GET /.well-known/jmap	requireAuth
+GET /.well-known/jwks.json	(none)
+GET /.well-known/oauth-authorization-server	(none)
+GET /.well-known/openid-configuration	(none)
+GET /.well-known/setjoin	(none)
+GET /admin/access-reviews	adminLimit > requireAuth > requireRolesManage
+GET /admin/access-reviews/{id}	adminLimit > requireAuth > requireRolesManage
+GET /admin/ad/config	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ad/conflicts	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ad/field-policy	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ad/health	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ad/sync-log	adminLimit > requireAuth > requireAuthPerm
+GET /admin/alerts	adminLimit > requireAuth > requireLogsPerm
+GET /admin/alerts/config	adminLimit > requireAuth > requireLogsPerm
+GET /admin/anti-phish	adminLimit > requireAuth > requireMailPerm
+GET /admin/approval-policies	adminLimit > requireAuth > requireApprovalsView
+GET /admin/approval-requests/audit	adminLimit > requireAuth > requireApprovalsView
+GET /admin/apps	adminLimit > requireAuth > requireAppsView
+GET /admin/audit	adminLimit > requireAuth > requireLogsPerm
+GET /admin/audit/csv	adminLimit > requireAuth > requireAuditExport
+GET /admin/audit/policy	adminLimit > requireAuth > requireLogsPerm
+GET /admin/audit/verify	adminLimit > requireAuth > requireLogsPerm
+GET /admin/auth-log	adminLimit > requireAuth > requireLogsPerm
+GET /admin/auth/methods	adminLimit > requireAuth > requireAuthPerm
+GET /admin/branding	adminLimit > requireAuth > requireMailPerm
+GET /admin/chat-channels	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-channels/{id}/audit	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-channels/{id}/audit/verify	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-compliance/overview	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-ediscovery/cases	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-ediscovery/channels/{id}/messages	adminLimit > requireAuth > requireChatEDiscovery
+GET /admin/chat-ediscovery/export	adminLimit > requireAuth > requireChatEDiscovery
+GET /admin/chat-ediscovery/holds	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-purge/preview	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/chat-retention-policies	adminLimit > requireAuth > requireChatComplianceView
+GET /admin/conditional-access/auth-strengths-list	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/break-glass	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/coverage	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/doctor	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/export	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/named-locations	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/policies	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/policies/{id}/impact	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/resolve-principals	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/sessions/log	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/signin-log	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/templates-list	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/conditional-access/why-lookup	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/dengbao/sod-mode	adminLimit > requireAuth > requireSecurityWrite
+GET /admin/departments	adminLimit > requireAuth > requireMailPerm
+GET /admin/departments/tree	adminLimit > requireAuth > requireMailPerm
+GET /admin/deploy/status	adminLimit > requireAuth > requireSystemUpgrade
+GET /admin/devices	adminLimit > requireAuth > requireMamRead
+GET /admin/devices/queue	adminLimit > requireAuth > requireMamRead
+GET /admin/distribution-groups	adminLimit > requireAuth > requireScopeSetsManage
+GET /admin/dlp/patterns	adminLimit > requireAuth > requireMailPerm
+GET /admin/dmarc/failures	adminLimit > requireAuth > requireMailPerm
+GET /admin/dmarc/live	adminLimit > requireAuth > requireMailPerm
+GET /admin/dmarc/trend	adminLimit > requireAuth > requireMailPerm
+GET /admin/dns/records	adminLimit > requireAuth > requireMailPerm
+GET /admin/dns/verify	adminLimit > requireAuth > requireMailPerm
+GET /admin/domains	adminLimit > requireAuth > requireMailPerm
+GET /admin/domains/{id}	adminLimit > requireAuth > requireMailPerm
+GET /admin/ediscovery/cases	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/ediscovery/cases/{id}	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/ediscovery/export	adminLimit > requireAuth > requireMailExport > requireOrgWideSurface
+GET /admin/ediscovery/{id}	adminLimit > requireAuth > requireMailExport > requireOrgWideSurface
+GET /admin/email-address-policies-list	adminLimit > requireAuth > requireMailPerm
+GET /admin/email-address-policies/apply/{jobId}	adminLimit > requireAuth > requireMailPerm
+GET /admin/exchange-replacement/projects	adminLimit > requireAuth > requireExchangeAssessmentRead
+GET /admin/exchange-replacement/projects/{projectId}/runs	adminLimit > requireAuth > requireExchangeAssessmentRead
+GET /admin/exchange-replacement/registry	adminLimit > requireAuth > requireExchangeAssessmentRead
+GET /admin/exchange-replacement/runs/{runId}/audit	adminLimit > requireAuth > requireExchangeAssessmentAudit
+GET /admin/features	adminLimit > requireAuth > requireSystemPerm
+GET /admin/federation/peers	adminLimit > requireAuth > requireFederationManage
+GET /admin/guest-profile-domains	adminLimit > requireAuth > guestFeatureGate > requireGuestsView
+GET /admin/guest-profiles	adminLimit > requireAuth > guestFeatureGate > requireGuestsView
+GET /admin/guest-profiles/{id}	adminLimit > requireAuth > guestFeatureGate > requireGuestsView
+GET /admin/guests	adminLimit > requireAuth > guestFeatureGate > requireGuestsView
+GET /admin/guests/{id}	adminLimit > requireAuth > guestFeatureGate > requireGuestsView
+GET /admin/guests/{id}/sponsor-options	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+GET /admin/health	adminLimit > requireAuth > requireMailPerm
+GET /admin/identity/group-mappings	adminLimit > requireAuth > requireAuthPerm
+GET /admin/identity/inventory	adminLimit > requireAuth > requireAuthPerm
+GET /admin/identity/v2/conflicts	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/conflicts/{id}	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/diagnostics/{id}	adminLimit > requireAuth > requireAuditExport
+GET /admin/identity/v2/diagnostics/{id}/download	adminLimit > requireAuth > requireAuditExport
+GET /admin/identity/v2/doctor	adminLimit > requireAuth > requireIdentityWrite
+GET /admin/identity/v2/events	adminLimit > requireAuth > requireAuditRead
+GET /admin/identity/v2/inventory/export	adminLimit > requireAuth > requireAuditExport
+GET /admin/identity/v2/jobs/{id}	adminLimit > requireAuth > requireIdentityJobAccess
+GET /admin/identity/v2/jobs/{id}/results	adminLimit > requireAuth > requireIdentityJobAccess
+GET /admin/identity/v2/people	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/people/{id}	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/sources	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/sources/{sourceKey}	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/sources/{sourceKey}/export	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/transitions	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/transitions/{id}	adminLimit > requireAuth > requireUsersRead
+GET /admin/identity/v2/transitions/{id}/report	adminLimit > requireAuth > requireAuditExport
+GET /admin/identity/v2/upgrade/retirement-check	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite
+GET /admin/identity/v2/upgrade/shadow	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite
+GET /admin/identity/v2/upgrade/status	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite
+GET /admin/jobs/bulk_role/{id}	adminLimit > requireAuth > requireRolesManage
+GET /admin/jobs/summary/{queue}	adminLimit > requireAuth > requireMailPerm
+GET /admin/jobs/{queue}	adminLimit > requireAuth > requireMailPerm
+GET /admin/ldap/config	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ldap/health	adminLimit > requireAuth > requireAuthPerm
+GET /admin/ldap/preview	adminLimit > requireAuth > requireIdentityWrite
+GET /admin/ldap/sync-log	adminLimit > requireAuth > requireAuthPerm
+GET /admin/link-protect/audit	adminLimit > requireAuth > requireLogsPerm
+GET /admin/mailboxes	adminLimit > requireAuth > requireMailPerm
+GET /admin/mailboxes/lifecycle/parity	adminLimit > requireAuth > requireUsersDelete
+GET /admin/mailboxes/retained	adminLimit > requireAuth > requireUsersDelete
+GET /admin/mailboxes/{id}	adminLimit > requireAuth > requireMailPerm
+GET /admin/mailboxes/{id}/export	adminLimit > requireAuth > requireMailExport
+GET /admin/mailboxes/{id}/folders	adminLimit > requireAuth > requireMailPerm
+GET /admin/mailboxes/{id}/lifecycle/preview	adminLimit > requireAuth > requireUsersDelete
+GET /admin/mam/devices	adminLimit > requireAuth > requireMamRead
+GET /admin/mam/devices/{device_id}/events	adminLimit > requireAuth > requireMamRead
+GET /admin/mam/policies	adminLimit > requireAuth > requireMamRead
+GET /admin/mdm/devices	adminLimit > requireAuth > requireMamRead
+GET /admin/mdm/devices/{device_id}	adminLimit > requireAuth > requireMamRead
+GET /admin/mdm/policies	adminLimit > requireAuth > requireMamRead
+GET /admin/me/roles	adminLimit > requireAuth
+GET /admin/meet/recordings	adminLimit > requireAuth > requireDriveView
+GET /admin/migration/jobs	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/migration/jobs/{id}	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/migration/m365/callback	requireAuth > requireMailPipeline > requireOrgWideSurface
+GET /admin/migration/m365/connect	requireAuth > requireMailPipeline > requireOrgWideSurface
+GET /admin/migration/source/{type}	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/monitor/live	adminLimit > requireAuth > requireMailPerm
+GET /admin/office	adminLimit > requireAuth > requireOfficeView
+GET /admin/offline/devices/pending	adminLimit > requireAuth > requireMamRead
+GET /admin/offline/enabled	adminLimit > requireAuth > requireOfflinePolicy
+GET /admin/offline/policies	adminLimit > requireAuth > requireOfflinePolicy
+GET /admin/offline/policies/{id}	adminLimit > requireAuth > requireOfflinePolicy
+GET /admin/outbound-tls-policy	adminLimit > requireAuth > requireMailPerm
+GET /admin/permissions	adminLimit > requireAuth > requireRolesManage
+GET /admin/quarantine	adminLimit > requireAuth > requireMailPerm
+GET /admin/quarantine/stats	adminLimit > requireAuth > requireMailPerm
+GET /admin/quarantine/{id}/preview	adminLimit > requireAuth > requireMailExport
+GET /admin/queue	adminLimit > requireAuth > requireMailPerm
+GET /admin/queue/summary	adminLimit > requireAuth > requireMailPerm
+GET /admin/reports/summary	adminLimit > requireAuth > requireMailPerm
+GET /admin/retention/logs	adminLimit > requireAuth > requireMailPerm
+GET /admin/retention/policies	adminLimit > requireAuth > requireMailPerm
+GET /admin/roles	adminLimit > requireAuth > requireRolesManage
+GET /admin/roles/{id}	adminLimit > requireAuth > requireRolesManage
+GET /admin/roles/{id}/activation-policy	adminLimit > requireAuth > requireRolesManage
+GET /admin/rule-templates	adminLimit > requireAuth > requireMailPerm
+GET /admin/rule-templates/{id}	adminLimit > requireAuth > requireMailPerm
+GET /admin/rule-templates/{id}/resolve	adminLimit > requireAuth > requireMailPerm
+GET /admin/rule-templates/{id}/visibility	adminLimit > requireAuth > requireMailPerm
+GET /admin/rules	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/rules/{id}	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+GET /admin/scope-sets	adminLimit > requireAuth > requireScopeSetsManage
+GET /admin/scope-sets/{id}	adminLimit > requireAuth > requireScopeSetsManage
+GET /admin/sharing/audit	adminLimit > requireAuth > requireSharingRead
+GET /admin/sharing/defaults	adminLimit > requireAuth > requireSharingRead
+GET /admin/sharing/users/{id}	adminLimit > requireAuth > requireSharingRead
+GET /admin/smime/trust-anchors	adminLimit > requireAuth > requireMailPerm
+GET /admin/spam	adminLimit > requireAuth > requireMailPerm
+GET /admin/storage/dr-scan	adminLimit > requireAuth > requireMailPerm
+GET /admin/storage/dr-scan/{id}	adminLimit > requireAuth > requireMailPerm
+GET /admin/storage/migrate	adminLimit > requireAuth > requireMailPerm
+GET /admin/storage/migrate/{id}	adminLimit > requireAuth > requireMailPerm
+GET /admin/storage/status	adminLimit > requireAuth > requireMailPerm
+GET /admin/system/auto-update	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/backup/download	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/backup/list	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/config	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/config/export	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/config/{key}	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/health	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/jit-defaults	adminLimit > requireAuth > requireRolesManage
+GET /admin/system/maintenance-window	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/recovery/incidents	adminLimit > requireAuth > requireSystemRecovery
+GET /admin/system/recovery/incidents/{id}/artifacts	adminLimit > requireAuth > requireSystemRecovery
+GET /admin/system/recovery/signals	adminLimit > requireAuth > requireSystemRecovery
+GET /admin/system/schema-version	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/status	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/upgrade/status	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/upgrades	adminLimit > requireAuth > requireSystemUpgrade
+GET /admin/system/upgrades/intents/{id}	adminLimit > requireAuth > requireSystemUpgrade
+GET /admin/system/upgrades/intents/{id}/diagnostics	adminLimit > requireAuth > requireSystemUpgrade
+GET /admin/system/upgrades/recovery-context	adminLimit > requireAuth > requireSystemUpgrade
+GET /admin/system/version	adminLimit > requireAuth > requireSystemPerm
+GET /admin/system/welcome-email	adminLimit > requireAuth > requireSystemPerm
+GET /admin/terms-of-use	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/threat/ip-rules	adminLimit > requireAuth > requireLogsPerm
+GET /admin/threat/{view}	adminLimit > requireAuth > requireLogsPerm
+GET /admin/tls/config	adminLimit > requireAuth > requireMailPerm
+GET /admin/tls/status	adminLimit > requireAuth > requireMailPerm
+GET /admin/trace	adminLimit > requireAuth > requireMailPerm
+GET /admin/trace/export	adminLimit > requireAuth > requireMailExport
+GET /admin/trace/{messageId}	adminLimit > requireAuth > requireMailPerm
+GET /admin/updates/devices	adminLimit > requireAuth > requireSystemPerm
+GET /admin/updates/summary	adminLimit > requireAuth > requireSystemPerm
+GET /admin/user-risk	adminLimit > requireAuth > requireCAPolicyRead
+GET /admin/users	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}/aliases	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}/app-access	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}/app-passwords	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}/effective-permissions	adminLimit > requireAuth > requireRolesManage
+GET /admin/users/{id}/quota	adminLimit > requireAuth > requireAuthPerm
+GET /admin/users/{id}/sessions	adminLimit > requireAuth > requireSignInPerm
+GET /admin/users/{id}/sign-ins	adminLimit > requireAuth > requireSignInPerm
+GET /admin/webhooks	adminLimit > requireAuth > requireSystemPerm
+GET /admin/webhooks/events	adminLimit > requireAuth > requireSystemPerm
+GET /admin/webhooks/{id}/deliveries	adminLimit > requireAuth > requireSystemPerm
+GET /api/cert-hint	(none)
+GET /api/discover	(none)
+GET /api/docs	(none)
+GET /api/fonts/ibm-plex-sans-400.woff2	(none)
+GET /api/fonts/ibm-plex-sans-500.woff2	(none)
+GET /api/logo.svg	(none)
+GET /api/openapi.full.json	adminLimit > requireAuth > requireSystemConfig
+GET /api/openapi.full.yaml	adminLimit > requireAuth > requireSystemConfig
+GET /api/openapi.json	(none)
+GET /api/openapi.yaml	(none)
+GET /api/redoc.standalone.js	(none)
+GET /approvals/email/{token}	(none)
+GET /auth/guest-invite/accept	authLimit
+GET /auth/identity-links	authLimit > requireAuth
+GET /auth/me	authLimit
+GET /auth/me/app-passwords	adminLimit > requireAuth
+GET /auth/me/mailtips	requireAuth
+GET /auth/me/migration	requireAuth
+GET /auth/me/org-chart	requireAuth
+GET /auth/me/smime/certs	requireAuth
+GET /auth/me/smime/recipient-certs	requireAuth
+GET /auth/me/webhooks	adminLimit > requireAuth
+GET /auth/oidc/link	authLimit > requireAuth
+GET /auth/password-policy	authLimit
+GET /auth/saml/{idp}/link	authLimit > requireAuth
+GET /auth/session/token	authLimit
+GET /blobs/{sha256}	requireAuth
+GET /booking/pages	requireAuth
+GET /calendar/subscriptions	requireAuth
+GET /downloads	(none)
+GET /downloads/asset/{asset}	(none)
+GET /downloads/{platform}	(none)
+GET /favicon.ico	(none)
+GET /health	(none)
+GET /jmap/download/{accountId}/{blobId}/{name}	requireAuth
+GET /jmap/eventsource	(none)
+GET /jmap/recovery-raw/{accountId}/{messageId}	requireAuth
+GET /jmap/ws	(none)
+GET /keys	(none)
+GET /link-protect	linkProtectLimit
+GET /mail-attachment/{sha256}	requireAuth
+GET /me/approvals	requireAuth
+GET /me/sharing	requireAuth
+GET /messages/{emailId}/download	requireAuth
+GET /messages/{emailId}/trace	requireAuth
+GET /messages/{id}/attachments.zip	requireAuth
+GET /metrics	(none)
+GET /office/wopi/files/{id}	(none)
+GET /office/wopi/files/{id}/contents	(none)
+GET /offline/size-estimate	requireAuth
+GET /public/booking/{slug}	bookingReadLimit
+GET /public/booking/{slug}/slots	bookingReadLimit
+GET /public/meet/{slug}/join-request/{id}	meetGuestReadLimit
+GET /quarantine	authLimit > requireAuth
+GET /quarantine/count	authLimit > requireAuth
+GET /ready	(none)
+GET /recovery/incidents	adminLimit > requireAuth
+GET /settings/external-sender	requireAuth
+GET /settings/imap	requireAuth
+GET /settings/newsletter-bundles	authLimit > requireAuth
+GET /settings/rule-templates	requireAuth
+GET /settings/rules-list	requireAuth
+GET /settings/rules/apply/{actionId}	requireAuth
+GET /settings/sender-control	requireAuth
+GET /settings/senders	requireAuth
+GET /settings/signatures-list	requireAuth
+GET /settings/trusted-senders	requireAuth
+GET /settings/undo-send	requireAuth
+GET /settings/view	requireAuth
+GET /setup/status	setupLimit
+GET /terms/pending	authLimit
+GET /updates/appcast	(none)
+GET /updates/{slug}/{filename}	(none)
+GET /user/approval-delegation	requireAuth
+GET /user/automatic-replies	requireAuth
+GET /user/cert-status	requireAuth
+GET /user/devices	requireAuth
+GET /user/login-history	requireAuth
+GET /user/notification-preferences	requireAuth
+GET /user/quota	requireAuth
+GET /user/security-score	requireAuth
+GET /user/sessions	requireAuth
+GET /user/vip-senders	requireAuth
+POST /admin/access-reviews	adminLimit > requireAuth > requireRolesManage
+POST /admin/access-reviews/{id}/close	adminLimit > requireAuth > requireRolesManage
+POST /admin/ad/conflicts/resolve-all	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/ad/conflicts/{id}/resolve	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/ad/principal	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/ad/sync	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/ad/test-connection	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/alerts/ack	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/alerts/unsuppress	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/approval-policies	adminLimit > requireAuth > requireApprovalsManage
+POST /admin/approval-policies/reorder	adminLimit > requireAuth > requireApprovalsManage
+POST /admin/apps/{appId}/operations	adminLimit > requireAuth > requireAppsManage > requireReason(apps.manage)
+POST /admin/apps/{appId}/operations/{operationId}/recover	adminLimit > requireAuth > requireAppsManage > requireReason(apps.manage)
+POST /admin/branding	adminLimit > requireAuth > requireMailPipeline
+POST /admin/chat-channels/{id}/classification	adminLimit > requireAuth > requireChatComplianceManage
+POST /admin/chat-channels/{id}/hold	adminLimit > requireAuth > requireChatComplianceManage
+POST /admin/chat-ediscovery/holds	adminLimit > requireAuth > requireChatComplianceManage
+POST /admin/chat-ediscovery/holds/{id}/release	adminLimit > requireAuth > requireChatComplianceManage
+POST /admin/chat-ediscovery/search	adminLimit > requireAuth > requireChatEDiscovery
+POST /admin/chat-retention-policies	adminLimit > requireAuth > requireChatComplianceManage
+POST /admin/conditional-access/auth-strengths	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/diff	adminLimit > requireAuth > requireCAPolicyRead
+POST /admin/conditional-access/import	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/named-locations	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/named-locations/{id}/restore	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/policies	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/policies/reorder	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/policies/restore-from-audit	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/policies/{id}/promote	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/policies/{id}/restore	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/sessions/{userId}/revoke	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/conditional-access/simulate	adminLimit > requireAuth > requireCAPolicyRead
+POST /admin/conditional-access/templates/{slug}/instantiate	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/content-search/delete	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/content-search/search	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/departments	adminLimit > requireAuth > requireUsersCreate
+POST /admin/departments/assign-user	adminLimit > requireAuth > requireUsersCreate
+POST /admin/deploy/cancel	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/deploy/start	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/devices/{id}/{action}	adminLimit > requireAuth > requireMamWrite
+POST /admin/domains	adminLimit > requireAuth > requireDomainsWrite
+POST /admin/ediscovery/cases	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/ediscovery/cases/associate	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/ediscovery/cases/{id}/close	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/ediscovery/hold	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/ediscovery/release	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/ediscovery/search	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+POST /admin/email-address-policies	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/email-address-policies/apply	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/email-address-policies/match-count	adminLimit > requireAuth > requireMailPerm
+POST /admin/email-address-policies/reorder	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/email-address-policies/{id}/preview	adminLimit > requireAuth > requireMailPerm
+POST /admin/exchange-replacement/projects	adminLimit > requireAuth > requireExchangeAssessmentRun > requireReason(exchange.assessment.run)
+POST /admin/exchange-replacement/projects/{projectId}/deletions	adminLimit > requireAuth > requireExchangeAssessmentDelete > requireReason(exchange.assessment.delete)
+POST /admin/exchange-replacement/projects/{projectId}/runs	adminLimit > requireAuth > requireExchangeAssessmentRun > requireReason(exchange.assessment.run)
+POST /admin/exchange-replacement/runs/{runId}/attestations	adminLimit > requireAuth > requireExchangeAssessmentAttest > requireReason(exchange.assessment.attest)
+POST /admin/exchange-replacement/runs/{runId}/claims/resolve	adminLimit > requireAuth > requireExchangeAssessmentAudit > requireReason(exchange.assessment.audit)
+POST /admin/exchange-replacement/runs/{runId}/decisions	adminLimit > requireAuth > requireExchangeAssessmentDecide > requireReason(exchange.assessment.decide)
+POST /admin/exchange-replacement/runs/{runId}/publications	adminLimit > requireAuth > requireExchangeAssessmentPublish > requireReason(exchange.assessment.publish)
+POST /admin/exchange-replacement/runs/{runId}/transition	adminLimit > requireAuth > requireExchangeAssessmentRun > requireReason(exchange.assessment.run)
+POST /admin/federation/peers	adminLimit > requireAuth > requireFederationManage
+POST /admin/guest-invite-domains	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guest-profiles	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests/{id}/disable	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests/{id}/enable	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests/{id}/extend	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests/{id}/reinvite	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/guests/{id}/transfer	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+POST /admin/identity/v2/conflicts/{id}/decision	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/diagnostics	adminLimit > requireAuth > requireAuditExport > requireReason(audit.export)
+POST /admin/identity/v2/jobs/{id}/cancel	adminLimit > requireAuth > requireIdentityJobAccess
+POST /admin/identity/v2/sources	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/plan	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/identity/v2/sources/{sourceKey}/activate	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/{sourceKey}/dry-run	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/{sourceKey}/pause	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/{sourceKey}/resume	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/{sourceKey}/retire	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/sources/{sourceKey}/secrets/{name}/rotate	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/preview	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/approve	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/cancel	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/deny	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/effects/{effectId}/retry	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/execute	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/request	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/rollback	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/rollback-preview	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/transitions/{id}/step-up/challenge	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/identity/v2/transitions/{id}/step-up/complete	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/identity/v2/upgrade/backfill	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite
+POST /admin/identity/v2/upgrade/canary	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite > requireReason(identity.write)
+POST /admin/identity/v2/upgrade/preflight	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite
+POST /admin/identity/v2/upgrade/rollback	adminLimit > requireAuth > requireSystemUpgrade > requireIdentityWrite > requireReason(identity.write)
+POST /admin/jobs/bulk_role/{id}/retry	adminLimit > requireAuth > requireRolesManage
+POST /admin/jobs/journal/{id}/retry	adminLimit > requireAuth > requireQueueWrite
+POST /admin/ldap/sync	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/ldap/test-connection	adminLimit > requireAuth > requireIdentityWrite
+POST /admin/mailbox-purge-approvals/{id}	adminLimit > requireAuth > requireUsersDelete
+POST /admin/mailbox-purges/{id}/cancel	adminLimit > requireAuth > requireUsersDelete
+POST /admin/mailbox-purges/{id}/execute	adminLimit > requireAuth > requireUsersDelete
+POST /admin/mailboxes	adminLimit > requireAuth > requireUsersCreate
+POST /admin/mailboxes/{id}/folders	adminLimit > requireAuth > requireUsersCreate
+POST /admin/mailboxes/{id}/import	adminLimit > requireAuth > requireUsersCreate
+POST /admin/mailboxes/{id}/lifecycle	adminLimit > requireAuth > requireUsersDelete
+POST /admin/mailboxes/{id}/purge	adminLimit > requireAuth > requireUsersDelete
+POST /admin/mam/devices/{device_id}/lock	adminLimit > requireAuth > requireMamWrite
+POST /admin/mam/devices/{device_id}/unlock	adminLimit > requireAuth > requireMamWrite
+POST /admin/mdm/devices/{device_id}/wipe	adminLimit > requireAuth > requireMamWrite
+POST /admin/mdm/policies	adminLimit > requireAuth > requireMamWrite > requireOrgWideSurface
+POST /admin/me/roles/{id}/activate	adminLimit > requireAuth
+POST /admin/me/roles/{id}/deactivate	adminLimit > requireAuth
+POST /admin/migration/jobs/{id}/cancel	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/migration/jobs/{id}/pause	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/migration/jobs/{id}/resume	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/migration/jobs/{id}/retry	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/migration/start	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/migration/test-connection	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/office/providers/{providerId}/activate	adminLimit > requireAuth > requireOfficeManage > requireReason(office.manage)
+POST /admin/office/providers/{providerId}/qualify	adminLimit > requireAuth > requireOfficeManage > requireReason(office.manage)
+POST /admin/offline/devices/{id}/approve	adminLimit > requireAuth > requireMamWrite
+POST /admin/offline/devices/{id}/deny	adminLimit > requireAuth > requireMamWrite
+POST /admin/offline/devices/{id}/revoke	adminLimit > requireAuth > requireMamWrite
+POST /admin/offline/devices/{id}/wipe	adminLimit > requireAuth > requireMamWrite
+POST /admin/offline/policies	adminLimit > requireAuth > requireOfflinePolicy
+POST /admin/offline/policy-preview	adminLimit > requireAuth > requireOfflinePolicy
+POST /admin/quarantine/{id}/reject	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/quarantine/{id}/release	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/queue/{id}/bounce	adminLimit > requireAuth > requireQueueWrite
+POST /admin/queue/{id}/retry	adminLimit > requireAuth > requireQueueWrite
+POST /admin/reload	adminLimit > requireAuth > requireSystemConfig
+POST /admin/retention/policies	adminLimit > requireAuth > requireComplianceWrite
+POST /admin/retention/prune	adminLimit > requireAuth > requireComplianceWrite
+POST /admin/roles	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+POST /admin/roles/{id}/members	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+POST /admin/roles/{id}/members:bulk	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+POST /admin/rule-templates	adminLimit > requireAuth > requireMailPipeline
+POST /admin/rule-templates/{id}/visibility	adminLimit > requireAuth > requireMailPipeline
+POST /admin/rules	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+POST /admin/rules/{id}/test	adminLimit > requireAuth > requireMailPerm > requireOrgWideSurface
+POST /admin/scope-sets	adminLimit > requireAuth > requireScopeSetsManage > requireReason(scope_sets.manage)
+POST /admin/scope-sets/{id}/members	adminLimit > requireAuth > requireScopeSetsManage > requireReason(scope_sets.manage)
+POST /admin/sharing/defaults	adminLimit > requireAuth > requireSharingManage > requireReason(sharing.manage)
+POST /admin/smime/trust-anchors	adminLimit > requireAuth > requireMailSecurity
+POST /admin/spam/models/{userId}/disable	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/spam/models/{userId}/enable	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/storage/dr-scan	adminLimit > requireAuth > requireSystemConfig
+POST /admin/storage/dr-scan/{id}/reconcile	adminLimit > requireAuth > requireSystemConfig
+POST /admin/storage/migrate	adminLimit > requireAuth > requireSystemConfig
+POST /admin/storage/migrate/{id}/cancel	adminLimit > requireAuth > requireSystemConfig
+POST /admin/system/backup	adminLimit > requireAuth > requireBackupWrite
+POST /admin/system/config/import	adminLimit > requireAuth > requireSystemConfig
+POST /admin/system/recovery/artifacts/{id}/accept	adminLimit > requireAuth > requireSystemRecovery > requireReason(system.recovery)
+POST /admin/system/recovery/incidents	adminLimit > requireAuth > requireSystemRecovery > requireReason(system.recovery)
+POST /admin/system/recovery/incidents/{id}/approve	adminLimit > requireAuth > requireSystemRecovery > requireReason(system.recovery)
+POST /admin/system/recovery/incidents/{id}/close	adminLimit > requireAuth > requireSystemRecovery > requireReason(system.recovery)
+POST /admin/system/upgrade/apply	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/system/upgrade/check	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/system/upgrade/rollback	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/system/upgrades/challenges	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/upgrades/challenges/complete	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/system/upgrades/intents	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/upgrades/intents/{id}/cancel	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/upgrades/preview	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/upgrades/recovery-sets	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/upgrades/restore-proofs	adminLimit > requireAuth > requireSystemUpgrade > requireReason(system.upgrade)
+POST /admin/system/welcome-email/test	adminLimit > requireAuth > requireSystemConfig
+POST /admin/terms-of-use	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/threat/ip-rules	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/tls/import-cert	adminLimit > requireAuth > requireSecurityWrite
+POST /admin/updates/airgap/upload	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/updates/push	adminLimit > requireAuth > requireSystemUpgrade
+POST /admin/user-risk/{id}/reset	adminLimit > requireAuth > requireCAPolicyWrite
+POST /admin/users	adminLimit > requireAuth > requireUsersCreate
+POST /admin/users/import	adminLimit > requireAuth > requireUsersCreate
+POST /admin/users/{id}/aliases	adminLimit > requireAuth > requireUsersCreate
+POST /admin/users/{id}/secure-account	adminLimit > requireAuth > requireUsersPwReset
+POST /admin/webhooks	adminLimit > requireAuth > requireSystemConfig
+POST /admin/webhooks/{id}/rotate-secret	adminLimit > requireAuth > requireSystemConfig
+POST /approvals/email/{token}	(none)
+POST /assist/complete	authLimit > requireAuth
+POST /assist/stream	authLimit > requireAuth
+POST /auth/admin/users/{id}/impersonate	authLimit > requireAuth > requireUsersImpersonate > requireImpersonateTarget
+POST /auth/change-password	authLimit
+POST /auth/device/register	authLimit
+POST /auth/guest-invite/accept	authLimit
+POST /auth/login	authLimit
+POST /auth/logout	authLimit
+POST /auth/me/app-passwords	adminLimit > requireAuth
+POST /auth/me/dlp-check	requireAuth
+POST /auth/me/migration	requireAuth
+POST /auth/me/migration/cancel	requireAuth
+POST /auth/me/migration/pause	requireAuth
+POST /auth/me/migration/resume	requireAuth
+POST /auth/me/migration/test-imap	requireAuth
+POST /auth/me/migration/upload	requireAuth
+POST /auth/me/read-receipt	requireAuth
+POST /auth/me/smime/certs	requireAuth
+POST /auth/me/smime/certs/{id}/default	requireAuth
+POST /auth/me/smime/recipient-certs	requireAuth
+POST /auth/me/webhooks	adminLimit > requireAuth > requireWebhookCap
+POST /auth/refresh	authLimit
+POST /calendar/free-busy	requireAuth > requireApp(calendar)
+POST /calendar/subscriptions	requireAuth > requireCalendarSubCap
+POST /jmap	requireAuth
+POST /jmap/upload/{accountId}	requireAuth
+POST /mail/attachment-transfer-token	authLimit > requireAuth
+POST /me/approvals/hr	requireAuth
+POST /me/approvals/{id}/cancel	requireAuth
+POST /me/approvals/{id}/decide	requireAuth
+POST /me/guest-invites	requireAuth
+POST /me/sharing/delegates	requireAuth
+POST /meet/webhook	(none)
+POST /messages/{emailId}/unsubscribe	requireAuth
+POST /messages/{id}/focus	requireAuth
+POST /messages/{id}/recall	requireAuth
+POST /messages/{id}/undo	requireAuth
+POST /office/wopi/files/{id}	(none)
+POST /office/wopi/files/{id}/contents	(none)
+POST /offline/wipe-ack	requireAuth
+POST /public/booking/cancel	bookingWriteLimit
+POST /public/booking/confirm	bookingWriteLimit
+POST /public/booking/{slug}/book	bookingWriteLimit
+POST /public/meet/{slug}/join-request	meetGuestWriteLimit
+POST /quarantine/{id}/reject	authLimit > requireAuth
+POST /quarantine/{id}/release	authLimit > requireAuth
+POST /recovery/artifacts/{id}/fork-consent	adminLimit > requireAuth
+POST /recovery/uploads	adminLimit > requireAuth
+POST /recovery/uploads/{sessionId}/finalize	adminLimit > requireAuth
+POST /recovery/uploads/{sessionId}/items/{itemId}/commit	adminLimit > requireAuth
+POST /report	authLimit > requireAuth
+POST /settings/rules	requireAuth
+POST /settings/rules/{id}/apply	requireAuth
+POST /settings/sender-control/actions	requireAuth
+POST /settings/senders/never-block	requireAuth
+POST /settings/trusted-senders	requireAuth
+POST /telemetry	telemetryLimit
+POST /terms/accept	authLimit
+POST /user/profile	requireAuth
+POST /user/sessions/revoke-all	requireAuth
+POST /user/sign-ins/secure-account	requireAuth
+PUT /admin/access-reviews/{id}/items	adminLimit > requireAuth > requireRolesManage
+PUT /admin/access-reviews/{id}/items/{itemId}	adminLimit > requireAuth > requireRolesManage
+PUT /admin/ad/config	adminLimit > requireAuth > requireIdentityWrite
+PUT /admin/ad/field-policy	adminLimit > requireAuth > requireIdentityWrite
+PUT /admin/alerts/config	adminLimit > requireAuth > requireSecurityWrite
+PUT /admin/anti-phish	adminLimit > requireAuth > requireSecurityWrite
+PUT /admin/approval-policies/{id}	adminLimit > requireAuth > requireApprovalsManage
+PUT /admin/audit/policy	adminLimit > requireAuth > requireAuditExport > requireReason(audit.export)
+PUT /admin/auth/methods/{slug}	adminLimit > requireAuth > requireIdentityWrite
+PUT /admin/chat-channels/{id}/retention	adminLimit > requireAuth > requireChatComplianceManage
+PUT /admin/chat-retention-policies/{id}	adminLimit > requireAuth > requireChatComplianceManage
+PUT /admin/conditional-access/auth-strengths/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+PUT /admin/conditional-access/break-glass	adminLimit > requireAuth > requireCAPolicyWrite
+PUT /admin/conditional-access/named-locations/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+PUT /admin/conditional-access/policies/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+PUT /admin/dengbao/sod-mode	adminLimit > requireAuth > requireSecurityWrite > requireReason(security.write)
+PUT /admin/departments/{id}	adminLimit > requireAuth > requireUsersCreate
+PUT /admin/dlp/patterns	adminLimit > requireAuth > requireMailSecurity
+PUT /admin/domains/{id}	adminLimit > requireAuth > requireDomainsWrite
+PUT /admin/ediscovery/cases/{id}	adminLimit > requireAuth > requireComplianceWrite > requireOrgWideSurface
+PUT /admin/email-address-policies/{id}	adminLimit > requireAuth > requireIdentityWrite
+PUT /admin/exchange-replacement/runs/{runId}/bundle	adminLimit > requireAuth > requireExchangeAssessmentRun > requireReason(exchange.assessment.run)
+PUT /admin/features/registry-mode	adminLimit > requireAuth > requireSystemConfig > requireReason(system.config)
+PUT /admin/features/{key}	adminLimit > requireAuth > requireSystemConfig > requireReason(system.config)
+PUT /admin/guest-profiles/{id}	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+PUT /admin/guests/{id}/profile	adminLimit > requireAuth > guestFeatureGate > requireGuestsManage
+PUT /admin/identity/group-mappings/{type}/{id}	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+PUT /admin/identity/v2/sources/{sourceKey}	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+PUT /admin/identity/v2/sources/{sourceKey}/secrets/{name}	adminLimit > requireAuth > requireIdentityWrite > requireReason(identity.write)
+PUT /admin/ldap/config	adminLimit > requireAuth > requireIdentityWrite
+PUT /admin/mailboxes/{id}	adminLimit > requireAuth > requireUsersCreate
+PUT /admin/mailboxes/{id}/folders/{folderId}	adminLimit > requireAuth > requireUsersCreate
+PUT /admin/mam/devices/{device_id}/policy	adminLimit > requireAuth > requireMamWrite
+PUT /admin/mam/policies	adminLimit > requireAuth > requireMamWrite
+PUT /admin/mam/policies/group	adminLimit > requireAuth > requireMamWrite
+PUT /admin/mdm/policies/reorder	adminLimit > requireAuth > requireMamWrite > requireOrgWideSurface
+PUT /admin/mdm/policies/{id}	adminLimit > requireAuth > requireMamWrite > requireOrgWideSurface
+PUT /admin/migration/source/ews	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+PUT /admin/migration/source/imap	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+PUT /admin/migration/source/m365	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+PUT /admin/office/providers/{providerId}	adminLimit > requireAuth > requireOfficeManage > requireReason(office.manage)
+PUT /admin/offline/enabled	adminLimit > requireAuth > requireOfflinePolicy
+PUT /admin/offline/policies/{id}	adminLimit > requireAuth > requireOfflinePolicy
+PUT /admin/outbound-tls-policy	adminLimit > requireAuth > requireSecurityWrite
+PUT /admin/retention/logs	adminLimit > requireAuth > requireComplianceWrite
+PUT /admin/retention/policies/{id}	adminLimit > requireAuth > requireComplianceWrite
+PUT /admin/roles/{id}	adminLimit > requireAuth > requireRolesManage > requireReason(roles.manage)
+PUT /admin/roles/{id}/activation-policy	adminLimit > requireAuth > requireRolesManage
+PUT /admin/rule-templates/{id}	adminLimit > requireAuth > requireMailPipeline
+PUT /admin/rules/{id}	adminLimit > requireAuth > requireMailPipeline > requireOrgWideSurface
+PUT /admin/scope-sets/{id}	adminLimit > requireAuth > requireScopeSetsManage > requireReason(scope_sets.manage)
+PUT /admin/system/auto-update	adminLimit > requireAuth > requireSystemConfig
+PUT /admin/system/config/{key}	adminLimit > requireAuth > requireSystemConfig
+PUT /admin/system/jit-defaults	adminLimit > requireAuth > requireRolesManage
+PUT /admin/system/maintenance-window	adminLimit > requireAuth > requireSystemConfig
+PUT /admin/system/welcome-email	adminLimit > requireAuth > requireSystemConfig
+PUT /admin/terms-of-use/{id}	adminLimit > requireAuth > requireCAPolicyWrite
+PUT /admin/tls/config	adminLimit > requireAuth > requireSecurityWrite
+PUT /admin/users/{id}	adminLimit > requireAuth > requireUsersSuspend
+PUT /admin/users/{id}/app-access/{app}	adminLimit > requireAuth > requireUsersCreate
+PUT /admin/users/{id}/password	adminLimit > requireAuth > requireUsersPwReset
+PUT /admin/users/{id}/quota	adminLimit > requireAuth > requireUsersCreate
+PUT /blobs/{sha256}	requireAuth
+PUT /booking/pages	requireAuth
+PUT /me/sharing/default	requireAuth
+PUT /recovery/uploads/{sessionId}/items/{itemId}	recoveryLimit > requireAuth
+PUT /settings/external-sender	requireAuth
+PUT /settings/imap	requireAuth
+PUT /settings/newsletter-bundles	authLimit > requireAuth
+PUT /settings/rules/{id}	requireAuth
+PUT /settings/senders	requireAuth
+PUT /settings/signatures	requireAuth
+PUT /settings/undo-send	requireAuth
+PUT /settings/view	requireAuth
+PUT /user/approval-delegation	requireAuth
+PUT /user/automatic-replies	requireAuth
+PUT /user/notification-preferences	requireAuth
+PUT /user/offline/sync-preferences	requireAuth
+PUT /user/vip-senders	requireAuth

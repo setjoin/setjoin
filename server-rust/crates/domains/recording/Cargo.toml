@@ -1,0 +1,8 @@
+[package]
+name = "setjoin-recording"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+[dependencies]
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }

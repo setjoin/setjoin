@@ -1,0 +1,25 @@
+{
+  "case": "seed-one-tick-dedupe",
+  "format": 1,
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "observation": {
+    "pushes": {
+      "outsider": [],
+      "owner": [
+        {
+          "nodeId": "<root>",
+          "op": "lock",
+          "spaceId": "<space>"
+        }
+      ],
+      "peer": [
+        {
+          "nodeId": "<root>",
+          "op": "lock",
+          "spaceId": "<space>"
+        }
+      ]
+    }
+  },
+  "worker": "drive-watch"
+}

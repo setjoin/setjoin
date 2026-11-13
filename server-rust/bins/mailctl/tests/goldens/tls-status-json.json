@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/tls/status",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"enabled\": true,\n  \"challenge\": \"dns-01\",\n  \"domains\": [\n    \"example.test\"\n  ],\n  \"email\": \"admin@example.test\",\n  \"dns_provider\": \"cloudflare\",\n  \"cert_info\": {\n    \"subject\": \"example.test\",\n    \"issuer\": \"test\",\n    \"not_before\": \"2026\",\n    \"not_after\": \"2027\",\n    \"days_left\": 30\n  },\n  \"cache_dir\": \"/test\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

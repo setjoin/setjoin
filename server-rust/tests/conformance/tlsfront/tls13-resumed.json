@@ -1,0 +1,35 @@
+{
+  "certificate_pem": "-----BEGIN CERTIFICATE-----\nMIIBQTCB6KADAgECAhQLOQnRmv8Vr11GYQ3hw9ZLUs3+AzAKBggqhkjOPQQDAjAU\nMRIwEAYDVQQDDAlsb2NhbGhvc3QwHhcNNzUwMTAxMDAwMDAwWhcNMzcwMTAxMDAw\nMDAwWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjOPQMB\nBwNCAARe+99nLmxVAx+tUOZc5rZrZuIMn6BQ/dkdJqGnKTx1W9jzNse7wVRtdTQJ\nXupJfPg5Ms5WOEtR/QsWlMMQemwFoxgwFjAUBgNVHREEDTALgglsb2NhbGhvc3Qw\nCgYIKoZIzj0EAwIDSAAwRQIhAJRZ61xK9a+PcPMME1Zw3vPlidHj5NfX0s3QlSaS\njCK6AiAbamqi3VMp3cwH75QuVtCZVULFNwdJ06cYN38Wm+u+zw==\n-----END CERTIFICATE-----\n",
+  "client_session": {
+    "State": "AwQCEwEAAAAAauwX9CD8Qzg6HNR4vTW1VXEsTB6w4oAWgvmYVGYnjOD370qE/wAAAAAAAAFKAAFFMIIBQTCB6KADAgECAhQLOQnRmv8Vr11GYQ3hw9ZLUs3+AzAKBggqhkjOPQQDAjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwHhcNNzUwMTAxMDAwMDAwWhcNMzcwMTAxMDAwMDAwWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARe+99nLmxVAx+tUOZc5rZrZuIMn6BQ/dkdJqGnKTx1W9jzNse7wVRtdTQJXupJfPg5Ms5WOEtR/QsWlMMQemwFoxgwFjAUBgNVHREEDTALgglsb2NhbGhvc3QwCgYIKoZIzj0EAwIDSAAwRQIhAJRZ61xK9a+PcPMME1Zw3vPlidHj5NfX0s3QlSaSjCK6AiAbamqi3VMp3cwH75QuVtCZVULFNwdJ06cYN38Wm+u+zwAAAAADAAAAAAAAAGr1UnSsWnwW",
+    "Ticket": "2XQblL8D4LkPJzoIxakNA1qNHKFgPOXAhLjy5i9rTffKgdwdGm2nh8gFcCLGr+5brhpiJ2AkCBU8yHmcP9mXi71k8jr8y2ghIsnYwBNaZWI5n5uik7esDbGpzVnboFjObUFax3qvTWM3"
+  },
+  "format": 1,
+  "go_source": "28d8e6392f759e5aecb77e1acf6dc53061739925",
+  "observation": [
+    {
+      "alpn": "http/1.1",
+      "body": "ok\n",
+      "chain": 1,
+      "cipher": 4865,
+      "resumed": false,
+      "subject": "localhost",
+      "version": 772
+    },
+    {
+      "alpn": "http/1.1",
+      "body": "ok\n",
+      "chain": 1,
+      "cipher": 4865,
+      "resumed": true,
+      "subject": "localhost",
+      "version": 772
+    }
+  ],
+  "public_test_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+HN8ziZHi/FjfpSV\npbLXRbr/DLNjzVc+7mkxja1Ynw+hRANCAARe+99nLmxVAx+tUOZc5rZrZuIMn6BQ\n/dkdJqGnKTx1W9jzNse7wVRtdTQJXupJfPg5Ms5WOEtR/QsWlMMQemwF\n-----END PRIVATE KEY-----\n",
+  "server_state": {
+    "plain": "AwQBEwEAAAAAauwX9CD8Qzg6HNR4vTW1VXEsTB6w4oAWgvmYVGYnjOD370qE/wAAAAAAAAAAAAAA",
+    "ticket": "2XQblL8D4LkPJzoIxakNA1qNHKFgPOXAhLjy5i9rTffKgdwdGm2nh8gFcCLGr+5brhpiJ2AkCBU8yHmcP9mXi71k8jr8y2ghIsnYwBNaZWI5n5uik7esDbGpzVnboFjObUFax3qvTWM3",
+    "version": 772
+  }
+}

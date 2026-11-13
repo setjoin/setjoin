@@ -1,0 +1,97 @@
+-- pgTAP: security_email.pg — tag ownership + DML WHERE clause tests
+BEGIN;
+SELECT plan(6);
+
+-- Setup domain
+INSERT INTO domains (name, is_local) VALUES ('sec-email.test', TRUE);
+
+-- Setup users — ADR-003: DIVERGENT ids (users 109101/109102 != mailboxes 9101/9102).
+-- The reducers are mailbox-scoped (p_account_id = mailbox id); the security tests
+-- here turn on mailbox-scoped tag/message ownership, so divergent ids keep a stray
+-- user_id = p_mailbox_id confusion observable.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (109101, 'alice-sec', (SELECT id FROM domains WHERE name = 'sec-email.test'), 'alice-sec@sec-email.test', 'Alice Security'),
+       (109102, 'bob-sec',   (SELECT id FROM domains WHERE name = 'sec-email.test'), 'bob-sec@sec-email.test', 'Bob Security');
+
+-- Setup mailboxes (primary for each user; triggers auto-create system tags)
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary)
+VALUES (9101, 109101, (SELECT id FROM domains WHERE name = 'sec-email.test'), 'alice-sec@sec-email.test', 'personal', 'Alice Mailbox', TRUE),
+       (9102, 109102, (SELECT id FROM domains WHERE name = 'sec-email.test'), 'bob-sec@sec-email.test', 'personal', 'Bob Mailbox', TRUE);
+
+-- Create custom user tags for the cross-user injection test
+INSERT INTO tags (id, mailbox_id, name, tag_type)
+VALUES (9151, 9101, 'alice-custom', 'user'),
+       (9152, 9102, 'bob-custom', 'user');
+
+-- Test 1: Alice cannot use Bob's tag_id in set_create (cross-user tag injection).
+-- p_account_id = 9101 (alice's mailbox), tries to use tag 9152 (bob's tag).
+-- The reducer filters mailboxIds to only tags belonging to alice; bob's tag is silently
+-- excluded, resulting in 'mailboxIds empty' invalidArguments rather than a BZ002 raise.
+SELECT results_eq(
+    $$SELECT jmap_email_set_create(9101, jsonb_build_object(
+        'k1', jsonb_build_object(
+            'mailboxIds', jsonb_build_object('9152', true),
+            'from', jsonb_build_array(jsonb_build_object('email', 'alice-sec@sec-email.test')),
+            'subject', 'test cross-tag injection',
+            'bodyText', 'This should fail'
+        )
+    ))->'notCreated'->'k1'->>'type'$$,
+    $$SELECT 'invalidArguments'::text$$,
+    'Rejects cross-user tag_id in set_create (returns invalidArguments)'
+);
+
+-- Test 2: Alice CAN use her own tag_id in set_create
+SELECT lives_ok(
+    $$SELECT jmap_email_set_create(9101, jsonb_build_object(
+        'k2', jsonb_build_object(
+            'mailboxIds', jsonb_build_object('9151', true),
+            'from', jsonb_build_array(jsonb_build_object('email', 'alice-sec@sec-email.test')),
+            'subject', 'test own tag',
+            'bodyText', 'This should succeed'
+        )
+    ))$$,
+    'Allows own tag_id in set_create'
+);
+
+-- Setup: create message in alice's mailbox
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, from_addr, subject, raw_ref, thread_id, received_at)
+VALUES (9101, 9101, (SELECT id FROM tags WHERE mailbox_id = 9101 AND name = 'Inbox' LIMIT 1),
+        '<sec-test-1@sec-email.test>', 'alice-sec@sec-email.test', 'alice test msg',
+        'raw-ref-9101', 'thread-9101', now());
+
+-- Test 3: Alice cannot use Bob's tag_id in set_update (cross-user tag injection)
+SELECT throws_ok(
+    $$SELECT jmap_email_set_update(9101, jsonb_build_object(
+        '9101', jsonb_build_object('mailboxIds', jsonb_build_object('9152', true))
+    ))$$,
+    'BZ002', NULL, 'Rejects cross-user tag_id in set_update'
+);
+
+-- Setup: create message in bob's mailbox
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, from_addr, subject, raw_ref, thread_id, received_at)
+VALUES (9102, 9102, (SELECT id FROM tags WHERE mailbox_id = 9102 AND name = 'Inbox' LIMIT 1),
+        '<sec-test-2@sec-email.test>', 'bob-sec@sec-email.test', 'bob msg',
+        'raw-ref-9102', 'thread-9102', now());
+
+-- Test 4: set_update rejects cross-user message (returns notFound, does not throw)
+SELECT lives_ok(
+    $$SELECT jmap_email_set_update(9101, jsonb_build_object(
+        '9102', jsonb_build_object('isRead', true)
+    ))$$,
+    'Rejects update of cross-user message (returns notFound)'
+);
+
+-- Test 5: set_destroy rejects cross-user message (returns notDestroyed, does not throw)
+SELECT lives_ok(
+    $$SELECT jmap_email_set_destroy(9101, ARRAY[9102]::BIGINT[])$$,
+    'Rejects destroy of cross-user message (returns notDestroyed)'
+);
+
+-- Test 6: recover rejects cross-user message (returns notRecovered, does not throw)
+SELECT lives_ok(
+    $$SELECT jmap_email_recover(9101, ARRAY[9102]::BIGINT[])$$,
+    'Rejects recover of cross-user message (returns notRecovered)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

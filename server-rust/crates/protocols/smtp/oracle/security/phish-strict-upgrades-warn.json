@@ -1,0 +1,338 @@
+{
+  "capture_blobs": true,
+  "effects": {
+    "audit": [],
+    "journal": [],
+    "mailboxes": [
+      {
+        "id": 9348021,
+        "jmap_email_state": 0,
+        "jmap_tag_state": 0,
+        "used_bytes": 0
+      },
+      {
+        "id": 9348022,
+        "jmap_email_state": 0,
+        "jmap_tag_state": 0,
+        "used_bytes": 0
+      },
+      {
+        "id": 9348023,
+        "jmap_email_state": 0,
+        "jmap_tag_state": 0,
+        "used_bytes": 0
+      }
+    ],
+    "messages": [],
+    "tags": [
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Inbox",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Inbox",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Inbox",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      }
+    ]
+  },
+  "mail_auth": {
+    "feature.antiphish_display_name": true,
+    "feature.antiphish_strict_mode": true
+  },
+  "name": "phish-strict-upgrades-warn",
+  "observe_effects": true,
+  "pipeline": {
+    "anti_phish": true,
+    "internal_domains": [
+      "smtp1.test"
+    ],
+    "name_threshold": 0.4,
+    "protected_domains": [
+      "example.com"
+    ]
+  },
+  "security_effects": [],
+  "steps": [
+    {
+      "lines": 1,
+      "reply": "220 mailserver ESMTP\r\n",
+      "send": ""
+    },
+    {
+      "lines": 5,
+      "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n",
+      "send": "EHLO smtp6.test\r\n"
+    },
+    {
+      "lines": 3,
+      "reply": "250 OK\r\n250 OK\r\n354 Start mail input; end with <CRLF>.<CRLF>\r\n",
+      "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n"
+    },
+    {
+      "lines": 1,
+      "reply": "550 Message rejected per anti-phishing policy\r\n",
+      "send": "From: Alicee <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-strict-upgrades-warn@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n"
+    },
+    {
+      "lines": 1,
+      "reply": "221 Bye\r\n",
+      "send": "QUIT\r\n"
+    }
+  ]
+}

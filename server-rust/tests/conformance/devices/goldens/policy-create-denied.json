@@ -1,0 +1,468 @@
+{
+  "case": "denied",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "mam.write",
+          "target": "/admin/mdm/policies"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/mdm/policies",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "device_events": [],
+          "devices": [
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": "<admin>",
+              "id": 960001,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "enrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": true,
+              "approved_by": "<admin>",
+              "enrolled_by": "<admin>",
+              "id": 960002,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "approved",
+              "touched": false,
+              "user_id": "<other>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960003,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "unenrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960004,
+              "revoked": true,
+              "secret_rotated": false,
+              "state": "revoked",
+              "touched": false,
+              "user_id": "<other>"
+            }
+          ],
+          "enroll_events": [
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960001,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "first",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "wave",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "enrolled",
+              "new": false,
+              "reason": "ok",
+              "to": "approved"
+            },
+            {
+              "actor_user_id": null,
+              "device_id": 960004,
+              "from": "approved",
+              "new": false,
+              "reason": "lost",
+              "to": "revoked"
+            }
+          ],
+          "mdm_state": [
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d001",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d002",
+              "level": "device",
+              "requested": true,
+              "touched": false,
+              "user_id": "<other>",
+              "wipe": "pending"
+            },
+            {
+              "acked": true,
+              "device_id": "00000000-0000-4000-8000-00000000d003",
+              "level": "account",
+              "requested": true,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "executed"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d004",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            }
+          ],
+          "policies": [
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970001",
+              "enabled": true,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970001,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Baseline",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 10,
+              "require_device_encryption": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "touched": false
+            },
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970002",
+              "enabled": true,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970002,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Executive <&> \"team\"",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 20,
+              "require_device_encryption": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "touched": false
+            },
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970003",
+              "enabled": false,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970003,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Contractors",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 30,
+              "require_device_encryption": true,
+              "scope_id": 5,
+              "scope_type": "group",
+              "touched": false
+            }
+          ]
+        },
+        "before": {
+          "device_events": [],
+          "devices": [
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": "<admin>",
+              "id": 960001,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "enrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": true,
+              "approved_by": "<admin>",
+              "enrolled_by": "<admin>",
+              "id": 960002,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "approved",
+              "touched": false,
+              "user_id": "<other>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960003,
+              "revoked": false,
+              "secret_rotated": false,
+              "state": "unenrolled",
+              "touched": false,
+              "user_id": "<admin>"
+            },
+            {
+              "approved": false,
+              "approved_by": null,
+              "enrolled_by": null,
+              "id": 960004,
+              "revoked": true,
+              "secret_rotated": false,
+              "state": "revoked",
+              "touched": false,
+              "user_id": "<other>"
+            }
+          ],
+          "enroll_events": [
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960001,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "first",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "unenrolled",
+              "new": false,
+              "reason": "wave",
+              "to": "enrolled"
+            },
+            {
+              "actor_user_id": "<admin>",
+              "device_id": 960002,
+              "from": "enrolled",
+              "new": false,
+              "reason": "ok",
+              "to": "approved"
+            },
+            {
+              "actor_user_id": null,
+              "device_id": 960004,
+              "from": "approved",
+              "new": false,
+              "reason": "lost",
+              "to": "revoked"
+            }
+          ],
+          "mdm_state": [
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d001",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d002",
+              "level": "device",
+              "requested": true,
+              "touched": false,
+              "user_id": "<other>",
+              "wipe": "pending"
+            },
+            {
+              "acked": true,
+              "device_id": "00000000-0000-4000-8000-00000000d003",
+              "level": "account",
+              "requested": true,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "executed"
+            },
+            {
+              "acked": false,
+              "device_id": "00000000-0000-4000-8000-00000000d004",
+              "level": null,
+              "requested": false,
+              "touched": false,
+              "user_id": "<admin>",
+              "wipe": "none"
+            }
+          ],
+          "policies": [
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970001",
+              "enabled": true,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970001,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Baseline",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 10,
+              "require_device_encryption": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "touched": false
+            },
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970002",
+              "enabled": true,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970002,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Executive <&> \"team\"",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 20,
+              "require_device_encryption": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "touched": false
+            },
+            {
+              "block_copy_paste": false,
+              "block_screenshots": false,
+              "description": "d-970003",
+              "enabled": false,
+              "grace_period_mins": 60,
+              "heartbeat_interval_secs": 3600,
+              "id": 970003,
+              "inactivity_lock_mins": 5,
+              "jailbreak_action": "quarantine",
+              "max_failed_attempts": 10,
+              "min_os_version_android": "",
+              "min_os_version_ios": "",
+              "name": "Contractors",
+              "passcode_complexity": "numeric",
+              "passcode_history_count": 5,
+              "passcode_max_age_days": 90,
+              "passcode_min_length": 6,
+              "priority": 30,
+              "require_device_encryption": true,
+              "scope_id": 5,
+              "scope_type": "group",
+              "touched": false
+            }
+          ]
+        },
+        "table": "mdm_device_state+devices+device_enroll_events+device_events+mdm_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"name\":\"New policy\"}",
+      "external_path": "/api/admin/mdm/policies",
+      "method": "POST",
+      "path": "/admin/mdm/policies"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices1-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /admin/mdm/policies"
+}

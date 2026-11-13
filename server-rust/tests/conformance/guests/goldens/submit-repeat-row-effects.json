@@ -1,0 +1,78 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "guest.invite",
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by_user_id": null,
+          "decision_comment": null,
+          "domain_id": "<domain>",
+          "expires_at": "<timestamp>",
+          "id": "<previous-request>",
+          "payload": {
+            "invited_email": "new.guest@outside.test",
+            "message": "Please review <guest>",
+            "requester_name": "guests1-member"
+          },
+          "policy_id": "<policy>",
+          "requester_user_id": "<member>",
+          "status": "pending",
+          "subject": "Invite guest new.guest@outside.test"
+        },
+        {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "guest.invite",
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by_user_id": null,
+          "decision_comment": null,
+          "domain_id": "<domain>",
+          "expires_at": "<timestamp>",
+          "id": "<request>",
+          "payload": {
+            "invited_email": "new.guest@outside.test",
+            "message": "Please review <guest>",
+            "requester_name": "guests1-member"
+          },
+          "policy_id": "<policy>",
+          "requester_user_id": "<member>",
+          "status": "pending",
+          "subject": "Invite guest new.guest@outside.test"
+        }
+      ],
+      "before": [
+        {
+          "approver_kind": "user",
+          "approver_ref": "<approver>",
+          "consumer_type": "guest.invite",
+          "created_at": "<timestamp>",
+          "decided_at": null,
+          "decided_by_user_id": null,
+          "decision_comment": null,
+          "domain_id": "<domain>",
+          "expires_at": "<timestamp>",
+          "id": "<previous-request>",
+          "payload": {
+            "invited_email": "new.guest@outside.test",
+            "message": "Please review <guest>",
+            "requester_name": "guests1-member"
+          },
+          "policy_id": "<policy>",
+          "requester_user_id": "<member>",
+          "status": "pending",
+          "subject": "Invite guest new.guest@outside.test"
+        }
+      ],
+      "table": "approval_requests"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /me/guest-invites"
+}

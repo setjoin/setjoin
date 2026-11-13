@@ -1,0 +1,18 @@
+-- pgTAP: offline_policy_read.pg
+BEGIN;
+SELECT plan(3);
+-- Actor user required by admin_audit_log FK (same pattern as offline_policy_set.pg).
+INSERT INTO domains (id, name, is_local) VALUES (98701, 'ops.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (1, 'ops_actor', 98701, 'actor@ops.test', 'Actor', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+CREATE TEMP TABLE _p AS SELECT offline_policy_set(
+  1, NULL, 'r-test', 'user', 9, true, 21, true, 'never', 5) AS id;
+SELECT is((offline_policy_get((SELECT id FROM _p)) ->> 'name'),
+  'r-test', 'get returns the policy by id');
+SELECT is((offline_policy_get((SELECT id FROM _p)) ->> 'max_offline_days'),
+  '21', 'get carries max_offline_days');
+SELECT ok(jsonb_array_length(offline_policy_list()) >= 1,
+  'list returns at least the global + new row');
+SELECT finish();
+ROLLBACK;

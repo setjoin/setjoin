@@ -1,0 +1,204 @@
+-- meet_participant_event.pg — Meet B1 Task 6: meeting_participant_event, the
+-- loss-tolerant idempotent webhook-fact ingest (C0 spike §2 finding 2 —
+-- webhooks are facts, never authorization).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 6.
+BEGIN;
+SELECT plan(25);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('host@meet-pe.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-pe.test') AS member_id \gset
+
+SELECT (meeting_create(:host_id, 'Participant-event test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT room_name FROM meetings WHERE id = :meeting_id \gset
+SELECT (meeting_join(:member_id, :meeting_id)) AS j \gset
+
+-- ── unknown room / unknown identity: silent no-op, never raises ─────────
+SELECT lives_ok(
+  $$ SELECT meeting_participant_event(gen_random_uuid(), 'participant_joined', 'u:1') $$,
+  'an event for an unknown room is a silent no-op'
+);
+SELECT lives_ok(
+  format($$ SELECT meeting_participant_event('%s', 'participant_joined', 'u:999999') $$, :'room_name'),
+  'an event for an unknown identity is a silent no-op'
+);
+
+-- ── participant_joined: stamps once, replay keeps the first timestamp ───
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :member_id, '2026-07-12T10:00:00Z');
+SELECT is(
+  (SELECT joined_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id),
+  '2026-07-12T10:00:00Z'::timestamptz,
+  'participant_joined stamps joined_at'
+);
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :member_id, '2026-07-12T11:00:00Z');
+SELECT is(
+  (SELECT joined_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id),
+  '2026-07-12T10:00:00Z'::timestamptz,
+  'a replayed participant_joined keeps the FIRST timestamp'
+);
+
+-- ── participant_left after joined ────────────────────────────────────────
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id),
+  NULL, 'not yet left'
+);
+SELECT meeting_participant_event(:'room_name', 'participant_left', 'u:' || :member_id, '2026-07-12T12:00:00Z');
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id),
+  '2026-07-12T12:00:00Z'::timestamptz,
+  'participant_left stamps left_at'
+);
+SELECT meeting_participant_event(:'room_name', 'participant_left', 'u:' || :member_id, '2026-07-12T13:00:00Z');
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id),
+  '2026-07-12T12:00:00Z'::timestamptz,
+  'a replayed participant_left keeps the FIRST timestamp'
+);
+
+-- ── room_started: scheduled → live, but never ended → live ───────────────
+SELECT is((SELECT state FROM meetings WHERE id = :meeting_id), 'scheduled', 'meeting starts scheduled');
+SELECT meeting_participant_event(:'room_name', 'room_started');
+SELECT is((SELECT state FROM meetings WHERE id = :meeting_id), 'live', 'room_started flips scheduled to live');
+
+-- ── blocker: a webhook FACT must never restore AUTHORIZATION ────────────
+-- host kicks member (bans + stamps left_at); a retried/out-of-order
+-- participant_joined (timestamped BEFORE the kick, exactly as LiveKit's
+-- unordered/not-guaranteed retry delivery would produce it) must not
+-- un-kick them on the control plane (spike §2 finding 2).
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :member_id);
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :member_id, '2026-07-12T09:00:00Z');
+SELECT is(
+  (SELECT banned_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id) IS NOT NULL,
+  true,
+  'a replayed participant_joined does NOT clear banned_at on a kicked participant'
+);
+SELECT is(
+  meeting_member_role(:meeting_id, :member_id), NULL,
+  'a replayed participant_joined after a kick leaves meeting_member_role NULL (control plane stays kicked)'
+);
+
+-- ── the same blocker, GUEST half. A kicked guest's revocation used to live
+-- ONLY in meeting_join_requests.state='denied' — a marker this webhook ingest
+-- never consults — so the banned_at guard above was a no-op for g: identities
+-- and a replayed participant_joined resurrected the kicked guest as present.
+-- Authorization held (the lobby poll reads join_requests, so no token is
+-- re-minted), but the FACT plane is this reducer's entire purpose: attendance
+-- claimed the guest never left, and the host's roster showed the guest they
+-- had just kicked. meeting_kick now stamps banned_at for every identity kind.
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+SELECT (:'m'::jsonb ->> 'slug') AS slug \gset
+SELECT (meeting_join_request_create(:'slug', 'Gwen Guest')) AS greq \gset
+SELECT (:'greq'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT meeting_admit(:host_id, :guest_req_id);
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'g:' || :guest_req_id, '2026-07-12T12:30:00Z');
+
+SELECT meeting_kick(:host_id, :meeting_id, 'g:' || :guest_req_id);
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'g:' || :guest_req_id, '2026-07-12T12:00:00Z');
+SELECT is(
+  (SELECT banned_at FROM meeting_participants
+    WHERE meeting_id = :meeting_id AND identity = 'g:' || :guest_req_id) IS NOT NULL,
+  true,
+  'meeting_kick stamps banned_at on a GUEST identity too (revocation is single-homed on one marker)'
+);
+SELECT is(
+  (SELECT left_at FROM meeting_participants
+    WHERE meeting_id = :meeting_id AND identity = 'g:' || :guest_req_id) IS NOT NULL,
+  true,
+  'a replayed participant_joined does NOT resurrect a kicked GUEST as present'
+);
+
+SELECT meeting_end(:host_id, :meeting_id);
+
+-- ── blocker: a webhook FACT must never resurrect a ghost into an ended meeting ──
+-- NOTE: :member_id was banned above (meeting_kick), so this replay is
+-- already blocked by the `banned_at IS NULL` arm alone — it does NOT pin
+-- `v_state <> 'ended'`. The block below (unbanned host) isolates that arm.
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :member_id, '2026-07-12T14:00:00Z');
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id) IS NOT NULL,
+  true,
+  'a replayed participant_joined does NOT resurrect a participant into an already-ended meeting'
+);
+
+-- ── blocker: same guard, pinned against an UNBANNED identity — the host was
+-- never kicked, so `banned_at IS NULL` is true and cannot itself block the
+-- UPDATE; only `v_state <> 'ended'` stands between this replay and
+-- restoring control-plane authority on an ended meeting. meeting_end (above)
+-- already stamped every still-open participant's left_at, including the
+-- host's — a replayed participant_joined must not clear it back to NULL.
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :host_id, '2026-07-12T15:00:00Z');
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :host_id) IS NOT NULL,
+  true,
+  'a replayed participant_joined for an UNBANNED host does NOT clear left_at on an already-ended meeting (pins v_state <> ''ended'' independent of the ban guard)'
+);
+SELECT is(
+  meeting_member_role(:meeting_id, :host_id), NULL,
+  'a replayed participant_joined for an unbanned host after meeting_end leaves meeting_member_role NULL (control-plane host authority NOT restored on an ended meeting)'
+);
+
+SELECT meeting_participant_event(:'room_name', 'room_started');
+SELECT is((SELECT state FROM meetings WHERE id = :meeting_id), 'ended',
+  'room_started never re-flips an ended meeting back to live');
+
+-- ── room_finished: idempotent projection, one real transition ────────────
+SELECT mk_auth_user('host2@meet-pe.test') AS host2_id \gset
+SELECT (meeting_create(:host2_id, 'Second participant-event meeting')) AS m2 \gset
+SELECT (:'m2'::jsonb ->> 'meetingId')::bigint AS meeting2_id \gset
+SELECT room_name AS room2_name FROM meetings WHERE id = :meeting2_id \gset
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:meeting2_id, 'Pending Guest', 'pending') RETURNING id AS pending_req_id \gset
+
+SELECT notify_count(format('meet:%s', :host2_id)) AS notify_count_before \gset
+
+SELECT meeting_participant_event(:'room2_name', 'room_finished');
+SELECT is((SELECT state FROM meetings WHERE id = :meeting2_id), 'ended',
+  'room_finished ends a live meeting without requiring a caller');
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :pending_req_id), 'expired',
+  'room_finished expires pending join requests');
+-- ── blocker: the 'ended' push must reach ZERO-recipients-by-construction
+-- no more — notify_meet_state's fan-out filters WHERE left_at IS NULL, so
+-- the host (still a live participant at the moment of transition) must
+-- actually receive it — proves the emit-before-stamp ordering fix, not
+-- just that the reducer ran without error.
+SELECT is(last_notify_event(format('meet:%s', :host2_id)), 'meeting_state',
+  'room_finished''s terminal push reaches the still-live host (emitted BEFORE left_at is stamped)');
+
+SELECT notify_count(format('meet:%s', :host2_id)) AS notify_count_after \gset
+SELECT is(:notify_count_after, :notify_count_before + 1,
+  'room_finished emits exactly one push on the real transition');
+
+SELECT lives_ok(
+  format($$ SELECT meeting_participant_event('%s', 'room_finished') $$, :'room2_name'),
+  'a replayed room_finished on an already-ended meeting is a silent no-op (one real transition)'
+);
+-- ── blocker: mutation-proof idempotency — a replayed room_finished must
+-- NOT re-emit the push (a lives_ok-only assertion here would stay green
+-- even if the `IF v_state <> 'ended'` guard were deleted entirely).
+SELECT is(notify_count(format('meet:%s', :host2_id)), :notify_count_after,
+  'a replayed room_finished emits NO additional push (idempotent, one real transition)');
+
+-- ── mutation-proof, take 2: on the happy path every inner statement is
+-- ALREADY self-idempotent once every participant has left_at set (each
+-- carries its own WHERE guard), so a bare notify-count/lives_ok probe
+-- above stays green even with the `IF v_state <> 'ended' THEN` wrapper
+-- deleted entirely — verified empirically (`sed` the guard to `IF true`,
+-- re-run: still 19/19 green). Force a real difference: inject a phantom
+-- still-open row directly (the exact shape blocker-1's guard exists to
+-- prevent) on the ALREADY-ended meeting, then replay room_finished — the
+-- guard must make this a COMPLETE no-op (never even reaching the inner
+-- statements), not just an accidentally-idempotent one.
+UPDATE meeting_participants SET left_at = NULL
+ WHERE meeting_id = :meeting2_id AND identity = 'u:' || :host2_id;
+SELECT meeting_participant_event(:'room2_name', 'room_finished');
+SELECT is(
+  (SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting2_id AND identity = 'u:' || :host2_id),
+  NULL,
+  'room_finished on an already-ended meeting does not even re-stamp a phantom still-open row (guard short-circuits before the inner statements)'
+);
+SELECT is(notify_count(format('meet:%s', :host2_id)), :notify_count_after,
+  'room_finished on an already-ended meeting fires NO push for a phantom still-open row either (the outer guard, not sub-statement idempotency, is what stops it)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,21 @@
+{
+  "case": "drive-preview-inert",
+  "format": 1,
+  "go_source": "17cbf0bdb9d90a397b622e8919b5021d47338ad6",
+  "observation": {
+    "chunks": [
+      "g|<idle>|4|drive/g/<idle>|rc=1"
+    ],
+    "preview_chunks": [],
+    "run_returned": true,
+    "s3": {
+      "keys": [
+        "drive/g/<idle>"
+      ],
+      "requests": []
+    },
+    "versions": [
+      "1:pending:-"
+    ]
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "case": "ignored-query",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "config_json": {},
+            "enabled": true,
+            "name": "JWT Bearer Token",
+            "priority": 10,
+            "slug": "jwt_bearer"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "Kerberos / SPNEGO",
+            "priority": 20,
+            "slug": "kerberos"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "SAML 2.0",
+            "priority": 30,
+            "slug": "saml"
+          },
+          {
+            "config_json": {
+              "a": null,
+              "z": [
+                1,
+                {
+                  "a": "<&>",
+                  "b": true
+                }
+              ]
+            },
+            "enabled": false,
+            "name": "OpenID Connect",
+            "priority": 40,
+            "slug": "oidc"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "WebAuthn / FIDO2",
+            "priority": 50,
+            "slug": "webauthn"
+          }
+        ],
+        "before": [
+          {
+            "config_json": {},
+            "enabled": true,
+            "name": "JWT Bearer Token",
+            "priority": 10,
+            "slug": "jwt_bearer"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "Kerberos / SPNEGO",
+            "priority": 20,
+            "slug": "kerberos"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "SAML 2.0",
+            "priority": 30,
+            "slug": "saml"
+          },
+          {
+            "config_json": {
+              "a": null,
+              "z": [
+                1,
+                {
+                  "a": "<&>",
+                  "b": true
+                }
+              ]
+            },
+            "enabled": false,
+            "name": "OpenID Connect",
+            "priority": 40,
+            "slug": "oidc"
+          },
+          {
+            "config_json": {},
+            "enabled": false,
+            "name": "WebAuthn / FIDO2",
+            "priority": 50,
+            "slug": "webauthn"
+          }
+        ],
+        "table": "auth_methods"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/auth/methods",
+      "method": "GET",
+      "path": "/admin/auth/methods",
+      "query": "?limit=-1&q=%00&x=%zz"
+    },
+    "response": {
+      "body": "[{\"slug\":\"jwt_bearer\",\"name\":\"JWT Bearer Token\",\"enabled\":true,\"priority\":10,\"config\":{}},{\"slug\":\"kerberos\",\"name\":\"Kerberos / SPNEGO\",\"enabled\":false,\"priority\":20,\"config\":{}},{\"slug\":\"saml\",\"name\":\"SAML 2.0\",\"enabled\":false,\"priority\":30,\"config\":{}},{\"slug\":\"oidc\",\"name\":\"OpenID Connect\",\"enabled\":false,\"priority\":40,\"config\":{\"a\":null,\"z\":[1,{\"a\":\"\\u003c\\u0026\\u003e\",\"b\":true}]}},{\"slug\":\"webauthn\",\"name\":\"WebAuthn / FIDO2\",\"enabled\":false,\"priority\":50,\"config\":{}}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "478"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/auth/methods"
+}

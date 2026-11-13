@@ -1,0 +1,157 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "control_operations": [],
+          "external": [
+            {
+              "user_id": "<actor>",
+              "warning": true
+            },
+            {
+              "user_id": "<other>",
+              "warning": true
+            }
+          ],
+          "list_operations": [],
+          "models": [
+            {
+              "bytes": 3000,
+              "classified": 40,
+              "disabled": true,
+              "fn": 2,
+              "fp": 3,
+              "samples": 120,
+              "user_id": "<actor>"
+            },
+            {
+              "bytes": 100,
+              "classified": 7,
+              "disabled": false,
+              "fn": 1,
+              "fp": 1,
+              "samples": 60,
+              "user_id": "<other>"
+            }
+          ],
+          "outbox": [],
+          "personal": [],
+          "senders": [],
+          "state": [
+            {
+              "generation": 1,
+              "user_id": "<actor>"
+            },
+            {
+              "generation": 1,
+              "user_id": "<other>"
+            }
+          ],
+          "tags": [],
+          "trusted": []
+        },
+        "before": {
+          "control_operations": [],
+          "external": [
+            {
+              "user_id": "<actor>",
+              "warning": true
+            },
+            {
+              "user_id": "<other>",
+              "warning": true
+            }
+          ],
+          "list_operations": [],
+          "models": [
+            {
+              "bytes": 3000,
+              "classified": 40,
+              "disabled": true,
+              "fn": 2,
+              "fp": 3,
+              "samples": 120,
+              "user_id": "<actor>"
+            },
+            {
+              "bytes": 100,
+              "classified": 7,
+              "disabled": true,
+              "fn": 1,
+              "fp": 1,
+              "samples": 60,
+              "user_id": "<other>"
+            }
+          ],
+          "outbox": [],
+          "personal": [],
+          "senders": [],
+          "state": [
+            {
+              "generation": 1,
+              "user_id": "<actor>"
+            },
+            {
+              "generation": 1,
+              "user_id": "<other>"
+            }
+          ],
+          "tags": [],
+          "trusted": []
+        },
+        "table": "spam"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/spam/models/<other>/enable",
+      "method": "POST",
+      "path": "/admin/spam/models/{userId}/enable"
+    },
+    "response": {
+      "body": "{\"status\":\"enabled\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "21"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/spam/models/{userId}/enable"
+}

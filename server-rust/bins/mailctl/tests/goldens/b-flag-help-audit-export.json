@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of audit export:\n  -out string\n    \tWrite CSV to this file instead of stdout\nError: flag: help requested\n",
+  "exit": 1
+}

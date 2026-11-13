@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: --url and --events are required\n",
+  "exit": 1
+}

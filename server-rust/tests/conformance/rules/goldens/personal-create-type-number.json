@@ -1,0 +1,151 @@
+{
+  "case": "type-number",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "rules": [
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961001,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-actor>",
+              "name": "Actor rule",
+              "priority": 1,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            },
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961002,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-other>",
+              "name": "Other rule",
+              "priority": 2,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            }
+          ],
+          "states": [
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-actor>",
+              "tag": 0
+            },
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-other>",
+              "tag": 0
+            }
+          ]
+        },
+        "before": {
+          "rules": [
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961001,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-actor>",
+              "name": "Actor rule",
+              "priority": 1,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            },
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961002,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-other>",
+              "name": "Other rule",
+              "priority": 2,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            }
+          ],
+          "states": [
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-actor>",
+              "tag": 0
+            },
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-other>",
+              "tag": 0
+            }
+          ]
+        },
+        "table": "rules"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"actions\":[{\"type\":3}],\"conditions\":[],\"enabled\":true,\"isTransportRule\":true,\"mailboxId\":\"<mailbox-other>\",\"name\":\"Created rule\",\"priority\":3,\"runOn\":\"both\",\"stopProcessing\":true}",
+      "method": "POST",
+      "path": "/settings/rules"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"actions must be a JSON array\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "112"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-rules1-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /settings/rules"
+}

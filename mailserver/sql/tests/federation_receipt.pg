@@ -1,0 +1,203 @@
+-- federation_receipt.pg — Pillar C1 Task 6: ack-as-receipt (peer-scoped,
+-- seq-restamped, live-pushed). Requires: federation_ack.sql (this task's
+-- extension), federation_dm_ensure.sql + chat_message.sql's federated
+-- branch (Task 2), federation_enqueue.sql (C0), V139.
+--
+-- §4 (Pillar C2 Task 3, Q10) requires: V140, federation_room_create.sql,
+-- federation_room_invite.sql, federation_room_fanout.sql (the promoted
+-- 5-arg version), chat_message.sql's HUB room arm.
+BEGIN;
+SELECT plan(23);
+
+-- ── fixture: one local org (alpha.test), one local user, TWO allow-listed
+-- peers (bravo.test / gamma.test) — the second peer exists solely to prove
+-- the cross-peer-forgery guard in §3.
+INSERT INTO domains (name, is_local) VALUES ('alpha.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_id FROM domains WHERE name = 'alpha.test' \gset
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (81001, 'alice', :dom_id, 'alice@alpha.test', 'Alice', 'x')
+  ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('bravo.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('gamma.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.federation';
+
+SELECT federation_dm_ensure(81001, 'bob@bravo.test') AS ch_bravo \gset
+SELECT federation_dm_ensure(81001, 'dave@gamma.test') AS ch_gamma \gset
+
+SELECT chat_message_send(81001, :ch_bravo, 'hi bob') AS send_bravo \gset
+SELECT (:'send_bravo'::jsonb ->> 'messageId')::bigint AS msg_bravo_id \gset
+
+SELECT chat_message_send(81001, :ch_gamma, 'hi dave') AS send_gamma \gset
+SELECT (:'send_gamma'::jsonb ->> 'messageId')::bigint AS msg_gamma_id \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 a real ack sets delivered_at + re-stamps seq + pushes live
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_bravo_id), NULL::timestamptz,
+  'before any ack, the sent message has no delivered_at');
+SELECT ok((SELECT seq FROM chat_messages WHERE id = :msg_bravo_id) IS NOT NULL,
+  'sanity: the sent message has a seq from the send itself');
+
+-- The message's PRE-ack seq — the invariant to prove is that the receipt
+-- seq is STRICTLY HIGHER (re-stamped), not just "delivered_at got set".
+SELECT seq FROM chat_messages WHERE id = :msg_bravo_id \gset pre_ack_
+
+SET LOCAL app.capture_notify = 'on';
+SELECT federation_ack('bravo.test', 1);
+
+SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_bravo_id) IS NOT NULL, true,
+  'a federation_ack matching the outbox row sets delivered_at on the sender-side message');
+SELECT ok((SELECT seq FROM chat_messages WHERE id = :msg_bravo_id) > :pre_ack_seq,
+  'the ack RE-STAMPS the message''s seq strictly higher than its pre-ack seq (chat_messages_since replayability)');
+SELECT is(
+  (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id),
+  (SELECT change_seq FROM chat_channels WHERE id = :ch_bravo),
+  'the re-stamped seq matches the channel''s bumped change_seq (same rail as send/edit/delete)');
+SELECT is(
+  (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'bravo.test' AND peer_seq = 1) IS NOT NULL, true,
+  'the C0 ack behavior is unchanged: the outbox row is still marked acked');
+SELECT is(notify_count('chat:81001'), 1,
+  'the ack emits exactly one live push on the recipient''s own chat:{user_id} channel');
+SELECT is(
+  (last_notify_payload('chat:81001')::jsonb) ->> 'event', 'message_delivered',
+  'the pushed event is message_delivered');
+SELECT is(
+  ((last_notify_payload('chat:81001')::jsonb) ->> 'seq')::bigint,
+  (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id),
+  'the pushed payload carries the re-stamped seq');
+
+-- A message the ack was never about is untouched.
+SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_gamma_id), NULL::timestamptz,
+  'acking bravo''s outbox row does not touch the unrelated gamma-bound message');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 idempotent: a SECOND ack of the same peer_seq is a no-op (no re-bump,
+--    no re-stamp, no double push)
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT seq, delivered_at FROM chat_messages WHERE id = :msg_bravo_id \gset after1_
+SELECT notify_count('chat:81001') AS count_before_reack \gset
+
+SELECT federation_ack('bravo.test', 1);
+SELECT is(notify_count('chat:81001'), :count_before_reack,
+  'a re-ack of the same peer_seq fires NO ADDITIONAL live push (idempotent no-op — count unchanged)');
+
+SELECT is(
+  (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id), :after1_seq::bigint,
+  'a re-ack does not re-bump/re-stamp the seq a second time');
+SELECT is(
+  (SELECT delivered_at FROM chat_messages WHERE id = :msg_bravo_id), :'after1_delivered_at'::timestamptz,
+  'a re-ack does not move delivered_at forward');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 cross-peer forgery: an outbox row whose stanza_id points at a message
+--    in ANOTHER peer's channel must NOT get delivered_at set — the
+--    MANDATORY peer-scope join (plan Task 6), not merely "peer_domain
+--    matched some outbox row". Simulated by directly seeding a
+--    federation_outbox row for gamma.test that (mis)carries bravo's
+--    message id as its stanza_id — exactly the shape a forged/buggy
+--    enqueue would produce.
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO federation_peers (peer_domain, last_seq) VALUES ('gamma.test', 1)
+  ON CONFLICT (peer_domain) DO UPDATE SET last_seq = GREATEST(federation_peers.last_seq, 1);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload)
+  VALUES ('gamma.test', 99, :msg_bravo_id::text, 'application/x-setjoin-chat', '{}');
+
+SELECT seq, delivered_at FROM chat_messages WHERE id = :msg_bravo_id \gset before_forge_
+
+SELECT federation_ack('gamma.test', 99);
+
+SELECT is(
+  (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'gamma.test' AND peer_seq = 99) IS NOT NULL, true,
+  'sanity: the forged outbox row itself DOES get acked (the C0 ack mechanism is peer-domain-scoped and legitimately finds it)');
+SELECT is(
+  (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id), :before_forge_seq::bigint,
+  'a peer (gamma) naming ANOTHER peer''s (bravo) message id as stanza_id does NOT re-stamp that message''s seq');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 the Q10 pin (Pillar C2 Task 3): NO delivered ticks in rooms — an
+--    acked room-content (application/x-setjoin-room) outbox row must NOT
+--    stamp delivered_at on the hub's own message. This is mechanical, not a
+--    separate check: federation_ack's receipt leg is double-scoped to
+--    content_type = 'application/x-setjoin-chat', and room frames ride
+--    content_type = 'application/x-setjoin-room', so they can never match.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('delta.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT chat_channel_create(81001, 'q10-hub-room') AS ch_hub \gset
+SELECT federation_room_create(81001, :ch_hub, 'alpha.test') AS room_q10 \gset
+-- the invite itself enqueues ONE control-op outbox row to delta (peer_seq 1).
+SELECT federation_room_invite(81001, :ch_hub, 'delta.test', 'd@delta.test');
+
+-- the hub's own send fans a SECOND outbox row (the message) to delta.
+SELECT chat_message_send(81001, :ch_hub, 'hi room') AS send_room \gset
+SELECT (:'send_room'::jsonb ->> 'messageId')::bigint AS msg_room_id \gset
+
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'delta.test' AND content_type = 'application/x-setjoin-room'), 2,
+  'sanity: delta has exactly 2 room-content outbox rows (the invite control op + the message)');
+SELECT is((SELECT payload ->> 'clientMsgId' FROM federation_outbox
+            WHERE peer_domain = 'delta.test' AND payload ->> 'op' = 'message'), :msg_room_id::text,
+  'sanity: the message-op row carries the hub message''s own id as clientMsgId');
+
+SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_room_id), NULL::timestamptz,
+  'sanity: before any ack, the hub message has no delivered_at');
+
+-- ack the message's own outbox row (peer_seq 2 — the invite consumed seq 1).
+SELECT federation_ack('delta.test', 2);
+
+SELECT is((SELECT acked_at FROM federation_outbox
+            WHERE peer_domain = 'delta.test' AND peer_seq = 2) IS NOT NULL, true,
+  'sanity: the room-content outbox row itself DOES get acked (the ack mechanism is content-type-agnostic)');
+SELECT is(
+  (SELECT delivered_at FROM chat_messages WHERE id = :msg_room_id), NULL::timestamptz,
+  'Q10: acking a room-content (application/x-setjoin-room) outbox row does NOT set delivered_at on the hub''s own message — no delivered ticks in rooms');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 the Q10 pin, SPOKE side (Task 3 review F2 — the mutant-killing case):
+--    a spoke's own outbound room frame lives in a channel whose
+--    federated_peer_domain EQUALS the acking hub, and its stanza_id IS the
+--    local message id — so the peer-scope join alone would match it, and
+--    ONLY the content_type = 'application/x-setjoin-chat' filter stops the
+--    hub's ack from stamping delivered_at (a delivered tick in a room, the
+--    exact Q10 violation). Remove that filter and THIS assert dies; the §4
+--    hub-side case cannot see it (hub channels have peer_domain NULL).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('epsilon-hub.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO chat_channels (kind, name, created_by, federated_room_id, federated_peer_domain)
+  VALUES ('channel', 'q10-spoke-mirror', 81001, 'roomZ@epsilon-hub.test', 'epsilon-hub.test')
+  RETURNING id AS ch_q10spoke \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_q10spoke, 81001, 'owner');
+
+SELECT chat_message_send(81001, :ch_q10spoke, 'spoke room msg') AS send_q10spoke \gset
+SELECT (:'send_q10spoke'::jsonb ->> 'messageId')::bigint AS msg_q10spoke_id \gset
+
+SELECT is((SELECT payload ->> 'clientMsgId' FROM federation_outbox
+            WHERE peer_domain = 'epsilon-hub.test' AND payload ->> 'op' = 'message'), :msg_q10spoke_id::text,
+  'sanity: the spoke room frame carries the local message id as clientMsgId (stanza collides with the receipt join by construction)');
+
+SELECT federation_ack('epsilon-hub.test',
+  (SELECT peer_seq FROM federation_outbox WHERE peer_domain = 'epsilon-hub.test' AND payload ->> 'op' = 'message'));
+
+SELECT is((SELECT acked_at FROM federation_outbox
+            WHERE peer_domain = 'epsilon-hub.test' AND payload ->> 'op' = 'message') IS NOT NULL, true,
+  'sanity: the spoke room outbox row itself DOES get acked');
+SELECT is(
+  (SELECT delivered_at FROM chat_messages WHERE id = :msg_q10spoke_id), NULL::timestamptz,
+  'Q10 spoke side: the hub acking a spoke room frame does NOT stamp delivered_at — only the content_type scope prevents it here');
+
+SELECT * FROM finish();
+ROLLBACK;

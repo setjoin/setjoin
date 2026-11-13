@@ -1,0 +1,596 @@
+{
+  "case": "charsets-row-effects",
+  "effects": [
+    {
+      "after": {
+        "mailboxes": [
+          {
+            "email": "mbox5-shared@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          },
+          {
+            "email": "mbox5-s@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          },
+          {
+            "email": "mbox5-t@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          }
+        ],
+        "messages": [
+          {
+            "bcc": [],
+            "body_html": "",
+            "body_text": "ąćę body",
+            "cc": [],
+            "from_addr": "",
+            "from_name": "p@example.pl",
+            "in_reply_to": "",
+            "is_read": false,
+            "list_id": null,
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "message_id": "<latin2-1@example.pl>",
+            "raw_ref": "64c8306f01cab8f164395ca507e5eb8231bf66713614d33d6b2fd57decbe87a6",
+            "received_at": "<now>",
+            "references": "",
+            "sent_at": "<now>",
+            "size": 146,
+            "subject": "café",
+            "tags": [
+              "Inbox"
+            ],
+            "to": []
+          },
+          {
+            "bcc": [],
+            "body_html": "",
+            "body_text": "日本",
+            "cc": [],
+            "from_addr": "",
+            "from_name": "j@example.jp",
+            "in_reply_to": "",
+            "is_read": false,
+            "list_id": null,
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "message_id": "<sjis-1@example.jp>",
+            "raw_ref": "705c5ca7860428724953c5c39902f17d02ce95508647957f0a332a29077055e9",
+            "received_at": "<now>",
+            "references": "",
+            "sent_at": "<now>",
+            "size": 163,
+            "subject": "",
+            "tags": [
+              "Inbox"
+            ],
+            "to": []
+          },
+          {
+            "bcc": [],
+            "body_html": "",
+            "body_text": "你好",
+            "cc": [],
+            "from_addr": "",
+            "from_name": "g@example.cn",
+            "in_reply_to": "",
+            "is_read": false,
+            "list_id": null,
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "message_id": "<gbk-1@e.cn>",
+            "raw_ref": "d7df4581f680afb4ef96dc67e570e93e08ed7c84ad4fb2b21195c34cd098315f",
+            "received_at": "<now>",
+            "references": "",
+            "sent_at": "<now>",
+            "size": 93,
+            "subject": "",
+            "tags": [
+              "Inbox"
+            ],
+            "to": []
+          },
+          {
+            "bcc": [],
+            "body_html": "",
+            "body_text": "Привет",
+            "cc": [],
+            "from_addr": "",
+            "from_name": "k@example.ru",
+            "in_reply_to": "",
+            "is_read": false,
+            "list_id": null,
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "message_id": "<koi-1@e.ru>",
+            "raw_ref": "14268ae5c2dc77860f6ad341c015211746a4bb48ff0bb3123e931267852e04c8",
+            "received_at": "<now>",
+            "references": "",
+            "sent_at": "<now>",
+            "size": 98,
+            "subject": "",
+            "tags": [
+              "Inbox"
+            ],
+            "to": []
+          }
+        ],
+        "tags": [
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Inbox",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Inbox",
+            "total": 4,
+            "unread": 4
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Projects",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Inbox",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          }
+        ]
+      },
+      "before": {
+        "mailboxes": [
+          {
+            "email": "mbox5-shared@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          },
+          {
+            "email": "mbox5-s@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          },
+          {
+            "email": "mbox5-t@<domain-a-name>",
+            "email_state": 0,
+            "used_bytes": 0
+          }
+        ],
+        "messages": [],
+        "tags": [
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Inbox",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-shared@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Inbox",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Projects",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-s@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Drafts",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Important",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Inbox",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Muted",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Other",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Scheduled",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Sent",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Snoozed",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Spam",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Starred",
+            "total": 0,
+            "unread": 0
+          },
+          {
+            "mailbox": "mbox5-t@<domain-a-name>",
+            "name": "Trash",
+            "total": 0,
+            "unread": 0
+          }
+        ]
+      },
+      "table": "messages+mailboxes+tags"
+    },
+    {
+      "requests": [
+        {
+          "body_len": 146,
+          "body_sha256": "64c8306f01cab8f164395ca507e5eb8231bf66713614d33d6b2fd57decbe87a6",
+          "content_type": "message/rfc822",
+          "method": "PUT",
+          "path": "64c8306f01cab8f164395ca507e5eb8231bf66713614d33d6b2fd57decbe87a6"
+        },
+        {
+          "body_len": 163,
+          "body_sha256": "705c5ca7860428724953c5c39902f17d02ce95508647957f0a332a29077055e9",
+          "content_type": "message/rfc822",
+          "method": "PUT",
+          "path": "705c5ca7860428724953c5c39902f17d02ce95508647957f0a332a29077055e9"
+        },
+        {
+          "body_len": 93,
+          "body_sha256": "d7df4581f680afb4ef96dc67e570e93e08ed7c84ad4fb2b21195c34cd098315f",
+          "content_type": "message/rfc822",
+          "method": "PUT",
+          "path": "d7df4581f680afb4ef96dc67e570e93e08ed7c84ad4fb2b21195c34cd098315f"
+        },
+        {
+          "body_len": 98,
+          "body_sha256": "14268ae5c2dc77860f6ad341c015211746a4bb48ff0bb3123e931267852e04c8",
+          "content_type": "message/rfc822",
+          "method": "PUT",
+          "path": "14268ae5c2dc77860f6ad341c015211746a4bb48ff0bb3123e931267852e04c8"
+        },
+        {
+          "body_len": 100,
+          "body_sha256": "637783620e667767dccc06f6b3d6835297833f46c7ab3243876627bf4f9a986f",
+          "content_type": "message/rfc822",
+          "method": "PUT",
+          "path": "637783620e667767dccc06f6b3d6835297833f46c7ab3243876627bf4f9a986f"
+        }
+      ],
+      "table": "object-store"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/mailboxes/{id}/import"
+}

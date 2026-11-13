@@ -1,0 +1,534 @@
+-- pgTAP: jmap_email_submission.sql — submission set + get/query (B2)
+BEGIN;
+SELECT plan(35);
+
+INSERT INTO domains (name, is_local) VALUES ('sub.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 105501 != mailbox 5501). jmap_email_submission_set
+-- takes (p_mailbox_id, p_user_id) — so arg1 is the MAILBOX id (5501) and arg2 is the
+-- USER id (105501); coincident ids masked any swap of the two. Other calls
+-- (get/query/message_schedule) are mailbox-keyed (5501); message ids are 55xx.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (105501, 'subuser', (SELECT id FROM domains WHERE name = 'sub.test'), 'u@sub.test', 'User')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (5501, 105501, (SELECT id FROM domains WHERE name = 'sub.test'), 'u@sub.test', 'User', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(5501);
+
+-- EmailSubmission/set is a cross-mailbox send and runs on DB_WORKER_DSN.
+SET LOCAL ROLE setjoin_worker;
+
+-- Test 1: submission set processes without error (email may not exist).
+SELECT lives_ok(
+  $$ SELECT jmap_email_submission_set(5501, 105501, '{"k1":{"emailId":"nonexistent","envelope":{"mailFrom":{"email":"u@sub.test"},"rcptTo":[{"email":"to@ext.com"}]}}}'::JSONB) $$,
+  'submission set does not crash');
+
+-- Test 2: get returns a list array.
+SELECT is(
+  jsonb_typeof(jmap_email_submission_get(5501, ARRAY[1::BIGINT])->'list'),
+  'array',
+  'submission get returns array');
+
+-- Test 3: query returns an ids array.
+SELECT is(
+  jsonb_typeof(jmap_email_submission_query(5501, NULL, 0, 50)->'ids'),
+  'array',
+  'submission query returns ids array');
+
+-- ── Phase 3.2: seam rename p_signed_raw_ref → p_processed_raw_ref + p_is_encrypted ──
+-- The 5-arg arity (…, jsonb p_processed_raw_ref, jsonb p_is_encrypted) must exist,
+-- and the OLD 4-arg overload must be GONE (V019 overload-drop), so a live upgrade
+-- leaves no ambiguous sibling.
+SELECT has_function('jmap_email_submission_set',
+  ARRAY['bigint','bigint','jsonb','jsonb','jsonb'],
+  'jmap_email_submission_set has the 5-arg (processed_raw_ref + is_encrypted) arity');
+SELECT hasnt_function('jmap_email_submission_set',
+  ARRAY['bigint','bigint','jsonb','jsonb'],
+  'the old 4-arg (p_signed_raw_ref) overload is dropped');
+
+-- Seed a scheduled (deferred) message and verify it appears in get/query.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5510, 5501, 1, '<sched-1@sub.test>', 'Scheduled', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-sched-1', 'raw/5510', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+
+SELECT message_schedule(5501, 5510, now() + interval '3 hours', NULL);
+
+-- Test 4: query now lists the scheduled message id.
+SELECT is(
+  (jmap_email_submission_query(5501, NULL, 0, 50)->'ids' @> to_jsonb(ARRAY['5510'])),
+  TRUE,
+  'scheduled message appears in submission query');
+
+-- Test 5: get for that id exposes a sendAt field.
+SELECT is(
+  (jmap_email_submission_get(5501, ARRAY[5510::BIGINT])->'list'->0->>'sendAt') IS NOT NULL,
+  TRUE,
+  'submission get exposes sendAt for a scheduled message');
+
+-- Seed a real draft and submit it with a future sendAt.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5520, 5501, 1, '<draft-1@sub.test>', 'Draft', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-draft-1', 'raw/5520', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5520, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5520 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT lives_ok(
+  $$ SELECT jmap_email_submission_set(5501, 105501,
+       jsonb_build_object('k2', jsonb_build_object(
+         'emailId', '5520',
+         'sendAt', to_char((now() + interval '4 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))) $$,
+  'submission set with sendAt does not crash');
+
+-- Test 7: the scheduled draft survives (not deleted) and carries the Scheduled
+-- tag (the "first fact"). The wake-time now lives in a `send` scheduled_action
+-- (A6 deferred-action infrastructure, the "second fact"), not message_tags.scheduled_at.
+SELECT is(
+  (SELECT count(*) FROM message_tags mt
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE mt.message_id = 5520 AND t.name = 'Scheduled'),
+  1::BIGINT,
+  'sendAt submission keeps the draft and tags it Scheduled');
+
+-- Test 7b: a pending `send` scheduled_action was enqueued for that draft.
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions
+    WHERE mailbox_id = 5501 AND action_kind = 'send' AND status = 'pending'
+      AND (payload->>'message_id')::BIGINT = 5520),
+  1::BIGINT,
+  'sendAt submission enqueues a pending send scheduled_action');
+
+-- B3 path A: onSuccessUpdateEmail present → draft survives + patch applied.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5530, 5501, 1, '<draft-tos@sub.test>', 'TagOnSend', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-tos-1', 'raw/5530', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5530, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5530 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+-- Build an onSuccessUpdateEmail patch that flags the email (keywords) — uses
+-- the creation-id back-reference form "#k3" per RFC 8621 §7.
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+SELECT lives_ok(
+  $$ SELECT jmap_email_submission_set(5501, 105501,
+       jsonb_build_object('k3', jsonb_build_object(
+         'emailId', '5530',
+         'onSuccessUpdateEmail', jsonb_build_object(
+           '#k3', jsonb_build_object('keywords', jsonb_build_object('$flagged', true)))))) $$,
+  'submission set with onSuccessUpdateEmail does not crash');
+
+-- The draft must still exist (NOT deleted).
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 5530 AND mailbox_id = 5501),
+  1::BIGINT,
+  'onSuccessUpdateEmail keeps the draft email');
+
+-- The patch was applied: message is now flagged.
+SELECT is(
+  (SELECT is_flagged FROM messages WHERE id = 5530),
+  TRUE,
+  'onSuccessUpdateEmail applied the keywords patch ($flagged)');
+SELECT is((SELECT count(*) FROM webhook_publications w
+  WHERE w.event_id='mail-sent-'||(SELECT id FROM messages
+    WHERE mailbox_id=5501 AND message_id='<draft-tos@sub.test>' AND id<>5530 LIMIT 1)||'-1')::integer,
+  1,'JMAP immediate send enrolls one stable committed mail.sent fact');
+SELECT is((SELECT payload FROM webhook_publications w
+  WHERE w.event_id='mail-sent-'||(SELECT id FROM messages
+    WHERE mailbox_id=5501 AND message_id='<draft-tos@sub.test>' AND id<>5530 LIMIT 1)||'-1'),
+  '{"from":"u@sub.test","to":"to@ext.com"}'::jsonb,
+  'JMAP mail.sent keeps the effective envelope from/to payload');
+
+-- B3 path B: legacy delete path unchanged when field absent (covered by Test on 5520
+-- which was scheduled — add an explicit immediate send + delete check here).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5540, 5501, 1, '<draft-legacy@sub.test>', 'Legacy', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-legacy-1', 'raw/5540', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5540, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5540 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+-- Immediate (non-held) send: the created object marks heldForApproval=false so the
+-- client arms the undo-send timer normally (calling submission_set here also performs
+-- the send whose draft-deletion the next assertion checks).
+SELECT is(
+  (jmap_email_submission_set(5501, 105501,
+     jsonb_build_object('k4', jsonb_build_object('emailId', '5540')))
+   ->'created'->'k4'->>'heldForApproval'),
+  'false',
+  'immediate send marks heldForApproval=false in the created object');
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 5540),
+  0::BIGINT,
+  'legacy path (no onSuccessUpdateEmail) still deletes the draft');
+
+DELETE FROM message_tags WHERE message_id IN (5510, 5520, 5530, 5540);
+DELETE FROM messages WHERE id IN (5510, 5520, 5530, 5540);
+
+-- No-double-bump: an immediate-send submission advances jmap_email_state by
+-- exactly 1 across the whole submission. send() now bumps once via
+-- notify_state_change; the wrapper must NOT add a second open-coded bump.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5550, 5501, 1, '<draft-nodbl@sub.test>', 'NoDouble', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-nodbl-1', 'raw/5550', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5550, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5550 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+CREATE TEMP TABLE _sub_base AS
+SELECT jmap_email_state AS e0 FROM mailboxes WHERE id = 5501;
+
+SELECT lives_ok(
+  $$ SELECT jmap_email_submission_set(5501, 105501,
+       jsonb_build_object('k5', jsonb_build_object('emailId', '5550'))) $$,
+  'immediate-send submission set succeeds');
+
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = 5501),
+  (SELECT e0 + 1 FROM _sub_base),
+  'immediate submission bumps jmap_email_state exactly once (no double-bump)');
+
+DELETE FROM message_tags WHERE message_id = 5550;
+DELETE FROM messages WHERE id = 5550;
+
+-- (The reducer-level S/MIME synchronous fail-loud BZ075 guard was removed in
+-- Phase D3 — signing + the no-cert failure are now handled in the
+-- EmailSubmission/set Go handler, which surfaces a per-creation notCreated and
+-- strips signSMIME before the reducer ever sees it. The reducer no longer parses
+-- signSMIME, so there is nothing to test here.)
+
+-- ── Phase D1: p_signed_raw_ref in-txn raw_ref swap seam ──
+-- The 4th arg is a JSONB map creationId → signed-blob-ref. When supplied for a
+-- submission, the reducer swaps messages.raw_ref (and the v_msg snapshot) to the
+-- signed blob BEFORE the immediate/scheduled branch, orphaning the old unsigned
+-- blob if nothing else references it. NULL/omitted = byte-for-byte unchanged.
+
+-- (a) IMMEDIATE send swaps the Sent copy + the outbound queue row.
+-- Seed an external-recipient draft with an unsigned raw_ref, then submit it with
+-- a signed ref. Both the Sent message copy AND the outbound_queue_hot row must
+-- carry the signed ref (proving the swap reached send() via the updated snapshot).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5570, 5501, 1, '<draft-sign-imm@sub.test>', 'SignImmediate', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-sign-imm-1', 'unsigned/blob-A', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5570, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5570 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object('emailId', '5570')),
+  jsonb_build_object('c1', 'signed/blob-B'));
+
+-- (a.1) the Sent copy (new row, same message_id, Sent tag) carries the signed ref.
+SELECT is(
+  (SELECT m.raw_ref FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-sign-imm@sub.test>'
+      AND t.name = 'Sent'),
+  'signed/blob-B',
+  'immediate signed send: the Sent copy raw_ref is the signed blob');
+
+-- (a.2) the outbound queue row carries the signed ref (swap reached send()).
+SELECT is(
+  (SELECT raw_ref FROM outbound_queue_hot WHERE message_id = '<draft-sign-imm@sub.test>'),
+  'signed/blob-B',
+  'immediate signed send: the outbound_queue_hot row raw_ref is the signed blob');
+
+-- (b) the OLD unsigned blob was orphaned (nothing else references it).
+SELECT is(
+  EXISTS(SELECT 1 FROM orphaned_message_blobs WHERE raw_ref = 'unsigned/blob-A'),
+  TRUE,
+  'immediate signed send: the old unsigned blob is orphaned');
+
+-- Isolate the shared orphan table for the next sub-test (message rows are scoped
+-- by distinct message_id per test and the whole file rolls back, so we only need
+-- to clear orphaned_message_blobs / outbound_queue_hot between sub-tests).
+DELETE FROM outbound_queue_hot WHERE message_id = '<draft-sign-imm@sub.test>';
+DELETE FROM orphaned_message_blobs WHERE raw_ref = 'unsigned/blob-A';
+
+-- (c) SCHEDULED send stores the signed ref on the kept draft (no Sent copy / no
+-- immediate queue row), so the later scheduled_action_send copies the signed ref.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5571, 5501, 1, '<draft-sign-sched@sub.test>', 'SignScheduled', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-sign-sched-1', 'unsigned/blob-C', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5571, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5571 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object(
+    'emailId', '5571',
+    'sendAt', to_char((now() + interval '4 hours') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))),
+  jsonb_build_object('c1', 'signed/blob-D'));
+
+-- (c.1) the kept draft now carries the signed ref.
+SELECT is(
+  (SELECT raw_ref FROM messages WHERE id = 5571 AND mailbox_id = 5501),
+  'signed/blob-D',
+  'scheduled signed send: the kept draft raw_ref is the signed blob');
+
+-- (c.2) no Sent copy was created (scheduled path does not send immediately).
+SELECT is(
+  (SELECT count(*) FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-sign-sched@sub.test>'
+      AND t.name = 'Sent'),
+  0::BIGINT,
+  'scheduled signed send: no immediate Sent copy created');
+
+DELETE FROM scheduled_actions WHERE mailbox_id = 5501 AND (payload->>'message_id')::BIGINT = 5571;
+DELETE FROM orphaned_message_blobs WHERE raw_ref = 'unsigned/blob-C';
+
+-- (d) NULL signed-ref = byte-for-byte unchanged (additivity regression).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5572, 5501, 1, '<draft-sign-null@sub.test>', 'SignNull', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-sign-null-1', 'unsigned/blob-E', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5572, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5572 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+-- p_signed_raw_ref omitted entirely (defaults to NULL).
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object('emailId', '5572')));
+
+-- (d.1) the Sent copy keeps the ORIGINAL draft raw_ref (no swap).
+SELECT is(
+  (SELECT m.raw_ref FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-sign-null@sub.test>'
+      AND t.name = 'Sent'),
+  'unsigned/blob-E',
+  'NULL signed-ref: the Sent copy keeps the original draft raw_ref (unchanged)');
+
+-- (d.2) no orphan row was added (no swap happened).
+SELECT is(
+  EXISTS(SELECT 1 FROM orphaned_message_blobs WHERE raw_ref = 'unsigned/blob-E'),
+  FALSE,
+  'NULL signed-ref: no blob orphaned (additivity preserved)');
+
+DELETE FROM outbound_queue_hot WHERE message_id = '<draft-sign-null@sub.test>';
+
+-- (e) no-op guard: signed ref == the draft's current ref → no swap, no orphan.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5573, 5501, 1, '<draft-sign-noop@sub.test>', 'SignNoop', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-sign-noop-1', 'unsigned/blob-F', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5573, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5573 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object('emailId', '5573')),
+  jsonb_build_object('c1', 'unsigned/blob-F'));
+
+-- (e.1) signed ref equal to the existing ref must NOT orphan that ref.
+SELECT is(
+  EXISTS(SELECT 1 FROM orphaned_message_blobs WHERE raw_ref = 'unsigned/blob-F'),
+  FALSE,
+  'no-op guard: signed ref == current ref does not orphan the blob');
+
+DELETE FROM outbound_queue_hot WHERE message_id = '<draft-sign-noop@sub.test>';
+
+-- (f) the renamed seam: a 5-arg call (p_processed_raw_ref + p_is_encrypted) swaps
+-- raw_ref exactly as the old 4th param did. (3.2 is pure rename; the body-null
+-- effect of p_is_encrypted lands in 3.3 — here it is passed and accepted only.)
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5574, 5501, 1, '<draft-proc@sub.test>', 'Processed', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-proc-1', 'unsigned/blob-G', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5574, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5574 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object('emailId', '5574')),
+  jsonb_build_object('c1', 'processed/blob-H'),
+  jsonb_build_object('c1', false));
+
+SELECT is(
+  (SELECT m.raw_ref FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-proc@sub.test>'
+      AND t.name = 'Sent'),
+  'processed/blob-H',
+  'p_processed_raw_ref swaps the Sent copy raw_ref (renamed seam)');
+
+DELETE FROM outbound_queue_hot WHERE message_id = '<draft-proc@sub.test>';
+
+-- ── Phase 3.6: encrypted internal-recipient end-to-end (re-home acceptance) ──
+-- Simulate the post-Go state: the handler encrypted the draft and hands the
+-- reducer p_processed_raw_ref + p_is_encrypted. The submission is to a LOCAL
+-- recipient, so send() → deliver() writes the recipient's copy. Assert BOTH the
+-- Sent copy (encrypt-to-self) and the local recipient's delivered copy carry the
+-- encrypted blob in raw_ref with NULL bodies + empty body_tsv, subject retained.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (105502, 'subrcpt', (SELECT id FROM domains WHERE name = 'sub.test'), 'rcpt@sub.test', 'Rcpt')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (5502, 105502, (SELECT id FROM domains WHERE name = 'sub.test'), 'rcpt@sub.test', 'Rcpt', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(5502);
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, body_text, body_html, received_at)
+VALUES (5575, 5501, 1, '<draft-enc-e2e@sub.test>', 'EncE2E', 'u@sub.test', 'User',
+    '[{"email":"rcpt@sub.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-enc-e2e-1', 'draft/cleartext', 'cleartext body', '<p>cleartext</p>', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5575, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5575 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+SELECT jmap_email_submission_set(5501, 105501,
+  jsonb_build_object('c1', jsonb_build_object('emailId', '5575')),
+  jsonb_build_object('c1', 'enc/e2e-blob'),
+  jsonb_build_object('c1', true));
+
+-- (a) the Sent copy is the encrypted blob with NULL bodies (encrypt-to-self).
+SELECT is(
+  (SELECT (raw_ref = 'enc/e2e-blob' AND body_text IS NULL AND body_html IS NULL
+           AND subject = 'EncE2E')
+     FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-enc-e2e@sub.test>' AND t.name = 'Sent'),
+  TRUE,
+  'encrypted e2e: Sent copy = encrypted blob, bodies NULL, subject kept');
+
+-- (a2) REGRESSION GUARD: the Sent copy MUST carry crypto_type='smime-encrypted'
+--      or decrypt-on-read (mail_decrypt.go: cryptoType=='smime-encrypted') never
+--      fires and the sender sees a blank own-copy. body NULL alone is not enough.
+SELECT is(
+  (SELECT crypto_type
+     FROM messages m
+     JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at
+     JOIN tags t ON t.id = mt.tag_id
+    WHERE m.mailbox_id = 5501 AND m.message_id = '<draft-enc-e2e@sub.test>' AND t.name = 'Sent'),
+  'smime-encrypted',
+  'encrypted e2e: Sent copy crypto_type = smime-encrypted (decrypt-on-read fires)');
+
+-- (b) the LOCAL recipient's delivered copy is the encrypted blob, bodies NULL,
+--     body_tsv NULL (V029: crypto_type='smime-encrypted' → genuinely no body index,
+--     not the empty tsvector the dead pre-fix branch produced).
+SELECT is(
+  (SELECT (raw_ref = 'enc/e2e-blob' AND body_text IS NULL AND body_html IS NULL
+           AND body_tsv IS NULL)
+     FROM messages WHERE mailbox_id = 5502 AND message_id = '<draft-enc-e2e@sub.test>'),
+  TRUE,
+  'encrypted e2e: recipient copy = encrypted blob, bodies NULL, body_tsv NULL');
+
+-- (c) subject preserved on the recipient copy too.
+SELECT is(
+  (SELECT subject FROM messages WHERE mailbox_id = 5502 AND message_id = '<draft-enc-e2e@sub.test>'),
+  'EncE2E',
+  'encrypted e2e: subject retained on the recipient copy');
+
+-- (d) REGRESSION GUARD: the LOCAL recipient's delivered copy MUST also carry
+--     crypto_type='smime-encrypted' (threaded send()→deliver() off p_is_encrypted),
+--     else the internal recipient sees a blank, undecryptable message in webmail.
+SELECT is(
+  (SELECT crypto_type FROM messages WHERE mailbox_id = 5502 AND message_id = '<draft-enc-e2e@sub.test>'),
+  'smime-encrypted',
+  'encrypted e2e: recipient copy crypto_type = smime-encrypted (decrypt-on-read fires)');
+
+-- ── W2′ quota classification (c-series day-one): BZ004 must surface as the
+-- RFC 8621 SetError type `overQuota`, not be flattened to invalidArguments —
+-- the client branches on the type to show quota copy instead of "try again".
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (5530, 5501, 1, '<draft-quota@sub.test>', 'Quota probe', 'u@sub.test', 'User',
+    '[{"email":"to@ext.com"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-quota-1', 'raw/5530', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 5530, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 5530 AND t.mailbox_id = 5501 AND t.name = 'Drafts'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+UPDATE mailboxes SET sending_sent_today = sending_quota_day, sending_quota_reset_at = CURRENT_DATE
+WHERE id = 5501;
+
+SELECT is(
+  (jmap_email_submission_set(5501, 105501,
+     '{"kq":{"emailId":"5530","envelope":{"mailFrom":{"email":"u@sub.test"},"rcptTo":[{"email":"to@ext.com"}]}}}'::JSONB)
+   ->'notCreated'->'kq'->>'type'),
+  'overQuota',
+  'at-cap submission surfaces SetError type overQuota (BZ004 classification preserved)');
+
+-- Non-quota classifications are untouched: a missing email keeps its explicit
+-- notFound branch (only BZ004 is remapped by the WHEN OTHERS handler).
+UPDATE mailboxes SET sending_sent_today = 0 WHERE id = 5501;
+SELECT is(
+  (jmap_email_submission_set(5501, 105501,
+     '{"kx":{"emailId":"999999","envelope":{"mailFrom":{"email":"u@sub.test"},"rcptTo":[{"email":"to@ext.com"}]}}}'::JSONB)
+   ->'notCreated'->'kx'->>'type'),
+  'notFound',
+  'non-quota failures keep their existing classification (only BZ004 remapped)');
+
+SELECT * FROM finish();
+ROLLBACK;

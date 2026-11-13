@@ -1,0 +1,64 @@
+-- pgTAP: m365_consent_state_consume — guarded single-use consumption of the
+-- server-side M365 consent authorization (med-shard2-023, V234).
+-- Exactly-one-winner: the atomic UPDATE admits one winner; every other claim —
+-- replay, foreign actor, expired — raises BZ002 and mutates nothing. The true
+-- concurrent race is pinned by the Go test
+-- TestM365Callback_ConcurrentSameStateExactlyOneWinner; here the semantics are
+-- pinned sequentially.
+-- Requires: m365_consent_states, m365_consent_state_consume(), _fixtures.mk_account.
+BEGIN;
+SELECT plan(10);
+
+-- ── Fixture actors ───────────────────────────────────────────────────────────
+CREATE TEMP TABLE _mk AS SELECT mk_account('m365consume') AS mb_id;
+SELECT user_id AS actor_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk) \gset
+CREATE TEMP TABLE _mk2 AS SELECT mk_account('m365consume2') AS mb_id;
+SELECT user_id AS other_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk2) \gset
+
+SELECT has_function('m365_consent_state_consume');
+
+SELECT throws_ok(
+  format('SELECT m365_consent_state_consume(%s, NULL)', :'actor_id'),
+  'BZ040', NULL, 'NULL token is refused (BZ040 invalidArguments)');
+
+-- ── Live row, FOREIGN actor: refused, row untouched (R1/R3 actor binding) ───
+INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, issued_at, expires_at)
+VALUES ('tap-consume-live', :'actor_id', 'global', now() - interval '1 minute', now() + interval '9 minutes');
+
+SELECT throws_ok(
+  format('SELECT m365_consent_state_consume(%s, ''tap-consume-live'')', :'other_id'),
+  'BZ002', NULL, 'a foreign actor''s consumption is refused (BZ002 forbidden)');
+SELECT is(
+  (SELECT consumed_at IS NULL FROM m365_consent_states WHERE state_token = 'tap-consume-live'),
+  TRUE, 'the foreign actor''s failed claim left the authorization unconsumed');
+
+-- ── The minting actor consumes; returns the minted cloud ────────────────────
+-- (Materialized via \gset: is() may re-evaluate a volatile argument, which
+-- would burn the single use inside the test helper instead of under test.)
+SELECT m365_consent_state_consume(:'actor_id'::bigint, 'tap-consume-live') AS cloud \gset
+SELECT is(:'cloud'::text, 'global', 'the minting actor''s consumption returns the consented cloud');
+SELECT is(
+  (SELECT consumed_at IS NOT NULL FROM m365_consent_states WHERE state_token = 'tap-consume-live'),
+  TRUE, 'the winning consumption marks the row consumed');
+
+-- ── Replay: the second claim of the SAME state is dead ──────────────────────
+SELECT throws_ok(
+  format('SELECT m365_consent_state_consume(%s, ''tap-consume-live'')', :'actor_id'),
+  'BZ002', NULL, 'replay of a consumed state is refused (single-use)');
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-consume-live'),
+  1, 'replay mutated nothing — still exactly one row, consumed once');
+
+-- ── Expired row: dead even when never consumed ──────────────────────────────
+INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, issued_at, expires_at)
+VALUES ('tap-consume-expired', :'actor_id', 'china', now() - interval '20 minutes', now() - interval '10 minutes');
+
+SELECT throws_ok(
+  format('SELECT m365_consent_state_consume(%s, ''tap-consume-expired'')', :'actor_id'),
+  'BZ002', NULL, 'consumption of an expired state is refused');
+SELECT is(
+  (SELECT consumed_at IS NULL FROM m365_consent_states WHERE state_token = 'tap-consume-expired'),
+  TRUE, 'the expired row was never consumed');
+
+SELECT * FROM finish();
+ROLLBACK;

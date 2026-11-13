@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/audit/verify?from_id=2&to_id=9",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Audit chain BROKEN: 1/2 row(s) failed verification (ids: [3])\n",
+  "stderr": "Error: audit chain integrity check failed: 1 broken row(s)\n",
+  "exit": 1
+}

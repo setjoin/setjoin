@@ -1,0 +1,29 @@
+-- append_email_change.pg: reducer tests for append_email_change (Task 2, offline #3).
+-- Follows GT+pattern: seed a real mailbox via mk_account (FK-safe).
+BEGIN;
+SELECT plan(4);
+
+CREATE TEMP TABLE _ac AS SELECT mk_account('ac_user') AS mb_id;
+
+-- precise row: entity_id + op stored verbatim
+SELECT lives_ok(
+  format($$SELECT append_email_change(%s, 42, 99, 'updated')$$,
+    (SELECT mb_id FROM _ac))::text,
+  'append precise row');
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+   WHERE mailbox_id=(SELECT mb_id FROM _ac) AND state_seq=42 AND entity_id=99),
+  'updated', 'precise op stored');
+
+-- NULL entity_id → sentinel (entity_id=0, op=resync)
+SELECT lives_ok(
+  format($$SELECT append_email_change(%s, 43, NULL, 'resync')$$,
+    (SELECT mb_id FROM _ac))::text,
+  'append sentinel');
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+   WHERE mailbox_id=(SELECT mb_id FROM _ac) AND state_seq=43 AND entity_id=0),
+  'resync', 'sentinel op=resync at entity_id=0');
+
+SELECT finish();
+ROLLBACK;

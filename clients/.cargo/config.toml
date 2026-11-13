@@ -1,0 +1,33 @@
+# Registry pinning (D-CLIENTS--CARGO-002, CWE-494): pin the default registry
+# to its canonical sparse-index endpoint, explicitly. Source replacement
+# (replace-with) is NOT usable here — the repo has no mirror, and cargo rejects
+# replacing crates.io with the same crates.io URL — so the policy is: exactly
+# this one registry, no [source.*] mirror tables, no [patch.*] overrides. The
+# check-cargo-supply-chain guard enforces that on this file, mirrors the
+# allowlist in clients/deny.toml ([sources] unknown-registry/unknown-git =
+# deny), and validates clients/Cargo.lock against the pinned checksum catalog
+# in scripts/cargo-lock-pins.json. Any documented mirror must be added to all
+# three in the same change. The same guard also hash-pins every SDK toolchain
+# binary referenced below (basename+sha256, keyed by path relative to the SDK
+# root): changing, adding or repointing any path in [env]/[target.*] below
+# requires a conscious `node scripts/cargo-lock-catalog.mjs refresh` in the
+# same change — a machine without this SDK reports an explicit SDK-SKIP.
+[source.crates-io]
+registry = "sparse+https://index.crates.io/"
+
+[env]
+# Needed by napi-build-ohos (the ohos-native crate's build.rs) to locate the
+# OHOS NDK; the CC/CXX/linker vars below already point into the same SDK tree.
+OHOS_NDK_HOME = "/opt/ohos/command-line-tools/sdk/default/openharmony"
+CC_aarch64_unknown_linux_ohos = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang"
+CXX_aarch64_unknown_linux_ohos = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang++"
+CFLAGS_aarch64_unknown_linux_ohos = "--sysroot=/opt/ohos/command-line-tools/sdk/default/openharmony/native/sysroot"
+CXXFLAGS_aarch64_unknown_linux_ohos = "--sysroot=/opt/ohos/command-line-tools/sdk/default/openharmony/native/sysroot"
+
+[target.aarch64-unknown-linux-ohos]
+linker = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang"
+ar = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/llvm-ar"
+
+[target.x86_64-unknown-linux-ohos]
+linker = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/x86_64-unknown-linux-ohos-clang"
+ar = "/opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm/bin/llvm-ar"

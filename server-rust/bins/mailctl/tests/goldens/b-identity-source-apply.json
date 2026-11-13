@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/sources/directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/identity/v2/sources/directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "if-match": "\"3\"",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"document\":{\"apiVersion\":\"setjoin.io/v1\",\"kind\":\"IdentitySource\",\"metadata\":{\"sourceKey\":\"directory\",\"displayName\":\"Directory\"},\"spec\":{\"type\":\"ldap\",\"baseDN\":\"dc=example,dc=test\",\"subjectAttribute\":\"entryUUID\",\"endpoint\":{\"host\":\"directory.example.test\",\"port\":636,\"tls\":\"ldaps\"}}},\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\"}"
+    }
+  ],
+  "stdout": "Identity source directory draft durably accepted at generation 4.\n",
+  "stderr": "Idempotency-Key: 00000000-0000-4000-8000-000000000001\n",
+  "exit": 0
+}

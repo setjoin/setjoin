@@ -1,0 +1,42 @@
+{
+  "case": "list-cross-tenant",
+  "format": 1,
+  "go_source": "6c1a7fee2c8d147965cc84ed94ea4663488a89c7",
+  "observation": {
+    "effects": {
+      "actor": [
+        {
+          "count": 7,
+          "id": "YWN0b3ItY3JlZGVudGlhbA==",
+          "name": "My key",
+          "revoked": false,
+          "used": false,
+          "uv": true
+        }
+      ],
+      "foreign": [
+        {
+          "count": 7,
+          "id": "Zm9yZWlnbi1jcmVkZW50aWFs",
+          "name": "Foreign",
+          "revoked": false,
+          "used": false,
+          "uv": false
+        }
+      ]
+    },
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/webauthn/credentials"
+    },
+    "response": {
+      "body": "{\"credentials\":[{\"id\":\"Zm9yZWlnbi1jcmVkZW50aWFs\",\"device_name\":\"Foreign\",\"created_at\":\"2026-10-01T02:03:04Z\",\"uv_capable\":false}]}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/webauthn/credentials"
+}

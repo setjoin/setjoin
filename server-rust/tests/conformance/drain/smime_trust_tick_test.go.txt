@@ -1,0 +1,151 @@
+// Recording-only overlay (#328): frozen Go's real `smime_trust_changed` config listener. It
+// wires the listener exactly as main.go does (db.NewListener + Subscribe that calls
+// InvalidateSMIMETrustCache on an InboundServer), seeds smime_trust_anchors from the scenario
+// file, observes which probe certificates each recipient domain's pool trusts, changes the
+// table, observes again (the cache must still answer the old pools), sends one
+// pg_notify('smime_trust_changed','1') and observes after the invalidation.
+package smtp
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"setjoin.com/mailserver/internal/db"
+	"setjoin.com/mailserver/internal/smime"
+	"setjoin.com/shared/pgxutil"
+)
+
+type goFreeTrustRow struct {
+	PEM         string `json:"pem"`
+	Fingerprint string `json:"fingerprint"`
+	Domain      *int64 `json:"domain"`
+}
+
+type goFreeTrustScenario struct {
+	Domains []int64          `json:"domains"`
+	Seed    []goFreeTrustRow `json:"seed"`
+	Probes  []string         `json:"probes"`
+	// After: rows deleted by fingerprint+domain-null-flag then inserted before the tick.
+	DeleteFingerprints []string         `json:"delete_fingerprints"`
+	Insert             []goFreeTrustRow `json:"insert"`
+	// RenameTable makes the pool query fail (Go logs and keeps the bundle only).
+	BreakTable bool `json:"break_table"`
+}
+
+func goFreeObserve(t *testing.T, srv *InboundServer, domains []int64, probes []*x509.Certificate) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, d := range domains {
+		pool := srv.smimeRootsForDomain(context.Background(), d)
+		row := map[string]bool{}
+		for i, cert := range probes {
+			_, err := cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+			row[string(rune('a'+i))] = err == nil
+		}
+		out[json.Number(goFreeItoa(d)).String()] = row
+	}
+	return out
+}
+
+func goFreeItoa(n int64) string {
+	b, _ := json.Marshal(n)
+	return string(b)
+}
+
+func TestGoFreeSMIMETrustTick(t *testing.T) {
+	ctx := context.Background()
+	raw, err := os.ReadFile(os.Getenv("GOFREE_SMIME_SCENARIO"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sc goFreeTrustScenario
+	if err := json.Unmarshal(raw, &sc); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, os.Getenv("GOFREE_DRAIN_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	insert := func(r goFreeTrustRow) {
+		if _, err := pool.Exec(ctx, `INSERT INTO smime_trust_anchors (label, cert_pem, fingerprint, domain_id) VALUES ('oracle', $1, $2, $3)`, r.PEM, r.Fingerprint, r.Domain); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM smime_trust_anchors`); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range sc.Seed {
+		insert(r)
+	}
+	var probes []*x509.Certificate
+	for _, p := range sc.Probes {
+		c, err := smime.ParseCert([]byte(p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		probes = append(probes, c)
+	}
+
+	srv := NewInboundServer(pgxutil.WorkerPool{Pool: pool}, ":0", slog.Default(), nil, nil)
+	conn, err := pgx.Connect(ctx, os.Getenv("GOFREE_SMIME_DIRECT_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := db.NewListener(conn, slog.Default())
+	listener.SetDSN(os.Getenv("GOFREE_SMIME_DIRECT_DSN"))
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go listener.Run(runCtx)
+	if _, err := listener.Subscribe(runCtx, "smime_trust_changed", func(*pgconn.Notification) {
+		srv.InvalidateSMIMETrustCache()
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := map[string]any{}
+	result["seeded"] = goFreeObserve(t, srv, sc.Domains, probes)
+	for _, fp := range sc.DeleteFingerprints {
+		if _, err := pool.Exec(ctx, `DELETE FROM smime_trust_anchors WHERE fingerprint = $1`, fp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range sc.Insert {
+		insert(r)
+	}
+	if sc.BreakTable {
+		if _, err := pool.Exec(ctx, `ALTER TABLE smime_trust_anchors RENAME TO smime_trust_anchors_gofree_hidden`); err != nil {
+			t.Fatal(err)
+		}
+		defer pool.Exec(ctx, `ALTER TABLE smime_trust_anchors_gofree_hidden RENAME TO smime_trust_anchors`) //nolint:errcheck
+	}
+	result["cached"] = goFreeObserve(t, srv, sc.Domains, probes)
+	if _, err := pool.Exec(ctx, `SELECT pg_notify('smime_trust_changed', '1')`); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		srv.smimeMu.RLock()
+		n := len(srv.smimeDomainPools)
+		srv.smimeMu.RUnlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cache not invalidated by the notification")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	result["after_tick"] = goFreeObserve(t, srv, sc.Domains, probes)
+	out, _ := json.Marshal(result)
+	if err := os.WriteFile(os.Getenv("GOFREE_SMIME_OUT"), out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

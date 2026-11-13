@@ -1,0 +1,100 @@
+-- pgTAP: stale_thread_nudges_list.pg
+-- #13 — stale_thread_nudges_list() query-time nudge computation + per-user
+-- dismiss via users.view_prefs->'nudgeDismissed'.
+--
+-- 6 assertions:
+--   1. A 4-day-old unanswered Inbox thread ⇒ kind='stale_unanswered'.
+--   2. A 4-day-old Sent-with-no-reply thread ⇒ kind='no_reply_sent'.
+--   3. A <3-day-old (recent) thread is excluded.
+--   4. A dismissed thread_id (in view_prefs->'nudgeDismissed') is excluded.
+--   5. nudge_dismiss() appends the thread_id and removes it from the list.
+--   6. nudge_dismiss() is idempotent (repeat call ⇒ no duplicate, still excluded).
+BEGIN;
+SELECT plan(6);
+
+-- Seed domain + user 107800 + mailbox 7800 (ADR-003: divergent ids).
+INSERT INTO domains (id, name, created_at) VALUES (7800, 'nudges-test.example', now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, display_name, email, password_hash, domain_id, created_at)
+  VALUES (107800, 'nudges7800', 'Nudges User', 'me@nudges-test.example', 'x', 7800, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, created_at, type)
+  VALUES (7800, 107800, 7800, 'me@nudges-test.example', 'Nudges User', TRUE, now(), 'personal')
+  ON CONFLICT (id) DO NOTHING;
+
+SELECT create_system_tags(7800);
+
+DO $$
+DECLARE
+  v_inbox BIGINT := get_tag_id('Inbox', 7800);
+  v_sent  BIGINT := get_tag_id('Sent', 7800);
+  v_now   TIMESTAMPTZ := now();
+BEGIN
+  -- Thread A: 4-day-old unanswered inbound (Inbox) ⇒ stale_unanswered.
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, is_answered)
+    VALUES (780001, 7800, v_inbox, '<mid-780001>', 'Please review', 'boss@corp.example', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-A', 'raw/780001', v_now - interval '4 days', FALSE);
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES (780001, v_inbox, v_now - interval '4 days', 'system', TRUE);
+
+  -- Thread B: 4-day-old sent-with-no-reply (Sent) ⇒ no_reply_sent.
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, sent_at, is_answered)
+    VALUES (780002, 7800, v_sent, '<mid-780002>', 'Following up', 'me@nudges-test.example', '[{"email":"client@ext.example"}]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-B', 'raw/780002', v_now - interval '4 days', v_now - interval '4 days', FALSE);
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES (780002, v_sent, v_now - interval '4 days', 'system', TRUE);
+
+  -- Thread C: 4-day-old unanswered inbound, later DISMISSED ⇒ excluded.
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, is_answered)
+    VALUES (780003, 7800, v_inbox, '<mid-780003>', 'Old thread', 'x@ext.example', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-C', 'raw/780003', v_now - interval '4 days', FALSE);
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES (780003, v_inbox, v_now - interval '4 days', 'system', TRUE);
+
+  -- Thread D: <3-day-old (recent) unanswered inbound ⇒ excluded (not yet stale).
+  INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at, is_answered)
+    VALUES (780004, 7800, v_inbox, '<mid-780004>', 'Recent', 'y@ext.example', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-D', 'raw/780004', v_now - interval '1 day', FALSE);
+  INSERT INTO message_tags (message_id, tag_id, received_at, added_by, is_primary)
+    VALUES (780004, v_inbox, v_now - interval '1 day', 'system', TRUE);
+
+  -- Pre-dismiss thread-C via view_prefs (the state nudge_dismiss writes).
+  UPDATE users SET view_prefs = jsonb_build_object('nudgeDismissed', '["thread-C"]'::jsonb)
+   WHERE id = 107800;
+END $$;
+
+-- 1. Thread A ⇒ stale_unanswered.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(stale_thread_nudges_list(7800)) e
+     WHERE e->>'threadId' = 'thread-A' AND e->>'kind' = 'stale_unanswered'),
+  1, 'thread A: 4-day-old unanswered inbound classified stale_unanswered');
+
+-- 2. Thread B ⇒ no_reply_sent.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(stale_thread_nudges_list(7800)) e
+     WHERE e->>'threadId' = 'thread-B' AND e->>'kind' = 'no_reply_sent'),
+  1, 'thread B: 4-day-old sent-no-reply classified no_reply_sent');
+
+-- 3. Thread D (recent) excluded.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(stale_thread_nudges_list(7800)) e
+     WHERE e->>'threadId' = 'thread-D'),
+  0, 'thread D: <3-day-old thread excluded');
+
+-- 4. Thread C (dismissed) excluded.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(stale_thread_nudges_list(7800)) e
+     WHERE e->>'threadId' = 'thread-C'),
+  0, 'thread C: dismissed thread excluded');
+
+-- 5. nudge_dismiss(thread-A) removes it from the list.
+SELECT nudge_dismiss(7800, 'thread-A');
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_array_elements(stale_thread_nudges_list(7800)) e
+     WHERE e->>'threadId' = 'thread-A'),
+  0, 'nudge_dismiss(thread-A) excludes it from subsequent lists');
+
+-- 6. Idempotent: a repeat dismiss does not duplicate the entry.
+SELECT nudge_dismiss(7800, 'thread-A');
+SELECT is(
+  (SELECT jsonb_array_length(view_prefs->'nudgeDismissed') FROM users WHERE id = 107800),
+  2, 'nudge_dismiss is idempotent (thread-C + thread-A, no dup for thread-A)');
+
+SELECT * FROM finish();
+ROLLBACK;

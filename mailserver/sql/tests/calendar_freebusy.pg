@@ -1,0 +1,54 @@
+-- pgTAP: calendar_freebusy.sql — pure helper functions + expand_recurrence COUNT
+BEGIN;
+SELECT plan(15);
+
+-- day_of_week_num: converts BYDAY codes to Sunday-based day numbers (0=Sun, 1=Mon, ..., 6=Sat)
+SELECT is(day_of_week_num('MO'), 1, 'MO = 1 (Sunday-based)');
+SELECT is(day_of_week_num('TU'), 2, 'TU = 2');
+SELECT is(day_of_week_num('FR'), 5, 'FR = 5');
+SELECT is(day_of_week_num('SU'), 0, 'SU = 0');
+
+-- positional_week: extracts numeric prefix from BYDAY codes
+SELECT is(positional_week('1MO'), 1, '1MO position = 1');
+SELECT is(positional_week('-1SU'), -1, '-1SU position = -1');
+SELECT is(positional_week('2TU'), 2, '2TU position = 2');
+SELECT is(positional_week('MO'), 0, 'plain MO position = 0 (no prefix)');
+
+-- is_byweekno_match: checks ISO week number against BYWEEKNO list
+SELECT ok(is_byweekno_match('2026-04-10'::TIMESTAMPTZ, '15'), 'week 15 matches BYWEEKNO=15');
+SELECT ok(is_byweekno_match('2026-04-13'::TIMESTAMPTZ, '15,16,17'), 'week 16 (Apr 13) matches BYWEEKNO=15,16,17');
+SELECT ok(NOT is_byweekno_match('2026-04-10'::TIMESTAMPTZ, '1,2,3'), 'week 15 does not match BYWEEKNO=1,2,3');
+SELECT ok(is_byweekno_match('2026-04-10'::TIMESTAMPTZ, NULL), 'NULL BYWEEKNO always matches');
+
+-- expand_recurrence: RFC 5545 COUNT limits GENERATED OCCURRENCES, not FREQ steps.
+-- 2026-01-05 is a Monday; the window is wide enough to include every occurrence.
+
+-- WEEKLY+BYDAY emits multiple days per step. COUNT=6 over MO,WE,FR must yield exactly 6
+-- (2 weeks), NOT 18 (6 weeks × 3 days) as the old step-counter produced.
+SELECT is(
+  (SELECT count(*)::INT FROM expand_recurrence(
+     '2026-01-05 09:00+00'::TIMESTAMPTZ, '2026-01-05 10:00+00'::TIMESTAMPTZ,
+     'FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=6',
+     '2026-01-01 00:00+00'::TIMESTAMPTZ, '2026-12-31 00:00+00'::TIMESTAMPTZ)),
+  6, 'WEEKLY+BYDAY COUNT=6 yields exactly 6 occurrences (was 18 — counted steps)');
+
+-- Simple (single-emit) branch still counts correctly: DAILY COUNT=5 → 5.
+SELECT is(
+  (SELECT count(*)::INT FROM expand_recurrence(
+     '2026-01-05 09:00+00'::TIMESTAMPTZ, '2026-01-05 10:00+00'::TIMESTAMPTZ,
+     'FREQ=DAILY;COUNT=5',
+     '2026-01-01 00:00+00'::TIMESTAMPTZ, '2026-12-31 00:00+00'::TIMESTAMPTZ)),
+  5, 'DAILY COUNT=5 yields exactly 5 occurrences (simple-branch count preserved)');
+
+-- COUNT is counted from DTSTART, independent of the query window. DTSTART Jan5 (Mon),
+-- WEEKLY;BYDAY=MO;COUNT=3 → occurrences Jan5, Jan12, Jan19. A window starting Jan12
+-- excludes occ #1 but the recurrence is still bounded at 3 total → only 2 in-window.
+SELECT is(
+  (SELECT count(*)::INT FROM expand_recurrence(
+     '2026-01-05 09:00+00'::TIMESTAMPTZ, '2026-01-05 10:00+00'::TIMESTAMPTZ,
+     'FREQ=WEEKLY;BYDAY=MO;COUNT=3',
+     '2026-01-12 00:00+00'::TIMESTAMPTZ, '2026-12-31 00:00+00'::TIMESTAMPTZ)),
+  2, 'COUNT counts from DTSTART: a window excluding occ #1 yields the remaining 2');
+
+SELECT * FROM finish();
+ROLLBACK;

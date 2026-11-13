@@ -1,0 +1,103 @@
+-- mailserver/sql/tests/drive_trash_tiers.pg — I-16 two-level trash (spec
+-- §10) + drive_node_purge_restore + drive_trash_admin_list coverage
+-- (SECURITY DEFINER pair — the V037 drive_access_audit write+read
+-- colocation precedent; this file is their pgTAP).
+--
+-- AUTOPLAN batch-2 BLOCKER #5: the destroy + purge-restore calls below run
+-- under SET LOCAL ROLE setjoin_app + the user GUC (NOT superuser) — that is
+-- what catches blockers #1/#2/#3 (the real V114 policy names, the
+-- purged-gate USING-only shape, the DEFINER ownership-transfer footer)
+-- in-suite instead of at the native-RLS DSN flip. Reuses rls_drive.pg's
+-- defensive-GRANT block (BYPASSRLS bypasses policies, not GRANTs).
+--
+-- Grace-expiry (clock-shifted purge -> sweep hard-destroys) and the gxp
+-- survival case are P6 Task 4 (drive_maintenance_sweep integration) —
+-- deliberately out of scope here; drive_node_destroy_hard's own leaf-first/
+-- gxp-refusal contract is already covered directly (no sweep needed) by
+-- drive_node_destroy_versioning.pg and drive_worm_immortal.pg.
+BEGIN;
+SELECT plan(12);
+
+SELECT mk_account('ttM') AS mbm \gset
+SELECT mk_account('ttE') AS mbe \gset
+SELECT mk_account('ttA') AS mba \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS a FROM mailboxes WHERE id = :mba \gset
+
+SELECT drive_space_create(:m, 'TT', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+-- :a holds drive.manage but is NOT a space member — drive_trash_admin_list /
+-- drive_node_purge_restore check drive_has_admin_perm only, never membership.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:a, 1, :a);
+
+-- Defensive grants (BYPASSRLS bypasses policies, not GRANTs — rls_drive.pg genre)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+
+-- ── subtree: recursive purge + invisibility + admin-list root, non-admin 403 ─
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'sub') AS fa \gset
+SELECT drive_node_create(:m, :sid, :fa, 'file', 'a.bin') AS fa_file \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:m, :fa_file, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:m, :fa);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :m::text, true);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :m, :fa),
+  'manager destroy under setjoin_app + FORCE RLS succeeds (blocker #1 proof)');
+RESET ROLE;
+
+SELECT ok((SELECT bool_and(purged_at IS NOT NULL) FROM drive_nodes WHERE id IN (:fa, :fa_file)),
+          'subtree purged recursively');
+
+-- invisible to ALL member SELECTs (RLS: purged_at IS NULL in the member policies)
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :m::text, true);
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id IN (:fa, :fa_file))::int, 0,
+          'purged rows invisible even to the destroying manager');
+RESET ROLE;
+
+-- admin list sees the tier-2 ROOT only (not the purged child); non-admin gets BZ140
+SELECT ok((drive_trash_admin_list(:a, :sid))::text LIKE '%' || :fa || '%', 'admin lists tier-2 root');
+SELECT is(jsonb_array_length(drive_trash_admin_list(:a, :sid)), 1,
+          'admin list shows only the tier-2 ROOT, not its purged child');
+SELECT throws_ok(format($$ SELECT drive_trash_admin_list(%s, %s) $$, :m, :sid),
+  'BZ140', NULL, 'space manager without drive.manage: BZ140');
+SELECT throws_ok(format($$ SELECT drive_node_purge_restore(%s, %s) $$, :m, :fa),
+  'BZ140', NULL, 'space manager without drive.manage cannot purge-restore');
+
+-- ── single file: collision-suffixed admin restore to original path (G4) ────
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'docs') AS fdocs \gset
+SELECT drive_node_create(:m, :sid, :fdocs, 'file', 'Report.xlsx') AS fb \gset
+SELECT drive_chunk_register(:m, :sid, repeat('2',64), 10);
+SELECT drive_file_put_version(:m, :fb, repeat('b',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:m, :fb);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :m::text, true);
+SELECT drive_node_destroy(:m, :fb);
+RESET ROLE;
+
+-- a LIVE file re-created at the same path forces the restore collision
+SELECT drive_node_create(:m, :sid, :fdocs, 'file', 'Report.xlsx') AS fb2 \gset
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :a::text, true);
+SELECT lives_ok(format($$ SELECT drive_node_purge_restore(%s, %s) $$, :a, :fb),
+  'admin restore under setjoin_app + FORCE RLS succeeds (blocker #3 proof)');
+RESET ROLE;
+
+SELECT ok((SELECT purged_at IS NULL AND deleted_at IS NULL FROM drive_nodes WHERE id = :fb),
+          'restored node fully live again');
+SELECT is((SELECT name FROM drive_nodes WHERE id = :fb), 'Report -2.xlsx',
+          'G4 suffix before the extension on collision');
+SELECT is((SELECT count(*) FROM drive_changes WHERE node_id = :fb AND op = 'restore')::int,
+          1, 'restore journaled');
+SELECT ok((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :sid AND action = 'trash.adminRestore')::int >= 1,
+          'admin restore recorded on the audit chain');
+
+SELECT * FROM finish();
+ROLLBACK;

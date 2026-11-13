@@ -1,0 +1,217 @@
+{
+  "case": "recurring-row-effects",
+  "effects": [
+    {
+      "after": {
+        "attendees": [],
+        "calendars": [
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 3,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL4 Owner",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          },
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL4 Other",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          }
+        ],
+        "events": [
+          {
+            "all_day": false,
+            "calendar_id": 994261,
+            "classification": "PUBLIC",
+            "color": null,
+            "completed_at": null,
+            "component_type": "VEVENT",
+            "description": "",
+            "due_at": null,
+            "end_at": "2031-01-02T11:00:00+00:00",
+            "exdate": [
+              "2031-01-03T10:00:00+00:00",
+              "2031-01-04T10:00:00+00:00"
+            ],
+            "is_meeting": false,
+            "jmap_state": 1,
+            "location": "",
+            "meeting_url": null,
+            "organizer_email": null,
+            "organizer_name": null,
+            "parent_event_uid": null,
+            "percent_complete": null,
+            "priority": null,
+            "rdate": null,
+            "recurrence_id": null,
+            "recurrence_override": null,
+            "rrule": "FREQ=DAILY;COUNT=3",
+            "sequence": 0,
+            "start_at": "2031-01-02T10:00:00+00:00",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "CAL4 write",
+            "transp": "OPAQUE",
+            "uid": "cal4-write",
+            "url": null,
+            "valarm": null
+          },
+          {
+            "all_day": false,
+            "calendar_id": 994261,
+            "classification": "PUBLIC",
+            "color": null,
+            "completed_at": null,
+            "component_type": "VEVENT",
+            "description": "",
+            "due_at": null,
+            "end_at": "2031-01-03T13:00:00+00:00",
+            "exdate": null,
+            "is_meeting": false,
+            "jmap_state": 1,
+            "location": "",
+            "meeting_url": null,
+            "organizer_email": null,
+            "organizer_name": null,
+            "parent_event_uid": "cal4-write",
+            "percent_complete": null,
+            "priority": null,
+            "rdate": null,
+            "recurrence_id": null,
+            "recurrence_override": "2031-01-03T10:00:00+00:00",
+            "rrule": null,
+            "sequence": 0,
+            "start_at": "2031-01-03T12:00:00+00:00",
+            "status": "confirmed",
+            "timezone": "",
+            "title": "Changed occurrence",
+            "transp": "OPAQUE",
+            "uid": "cal4-write",
+            "url": null,
+            "valarm": null
+          }
+        ],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994261,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994262,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "queue": [],
+        "state": [
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-a>",
+            "state": 1
+          },
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-b>",
+            "state": 1
+          }
+        ]
+      },
+      "before": {
+        "attendees": [],
+        "calendars": [
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL4 Owner",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          },
+          {
+            "booking_policy": "auto-accept",
+            "capacity": null,
+            "color": null,
+            "description": null,
+            "ical_feed_url": null,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL4 Other",
+            "resource_type": "personal",
+            "timezone": "UTC"
+          }
+        ],
+        "events": [],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994261,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "Calendar",
+            "entity_id": 994262,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "queue": [],
+        "state": [
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-a>",
+            "state": 1
+          },
+          {
+            "datatype": "Calendar",
+            "mailbox": "<mailbox-b>",
+            "state": 1
+          }
+        ]
+      },
+      "table": "f17-caldav"
+    }
+  ],
+  "format": 1,
+  "go_source": "8ba0d3736239af47d80d20e7f40dccc77bc4b992",
+  "route": "* /caldav/ put"
+}

@@ -1,0 +1,93 @@
+-- mailserver/sql/tests/drive_worm_immortal.pg — invariant I-5: gxp versions
+-- are immortal inside retention (content immutable, prune-immune, never
+-- GC-queued) and destroyable once retention has genuinely elapsed (P5 Task 6).
+-- P1's trg_drive_version_worm (V114/V115) already implements the guard end to
+-- end; this file is the first pgTAP proof of it plus P5's retain_until
+-- bookkeeping (drive_chunks_extend_retention, wired in drive_file_put_version).
+BEGIN;
+SELECT plan(13);
+
+UPDATE feature_toggles SET enabled = true WHERE key IN ('feature.drive','feature.drive_compliance');
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (94300, 'dwm.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (94301, 'dwm_owner', 94300, 'own@dwm.test', 'Owner', TRUE);
+
+SELECT drive_space_create(94301, 'GxpImmortal6', 'gxp', false, 30, 'compliance') AS id \gset gxp_
+SELECT drive_node_create(94301, :gxp_id, NULL, 'file', 'imm.pdf') AS fid \gset
+SELECT drive_chunk_register(94301, :gxp_id, repeat('1',64), 10);
+SELECT (drive_file_put_version(94301, :fid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, 'v1', 'test')->>'versionId')::bigint AS vid \gset
+
+-- 1/2: raw UPDATE/DELETE on an in-retention gxp version -> BZ145.
+SELECT throws_ok(format($$ UPDATE drive_file_versions SET note='x' WHERE id=%s $$, :vid),
+                 'BZ145', NULL, 'raw UPDATE on in-retention gxp version -> BZ145');
+SELECT throws_ok(format($$ DELETE FROM drive_file_versions WHERE id=%s $$, :vid),
+                 'BZ145', NULL, 'raw DELETE on in-retention gxp version -> BZ145');
+
+-- 3: rendition exception (preview_status/preview_sha256 only) still succeeds.
+SELECT lives_ok(format($$ UPDATE drive_file_versions SET preview_status='ready', preview_sha256=%L WHERE id=%s $$,
+                       repeat('c',64), :vid),
+                'rendition-only update is exempted from the WORM guard');
+
+-- 4: prune skips gxp spaces entirely.
+SELECT is(drive_version_prune(:gxp_id, 0), 0, 'prune leaves the gxp version untouched (gxp is skipped entirely)');
+
+-- 5: put_version's gxp branch extends retain_until via the DEFINER helper
+-- drive_chunks_extend_retention (P1 R5, already wired -- Task 0 Step 2 found
+-- it present, so no reducer change was needed here).
+SELECT ok((SELECT retain_until FROM drive_chunks WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64))
+             > now() + interval '29 days',
+          'gxp put_version sets retain_until >= now()+retention_days');
+
+-- 6: the chunk carries a positive ref_count and is never GC-queued while referenced.
+SELECT ok((SELECT ref_count FROM drive_chunks WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64)) > 0,
+          'gxp chunk carries a positive ref_count');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64))::int,
+          0, 'gxp chunk never queued for GC while referenced');
+
+-- 7: re-referencing the same chunk from a second version EXTENDS retain_until
+-- (GREATEST -- never shortens). Simulate a stale lock first (force it
+-- backward), then prove the next put_version call restores the full window.
+UPDATE drive_chunks SET retain_until = now() + interval '1 day'
+ WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT drive_chunk_register(94301, :gxp_id, repeat('1',64), 10);
+SELECT drive_file_put_version(94301, :fid, repeat('b',64), 10, NULL, :vid,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, 'v2', 'test');
+SELECT ok((SELECT retain_until FROM drive_chunks WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64))
+             > now() + interval '29 days',
+          're-referencing the chunk extends retain_until (GREATEST, never shortens)');
+
+-- 8: post-retention destroy purges to tier 2 (P6: destroy no longer touches
+-- content, so the chunk does NOT GC-queue yet); drive_node_destroy_hard is
+-- the actual release point once retention has genuinely elapsed.
+-- A version that is ALREADY past retention is fixtured via direct INSERT
+-- (created_at set at insert time) -- the WORM guard fires on UPDATE/DELETE of
+-- an EXISTING row still inside its window, so it cannot be exercised by
+-- backdating an in-retention row after the fact; the guard evaluates OLD, and
+-- OLD would still be "in retention" the instant before any such UPDATE.
+SELECT drive_node_create(94301, :gxp_id, NULL, 'file', 'old.pdf') AS fid2 \gset
+-- ref_count 0 on insert -- the drive_version_chunks INSERT below fires
+-- trg_drive_vc_refcount_inc and brings it to 1; destroy's cascaded DELETE
+-- of drive_version_chunks then fires trg_drive_vc_refcount_dec back to 0,
+-- which is what should trip the zero-ref GC-queue trigger.
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until)
+  VALUES ('s'||:gxp_id, repeat('9',64), 10, 'drive/s'||:gxp_id||'/'||repeat('9',64),
+          now() - interval '10 days', now() - interval '10 days');
+INSERT INTO drive_file_versions (id, file_node_id, space_id, content_sha256, size_bytes, author_user_id, created_at)
+  OVERRIDING SYSTEM VALUE VALUES (94399, :fid2, :gxp_id, repeat('9',64), 10, 94301, now() - interval '40 days');
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (94399, 0, 's'||:gxp_id, repeat('9',64));
+UPDATE drive_files SET head_version_id = 94399, size_bytes = 10 WHERE node_id = :fid2;
+SELECT drive_node_trash(94301, :fid2);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(94301, %s) $$, :fid2),
+                'post-retention gxp version purges cleanly (P6: destroy = tier-2, not hard delete)');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id=:fid2 AND purged_at IS NOT NULL)::int, 1,
+          'node moves to tier 2, still present');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('9',64))::int,
+          0, 'chunk NOT GC-queued yet -- tier-2 bytes still held (P6 destroy does not touch chunks)');
+SELECT ok(drive_node_destroy_hard(:fid2),
+          'worker hard-destroy succeeds once retention has genuinely elapsed');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('9',64))::int,
+          1, 'its chunk GC-queues at zero ref_count after hard-destroy');
+
+SELECT * FROM finish();
+ROLLBACK;

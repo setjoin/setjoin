@@ -1,0 +1,108 @@
+BEGIN;
+SELECT plan(24);
+
+SELECT mk_shared_mailbox('business-shared') AS shared_mb \gset
+SELECT mk_account('business-full') AS full_mb \gset
+SELECT user_id AS full_user FROM mailboxes WHERE id=:full_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by)
+VALUES(:shared_mb,:full_user,'full_access',:full_user);
+
+SELECT is(mail_work_sla_policy_snapshot(:shared_mb)->>'timezone','UTC',
+  'missing mailbox policy uses the documented UTC default');
+SELECT is((mail_work_sla_policy_snapshot(:shared_mb)->>'slaMinutes')::integer,480,
+  'default SLA is one eight-hour business day');
+SELECT is(mail_work_business_seconds('2026-08-10 08:00+00','2026-08-10 18:00+00',
+  mail_work_sla_policy_snapshot(:shared_mb)),28800::bigint,
+  'business duration clips time outside the workday');
+SELECT is(mail_work_business_due_at('2026-08-07 16:00+00',120,
+  mail_work_sla_policy_snapshot(:shared_mb)),'2026-08-10 10:00+00'::timestamptz,
+  'business due calculation skips the weekend');
+
+INSERT INTO mail_work_sla_policies(mailbox_id,timezone,weekday_mask,workday_start,workday_end,holidays,sla_minutes)
+VALUES(:shared_mb,'America/New_York',62,'09:00','17:00',ARRAY['2026-08-10'::date],120);
+SELECT is(mail_work_sla_policy_snapshot(:shared_mb)->>'source','mailbox',
+  'mailbox override is versioned into a policy snapshot');
+SELECT is(mail_work_business_seconds('2026-08-10 13:00+00','2026-08-10 21:00+00',
+  mail_work_sla_policy_snapshot(:shared_mb)),0::bigint,
+  'configured holiday contributes zero business time');
+UPDATE mail_work_sla_policies SET holidays='{}' WHERE mailbox_id=:shared_mb;
+SELECT is(mail_work_business_due_at('2026-03-06 21:00+00',120,
+  mail_work_sla_policy_snapshot(:shared_mb)),'2026-03-09 14:00+00'::timestamptz,
+  'DST weekend uses timezone-database Monday opening rather than fixed offset math');
+
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,size_bytes,
+  thread_id,raw_ref,received_at,is_read,is_external)
+VALUES(898101,:shared_mb,get_tag_id('Inbox',:shared_mb),'<business-in@mk.test>',
+  'Business response','outside@example.test',100,'business-thread','s3://business-in',
+  statement_timestamp()-interval '1 hour',false,true);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_work';
+SELECT mail_work_set(:shared_mb,:full_user,'business-thread',gen_random_uuid(),'claim',0,
+  NULL,NULL,NULL,'claim business thread',repeat('a',64)) AS claim_result \gset
+SELECT is((SELECT first_activity_at FROM mail_thread_work WHERE mailbox_id=:shared_mb
+  AND thread_id='business-thread'),(SELECT received_at FROM messages WHERE id=898101),
+  'first work action snapshots the earliest eligible external inbound time');
+SELECT is((SELECT due_at FROM mail_thread_work WHERE mailbox_id=:shared_mb
+  AND thread_id='business-thread'),mail_work_business_due_at((SELECT received_at FROM messages WHERE id=898101),120,
+    mail_work_sla_policy_snapshot(:shared_mb)),
+  'work row snapshots the mailbox SLA and exact due instant');
+
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,size_bytes,
+  thread_id,raw_ref,received_at,sent_at,is_read,is_external)
+VALUES(898102,:shared_mb,get_tag_id('Sent',:shared_mb),'<business-out@mk.test>',
+  'Re: Business response','business-shared@example.test',100,'business-thread','s3://business-out',
+  statement_timestamp(),statement_timestamp(),true,false);
+SELECT ok((mail_work_record_first_response(:shared_mb,:full_user,'business-thread',898102)->>'recorded')::boolean,
+  'successful shared-mail submission records the first response once');
+SELECT is((SELECT count(*)::integer FROM mail_thread_work_events WHERE mailbox_id=:shared_mb
+  AND thread_id='business-thread' AND event_type='first_response'),1,
+  'first response appends one immutable event');
+SELECT is((mail_work_record_first_response(:shared_mb,:full_user,'business-thread',898102)->>'recorded')::boolean,false,
+  'first-response replay is an idempotent no-op');
+SELECT is((SELECT count(*)::integer FROM mail_work_outbox o JOIN mail_thread_work_events e ON e.id=o.event_id
+  WHERE e.mailbox_id=:shared_mb AND e.thread_id='business-thread' AND e.event_type='first_response'),1,
+  'first response queues exactly one metric projection');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_analytics';
+SELECT (statement_timestamp() AT TIME ZONE 'America/New_York')::date AS metric_day \gset
+SELECT is((mail_work_metrics_rebuild(:shared_mb,:full_user,:'metric_day'::date,:'metric_day'::date,1)->>'daysRebuilt')::integer,1,
+  'metric rebuild consumes the immutable first-response event');
+SELECT is((SELECT first_response_count FROM mail_work_metric_daily WHERE mailbox_id=:shared_mb
+  AND metric_day=:'metric_day'::date),1,
+  'daily aggregate reports one real first response');
+
+SELECT is((mail_work_sla_policy_get(:shared_mb,:full_user)->>'canManage')::boolean,true,
+  'full-access delegate may manage the mailbox business calendar');
+SELECT mk_account('business-read') AS read_mb \gset
+SELECT user_id AS read_user FROM mailboxes WHERE id=:read_mb \gset
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by)
+VALUES(:shared_mb,:read_user,'read',:full_user);
+SELECT is((mail_work_sla_policy_get(:shared_mb,:read_user)->>'canManage')::boolean,false,
+  'read-only delegate receives the calendar without management authority');
+SELECT throws_ok(format($q$SELECT mail_work_sla_policy_set(%s,%s,%L,1,'UTC',62,'09:00','17:00','{}'::date[],480,%L)$q$,
+  :shared_mb,:read_user,gen_random_uuid(),repeat('d',64)),'BZ005',NULL,
+  'read-only delegate cannot change the business calendar');
+SELECT gen_random_uuid() AS policy_op \gset
+SELECT is((mail_work_sla_policy_set(:shared_mb,:full_user,:'policy_op',1,'Asia/Shanghai',62,
+  '09:00','18:00',ARRAY['2026-10-01'::date],240,repeat('e',64))->'policy'->>'generation')::bigint,2::bigint,
+  'policy mutation advances its optimistic-concurrency generation');
+SELECT is(mail_work_sla_policy_snapshot(:shared_mb)->>'timezone','Asia/Shanghai',
+  'policy mutation commits the validated IANA timezone');
+SELECT is((SELECT sla_policy_snapshot->>'generation' FROM mail_thread_work
+  WHERE mailbox_id=:shared_mb AND thread_id='business-thread'),'1',
+  'existing work retains its immutable original policy generation');
+SELECT is((mail_work_sla_policy_set(:shared_mb,:full_user,:'policy_op',1,'Asia/Shanghai',62,
+  '09:00','18:00',ARRAY['2026-10-01'::date],240,repeat('e',64))->>'replayed')::boolean,true,
+  'exact policy mutation replay returns the retained receipt');
+SELECT throws_ok(format($q$SELECT mail_work_sla_policy_set(%s,%s,%L,1,'UTC',62,'09:00','17:00','{}'::date[],480,%L)$q$,
+  :shared_mb,:full_user,gen_random_uuid(),repeat('f',64)),'BZ304',NULL,
+  'stale policy generation is rejected');
+
+SELECT set_config('app.current_user_id',:read_user::text,true);
+DELETE FROM mailbox_delegates WHERE mailbox_id=:shared_mb AND user_id=:read_user;
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::int FROM mail_work_sla_policies WHERE mailbox_id=:shared_mb),0,
+  'mail work SLA policies hide another principal');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

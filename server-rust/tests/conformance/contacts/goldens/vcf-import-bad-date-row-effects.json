@@ -1,0 +1,311 @@
+{
+  "case": "bad-date-row-effects",
+  "effects": [
+    {
+      "after": {
+        "addressbooks": [
+          {
+            "name": "cal2-a-book",
+            "owner": "a",
+            "state": 0
+          },
+          {
+            "name": "cal2-b-book",
+            "owner": "b",
+            "state": 0
+          }
+        ],
+        "contacts": [
+          {
+            "addresses": [
+              {
+                "city": "Town",
+                "code": "123",
+                "country": "X",
+                "region": "R",
+                "street": "1 Main St",
+                "type": "home"
+              }
+            ],
+            "anniversary": null,
+            "birthday": "1990-02-03",
+            "book": "a",
+            "categories": [
+              "friends",
+              "work"
+            ],
+            "company": "=Evil Corp",
+            "department": "Sales",
+            "display": "Alice Seed",
+            "emails": [
+              {
+                "address": "alice@seed.test",
+                "type": "work"
+              }
+            ],
+            "etag_set": false,
+            "first": "Alice",
+            "impps": [],
+            "last": "Seed",
+            "notes": "line1\nline2, with comma",
+            "phones": [
+              {
+                "number": "+100",
+                "type": "work"
+              }
+            ],
+            "title": "Engineer",
+            "uid": "cal2-seed-1",
+            "urls": [
+              {
+                "type": "work",
+                "value": "https://seed.test"
+              }
+            ]
+          },
+          {
+            "addresses": [],
+            "anniversary": null,
+            "birthday": null,
+            "book": "a",
+            "categories": [],
+            "company": null,
+            "department": null,
+            "display": "Bob Seed",
+            "emails": [
+              {
+                "type": "home",
+                "value": "bob@seed.test"
+              }
+            ],
+            "etag_set": false,
+            "first": "Bob",
+            "impps": [],
+            "last": "Seed",
+            "notes": null,
+            "phones": [
+              {
+                "type": "home",
+                "value": "+101"
+              }
+            ],
+            "title": null,
+            "uid": "cal2-seed-2",
+            "urls": []
+          },
+          {
+            "addresses": [],
+            "anniversary": null,
+            "birthday": null,
+            "book": "b",
+            "categories": [],
+            "company": null,
+            "department": null,
+            "display": "Carol Other",
+            "emails": [],
+            "etag_set": false,
+            "first": "Carol",
+            "impps": [],
+            "last": "Other",
+            "notes": null,
+            "phones": [],
+            "title": null,
+            "uid": "cal2-other-1",
+            "urls": []
+          }
+        ],
+        "journal": [
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "a",
+            "state": 1,
+            "uid": "cal2-seed-1"
+          },
+          {
+            "datatype": "AddressBook",
+            "op": "created",
+            "owner": "a",
+            "state": 1,
+            "uid": null
+          },
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "a",
+            "state": 2,
+            "uid": "cal2-seed-2"
+          },
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "b",
+            "state": 1,
+            "uid": "cal2-other-1"
+          },
+          {
+            "datatype": "AddressBook",
+            "op": "created",
+            "owner": "b",
+            "state": 1,
+            "uid": null
+          }
+        ]
+      },
+      "before": {
+        "addressbooks": [
+          {
+            "name": "cal2-a-book",
+            "owner": "a",
+            "state": 0
+          },
+          {
+            "name": "cal2-b-book",
+            "owner": "b",
+            "state": 0
+          }
+        ],
+        "contacts": [
+          {
+            "addresses": [
+              {
+                "city": "Town",
+                "code": "123",
+                "country": "X",
+                "region": "R",
+                "street": "1 Main St",
+                "type": "home"
+              }
+            ],
+            "anniversary": null,
+            "birthday": "1990-02-03",
+            "book": "a",
+            "categories": [
+              "friends",
+              "work"
+            ],
+            "company": "=Evil Corp",
+            "department": "Sales",
+            "display": "Alice Seed",
+            "emails": [
+              {
+                "address": "alice@seed.test",
+                "type": "work"
+              }
+            ],
+            "etag_set": false,
+            "first": "Alice",
+            "impps": [],
+            "last": "Seed",
+            "notes": "line1\nline2, with comma",
+            "phones": [
+              {
+                "number": "+100",
+                "type": "work"
+              }
+            ],
+            "title": "Engineer",
+            "uid": "cal2-seed-1",
+            "urls": [
+              {
+                "type": "work",
+                "value": "https://seed.test"
+              }
+            ]
+          },
+          {
+            "addresses": [],
+            "anniversary": null,
+            "birthday": null,
+            "book": "a",
+            "categories": [],
+            "company": null,
+            "department": null,
+            "display": "Bob Seed",
+            "emails": [
+              {
+                "type": "home",
+                "value": "bob@seed.test"
+              }
+            ],
+            "etag_set": false,
+            "first": "Bob",
+            "impps": [],
+            "last": "Seed",
+            "notes": null,
+            "phones": [
+              {
+                "type": "home",
+                "value": "+101"
+              }
+            ],
+            "title": null,
+            "uid": "cal2-seed-2",
+            "urls": []
+          },
+          {
+            "addresses": [],
+            "anniversary": null,
+            "birthday": null,
+            "book": "b",
+            "categories": [],
+            "company": null,
+            "department": null,
+            "display": "Carol Other",
+            "emails": [],
+            "etag_set": false,
+            "first": "Carol",
+            "impps": [],
+            "last": "Other",
+            "notes": null,
+            "phones": [],
+            "title": null,
+            "uid": "cal2-other-1",
+            "urls": []
+          }
+        ],
+        "journal": [
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "a",
+            "state": 1,
+            "uid": "cal2-seed-1"
+          },
+          {
+            "datatype": "AddressBook",
+            "op": "created",
+            "owner": "a",
+            "state": 1,
+            "uid": null
+          },
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "a",
+            "state": 2,
+            "uid": "cal2-seed-2"
+          },
+          {
+            "datatype": "ContactCard",
+            "op": "created",
+            "owner": "b",
+            "state": 1,
+            "uid": "cal2-other-1"
+          },
+          {
+            "datatype": "AddressBook",
+            "op": "created",
+            "owner": "b",
+            "state": 1,
+            "uid": null
+          }
+        ]
+      },
+      "table": "f17-contacts"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "* /contacts/import/ vcf-import"
+}

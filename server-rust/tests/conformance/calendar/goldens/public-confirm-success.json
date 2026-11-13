@@ -1,0 +1,511 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "booking_pages": [
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": false,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-off",
+              "timezone": "UTC",
+              "title": "Hidden call"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-page",
+              "timezone": "UTC",
+              "title": "Intro call"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-uni",
+              "timezone": "UTC",
+              "title": "Café chat ☕"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "b",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-b-page",
+              "timezone": "UTC",
+              "title": "Other call"
+            }
+          ],
+          "booking_requests": [
+            {
+              "answers": {},
+              "cancel": "open",
+              "email": "booker@cal1-external.test",
+              "event": true,
+              "expires": "future",
+              "ip": null,
+              "name": "Booker One",
+              "owner": "a",
+              "page": "cal1-a-page",
+              "slot_end": "<D>T11:00:00+00:00",
+              "slot_start": "<D>T10:00:00+00:00",
+              "status": "confirmed",
+              "verify": "used"
+            }
+          ],
+          "calendar_events": [
+            {
+              "attendees": [
+                {
+                  "email": "booker@cal1-external.test",
+                  "name": "Booker One",
+                  "role": "required",
+                  "rsvp": false,
+                  "status": "accepted"
+                }
+              ],
+              "calendar": "cal1-a-default",
+              "description": "Topic\n",
+              "end": "<D>T11:00:00+00:00",
+              "meeting": true,
+              "organizer": "cal1-owner@host-a.test",
+              "organizer_name": "cal1-owner",
+              "sequence": 0,
+              "start": "<D>T10:00:00+00:00",
+              "state": 1,
+              "status": "confirmed",
+              "timezone": "UTC",
+              "title": "Intro call — Booker One"
+            }
+          ],
+          "calendar_subscriptions": [
+            {
+              "calendar": "cal1-sub-a",
+              "etag": null,
+              "fetched": true,
+              "owner": "a",
+              "refresh": 15,
+              "url": "https://feeds.example.org/a.ics"
+            },
+            {
+              "calendar": "cal1-sub-b",
+              "etag": null,
+              "fetched": true,
+              "owner": "b",
+              "refresh": 15,
+              "url": "https://feeds.example.org/b.ics"
+            }
+          ],
+          "calendars": [
+            {
+              "color": "#111111",
+              "default": true,
+              "name": "cal1-a-default",
+              "owner": "a",
+              "state": 1,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#222222",
+              "default": true,
+              "name": "cal1-b-default",
+              "owner": "b",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#333333",
+              "default": false,
+              "name": "cal1-room",
+              "owner": "a",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#6366f1",
+              "default": false,
+              "name": "cal1-sub-a",
+              "owner": "a",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#6366f1",
+              "default": false,
+              "name": "cal1-sub-b",
+              "owner": "b",
+              "state": 0,
+              "timezone": "UTC"
+            }
+          ]
+        },
+        "before": {
+          "booking_pages": [
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": false,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-off",
+              "timezone": "UTC",
+              "title": "Hidden call"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-page",
+              "timezone": "UTC",
+              "title": "Intro call"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "a",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-a-uni",
+              "timezone": "UTC",
+              "title": "Café chat ☕"
+            },
+            {
+              "availability": [
+                {
+                  "dow": 1,
+                  "end": "12:00",
+                  "start": "09:00"
+                }
+              ],
+              "buffer": 0,
+              "description": "desc",
+              "duration": 60,
+              "enabled": true,
+              "max_advance": 365,
+              "max_per_day": 8,
+              "min_notice": 0,
+              "owner": "b",
+              "questions": [
+                {
+                  "id": "q1",
+                  "label": "Topic",
+                  "required": true
+                }
+              ],
+              "slug": "cal1-b-page",
+              "timezone": "UTC",
+              "title": "Other call"
+            }
+          ],
+          "booking_requests": [
+            {
+              "answers": {},
+              "cancel": "none",
+              "email": "booker@cal1-external.test",
+              "event": false,
+              "expires": "future",
+              "ip": null,
+              "name": "Booker One",
+              "owner": "a",
+              "page": "cal1-a-page",
+              "slot_end": "<D>T11:00:00+00:00",
+              "slot_start": "<D>T10:00:00+00:00",
+              "status": "pending",
+              "verify": "open"
+            }
+          ],
+          "calendar_events": [],
+          "calendar_subscriptions": [
+            {
+              "calendar": "cal1-sub-a",
+              "etag": null,
+              "fetched": true,
+              "owner": "a",
+              "refresh": 15,
+              "url": "https://feeds.example.org/a.ics"
+            },
+            {
+              "calendar": "cal1-sub-b",
+              "etag": null,
+              "fetched": true,
+              "owner": "b",
+              "refresh": 15,
+              "url": "https://feeds.example.org/b.ics"
+            }
+          ],
+          "calendars": [
+            {
+              "color": "#111111",
+              "default": true,
+              "name": "cal1-a-default",
+              "owner": "a",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#222222",
+              "default": true,
+              "name": "cal1-b-default",
+              "owner": "b",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#333333",
+              "default": false,
+              "name": "cal1-room",
+              "owner": "a",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#6366f1",
+              "default": false,
+              "name": "cal1-sub-a",
+              "owner": "a",
+              "state": 0,
+              "timezone": "UTC"
+            },
+            {
+              "color": "#6366f1",
+              "default": false,
+              "name": "cal1-sub-b",
+              "owner": "b",
+              "state": 0,
+              "timezone": "UTC"
+            }
+          ]
+        },
+        "table": "f17"
+      }
+    ],
+    "mail": [
+      {
+        "attempts": 0,
+        "dkim_signed": false,
+        "from": "cal1-owner@host-a.test",
+        "mailbox_bound": false,
+        "message_id": "<booking-<n>@host-a.test>",
+        "mime": {
+          "body": "booker@cal1-external.test just booked \"Intro call\" with you.\r\n\r\nWhen: <D>T10:00:00+00:00\r\n\r\nA calendar invite has been sent separately.\r\n\r\n",
+          "headers": "From: <cal1-owner@host-a.test>\r\nTo: <cal1-owner@host-a.test>\r\nSubject: New booking: Intro call\r\nMessage-ID: <booking-<n>@host-a.test>\r\nDate: <date>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n",
+          "size": 542,
+          "soft_break_offsets": []
+        },
+        "object_prefix": "booking/notify",
+        "status": "pending",
+        "to": [
+          "cal1-owner@host-a.test"
+        ]
+      },
+      {
+        "attempts": 0,
+        "dkim_signed": false,
+        "from": "cal1-owner@host-a.test",
+        "mailbox_bound": false,
+        "message_id": "<event-uid>",
+        "mime": {
+          "body": "--mailserver-imip-<n>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nInvitation: Intro call — Booker One\nWhen: <D-long> at 10:00 AM UTC - <D-long> at 11:00 AM UTC\nOrganizer: cal1-owner <cal1-owner@host-a.test>\nAttendees:\n  - Booker One <booker@cal1-external.test> (accepted)\n\nTopic\n\n\r\n--mailserver-imip-<n>\r\nContent-Type: text/calendar; method=REQUEST; component=VEVENT; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nBEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nPRODID:-//Mailserver//iMIP//EN\r\nBEGIN:VEVENT\r\nDTSTAMP:<stamp>\r\nSEQUENCE:0\r\nUID:<uid>\r\nSUMMARY:Intro call — Booker One\r\nDESCRIPTION:Topic\\n\r\nDTSTART:<D-compact>T100000Z\r\nDTEND:<D-compact>T110000Z\r\nSTATUS:CONFIRMED\r\nORGANIZER;CN=cal1-owner:mailto:cal1-owner@host-a.test\r\nATTENDEE;CN=Booker One;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:booker@cal1-external.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n--mailserver-imip-<n>--\r\n",
+          "headers": "From: cal1-owner <cal1-owner@host-a.test>\r\nTo: Booker One <booker@cal1-external.test>\r\nSubject: Invitation: Intro call — Booker One\r\nDate: <date>\r\nMessage-ID: <<n>@mailserver>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=mailserver-imip-<n>\r\n\r\n",
+          "size": 1426,
+          "soft_break_offsets": []
+        },
+        "object_prefix": "imip",
+        "status": "pending",
+        "to": [
+          "booker@cal1-external.test"
+        ]
+      }
+    ],
+    "notify": [
+      {
+        "mailbox": "a",
+        "payload": {
+          "calendar_id": "<cal-a>",
+          "event": "event_created",
+          "event_id": "<event>"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"token\":\"cal1-verify-token-one\"}",
+      "external_path": "/api/public/booking/confirm",
+      "method": "POST",
+      "path": "/public/booking/confirm"
+    },
+    "response": {
+      "body": "{\"cancelToken\":\"<cancel-token>\",\"ok\":true}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "42"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-cal1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /public/booking/confirm"
+}

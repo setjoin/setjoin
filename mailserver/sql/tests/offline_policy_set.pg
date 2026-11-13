@@ -1,0 +1,26 @@
+-- pgTAP: offline_policy_set.pg
+BEGIN;
+SELECT plan(4);
+
+-- Actor user required by admin_audit_log FK (same pattern as ca_policy_write.pg).
+INSERT INTO domains (id, name, is_local) VALUES (98701, 'ops.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (1, 'ops_actor', 98701, 'actor@ops.test', 'Actor', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Insert a user-scope policy.
+CREATE TEMP TABLE _p AS SELECT offline_policy_set(
+  1, NULL, 'team-a', 'user', 42, true, 14, true, 'always', 100) AS id;
+SELECT is((SELECT enabled FROM offline_policies WHERE id=(SELECT id FROM _p)),
+  true, 'policy inserted enabled');
+SELECT is((SELECT max_offline_days FROM offline_policies WHERE id=(SELECT id FROM _p)),
+  14, 'max_offline_days persisted');
+-- Audit row written.
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log
+  WHERE action='offline_policy_set' AND user_id=1), 'audit row written');
+-- Bad scope_type → BZ099.
+SELECT throws_ok($$ SELECT offline_policy_set(
+  1, NULL, 'bad', 'org', 1, true, 7, true, 'never', 0) $$,
+  'BZ099', NULL, 'bad scope_type raises BZ099');
+SELECT finish();
+ROLLBACK;

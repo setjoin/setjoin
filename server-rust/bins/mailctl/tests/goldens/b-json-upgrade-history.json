@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"createdAt\": \"now\",\n    \"intentId\": \"4\",\n    \"releaseId\": \"r1\",\n    \"state\": \"verified\"\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

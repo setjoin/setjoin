@@ -1,0 +1,16 @@
+{
+  "case": "tls-rpt-two-uris-one-domain",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "requests": [
+      {
+        "body": "{\n  \"contact-info\": \"tls-rpt@mx.oracle.test\",\n  \"date-range\": {\n    \"end-datetime\": \"<today-date>T00:00:00Z\",\n    \"start-datetime\": \"<yesterday-date>T00:00:00Z\"\n  },\n  \"organization-name\": \"mx.oracle.test\",\n  \"policies\": [\n    {\n      \"failure-details\": null,\n      \"policy\": {\n        \"policy-string\": \"\\\"version\\\":\\\"STSv1\\\",\\\"mode\\\":\\\"testing\\\",\\\"mx\\\":\\\"*.i.test\\\"\",\n        \"policy-type\": \"sts\"\n      },\n      \"summary\": {\n        \"total-failure-session-count\": 0,\n        \"total-successful-session-count\": 2\n      }\n    }\n  ],\n  \"report-id\": \"<yesterday>.i.test\"\n}",
+        "content_type": "application/tlsrpt+json",
+        "method": "POST",
+        "path": "/first"
+      }
+    ],
+    "rows": []
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: usage: smime import <manifest.csv> [--dry-run] [--default]\n  manifest CSV columns: email,cert_path,key_path[,label]\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,168 @@
+-- pgTAP: caldav_changes.sql — the RFC 6578 sync-collection per-collection delta
+-- consumed by the CalDAV/CardDAV bridges (A4 wave 3). Exercises the CalendarEvent
+-- path (ContactCard is the same code path, different datatype/tables). The journal
+-- is populated by the real AFTER-row triggers (trg_journal_calendar_event), so
+-- this proves the trigger → journal → reducer chain end to end. Fresh mk_account;
+-- the test runs as the mail superuser (RLS bypassed), matching every other suite.
+BEGIN;
+SELECT plan(22);
+
+-- Fresh account + two calendars in the SAME mailbox (proves per-collection filter).
+SELECT mk_account('caldavchg') AS mb \gset
+INSERT INTO calendars (id, mailbox_id, name) VALUES (60001, :mb, 'Cal A'), (60002, :mb, 'Cal B');
+
+-- Seed events (the row triggers journal each as CalendarEvent 'created').
+INSERT INTO calendar_events (id, calendar_id, uid, title, etag) VALUES
+  (70001, 60001, 'evA1', 'A one', 'etagA1'),
+  (70002, 60001, 'evA2', 'A two', 'etagA2'),
+  (70003, 60002, 'evB1', 'B one', 'etagB1');
+
+-- ── Initial sync (no token) on Cal A ─────────────────────────────────────────
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '')->>'resync', 'false',
+  'initial sync is not a resync'
+);
+SELECT ok(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '')->'changed' @> '[{"uid":"evA1","etag":"etagA1"}]'::jsonb,
+  'changed carries Cal A event evA1 with its live etag'
+);
+SELECT ok(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '')->'changed' @> '[{"uid":"evA2"}]'::jsonb,
+  'changed carries Cal A event evA2'
+);
+-- Per-collection filter: Cal B's event must NOT appear in a Cal A sync.
+SELECT ok(
+  NOT (caldav_changes(:mb, 'CalendarEvent', 60001, '')->'changed' @> '[{"uid":"evB1"}]'::jsonb),
+  'Cal A sync filters OUT another calendar''s event'
+);
+SELECT ok(
+  caldav_changes(:mb, 'CalendarEvent', 60002, '')->'changed' @> '[{"uid":"evB1"}]'::jsonb,
+  'Cal B sync carries evB1'
+);
+SELECT ok(
+  NOT (caldav_changes(:mb, 'CalendarEvent', 60002, '')->'changed' @> '[{"uid":"evA1"}]'::jsonb),
+  'Cal B sync filters OUT Cal A''s event'
+);
+
+-- Capture the token after the initial sync.
+SELECT (caldav_changes(:mb, 'CalendarEvent', 60001, '')->>'newToken') AS tok0 \gset
+
+-- ── Incremental: update one event, re-sync from tok0 ─────────────────────────
+UPDATE calendar_events SET title = 'A one renamed' WHERE id = 70001;
+SELECT ok(
+  caldav_changes(:mb, 'CalendarEvent', 60001, :'tok0')->'changed' @> '[{"uid":"evA1"}]'::jsonb,
+  'incremental sync from tok0 surfaces the updated evA1'
+);
+SELECT ok(
+  NOT (caldav_changes(:mb, 'CalendarEvent', 60001, :'tok0')->'changed' @> '[{"uid":"evA2"}]'::jsonb),
+  'incremental sync returns ONLY subsequent changes (evA2 unchanged, omitted)'
+);
+
+-- ── Up-to-date token → empty delta ───────────────────────────────────────────
+SELECT (caldav_changes(:mb, 'CalendarEvent', 60001, '')->>'newToken') AS tok1 \gset
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, :'tok1')->'changed', '[]'::jsonb,
+  'up-to-date token → empty changed'
+);
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, :'tok1')->'removed', '[]'::jsonb,
+  'up-to-date token → empty removed'
+);
+
+-- ── Destroy → removed carries the uid (from journal.resource_uid) ────────────
+DELETE FROM calendar_events WHERE id = 70002;  -- evA2
+SELECT ok(
+  caldav_changes(:mb, 'CalendarEvent', 60001, :'tok1')->'removed' @> '["evA2"]'::jsonb,
+  'destroyed event surfaces in removed by its resource_uid'
+);
+SELECT ok(
+  NOT (caldav_changes(:mb, 'CalendarEvent', 60001, :'tok1')->'changed' @> '[{"uid":"evA2"}]'::jsonb),
+  'destroyed event is not also in changed'
+);
+
+-- ── Resync conditions ────────────────────────────────────────────────────────
+-- Future token (never issued).
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '999999')->>'resync', 'true',
+  'future token → resync'
+);
+
+-- Coarse resync sentinel in-window.
+SELECT append_change(:mb, 'CalendarEvent', bump_entity_state(:mb, 'CalendarEvent'), NULL, 'resync');
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '1')->>'resync', 'true',
+  'resync sentinel in (since,current] → resync'
+);
+
+-- Pruned: delete the early journal rows, then a below-oldest token resyncs.
+DELETE FROM jmap_changes_journal WHERE mailbox_id = :mb AND datatype = 'CalendarEvent';
+INSERT INTO calendar_events (id, calendar_id, uid, title, etag) VALUES (70004, 60001, 'evA3', 'A three', 'etagA3');
+SELECT is(
+  caldav_changes(:mb, 'CalendarEvent', 60001, '1')->>'resync', 'true',
+  'token predating the oldest retained journal row → resync (pruned)'
+);
+
+-- ── ContactCard arm (same reducer, different datatype/tables) ────────────────
+-- Proves the contacts/addressbooks join + vcard_uid-as-resource_uid path.
+INSERT INTO addressbooks (id, mailbox_id, name) VALUES (61001, :mb, 'AB One');
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, etag) VALUES
+  (80001, 61001, 'ctA1', 'Ada', 'etagC1'),
+  (80002, 61001, 'ctA2', 'Bob', 'etagC2');
+SELECT ok(
+  caldav_changes(:mb, 'ContactCard', 61001, '')->'changed' @> '[{"uid":"ctA1","etag":"etagC1"}]'::jsonb,
+  'ContactCard changed carries the contact by vcard_uid + etag'
+);
+SELECT (caldav_changes(:mb, 'ContactCard', 61001, '')->>'newToken') AS ctok \gset
+DELETE FROM contacts WHERE id = 80002;  -- ctA2
+SELECT ok(
+  caldav_changes(:mb, 'ContactCard', 61001, :'ctok')->'removed' @> '["ctA2"]'::jsonb,
+  'destroyed contact surfaces in removed by its vcard_uid'
+);
+
+-- ── Task 8: recurring occurrence edit → ONE changed resource (master uid) ───
+-- caldav_changes groups by entity_id (row id); a 'this' occurrence edit
+-- touches TWO rows sharing one uid (the master's exdate UPDATE + the new
+-- override row's INSERT) — each entity_id its own per_id group, so without a
+-- uid-level dedup this emits the SAME uid twice with two different etags
+-- (RFC 4791 §4.1 — one resource, one href, one delta entry).
+SELECT mk_account('caldavchgrec') AS mbrec \gset
+INSERT INTO calendars (id, mailbox_id, name) VALUES (60003, :mbrec, 'Rec Cal');
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule, etag)
+VALUES (70005, 60003, 'rec-master-1', 'Standup', '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY', 'etagM0');
+
+SELECT (caldav_changes(:mbrec, 'CalendarEvent', 60003, '')->>'newToken') AS tokrec \gset
+
+SELECT jmap_calendar_event_set_occurrence(:mbrec, 70005, '2026-08-10 10:00:00+00'::timestamptz, 'this', '{"title":"Moved"}'::jsonb);
+
+SELECT is(
+  jsonb_array_length(caldav_changes(:mbrec, 'CalendarEvent', 60003, :'tokrec')->'changed'),
+  1,
+  'occurrence edit surfaces exactly ONE changed resource (dedup by uid)'
+);
+SELECT is(
+  caldav_changes(:mbrec, 'CalendarEvent', 60003, :'tokrec')->'changed'->0->>'uid',
+  'rec-master-1',
+  'the changed resource is the series (master uid), not the override row'
+);
+SELECT is(
+  caldav_changes(:mbrec, 'CalendarEvent', 60003, :'tokrec')->'changed'->0->>'etag',
+  (SELECT etag FROM calendar_events WHERE id = 70005),
+  'the reported etag is the MASTER''s etag (clients re-GET the whole resource)'
+);
+
+-- Deleting the detached occurrence (excluded:true — Task 2) destroys the
+-- OVERRIDE row in the same reducer transaction; the resource (master uid)
+-- survives and must surface as 'changed', never as 'removed'.
+SELECT (caldav_changes(:mbrec, 'CalendarEvent', 60003, '')->>'newToken') AS tokrec2 \gset
+SELECT jmap_calendar_event_set_occurrence(:mbrec, 70005, '2026-08-10 10:00:00+00'::timestamptz, 'this', '{"excluded":true}'::jsonb);
+SELECT ok(
+  NOT (caldav_changes(:mbrec, 'CalendarEvent', 60003, :'tokrec2')->'removed' @> '["rec-master-1"]'::jsonb),
+  'deleting a detached occurrence does not surface the series as removed'
+);
+SELECT ok(
+  caldav_changes(:mbrec, 'CalendarEvent', 60003, :'tokrec2')->'changed' @> '[{"uid":"rec-master-1"}]'::jsonb,
+  'deleting a detached occurrence surfaces the series as changed instead'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

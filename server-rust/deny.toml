@@ -1,0 +1,31 @@
+# Third-party crates only. Setjoin's own crates are PolyForm-Noncommercial-1.0.0 (root LICENSE) and are skipped via [licenses.private] (publish = false).
+[licenses]
+allow = [
+  "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "0BSD", "CC0-1.0",
+  "BSL-1.0", "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0",
+]
+# MPL-2.0 dependencies must remain unmodified; modified files must be published.
+# Document each exception in license-exception-reasons.toml; the Rust lane
+# rejects exceptions without a per-crate reason.
+[licenses.private]
+ignore = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["sparse+https://index.crates.io/", "https://github.com/rust-lang/crates.io-index"]
+
+# RustSec advisories gate the Rust lane (#388): a vulnerable, unmaintained,
+# unsound or yanked crate anywhere in the graph (dev-dependencies included)
+# fails `cargo deny check`. An exception goes in `ignore` as
+# `{ id = "RUSTSEC-…", reason = "…" }`; the Rust lane rejects an ignore
+# without a written reason.
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+  # #340: openidconnect 4.1.0 also brings rsa0.9 for PUBLIC JWKS verification only; no RP private-key operation.
+  { id = "RUSTSEC-2023-0071", reason = "#335: rsa0.10rc19 is used for WebAuthn PUBLIC-key signature verification (direct identity PSS and unmodified webauthn-rs-core0.6/crypto-glue). #339 also generates/decodes/validates PKCS#8 key files at startup. No request-driven RSA private-key operation uses this crate: OP signing/verification is ring (OpenSSL only for existing Go key profiles ring cannot represent), and no RSA decryption is implemented. Marvin requires an attacker-driven secret operation; public verification and offline startup key custody do not expose that oracle. See crates/domains/identity/WEBAUTHN.md and OIDC.md; re-evaluate before any new RSA signing/decryption use." },
+]

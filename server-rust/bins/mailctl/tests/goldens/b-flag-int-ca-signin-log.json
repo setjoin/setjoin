@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -limit: parse error\nUsage of ca signin-log:\n  -correlation string\n    \tFilter by correlation id\n  -limit int\n    \tMax rows to return (default 50)\n  -user string\n    \tFilter by numeric user id\nError: invalid value \"not-an-integer\" for flag -limit: parse error\n",
+  "exit": 1
+}

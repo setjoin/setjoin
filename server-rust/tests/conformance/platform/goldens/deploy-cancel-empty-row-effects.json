@@ -1,0 +1,32 @@
+{
+  "case": "empty-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": {
+        "log": null,
+        "nodes": [],
+        "profile": 0,
+        "started_at": "<zero-time>",
+        "status": "",
+        "steps": null
+      },
+      "before": {
+        "log": null,
+        "nodes": [],
+        "profile": 0,
+        "started_at": "<zero-time>",
+        "status": "",
+        "steps": null
+      },
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/cancel"
+}

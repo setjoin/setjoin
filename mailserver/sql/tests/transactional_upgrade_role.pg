@@ -1,0 +1,153 @@
+-- pgTAP: setjoin_updater is a narrow function-execution identity, never a
+-- general database worker or a path from host control into customer data.
+BEGIN;
+SELECT plan(29);
+
+SELECT ok(EXISTS(SELECT 1 FROM pg_roles WHERE rolname='setjoin_updater'),
+  'setjoin_updater role exists');
+SELECT is((SELECT rolsuper FROM pg_roles WHERE rolname='setjoin_updater'),false,
+  'updater is not superuser');
+SELECT is((SELECT rolbypassrls FROM pg_roles WHERE rolname='setjoin_updater'),false,
+  'updater cannot bypass RLS');
+SELECT is((SELECT rolcreatedb FROM pg_roles WHERE rolname='setjoin_updater'),false,
+  'updater cannot create databases');
+SELECT is((SELECT rolcreaterole FROM pg_roles WHERE rolname='setjoin_updater'),false,
+  'updater cannot create roles');
+SELECT ok(has_schema_privilege('setjoin_updater','public','USAGE'),
+  'updater can resolve its named functions');
+SELECT ok(NOT has_schema_privilege('setjoin_updater','public','CREATE'),
+  'updater cannot create schema objects');
+SELECT ok(NOT has_table_privilege('setjoin_updater','public.users','SELECT'),
+  'updater cannot read users');
+SELECT ok(NOT has_table_privilege('setjoin_updater','public.messages','SELECT'),
+  'updater cannot read mail');
+SELECT ok(NOT has_table_privilege('setjoin_updater','public.upgrade_intents','SELECT'),
+  'updater cannot bypass reducers to read upgrade tables');
+SELECT ok(NOT has_table_privilege('setjoin_updater','public.upgrade_schema_migration_evidence','SELECT'),
+  'control-plane updater cannot read or write owner migration evidence');
+SELECT ok(NOT has_sequence_privilege('setjoin_updater','public.upgrade_intents_id_seq','USAGE'),
+  'updater cannot allocate intent IDs directly');
+SELECT ok(has_function_privilege('setjoin_updater',
+  'public.upgrade_intent_claim(bigint,bigint,text,uuid)','EXECUTE'),
+  'updater can execute claim');
+SELECT ok(has_function_privilege('setjoin_updater',
+  'public.upgrade_intent_progress(bigint,bigint,text,uuid,text,text,jsonb)','EXECUTE'),
+  'updater can execute progress');
+SELECT ok(has_function_privilege('setjoin_updater',
+  'public.upgrade_intent_complete(bigint,bigint,text,uuid,text,text,jsonb)','EXECUTE'),
+  'updater can execute complete');
+SELECT ok(has_function_privilege('setjoin_updater',
+  'public.upgrade_intent_recover(bigint,bigint,text,uuid,text,jsonb)','EXECUTE'),
+  'updater can reconcile a verified break-glass rollback');
+SELECT ok(has_function_privilege('setjoin_updater',
+  'public.upgrade_intent_read(bigint)','EXECUTE'),
+  'updater can execute sanitized read');
+SELECT ok(NOT has_function_privilege('setjoin_updater',
+  'public.upgrade_catalog_record(bigint,text,text,text,text,text,text,jsonb,bigint,text[],timestamptz,timestamptz,text,timestamptz)','EXECUTE'),
+  'updater cannot import catalog metadata');
+SELECT ok(NOT has_function_privilege('setjoin_updater',
+  'public.audit_write(bigint,text,text,bigint,jsonb,jsonb,inet,text,text)','EXECUTE'),
+  'updater cannot execute an arbitrary reducer');
+SELECT ok(NOT has_function_privilege('setjoin_app',
+  'public.upgrade_intent_claim(bigint,bigint,text,uuid)','EXECUTE'),
+  'gateway role cannot claim root execution');
+
+-- These are installation-global control tables, not tenant data. Give the
+-- constrained app role the ordinary table grants provision-roles.sql supplies,
+-- populate every table, and prove FORCE RLS still exposes zero direct rows.
+SELECT mk_account('upgrade-rls-denial') AS fixture_mailbox \gset
+SELECT user_id AS fixture_user FROM mailboxes WHERE id=:'fixture_mailbox'::bigint \gset
+INSERT INTO upgrade_release_catalog(
+  release_id,version,channel,platform,architecture,manifest_digest,manifest,
+  metadata_version,catalog_generation,verified_by_key_ids,verified_at,
+  metadata_expires_at,imported_by_user_id
+) VALUES(
+  'rls-denial-release','1.0.0','community','linux','amd64',digest('manifest','sha256'),'{}',
+  1,1,ARRAY['fixture-key'],statement_timestamp(),statement_timestamp()+interval '1 day',
+  :'fixture_user'::bigint
+);
+INSERT INTO upgrade_readiness(
+  release_id,manifest_digest,readiness_generation,status,source_version,
+  source_schema_version,target_schema_version,checks,blocker_count,expires_at,
+  checked_by_user_id
+) VALUES(
+  'rls-denial-release',digest('manifest','sha256'),1,'ready','0.9.0',177,178,
+  '{"ready":true}',0,statement_timestamp()+interval '1 hour',:'fixture_user'::bigint
+);
+INSERT INTO upgrade_challenges(
+  id,actor_user_id,release_id,preview_digest,readiness_generation,
+  policy_generation,expires_at,idempotency_key,request_digest
+) VALUES(
+  '22222222-2222-4222-8222-222222222222',:'fixture_user'::bigint,
+  'rls-denial-release',digest('preview','sha256'),1,
+  (SELECT policy_generation FROM upgrade_control_state WHERE singleton),
+  statement_timestamp()+interval '5 minutes',
+  '33333333-3333-4333-8333-333333333333',digest('challenge','sha256')
+);
+INSERT INTO upgrade_elevations(
+  id,actor_user_id,challenge_id,release_id,preview_digest,readiness_generation,
+  policy_generation,session_digest,factor_digest,amr,acr,expires_at,request_digest
+) VALUES(
+  '44444444-4444-4444-8444-444444444444',:'fixture_user'::bigint,
+  '22222222-2222-4222-8222-222222222222','rls-denial-release',
+  digest('preview','sha256'),1,
+  (SELECT policy_generation FROM upgrade_control_state WHERE singleton),
+  digest('session','sha256'),digest('factor','sha256'),ARRAY['pwd','otp'],'aal2',
+  statement_timestamp()+interval '5 minutes',digest('elevation','sha256')
+);
+UPDATE upgrade_challenges
+   SET completed_at=statement_timestamp(),elevation_id='44444444-4444-4444-8444-444444444444'
+ WHERE id='22222222-2222-4222-8222-222222222222';
+INSERT INTO upgrade_intents(
+  installation_id,release_id,manifest_digest,catalog_generation,
+  readiness_generation,policy_generation,preview_digest,state,
+  requested_by_user_id,requester_elevation_id,reason,expires_at,
+  idempotency_key,request_digest
+) VALUES(
+  (SELECT installation_id FROM upgrade_control_state WHERE singleton),
+  'rls-denial-release',digest('manifest','sha256'),1,1,
+  (SELECT policy_generation FROM upgrade_control_state WHERE singleton),
+  digest('preview','sha256'),'approved',:'fixture_user'::bigint,
+  '44444444-4444-4444-8444-444444444444','RLS denial fixture',
+  statement_timestamp()+interval '1 hour','55555555-5555-4555-8555-555555555555',
+  digest('intent','sha256')
+) RETURNING id AS fixture_intent \gset
+INSERT INTO upgrade_intent_events(
+  intent_id,state_generation,to_state,actor_user_id,evidence
+) VALUES(:'fixture_intent'::bigint,1,'approved',:'fixture_user'::bigint,'{}');
+INSERT INTO upgrade_schema_migration_evidence(
+  schema_version,release_id,manifest_digest,migration_id,migration_sha256
+) VALUES(998,'rls-denial-release',repeat('ab',32),'rls-denial-migration',repeat('cd',32));
+
+SELECT ok(
+  (SELECT count(*) FROM upgrade_control_state)>0
+  AND (SELECT count(*) FROM upgrade_release_catalog)>0
+  AND (SELECT count(*) FROM upgrade_readiness)>0
+  AND (SELECT count(*) FROM upgrade_challenges)>0
+  AND (SELECT count(*) FROM upgrade_elevations)>0
+  AND (SELECT count(*) FROM upgrade_intents)>0
+  AND (SELECT count(*) FROM upgrade_intent_events)>0
+  AND (SELECT count(*) FROM upgrade_schema_migration_evidence)>0,
+  'RLS denial fixtures are non-vacuous across every upgrade control table');
+
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*) FROM upgrade_control_state),0::bigint,
+  'setjoin_app cannot read upgrade_control_state');
+SELECT is((SELECT count(*) FROM upgrade_release_catalog),0::bigint,
+  'setjoin_app cannot read upgrade_release_catalog');
+SELECT is((SELECT count(*) FROM upgrade_readiness),0::bigint,
+  'setjoin_app cannot read upgrade_readiness');
+SELECT is((SELECT count(*) FROM upgrade_challenges),0::bigint,
+  'setjoin_app cannot read upgrade_challenges');
+SELECT is((SELECT count(*) FROM upgrade_elevations),0::bigint,
+  'setjoin_app cannot read upgrade_elevations');
+SELECT is((SELECT count(*) FROM upgrade_intents),0::bigint,
+  'setjoin_app cannot read upgrade_intents');
+SELECT is((SELECT count(*) FROM upgrade_intent_events),0::bigint,
+  'setjoin_app cannot read upgrade_intent_events');
+SELECT is((SELECT count(*) FROM upgrade_schema_migration_evidence),0::bigint,
+  'setjoin_app cannot read upgrade_schema_migration_evidence');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

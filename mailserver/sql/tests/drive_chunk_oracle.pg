@@ -1,0 +1,33 @@
+-- mailserver/sql/tests/drive_chunk_oracle.pg — I-4 reducer half: BZ144 both scopes
+BEGIN;
+SELECT plan(4);
+SELECT mk_account('doA') AS mba \gset
+SELECT mk_account('doB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+-- A uploads a chunk into the global scope; B (separate regular space, no claim,
+-- no readable version) tries to smuggle it by hash.
+SELECT drive_space_create(:ua, 'OA', 'regular') AS sa \gset
+SELECT drive_space_create(:ub, 'OB', 'regular') AS sb \gset
+SELECT drive_chunk_register(:ua, :sa, repeat('7',64), 10);
+SELECT drive_node_create(:ub, :sb, NULL, 'file', 'steal.bin') AS nb \gset
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+  '[{"sha256":"%s","size":10}]', NULL, 'test') $$, :ub, :nb, repeat('9',64), repeat('7',64)),
+  'BZ144', NULL, 'no claim + no readable version → BZ144 (anti-smuggling, global scope)');
+-- B legitimately uploads the same bytes: now allowed
+SELECT drive_chunk_register(:ub, :sb, repeat('7',64), 10);
+SELECT lives_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+  '[{"sha256":"%s","size":10}]', NULL, 'test') $$, :ub, :nb, repeat('9',64), repeat('7',64)),
+  'after own upload+claim the same manifest succeeds');
+-- per-space scope: A's secure chunk is invisible to B even with the hash
+SELECT drive_space_create(:ua, 'SecA', 'secure') AS ssa \gset
+SELECT drive_chunk_register(:ua, :ssa, repeat('8',64), 10);
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+  '[{"sha256":"%s","size":10}]', NULL, 'test') $$, :ub, :nb, repeat('a',64), repeat('8',64)),
+  'BZ144', NULL, 'secure-scope chunk unusable outside its space (scope mismatch reads as unproven)');
+-- manifest scope agreement: a version's chunks all carry the space scope (§3.2)
+SELECT is((SELECT DISTINCT scope_key FROM drive_version_chunks vc
+            JOIN drive_file_versions v ON v.id = vc.version_id WHERE v.space_id = :sb), 'g',
+  'regular-space manifest rows carry scope g');
+SELECT * FROM finish();
+ROLLBACK;

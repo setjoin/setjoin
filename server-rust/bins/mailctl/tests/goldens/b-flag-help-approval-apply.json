@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of approval apply:\n  -f string\n    \tPolicy document file (JSON array; - for stdin)\nError: flag: help requested\n",
+  "exit": 1
+}

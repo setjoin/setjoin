@@ -1,0 +1,13 @@
+BEGIN;
+SELECT plan(6);
+SELECT has_table('bulk_role_jobs');
+SELECT col_is_pk('bulk_role_jobs', 'id');
+SELECT col_has_default('bulk_role_jobs', 'status');
+-- op CHECK rejects junk; results defaults to []
+SELECT throws_ok($$INSERT INTO bulk_role_jobs (op,role_id,actor_id,user_ids,total)
+                   VALUES ('frobnicate',1,1,'{1}',1)$$, '23514', NULL, 'op CHECK rejects junk');
+SELECT lives_ok($$INSERT INTO bulk_role_jobs (op,role_id,actor_id,user_ids,total)
+                  VALUES ('assign',1,1,'{1,2}',2)$$, 'minimal valid row inserts');
+SELECT is( (SELECT results FROM bulk_role_jobs LIMIT 1), '[]'::jsonb, 'results defaults to []');
+SELECT * FROM finish();
+ROLLBACK;

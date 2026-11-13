@@ -1,0 +1,14 @@
+[package]
+name = "bench-mark-read"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.97.1"
+publish = false
+
+# Evidence tooling for #217 (Rust vs Go mark-read comparison). Its own package
+# and Cargo.lock, excluded from the server workspace; std only, no dependencies.
+[workspace]
+
+[[bin]]
+name = "bench-mark-read"
+path = "src/main.rs"

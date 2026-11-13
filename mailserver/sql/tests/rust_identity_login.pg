@@ -1,0 +1,18 @@
+-- #331: public mint/effect seams and same-statement credential ownership.
+BEGIN;
+SELECT plan(8);
+INSERT INTO domains(name,is_local) VALUES('rust-idlogin1-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,enabled)
+VALUES('rust-idlogin1-a@rust-idlogin1-pgtap.test','rust-idlogin1-a@rust-idlogin1-pgtap.test','a',:dom,'proved-hash',true) RETURNING id AS u \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,enabled)
+VALUES('rust-idlogin1-b@rust-idlogin1-pgtap.test','rust-idlogin1-b@rust-idlogin1-pgtap.test','b',:dom,'foreign-hash',true) RETURNING id AS ou \gset
+SELECT is(rust_identity_login_mint(:u,'stale-hash',digest('stale','sha256'),3600,'33100000-0000-4000-8000-000000000001'),false,'a replaced credential cannot mint');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:u),0::bigint,'stale proof has no anchor');
+SELECT is(rust_identity_login_mint(:u,'proved-hash',digest('good','sha256'),3600,'33100000-0000-4000-8000-000000000002'),true,'the proven principal can mint');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:u AND family_id='33100000-0000-4000-8000-000000000002'),1::bigint,'one family anchor commits');
+SELECT is(rust_identity_login_mint(:ou,'proved-hash',digest('foreign','sha256'),3600,'33100000-0000-4000-8000-000000000003'),false,'another principal cannot use this credential proof');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:ou),0::bigint,'foreign user untouched');
+SELECT lives_ok(format('SELECT rust_identity_signin_record(%s,true,%L)',:u,'203.0.113.33'),'known sign-in gets local user scope');
+SELECT is((SELECT count(*) FROM login_events WHERE user_id=:u AND success AND auth_method='password'),1::bigint,'the observable sign-in is recorded');
+SELECT * FROM finish();
+ROLLBACK;

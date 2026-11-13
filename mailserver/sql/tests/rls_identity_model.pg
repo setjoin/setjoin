@@ -1,0 +1,371 @@
+-- pgTAP: normalized identity evidence is worker-only under FORCE RLS.
+--
+-- Two independent member principals are seeded before the role switch. The
+-- application role then carries principal A's GUC and must still see none of
+-- either principal's cross-person identity/evidence rows.
+BEGIN;
+SELECT plan(27);
+
+CREATE TEMP TABLE identity_rls_fixture (
+    label TEXT PRIMARY KEY,
+    mailbox_id BIGINT NOT NULL,
+    user_id BIGINT,
+    source_id BIGINT,
+    link_id BIGINT,
+    transition_id UUID,
+    batch_id UUID,
+    job_id UUID
+);
+
+INSERT INTO identity_rls_fixture(label,mailbox_id) VALUES
+    ('a',mk_account('identity-rls-a')),
+    ('b',mk_account('identity-rls-b'));
+
+UPDATE identity_rls_fixture f
+   SET user_id=m.user_id,
+       transition_id=gen_random_uuid(),
+       batch_id=gen_random_uuid()
+  FROM mailboxes m
+ WHERE m.id=f.mailbox_id;
+
+UPDATE identity_rls_fixture f
+   SET source_id=s.id
+  FROM identity_sources s
+ WHERE s.source_key=CASE WHEN f.label='a' THEN 'legacy:ad' ELSE 'legacy:scim' END;
+
+WITH inserted AS (
+    INSERT INTO user_identity_links(
+        user_id,source_id,external_subject,purposes,state,link_method
+    )
+    SELECT user_id,source_id,'rls-subject-'||label,
+           ARRAY['provision']::text[],'active','operator'
+      FROM identity_rls_fixture
+    RETURNING id,external_subject
+)
+UPDATE identity_rls_fixture f
+   SET link_id=i.id
+  FROM inserted i
+ WHERE i.external_subject='rls-subject-'||f.label;
+
+INSERT INTO identity_link_events(
+    actor_user_id,user_id,source_id,link_id,action,reason
+)
+SELECT user_id,user_id,source_id,link_id,'candidate_recorded',
+       'identity RLS cross-principal fixture'
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_match_candidates(
+    source_id,external_subject,candidate_user_id,evidence_class,
+    evidence_digest,redacted_explanation,expires_at
+)
+SELECT source_id,'rls-candidate-'||label,user_id,'soft',
+       digest('evidence-'||label,'sha256'),'redacted RLS fixture',
+       statement_timestamp()+interval '1 hour'
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_match_decisions(
+    candidate_id,decided_by,idempotency_key,request_digest,decision,
+    reason,person_id,link_id,result
+)
+SELECT c.id,f.user_id,gen_random_uuid(),
+       digest('match-decision-'||f.label,'sha256'),'link',
+       'identity RLS cross-principal fixture',f.user_id,f.link_id,
+       jsonb_build_object('fixture',f.label)
+  FROM identity_rls_fixture f
+  JOIN identity_match_candidates c
+    ON c.source_id=f.source_id
+   AND c.external_subject='rls-candidate-'||f.label;
+
+INSERT INTO identity_source_batches(
+    source_id,batch_id,source_generation,remote_cursor,
+    remote_cursor_digest,state,entry_count
+)
+SELECT f.source_id,f.batch_id,s.generation,
+       jsonb_build_object('cursor',f.label),
+       digest('cursor-'||f.label,'sha256'),'staged',1
+  FROM identity_rls_fixture f
+  JOIN identity_sources s ON s.id=f.source_id;
+
+INSERT INTO identity_source_operations(
+    idempotency_key,source_id,actor_user_id,operation,request_digest,result
+)
+SELECT gen_random_uuid(),source_id,user_id,'validate',
+       digest('source-operation-'||label,'sha256'),
+       jsonb_build_object('fixture',label)
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_source_inbox(
+    source_id,batch_id,object_key,source_generation,remote_cursor,
+    remote_cursor_digest,immutable_subject,sanitized_payload
+)
+SELECT f.source_id,f.batch_id,'rls-object-'||f.label,s.generation,
+       jsonb_build_object('cursor',f.label),
+       digest('cursor-'||f.label,'sha256'),'rls-inbox-'||f.label,
+       jsonb_build_object('operation','upsert')
+  FROM identity_rls_fixture f
+  JOIN identity_sources s ON s.id=f.source_id;
+
+INSERT INTO identity_attribute_authority(
+    user_id,field,authority_kind,local_override_state
+)
+SELECT user_id,'phone','local','none' FROM identity_rls_fixture;
+
+INSERT INTO identity_entitlement_grants(
+    user_id,target_kind,target_id,entitlement_kind,entitlement_id,
+    provenance_kind,granted_by
+)
+SELECT user_id,'mailbox',mailbox_id,'distribution_group',
+       900000+user_id,'manual',user_id
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_shadow_divergences(
+    source_id,user_id,link_id,divergence_class,
+    old_outcome_digest,new_outcome_digest,redacted_sample
+)
+SELECT source_id,user_id,link_id,'missing_projection',
+       digest('old-'||label,'sha256'),digest('new-'||label,'sha256'),
+       jsonb_build_object('fixture',label)
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_read_cohort(
+    source_id,user_id,source_generation,added_by,reason
+)
+SELECT f.source_id,f.user_id,s.generation,f.user_id,
+       'identity RLS cross-principal fixture'
+  FROM identity_rls_fixture f
+  JOIN identity_sources s ON s.id=f.source_id;
+
+INSERT INTO identity_auth_shadow_hours(
+    source_id,bucket_start,source_generation,matched_count,mismatched_count,
+    first_observed_at,last_observed_at
+)
+SELECT f.source_id,date_trunc('hour',statement_timestamp())-interval '1 hour',
+       s.generation,1,0,statement_timestamp()-interval '1 hour',
+       statement_timestamp()-interval '1 hour'
+  FROM identity_rls_fixture f
+  JOIN identity_sources s ON s.id=f.source_id;
+
+INSERT INTO identity_auth_shadow_link_evidence(
+    link_id,source_id,user_id,link_generation,match_count,mismatch_count,
+    first_match_at,last_match_at
+)
+SELECT f.link_id,f.source_id,f.user_id,l.generation,1,0,
+       statement_timestamp()-interval '1 minute',
+       statement_timestamp()-interval '1 minute'
+  FROM identity_rls_fixture f
+  JOIN user_identity_links l ON l.id=f.link_id;
+
+INSERT INTO identity_transitions(
+    id,user_id,kind,state,source_id,link_id,source_generation,
+    link_generation,lifecycle_generation,preview_digest,preview_snapshot,
+    preview_expires_at,actor_user_id,reason,idempotency_key,request_digest
+)
+SELECT f.transition_id,f.user_id,'directory_to_local','previewed',
+       f.source_id,f.link_id,s.generation,l.generation,a.generation,
+       digest('preview-'||f.label,'sha256'),
+       jsonb_build_object(
+         'fixture',f.label,
+         'type','directory_to_local',
+         'personId',f.user_id::text
+       ),
+       statement_timestamp()+interval '15 minutes',f.user_id,
+       'identity RLS cross-principal fixture',gen_random_uuid(),
+       digest('request-'||f.label,'sha256')
+  FROM identity_rls_fixture f
+  JOIN identity_sources s ON s.id=f.source_id
+  JOIN user_identity_links l ON l.id=f.link_id
+  JOIN user_lifecycle_authorities a ON a.user_id=f.user_id;
+
+INSERT INTO identity_transition_effects(transition_id,effect_kind)
+SELECT transition_id,'subscriber_notice' FROM identity_rls_fixture;
+
+INSERT INTO identity_transition_challenges(
+    actor_user_id,transition_id,transition_generation,preview_digest,
+    expires_at,idempotency_key,request_digest
+)
+SELECT f.user_id,f.transition_id,t.transition_generation,t.preview_digest,
+       statement_timestamp()+interval '5 minutes',gen_random_uuid(),
+       digest('challenge-'||f.label,'sha256')
+  FROM identity_rls_fixture f
+  JOIN identity_transitions t ON t.id=f.transition_id;
+
+INSERT INTO identity_transition_elevations(
+    actor_user_id,transition_id,transition_generation,preview_digest,
+    session_digest,factor_digest,amr,acr,expires_at,idempotency_key,
+    request_digest,challenge_id
+)
+SELECT f.user_id,f.transition_id,t.transition_generation,t.preview_digest,
+       digest('session-'||f.label,'sha256'),
+       digest('factor-'||f.label,'sha256'),
+       ARRAY['pwd','totp']::text[],'urn:setjoin:aal2',
+       statement_timestamp()+interval '5 minutes',gen_random_uuid(),
+       digest('elevation-'||f.label,'sha256'),c.id
+  FROM identity_rls_fixture f
+  JOIN identity_transitions t ON t.id=f.transition_id
+  JOIN identity_transition_challenges c
+    ON c.transition_id=f.transition_id
+   AND c.actor_user_id=f.user_id;
+
+UPDATE identity_transition_challenges c
+   SET completed_at=statement_timestamp(),
+       elevation_id=e.id
+  FROM identity_transition_elevations e
+ WHERE e.challenge_id=c.id;
+
+INSERT INTO identity_transition_steps(
+    transition_id,ordinal,stage,state,input_digest
+)
+SELECT transition_id,1,'preview','completed',
+       digest('step-'||label,'sha256')
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_transition_idempotency(
+    actor_user_id,operation,idempotency_key,transition_id,request_digest
+)
+SELECT user_id,'rls-fixture',gen_random_uuid(),transition_id,
+       digest('transition-idempotency-'||label,'sha256')
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_transition_effect_targets(
+    transition_id,effect_kind,target_key
+)
+SELECT transition_id,'subscriber_notice','rls-target-'||label
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_media_admissions(
+    user_id,room_name,identity,expires_at
+)
+SELECT user_id,'room-'||label,'u:'||user_id::text,
+       statement_timestamp()+interval '60 seconds'
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_auth_link_elevations(
+    flow_id,user_id,session_jti,session_hash,kind,provider_key,expires_at
+)
+SELECT gen_random_uuid(),user_id,'rls-session-'||label,
+       digest('auth-link-session-'||label,'sha256'),
+       'oidc','rls-provider-'||label,
+       statement_timestamp()+interval '5 minutes'
+  FROM identity_rls_fixture;
+
+INSERT INTO identity_session_eviction_intents(
+    event_id,user_id,reason,room_name,identity
+)
+SELECT gen_random_uuid(),user_id,'identity RLS cross-principal fixture',
+       'rls-room-'||label,'u:'||user_id::text
+  FROM identity_rls_fixture;
+
+WITH inserted AS (
+    INSERT INTO identity_jobs(
+        kind,actor_user_id,source_id,idempotency_key,request_digest,
+        request,reason
+    )
+    SELECT 'upgrade_backfill',user_id,source_id,gen_random_uuid(),
+           digest('identity-job-'||label,'sha256'),
+           jsonb_build_object('fixture',label),
+           'identity RLS cross-principal fixture'
+      FROM identity_rls_fixture
+    RETURNING id,actor_user_id
+)
+UPDATE identity_rls_fixture f
+   SET job_id=i.id
+  FROM inserted i
+ WHERE i.actor_user_id=f.user_id;
+
+INSERT INTO identity_job_results(job_id,sequence,user_id,state,result)
+SELECT job_id,1,user_id,'completed',jsonb_build_object('fixture',label)
+  FROM identity_rls_fixture;
+
+SELECT ok(
+    (SELECT min(row_count) >= 2
+       FROM (
+         SELECT count(*) AS row_count FROM user_identity_links
+         UNION ALL SELECT count(*) FROM user_lifecycle_authorities
+         UNION ALL SELECT count(*) FROM identity_link_events
+         UNION ALL SELECT count(*) FROM identity_match_candidates
+         UNION ALL SELECT count(*) FROM identity_match_decisions
+         UNION ALL SELECT count(*) FROM identity_source_batches
+         UNION ALL SELECT count(*) FROM identity_source_inbox
+         UNION ALL SELECT count(*) FROM identity_source_operations
+         UNION ALL SELECT count(*) FROM identity_attribute_authority
+         UNION ALL SELECT count(*) FROM identity_entitlement_grants
+         UNION ALL SELECT count(*) FROM identity_shadow_divergences
+         UNION ALL SELECT count(*) FROM identity_read_cohort
+         UNION ALL SELECT count(*) FROM identity_auth_shadow_hours
+         UNION ALL SELECT count(*) FROM identity_auth_shadow_link_evidence
+         UNION ALL SELECT count(*) FROM identity_transitions
+         UNION ALL SELECT count(*) FROM identity_transition_challenges
+         UNION ALL SELECT count(*) FROM identity_transition_elevations
+         UNION ALL SELECT count(*) FROM identity_transition_idempotency
+         UNION ALL SELECT count(*) FROM identity_transition_steps
+         UNION ALL SELECT count(*) FROM identity_transition_effects
+         UNION ALL SELECT count(*) FROM identity_transition_effect_targets
+         UNION ALL SELECT count(*) FROM identity_media_admissions
+         UNION ALL SELECT count(*) FROM identity_auth_link_elevations
+         UNION ALL SELECT count(*) FROM identity_session_eviction_intents
+         UNION ALL SELECT count(*) FROM identity_jobs
+         UNION ALL SELECT count(*) FROM identity_job_results
+       ) seeded),
+    'identity FORCE-RLS fixture has two independent principals in every protected table'
+);
+
+SELECT set_config('app.user_id',
+    (SELECT user_id::text FROM identity_rls_fixture WHERE label='a'),true);
+SET LOCAL ROLE setjoin_app;
+
+SELECT is((SELECT count(*)::integer FROM user_identity_links),0,
+    'user_identity_links hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM user_lifecycle_authorities),0,
+    'user_lifecycle_authorities hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_link_events),0,
+    'identity_link_events hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_match_candidates),0,
+    'identity_match_candidates hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_match_decisions),0,
+    'identity_match_decisions hides both principals operator decisions from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_source_batches),0,
+    'identity_source_batches hides both principals source batches from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_source_inbox),0,
+    'identity_source_inbox hides both principals staged entries from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_source_operations),0,
+    'identity_source_operations hides both principals source receipts from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_attribute_authority),0,
+    'identity_attribute_authority hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_entitlement_grants),0,
+    'identity_entitlement_grants hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_shadow_divergences),0,
+    'identity_shadow_divergences hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_read_cohort),0,
+    'identity_read_cohort hides both principals canary admission from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_auth_shadow_hours),0,
+    'identity_auth_shadow_hours hides both principals hourly auth evidence from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_auth_shadow_link_evidence),0,
+    'identity_auth_shadow_link_evidence hides both principals link auth evidence from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transitions),0,
+    'identity_transitions hides the other principal and self from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_challenges),0,
+    'identity_transition_challenges hides both principals step-up exchanges from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_elevations),0,
+    'identity_transition_elevations hides both principals elevation proofs from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_idempotency),0,
+    'identity_transition_idempotency hides both principals request receipts from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_steps),0,
+    'identity_transition_steps hides both principals transition progress from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_effects),0,
+    'identity_transition_effects hides both principals effects from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_transition_effect_targets),0,
+    'identity_transition_effect_targets hides both principals targets from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_media_admissions),0,
+    'identity_media_admissions hides both principals admission leases from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_auth_link_elevations),0,
+    'identity_auth_link_elevations hides both principals link proofs from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_session_eviction_intents),0,
+    'identity_session_eviction_intents hides both principals eviction targets from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_jobs),0,
+    'identity_jobs hides both principals operator work from setjoin_app');
+SELECT is((SELECT count(*)::integer FROM identity_job_results),0,
+    'identity_job_results hides both principals result evidence from setjoin_app');
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

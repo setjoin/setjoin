@@ -1,0 +1,63 @@
+-- pgTAP: ca_break_glass_set.pg — CA-0a break-glass write reducer.
+-- Asserts: sets system_config, writes admin_audit_log in-txn, fires notify via
+-- ca_notify_policy_change('break_glass_set').
+BEGIN;
+SELECT plan(9);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (96100, 'bg.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (83001, 'bg_actor', 96100, 'bga@bg.test', 'BG Actor', TRUE);
+
+-- ── 1. First set (no prior key) succeeds ──────────────────────────────────────
+SELECT lives_ok(
+  $$ SELECT ca_break_glass_set(83001, '10.0.0.1'::inet, ARRAY[83001]::bigint[]) $$,
+  'ca_break_glass_set with one id succeeds');
+
+-- ── 2. Value written to system_config ─────────────────────────────────────────
+SELECT is(
+  (SELECT value FROM system_config WHERE key = 'ca_break_glass_user_ids'),
+  '[83001]'::jsonb,
+  'system_config ca_break_glass_user_ids is set to [83001]');
+
+-- ── 3. audit row written with action=ca_break_glass_set ───────────────────────
+SELECT is(
+  (SELECT action FROM admin_audit_log WHERE action = 'ca_break_glass_set' ORDER BY id DESC LIMIT 1),
+  'ca_break_glass_set', 'audit row written with action=ca_break_glass_set');
+
+-- ── 4. after_state contains the new ID (the audit-chain trigger may append _checksum) ─
+SELECT ok(
+  (SELECT after_state @> '[83001]'::jsonb FROM admin_audit_log WHERE action = 'ca_break_glass_set' ORDER BY id DESC LIMIT 1),
+  'audit after_state contains the new IDs');
+
+-- ── 5. before_state is NOT NULL (ca_break_glass_user_ids is seeded to [] in baseline) ─
+-- The test DB pre-seeds system_config key with [] so before_state is [] (not NULL).
+-- We assert the before_state row exists (not missing) — this pins that capture fires.
+SELECT ok(
+  (SELECT before_state IS NOT NULL FROM admin_audit_log WHERE action = 'ca_break_glass_set' ORDER BY id DESC LIMIT 1),
+  'before_state captured (non-NULL) — baseline seeds ca_break_glass_user_ids = []');
+
+-- ── 6. F2: ca_notify_policy_change fires with reason=break_glass_set ──────────
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM _test_notify_log
+    WHERE channel = 'conditional_access'
+      AND payload::jsonb ->> 'reason' = 'break_glass_set'
+  ),
+  'ca_break_glass_set fires ca_notify_policy_change with reason=break_glass_set');
+
+-- ── 7. Second set captures before_state ───────────────────────────────────────
+SELECT lives_ok(
+  $$ SELECT ca_break_glass_set(83001, '10.0.0.1'::inet, ARRAY[83001, 99]::bigint[]) $$,
+  'second ca_break_glass_set succeeds');
+SELECT ok(
+  (SELECT before_state IS NOT NULL FROM admin_audit_log WHERE action = 'ca_break_glass_set' ORDER BY id DESC LIMIT 1),
+  'second set captures before_state (non-NULL)');
+
+-- ── 8. Empty array raises BZ082 ───────────────────────────────────────────────
+SELECT throws_ok(
+  $$ SELECT ca_break_glass_set(83001, '10.0.0.1'::inet, ARRAY[]::bigint[]) $$,
+  'BZ082', NULL, 'empty id array raises BZ082');
+
+SELECT * FROM finish();
+ROLLBACK;

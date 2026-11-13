@@ -1,0 +1,25 @@
+{
+  "case": "drive-native-csrf",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "{\"lifetime\":99999999,\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/drive/native-token"
+    },
+    "response": {
+      "body": "{\"detail\":\"CSRF validation failed\",\"status\":403,\"title\":\"csrf_failed\",\"type\":\"about:blank\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /drive/native-token"
+}

@@ -1,0 +1,38 @@
+[package]
+name = "desktop-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+name = "desktop_native"
+
+[dependencies]
+# ponytail: napi4 is the minimum N-API level with Result/error support (throw
+# in JS). ABI-stable across Node/Electron majors — no electron-rebuild.
+napi        = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
+capability-session = { path = "../capability-session" }
+guard-core  = { path = "../guard-core" }
+offline-core = { path = "../offline-core" }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+# ponytail: required by the shared native_impl.rs include (zeroize-on-drop for
+# secret Strings at the napi boundary, NATIVE-SECRET-NOT-ZEROIZED) — same
+# version the crate family already uses (offline-core, guard-core).
+zeroize     = "1"
+
+[build-dependencies]
+napi-build = "2"
+
+# macOS 27 toolchain defect (local rebuild, 2026-09-21): on this box, BOTH
+# post-link LINKEDIT rewrite paths mis-align the Mach-O string pool and dlopen
+# refuses the result ("mis-aligned LINKEDIT string pool") — the Electron shell
+# cannot load the .node: (1) cargo's release `strip = "debuginfo"` pass, and
+# (2) napi-rs v3's built-in post-copy local-symbol strip (no CLI opt-out; NOTE:
+# a member-crate [profile.release] override is IGNORED here — profiles belong
+# to the clients/ workspace root, which is why the fix is not a Cargo.toml
+# section). Until the toolchain is fixed, build the loadable artifact with
+# `npm run build:loadable-local` (CARGO_PROFILE_RELEASE_STRIP=none + copy +
+# ad-hoc codesign). Revisit when the toolchain is fixed.

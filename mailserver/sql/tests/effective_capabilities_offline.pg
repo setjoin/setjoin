@@ -1,0 +1,17 @@
+-- pgTAP: effective_capabilities_offline.pg
+BEGIN;
+SELECT plan(3);
+CREATE TEMP TABLE _a AS SELECT mk_account('eco') AS mb;
+CREATE TEMP TABLE _d AS SELECT mk_offline_device((SELECT mb FROM _a),'approved') AS id;
+-- The overload carries the existing apps block AND a new offline block.
+SELECT ok(
+  effective_capabilities((SELECT mb FROM _a),(SELECT id FROM _d)) ? 'apps',
+  'overload still carries apps');
+SELECT ok(
+  effective_capabilities((SELECT mb FROM _a),(SELECT id FROM _d)) ? 'offline',
+  'overload adds offline block');
+SELECT is(
+  (effective_capabilities((SELECT mb FROM _a),(SELECT id FROM _d)) -> 'offline' ->> 'approvalState'),
+  'approved', 'offline block carries approvalState');
+SELECT finish();
+ROLLBACK;

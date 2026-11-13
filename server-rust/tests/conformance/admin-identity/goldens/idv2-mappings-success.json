@@ -1,0 +1,55 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/group-mappings",
+      "method": "GET",
+      "path": "/admin/identity/group-mappings"
+    },
+    "response": {
+      "body": "{\"oidc\":{\"admin7-oidc-a\":[{\"idp_group\":\"g1\",\"department_id\":3},{\"idp_group\":\"g2\"}],\"admin7-oidc-b\":[]},\"saml\":{\"admin7-idp-a\":[{\"idp_group\":\"eng \\u003c\\u0026\\u003e\",\"distribution_group_id\":5,\"admin_role\":\"auditor\",\"department_id\":9},{\"idp_group\":\"ops\"},{\"idp_group\":\"\",\"admin_role\":\"\"},{\"idp_group\":\"\"},{\"idp_group\":\"\"}],\"admin7-idp-b\":[],\"admin7-idp-c\":[]}}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "359"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin7-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/identity/group-mappings"
+}

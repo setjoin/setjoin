@@ -1,0 +1,47 @@
+-- SMTP6: recipient-derived ownership, atomic delivery+quarantine and fail rollback.
+BEGIN;
+SELECT plan(16);
+SELECT mk_account('smtp6-atomic') AS mb \gset
+SELECT mk_account('smtp6-foreign') AS other \gset
+SET LOCAL app.skip_rules='true';
+SET LOCAL app.skip_vacation='true';
+SET LOCAL app.skip_journaling='true';
+SET LOCAL app.skip_retention='true';
+SET LOCAL app.skip_fts='true';
+SET LOCAL app.skip_audit='true';
+SET LOCAL app.skip_external_sender_first_time='true';
+CREATE TEMP TABLE smtp6_previous AS SELECT id,jmap_email_state FROM mailboxes WHERE id IN (:mb,:other);
+CREATE TEMP TABLE smtp6_params AS SELECT m.email AS recipient,jsonb_build_object(
+ 'p_raw_ref','smtp6/atomic','p_message_id','<smtp6-atomic@test>','p_from_addr','sender@remote.test','p_from_name','Sender',
+ 'p_rcpt_addr',m.email,'p_to_addrs','[]'::jsonb,'p_cc_addrs','[]'::jsonb,'p_bcc_addrs','[]'::jsonb,
+ 'p_subject','Atomic quarantine','p_in_reply_to','','p_references_hdr','','p_body_text','hello','p_body_html','',
+ 'p_size_bytes',5,'p_has_attachments',false,'p_sent_at','2026-01-01T00:00:00Z',
+ 'p_spf_result','none','p_dkim_result','none','p_dmarc_result','none','p_spam_score',0,'p_spam_headers',NULL,
+ 'p_crypto_type','none','p_is_external',false,'p_is_name_spoof',false,'p_depth',0,
+ -- Untrusted identity keys must not override reducer-owned envelope resolution.
+ 'p_mailbox_id',:other,'user_id',(SELECT user_id FROM mailboxes WHERE id=:other)
+) AS params FROM mailboxes m WHERE m.id=:mb;
+SELECT ok(has_function_privilege('setjoin_worker','rust_smtp_inbound_security(jsonb,text,text,boolean,text)','EXECUTE'),'worker can call transport reducer');
+SELECT ok(NOT has_function_privilege('setjoin_app','rust_smtp_inbound_security(jsonb,text,text,boolean,text)','EXECUTE'),'request role cannot call cross-tenant transport reducer');
+CREATE TEMP TABLE smtp6_result AS SELECT r.* FROM smtp6_params a CROSS JOIN LATERAL rust_smtp_inbound_security(a.params,'sender@remote.test',a.recipient,false,'Eicar.Test') r;
+SELECT is((SELECT outcome FROM smtp6_result),'delivered','condemned delivery commits as accepted transport');
+SELECT is((SELECT m.mailbox_id FROM messages m JOIN smtp6_result r ON r.message_id=m.id),:mb::bigint,'recipient resolves ownership; forged identity fields ignored');
+SELECT is((SELECT virus_name FROM quarantined_messages WHERE mailbox_id=:mb AND message_id=(SELECT message_id FROM smtp6_result)),'Eicar.Test','same transaction records condemnation audit');
+SELECT is((SELECT count(*)::int FROM message_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.message_id=(SELECT message_id FROM smtp6_result) AND t.exclusive_group='location'),0,'condemned copy never remains in Inbox or another location');
+SELECT is((SELECT count(*)::int FROM message_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.message_id=(SELECT message_id FROM smtp6_result) AND t.mailbox_id=:mb AND t.name='Quarantined'),1,'owning mailbox has the Quarantined tag');
+SELECT is((SELECT count(*)::int FROM messages WHERE mailbox_id=:other),0,'foreign mailbox untouched');
+SELECT is((SELECT jmap_email_state FROM mailboxes WHERE id=:mb),(SELECT jmap_email_state+2 FROM smtp6_previous WHERE id=:mb),'delivery and quarantine each publish one state transition');
+CREATE FUNCTION pg_temp.smtp6_quarantine_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp6 fixture quarantine failure'; END $$;
+CREATE TRIGGER smtp6_quarantine_fault BEFORE INSERT ON quarantined_messages FOR EACH ROW WHEN (NEW.virus_name='smtp6-fault') EXECUTE FUNCTION pg_temp.smtp6_quarantine_fault();
+SELECT throws_ok(format($q$ SELECT * FROM rust_smtp_inbound_security(%L::jsonb,'sender@remote.test',%L,false,'smtp6-fault') $q$,(SELECT jsonb_set(params,'{p_message_id}','"<smtp6-fault@test>"')::text FROM smtp6_params),(SELECT recipient FROM smtp6_params)),'P0001','smtp6 fixture quarantine failure','quarantine failure aborts the entire delivery call');
+SELECT is((SELECT count(*)::int FROM messages WHERE mailbox_id=:mb AND message_id='<smtp6-fault@test>'),0,'failed quarantine leaves no delivered copy');
+SELECT is((SELECT jmap_email_state FROM mailboxes WHERE id=:mb),(SELECT jmap_email_state+2 FROM smtp6_previous WHERE id=:mb),'failed call leaves state at the previous successful commit');
+SELECT mk_account('smtp6-group') AS group_mb \gset
+INSERT INTO distribution_groups(mailbox_id,allow_external_senders) VALUES(:group_mb,true) RETURNING id AS group_id \gset
+INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(:group_id,:mb),(:group_id,:other);
+SELECT throws_ok(format($q$ SELECT * FROM rust_smtp_inbound_security(%L::jsonb,'sender@remote.test',%L,true,'smtp6-fault') $q$,(SELECT jsonb_set(params,'{p_message_id}','"<smtp6-group-fault@test>"')::text FROM smtp6_params),(SELECT email FROM mailboxes WHERE id=:group_mb)),'P0001','smtp6 fixture quarantine failure','member quarantine fault aborts the whole group expansion');
+SELECT is((SELECT count(*)::int FROM messages WHERE mailbox_id IN (:mb,:other) AND message_id='<smtp6-group-fault@test>'),0,'failed group call leaves no member copy');
+SELECT is((SELECT jmap_email_state FROM mailboxes WHERE id=:mb),(SELECT jmap_email_state+2 FROM smtp6_previous WHERE id=:mb),'failed group call rolls back first member state');
+SELECT is((SELECT jmap_email_state FROM mailboxes WHERE id=:other),(SELECT jmap_email_state FROM smtp6_previous WHERE id=:other),'failed group call rolls back other tenant member state');
+SELECT * FROM finish();
+ROLLBACK;

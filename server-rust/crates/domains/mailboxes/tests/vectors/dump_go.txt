@@ -1,0 +1,109 @@
+// Temporary Go main (copy to mailserver/cmd/zzmimedump/main.go) that records
+// frozen Go's mimeutil answers for corpus.json into vectors.json.
+package main
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"mime"
+	"net/http"
+	"net/mail"
+	"os"
+	"sort"
+
+	"setjoin.com/mailserver/internal/mimeutil"
+)
+
+func b(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+func main() {
+	var in struct {
+		Messages []struct{ Name, Raw string } `json:"messages"`
+		Addresses  []string                     `json:"addresses"`
+		MediaTypes []string                     `json:"media_types"`
+	}
+	data, _ := os.ReadFile(os.Args[1])
+	if err := json.Unmarshal(data, &in); err != nil {
+		panic(err)
+	}
+	type addr struct{ Name, Address string }
+	out := map[string]any{}
+	var msgs []map[string]any
+	for _, m := range in.Messages {
+		rawB, _ := base64.StdEncoding.DecodeString(m.Raw)
+		raw := string(rawB)
+		fromAddr, fromName := mimeutil.ParseFrom(mimeutil.ExtractHeader(raw, "From"))
+		r := map[string]any{
+			"name": m.Name, "raw": m.Raw,
+			"message_id":  b(mimeutil.ExtractHeader(raw, "Message-ID")),
+			"subject":     b(mimeutil.ExtractHeader(raw, "Subject")),
+			"from_addr":   b(fromAddr),
+			"from_name":   b(fromName),
+			"to":          b(string(mimeutil.ParseAddressList(mimeutil.ExtractHeader(raw, "To")))),
+			"cc":          b(string(mimeutil.ParseAddressList(mimeutil.ExtractHeader(raw, "Cc")))),
+			"bcc":         b(string(mimeutil.ParseAddressList(mimeutil.ExtractHeader(raw, "Bcc")))),
+			"in_reply_to": b(mimeutil.ExtractHeader(raw, "In-Reply-To")),
+			"references":  b(mimeutil.ExtractHeader(raw, "References")),
+			"body_text":   b(mimeutil.ExtractBodyText(raw)),
+			"body_html":   b(mimeutil.ExtractBodyHTML(raw)),
+		}
+		if d := mimeutil.ExtractHeader(raw, "Date"); d != "" {
+			if t, err := http.ParseTime(d); err == nil {
+				r["date"] = []int64{t.Unix(), int64(t.Nanosecond())}
+			}
+		}
+		msgs = append(msgs, r)
+	}
+	out["messages"] = msgs
+	var addrs []map[string]any
+	for _, a := range in.Addresses {
+		sB, _ := base64.StdEncoding.DecodeString(a)
+		s := string(sB)
+		r := map[string]any{"input": a}
+		if p, err := mail.ParseAddress(s); err == nil {
+			r["single"] = addr{b(p.Name), b(p.Address)}
+		}
+		if l, err := mail.ParseAddressList(s); err == nil {
+			var xs []addr
+			for _, p := range l {
+				xs = append(xs, addr{b(p.Name), b(p.Address)})
+			}
+			r["list"] = xs
+			if xs == nil {
+				r["list"] = []addr{}
+			}
+		}
+		n, e := mimeutil.ParseFrom(s)
+		r["from"] = addr{b(n), b(e)}
+		r["json"] = b(string(mimeutil.ParseAddressList(s)))
+		r["extract_addr"] = b(mimeutil.ExtractAddr(s))
+		addrs = append(addrs, r)
+	}
+	out["addresses"] = addrs
+	var mts []map[string]any
+	for _, a := range in.MediaTypes {
+		sB, _ := base64.StdEncoding.DecodeString(a)
+		s := string(sB)
+		mt, params, err := mime.ParseMediaType(s)
+		r := map[string]any{"input": a, "ok": err == nil}
+		if err == nil {
+			r["media"] = b(mt)
+			var keys []string
+			for k := range params {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			var ps [][2]string
+			for _, k := range keys {
+				ps = append(ps, [2]string{b(k), b(params[k])})
+			}
+			r["params"] = ps
+		}
+		r["decode_charset_probe"] = b(mimeutil.DecodeCharset("h\xe9llo \xc3\xa9", s))
+		mts = append(mts, r)
+	}
+	out["media_types"] = mts
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.Encode(out)
+}

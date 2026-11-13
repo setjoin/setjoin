@@ -1,0 +1,31 @@
+{
+  "case": "cursor-error-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed": true,
+          "details": [
+            {
+              "issue": "orphaned",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "size": 4
+            }
+          ],
+          "drift": 0,
+          "id": 9600,
+          "missing": 0,
+          "orphaned": 1,
+          "reimported": 0,
+          "status": "completed",
+          "total": 2
+        }
+      ],
+      "before": [],
+      "table": "storage_dr_scans"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/storage/dr-scan"
+}

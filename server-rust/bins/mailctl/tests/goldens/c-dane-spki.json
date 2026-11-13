@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "_25._tcp.mail.example.test. IN TLSA 3 1 1 1369a0011a6ba20b0556e6d4263929ecfcd614224992392e01553305d25590ff\n",
+  "stderr": "",
+  "exit": 0
+}

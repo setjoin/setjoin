@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unknown\nUsage of sources status:\n  -china-registry string\n    \tapproved China Collabora registry/repository\n  -collabora-registry string\n    \texplicit Collabora registry/repository\n  -custom-registry string\n    \tcustom Collabora registry/repository\n  -isolated-registry string\n    \tapproved local Collabora registry/repository\n  -isolated-registry-approved\n    \tconfirm the isolated registry was explicitly approved\n  -json\n    \tmachine-readable JSON\n  -profile string\n    \tglobal, china, isolated, or custom\n  -root string\n    \thost filesystem root (inspection only) (default \"/\")\nError: usage: mailctl sources status [--json] [--profile global|china|isolated|custom] [--collabora-registry HOST/REPO]\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

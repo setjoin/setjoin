@@ -1,0 +1,400 @@
+[
+  {
+    "id": "schema-absent",
+    "before": "ALTER TABLE schema_migrations RENAME TO boot_saved_schema_migrations",
+    "after": "ALTER TABLE boot_saved_schema_migrations RENAME TO schema_migrations"
+  },
+  {
+    "id": "rls-disabled",
+    "request_app": true,
+    "before": "CREATE TABLE boot_rls_probe(id int); CREATE POLICY boot_policy ON boot_rls_probe USING (true)",
+    "after": "DROP TABLE boot_rls_probe"
+  },
+  {
+    "id": "partition-missing",
+    "before": "ALTER FUNCTION create_monthly_partitions(integer) RENAME TO boot_saved_partitions",
+    "after": "ALTER FUNCTION boot_saved_partitions(integer) RENAME TO create_monthly_partitions"
+  },
+  {
+    "id": "worm-bucket-probe-denied",
+    "storage": {
+      "fault": "bucket"
+    },
+    "env": {
+      "WORM_MODE": "governance",
+      "WORM_RETENTION_DAYS": "30"
+    }
+  },
+  {
+    "id": "worm-policy-denied",
+    "storage": {
+      "fault": "object-lock"
+    },
+    "env": {
+      "WORM_MODE": "governance",
+      "WORM_RETENTION_DAYS": "30"
+    },
+    "effects": "SELECT jsonb_build_object('minio',status) FROM health_history WHERE check_name='minio_connectivity' ORDER BY id DESC LIMIT 1",
+    "after": "DELETE FROM health_history WHERE check_name='minio_connectivity'"
+  },
+  {
+    "id": "secret-symlink",
+    "file": "symlink",
+    "after": "DELETE FROM health_history WHERE check_name='minio_connectivity'"
+  },
+  {
+    "id": "security-seed-missing",
+    "before": "CREATE TABLE boot_toggle AS SELECT * FROM feature_toggles WHERE key='feature.smime_verify'; DELETE FROM feature_toggles WHERE key='feature.smime_verify'",
+    "after": "INSERT INTO feature_toggles SELECT * FROM boot_toggle; DROP TABLE boot_toggle; DELETE FROM health_history WHERE check_name='minio_connectivity'"
+  },
+  {
+    "id": "legacy-secret-upgrade",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false",
+    "after": "DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_object_agg(key,jsonb_build_object('encrypted',encrypted,'format',value->>'format','source',value->>'sourceKey','keyVersion',value->'keyVersion')) FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')",
+    "env": {
+      "BOOT_INSPECT_SECRETS": "1"
+    }
+  },
+  {
+    "id": "schema-behind",
+    "before": "CREATE TABLE boot_schema AS TABLE schema_migrations; DELETE FROM schema_migrations WHERE version>1",
+    "after": "DELETE FROM schema_migrations; INSERT INTO schema_migrations SELECT * FROM boot_schema; DROP TABLE boot_schema"
+  },
+  {
+    "id": "schema-probe-fault",
+    "before": "ALTER TABLE schema_migrations RENAME COLUMN version TO boot_version",
+    "after": "ALTER TABLE schema_migrations RENAME COLUMN boot_version TO version"
+  },
+  {
+    "id": "schema-newer-allowed",
+    "before": "CREATE TABLE boot_schema AS TABLE schema_migrations; UPDATE schema_migrations SET version=version+1000 WHERE version=(SELECT max(version) FROM schema_migrations)",
+    "after": "DELETE FROM schema_migrations; INSERT INTO schema_migrations SELECT * FROM boot_schema; DROP TABLE boot_schema"
+  },
+  {
+    "id": "rls-owned-forced",
+    "request_app": true,
+    "before": "CREATE TABLE boot_owned(id int); ALTER TABLE boot_owned OWNER TO setjoin_app; ALTER TABLE boot_owned ENABLE ROW LEVEL SECURITY; ALTER TABLE boot_owned FORCE ROW LEVEL SECURITY",
+    "after": "DROP TABLE boot_owned"
+  },
+  {
+    "id": "recovery-function-missing",
+    "before": "ALTER FUNCTION startup_recovery() RENAME TO boot_saved_recovery",
+    "after": "ALTER FUNCTION boot_saved_recovery() RENAME TO startup_recovery"
+  },
+  {
+    "id": "recovery-no-admin",
+    "before": "INSERT INTO outbound_queue(message_id,from_addr,rcpt_addrs,raw_ref,status,queued_at) VALUES ('boot-recovery','boot@example.test',ARRAY['to@example.test'],'fixture','sending',now()-interval '10 minutes')",
+    "after": "DELETE FROM outbound_queue WHERE message_id='boot-recovery'; DELETE FROM crash_events WHERE component='postgresql'",
+    "effects": "SELECT jsonb_build_object('status',status,'error',last_error) FROM outbound_queue WHERE message_id='boot-recovery'"
+  },
+  {
+    "id": "stale-list-denied",
+    "storage": {
+      "fault": "uploads"
+    },
+    "effects": "SELECT jsonb_build_object('minio',status) FROM health_history WHERE check_name='minio_connectivity' ORDER BY id DESC LIMIT 1"
+  },
+  {
+    "id": "minio-probe-denied",
+    "storage": {
+      "fault": "bucket"
+    },
+    "effects": "SELECT jsonb_build_object('minio',status) FROM health_history WHERE check_name='minio_connectivity' ORDER BY id DESC LIMIT 1"
+  },
+  {
+    "id": "minio-create-denied",
+    "storage": {
+      "missing": true,
+      "fault": "bucket-create"
+    },
+    "effects": "SELECT jsonb_build_object('minio',status) FROM health_history WHERE check_name='minio_connectivity' ORDER BY id DESC LIMIT 1"
+  },
+  {
+    "id": "minio-health-write-fault",
+    "before": "ALTER TABLE health_history RENAME TO boot_health",
+    "after": "ALTER TABLE boot_health RENAME TO health_history"
+  },
+  {
+    "id": "worm-create-denied",
+    "storage": {
+      "missing": true,
+      "fault": "bucket-create"
+    },
+    "env": {
+      "WORM_MODE": "governance",
+      "WORM_RETENTION_DAYS": "30"
+    }
+  },
+  {
+    "id": "worm-invalid-mode",
+    "env": {
+      "WORM_MODE": "invalid",
+      "WORM_RETENTION_DAYS": "30"
+    }
+  },
+  {
+    "id": "worm-zero-retention",
+    "env": {
+      "WORM_MODE": "compliance",
+      "WORM_RETENTION_DAYS": "0"
+    }
+  },
+  {
+    "id": "worm-first-boot",
+    "storage": {
+      "missing": true
+    },
+    "env": {
+      "WORM_MODE": "compliance",
+      "WORM_RETENTION_DAYS": "2557"
+    }
+  },
+  {
+    "id": "stale-upload-abort",
+    "storage": {
+      "uploads": [
+        [
+          "old",
+          "2000-01-01T00:00:00Z"
+        ],
+        [
+          "new",
+          "2099-01-01T00:00:00Z"
+        ]
+      ]
+    }
+  },
+  {
+    "id": "stale-abort-denied",
+    "storage": {
+      "fault": "abort",
+      "uploads": [
+        [
+          "old",
+          "2000-01-01T00:00:00Z"
+        ]
+      ]
+    }
+  },
+  {
+    "id": "stale-and-fresh-same-key",
+    "storage": {
+      "uploads": [
+        [
+          "same",
+          "2000-01-01T00:00:00Z"
+        ],
+        [
+          "same",
+          "2099-01-01T00:00:00Z"
+        ]
+      ]
+    }
+  },
+  {
+    "id": "secret-directory",
+    "file": "directory"
+  },
+  {
+    "id": "secret-empty-wide",
+    "file": "empty-wide"
+  },
+  {
+    "id": "secret-content-wide",
+    "file": "content-wide"
+  },
+  {
+    "id": "secret-create",
+    "file": "missing"
+  },
+  {
+    "id": "secret-empty-private",
+    "file": "empty-private"
+  },
+  {
+    "id": "toggle-table-missing",
+    "before": "ALTER TABLE feature_toggles RENAME TO boot_toggles",
+    "after": "ALTER TABLE boot_toggles RENAME TO feature_toggles"
+  },
+  {
+    "id": "toggle-registry-state-missing",
+    "before": "CREATE TABLE boot_registry AS TABLE feature_toggle_registry_state; DELETE FROM feature_toggle_registry_state",
+    "after": "INSERT INTO feature_toggle_registry_state SELECT * FROM boot_registry; DROP TABLE boot_registry"
+  },
+  {
+    "id": "connector-envelope-tampered",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false; UPDATE system_config SET value='{\"format\":\"setjoin-config-secret\",\"version\":1,\"keyVersion\":1,\"sourceKey\":\"legacy:ad\",\"ciphertext\":\"broken\"}'::jsonb WHERE key='ad_sync_password_enc'",
+    "after": "DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_object_agg(key,jsonb_build_object('encrypted',encrypted,'format',value->>'format','source',value->>'sourceKey','keyVersion',value->'keyVersion')) FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')"
+  },
+  {
+    "id": "named-envelope-tampered",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false; UPDATE system_config SET value='{\"format\":\"setjoin-config-secret\",\"version\":1,\"keyVersion\":1,\"sourceKey\":\"legacy:ad\",\"ciphertext\":\"broken\"}'::jsonb WHERE key='assist.api_key'",
+    "after": "DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_object_agg(key,jsonb_build_object('encrypted',encrypted,'format',value->>'format','source',value->>'sourceKey','keyVersion',value->'keyVersion')) FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')"
+  },
+  {
+    "id": "upgrade-write-fault",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false; CREATE FUNCTION boot_reject_upgrade() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.key='ldap_sync_boot_enc' THEN RAISE EXCEPTION 'boot fixture rejected'; END IF; RETURN NEW; END$$; CREATE TRIGGER boot_reject BEFORE UPDATE ON system_config FOR EACH ROW EXECUTE FUNCTION boot_reject_upgrade()",
+    "after": "DROP TRIGGER boot_reject ON system_config; DROP FUNCTION boot_reject_upgrade(); DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_object_agg(key,jsonb_build_object('encrypted',encrypted,'format',value->>'format','source',value->>'sourceKey','keyVersion',value->'keyVersion')) FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')"
+  },
+  {
+    "id": "upgrade-key-unavailable",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false",
+    "after": "DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_object_agg(key,jsonb_build_object('encrypted',encrypted,'format',value->>'format','source',value->>'sourceKey','keyVersion',value->'keyVersion')) FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')",
+    "env": {
+      "IDENTITY_CONFIG_SECRET_KEY": "short"
+    }
+  },
+  {
+    "id": "secret-missing-deployment-id",
+    "before": "CREATE TABLE boot_dep AS SELECT * FROM system_config WHERE key='identity.deployment_id'; DELETE FROM system_config WHERE key='identity.deployment_id'",
+    "after": "INSERT INTO system_config SELECT * FROM boot_dep; DROP TABLE boot_dep"
+  },
+  {
+    "id": "secret-hostile-mmdb-pin-mismatch",
+    "env": {
+      "GEOIP_DB_SHA256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  {
+    "id": "geo-operator-valid-unpinned",
+    "geo": "valid"
+  },
+  {
+    "id": "geo-operator-valid-pinned",
+    "geo": "valid",
+    "env": {
+      "GEOIP_DB_SHA256": "70fbef064a3471d756a3ddb1d12ff525cd717ec2cc1e14a34f4418d8cd99d10f"
+    }
+  },
+  {
+    "id": "geo-operator-wrong-pin",
+    "geo": "valid",
+    "env": {
+      "GEOIP_DB_SHA256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  {
+    "id": "geo-operator-malformed-pinned",
+    "env": {
+      "GEOIP_DB_SHA256": "79f7b79fe1b232e461f4763d5e90fd814d0b87851a764147700ea1e21577c898"
+    }
+  },
+  {
+    "id": "geo-country-block-unarmed",
+    "env": {
+      "GEO_BLOCK_COUNTRIES": " , US"
+    }
+  },
+  {
+    "id": "geo-cache-unpinned-valid",
+    "geo": "valid",
+    "env": {
+      "BOOT_GEOIP_SOURCE": "cache",
+      "GEO_BLOCK_COUNTRIES": "US"
+    }
+  },
+  {
+    "id": "geo-cache-valid-pinned",
+    "geo": "valid",
+    "env": {
+      "BOOT_GEOIP_SOURCE": "cache",
+      "GEOIP_DB_SHA256": "70fbef064a3471d756a3ddb1d12ff525cd717ec2cc1e14a34f4418d8cd99d10f"
+    }
+  },
+  {
+    "id": "geo-cache-wrong-pin",
+    "geo": "valid",
+    "env": {
+      "BOOT_GEOIP_SOURCE": "cache",
+      "GEOIP_DB_SHA256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  {
+    "id": "geo-cache-malformed-pinned",
+    "env": {
+      "BOOT_GEOIP_SOURCE": "cache",
+      "GEOIP_DB_SHA256": "79f7b79fe1b232e461f4763d5e90fd814d0b87851a764147700ea1e21577c898"
+    }
+  },
+  {
+    "id": "credential-split-and-partition-create",
+    "request_app": true,
+    "credential_tags": true,
+    "before": "DO $$DECLARE v_name text:='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM'); BEGIN EXECUTE format('ALTER TABLE audit_log DETACH PARTITION %I',v_name); EXECUTE format('ALTER TABLE %I RENAME TO boot_saved_audit_partition',v_name); END$$; CREATE TABLE boot_roles(step text,role_name text,application text); GRANT INSERT ON boot_roles TO setjoin_app; ALTER FUNCTION create_monthly_partitions(integer) RENAME TO boot_saved_partitions; CREATE FUNCTION create_monthly_partitions(integer) RETURNS void LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('owner',current_user,current_setting('application_name')); PERFORM boot_saved_partitions($1); END$$; ALTER FUNCTION startup_recovery() RENAME TO boot_saved_recovery; CREATE FUNCTION startup_recovery() RETURNS jsonb LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('worker',current_user,current_setting('application_name')); RETURN boot_saved_recovery(); END$$; CREATE FUNCTION boot_health_role() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('request',current_user,current_setting('application_name')); RETURN NEW; END$$; CREATE TRIGGER boot_health_role BEFORE INSERT ON health_history FOR EACH ROW EXECUTE FUNCTION boot_health_role(); ",
+    "after": "DO $$DECLARE v_start date:=(date_trunc('month',now())+interval '1 month')::date; v_end date:=(date_trunc('month',now())+interval '2 months')::date; v_name text:='audit_log_'||to_char(v_start,'YYYY_MM'); BEGIN EXECUTE format('DROP TABLE IF EXISTS %I',v_name); EXECUTE format('ALTER TABLE boot_saved_audit_partition RENAME TO %I',v_name); EXECUTE format('ALTER TABLE audit_log ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',v_name,v_start,v_end); END$$; DROP TRIGGER boot_health_role ON health_history; DROP FUNCTION boot_health_role(); DROP FUNCTION create_monthly_partitions(integer); ALTER FUNCTION boot_saved_partitions(integer) RENAME TO create_monthly_partitions; DROP FUNCTION startup_recovery(); ALTER FUNCTION boot_saved_recovery() RENAME TO startup_recovery; DROP TABLE boot_roles; ",
+    "effects": "SELECT jsonb_build_object('credentials',(SELECT jsonb_agg(jsonb_build_array(step,role_name,application) ORDER BY step) FROM boot_roles),'partition',EXISTS(SELECT 1 FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE i.inhparent='audit_log'::regclass AND c.relname='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM')),'partition_owner',(SELECT r.rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.relname='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM')))"
+  },
+  {
+    "id": "partition-ddl-denied-go-warns",
+    "request_app": true,
+    "owner_app": true,
+    "credential_tags": true,
+    "before": "DO $$DECLARE v_name text:='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM'); BEGIN EXECUTE format('ALTER TABLE audit_log DETACH PARTITION %I',v_name); EXECUTE format('ALTER TABLE %I RENAME TO boot_saved_audit_partition',v_name); END$$; CREATE TABLE boot_roles(step text,role_name text,application text); GRANT INSERT ON boot_roles TO setjoin_app; ALTER FUNCTION create_monthly_partitions(integer) RENAME TO boot_saved_partitions; CREATE FUNCTION create_monthly_partitions(integer) RETURNS void LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('owner',current_user,current_setting('application_name')); PERFORM boot_saved_partitions($1); END$$; ALTER FUNCTION startup_recovery() RENAME TO boot_saved_recovery; CREATE FUNCTION startup_recovery() RETURNS jsonb LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('worker',current_user,current_setting('application_name')); RETURN boot_saved_recovery(); END$$; CREATE FUNCTION boot_health_role() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN INSERT INTO boot_roles VALUES ('request',current_user,current_setting('application_name')); RETURN NEW; END$$; CREATE TRIGGER boot_health_role BEFORE INSERT ON health_history FOR EACH ROW EXECUTE FUNCTION boot_health_role(); ",
+    "after": "DO $$DECLARE v_start date:=(date_trunc('month',now())+interval '1 month')::date; v_end date:=(date_trunc('month',now())+interval '2 months')::date; v_name text:='audit_log_'||to_char(v_start,'YYYY_MM'); BEGIN EXECUTE format('DROP TABLE IF EXISTS %I',v_name); EXECUTE format('ALTER TABLE boot_saved_audit_partition RENAME TO %I',v_name); EXECUTE format('ALTER TABLE audit_log ATTACH PARTITION %I FOR VALUES FROM (%L) TO (%L)',v_name,v_start,v_end); END$$; DROP TRIGGER boot_health_role ON health_history; DROP FUNCTION boot_health_role(); DROP FUNCTION create_monthly_partitions(integer); ALTER FUNCTION boot_saved_partitions(integer) RENAME TO create_monthly_partitions; DROP FUNCTION startup_recovery(); ALTER FUNCTION boot_saved_recovery() RENAME TO startup_recovery; DROP TABLE boot_roles; ",
+    "effects": "SELECT jsonb_build_object('credentials',(SELECT jsonb_agg(jsonb_build_array(step,role_name,application) ORDER BY step) FROM boot_roles),'partition',EXISTS(SELECT 1 FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE i.inhparent='audit_log'::regclass AND c.relname='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM')),'partition_owner',(SELECT r.rolname FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.relname='audit_log_'||to_char(date_trunc('month',now())+interval '1 month','YYYY_MM')))"
+  },
+  {
+    "id": "upgrade-flag-repair-and-repeat",
+    "before": "CREATE TABLE boot_saved_config AS SELECT * FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET value='\"connector-plain\"'::jsonb,encrypted=false WHERE key='ad_sync_password_enc'; INSERT INTO system_config(key,value,encrypted) VALUES ('ldap_sync_boot_enc','\"ldap-plain\"',false),('assist.api_key','\"assist-plain\"',false) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=false",
+    "between": "CREATE TABLE boot_envelopes AS SELECT key,value FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); UPDATE system_config SET encrypted=false WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key')",
+    "after": "DROP TABLE boot_envelopes; DELETE FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key'); INSERT INTO system_config SELECT * FROM boot_saved_config; DROP TABLE boot_saved_config; DELETE FROM health_history WHERE check_name='minio_connectivity'",
+    "effects": "SELECT jsonb_build_object('flags',bool_and(s.encrypted),'unchanged',bool_and(s.value=e.value)) FROM system_config s JOIN boot_envelopes e USING(key)",
+    "env": {
+      "BOOT_INSPECT_SECRETS": "1"
+    },
+    "repeat_boot": 2
+  },
+  {
+    "id": "secret-file-repeat-keeps-generated-keys",
+    "file": "missing",
+    "repeat_boot": 2
+  },
+  {
+    "id": "worker-pool-invalid",
+    "env": {
+      "DB_WORKER_DSN": "postgres://%invalid"
+    }
+  },
+  {
+    "id": "owner-pool-invalid",
+    "env": {
+      "DB_OWNER_DSN": "postgres://%invalid"
+    }
+  },
+  {
+    "id": "request-pool-invalid",
+    "env": {
+      "DB_DSN": "postgres://%invalid"
+    }
+  },
+  {
+    "id": "s3-constructor-invalid-path",
+    "invalid_storage_path": true
+  },
+  {
+    "id": "s3-discovered-region",
+    "storage": {
+      "region": "eu-west-1"
+    },
+    "env": {
+      "WORM_MODE": "compliance",
+      "WORM_RETENTION_DAYS": "2557"
+    }
+  },
+  {
+    "id": "generated-file-key-reload-refuses-old-envelopes",
+    "file": "missing",
+    "repeat_boot": 2,
+    "reload_generated_env": true,
+    "effects": "SELECT jsonb_build_object('encrypted',encrypted,'format',value->>'format') FROM system_config WHERE key='ad_sync_password_enc'"
+  },
+  {
+    "id": "http-loopback-storage-endpoint",
+    "storage_http_scheme": true
+  }
+]

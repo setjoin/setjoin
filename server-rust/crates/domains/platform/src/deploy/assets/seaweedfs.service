@@ -1,0 +1,19 @@
+[Unit]
+Description=SeaweedFS Storage Node
+After=network.target
+
+[Service]
+Type=simple
+User=mail
+ExecStart=/usr/local/bin/weed server \
+  -dir=%s \
+%s  -filer -s3 -s3.port=%d \
+  -s3.config=/etc/mail/seaweedfs-s3.json \
+  -volume.max=%d \
+  -rack=%s \
+  -dataCenter=dc1
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,79 @@
+-- notify_state_change.pg: the single state-bump + pg_notify reducer.
+-- Requires: notify_state_change, bump_email_state, bump_tag_mailbox_state, create_system_tags.
+BEGIN;
+SELECT plan(7);
+
+INSERT INTO domains (name, is_local) VALUES ('nsc.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- ADR-003: DIVERGENT ids (user 190101 != mailbox 90101). notify_state_change
+-- takes the MAILBOX id (90101) throughout.
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (190101, 'nsc', (SELECT id FROM domains WHERE name = 'nsc.test'),
+        'nsc@nsc.test', 'NSC', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (90101, 190101, (SELECT id FROM domains WHERE name = 'nsc.test'),
+        'nsc@nsc.test', 'NSC', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+SELECT create_system_tags(90101);
+
+-- Capture baselines.
+CREATE TEMP TABLE _base AS
+SELECT jmap_email_state AS e0, jmap_tag_state AS t0
+FROM mailboxes WHERE id = 90101;
+
+-- Test 1: returns the new email-state value (= old + 1).
+SELECT is(
+  notify_state_change(90101, (SELECT id FROM tags WHERE mailbox_id = 90101 AND name = 'Inbox')),
+  (SELECT e0 + 1 FROM _base),
+  'returns new jmap_email_state (old + 1)');
+
+-- Test 2: email state bumped exactly once.
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = 90101),
+  (SELECT e0 + 1 FROM _base),
+  'email state bumped exactly once with a tag arg');
+
+-- Test 3: tag state bumped exactly once when p_tag_id is non-NULL.
+SELECT is(
+  (SELECT jmap_tag_state FROM mailboxes WHERE id = 90101),
+  (SELECT t0 + 1 FROM _base),
+  'tag state bumped exactly once when tag arg is non-NULL');
+
+-- Re-baseline after the first call.
+UPDATE _base SET e0 = (SELECT jmap_email_state FROM mailboxes WHERE id = 90101),
+                 t0 = (SELECT jmap_tag_state   FROM mailboxes WHERE id = 90101);
+
+-- Test 4: with NULL tag, email state bumps...
+SELECT is(
+  notify_state_change(90101, NULL),
+  (SELECT e0 + 1 FROM _base),
+  'NULL tag arg still bumps email state');
+
+-- Test 5: ...but tag state does NOT move (no spurious tag bump).
+SELECT is(
+  (SELECT jmap_tag_state FROM mailboxes WHERE id = 90101),
+  (SELECT t0 FROM _base),
+  'NULL tag arg leaves jmap_tag_state untouched');
+
+-- Test 6: a NULL mailbox raises BZ034.
+SELECT throws_ok(
+  $$ SELECT notify_state_change(NULL, NULL) $$,
+  'BZ034', NULL,
+  'NULL mailbox raises BZ034');
+
+-- Test 7: the counter trigger still owns per-tag tags.jmap_state — calling
+-- notify_state_change does NOT touch it (no double-bump of the per-tag token).
+CREATE TEMP TABLE _t7 AS
+SELECT id AS tag_id, jmap_state AS s0 FROM tags WHERE mailbox_id = 90101 AND name = 'Inbox';
+DO $$ BEGIN PERFORM notify_state_change(90101, (SELECT tag_id FROM _t7)); END $$;
+SELECT is(
+  (SELECT jmap_state FROM tags WHERE id = (SELECT tag_id FROM _t7)),
+  (SELECT s0 FROM _t7),
+  'notify_state_change leaves per-tag tags.jmap_state to the counter trigger');
+
+SELECT * FROM finish();
+ROLLBACK;

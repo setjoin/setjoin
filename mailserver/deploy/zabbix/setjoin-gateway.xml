@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<zabbix_export>
+  <version>7.0</version>
+  <date>2026-06-05T00:00:00Z</date>
+  <template_groups>
+    <template_group>
+      <uuid>a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6</uuid>
+      <name>Templates/Applications</name>
+    </template_group>
+  </template_groups>
+  <templates>
+    <template>
+      <uuid>f1e2d3c4b5a69788796a5b4c3d2e1f0</uuid>
+      <template>SetJoin Gateway</template>
+      <name>SetJoin Gateway</name>
+      <description>SetJoin gateway and bounded identity-safety monitoring via the authenticated Prometheus /metrics endpoint. Items marked [future] require additional gateway gauge exports.</description>
+      <groups>
+        <group><name>Templates/Applications</name></group>
+      </groups>
+      <items>
+        <!-- Health check — uses /health endpoint, always available -->
+        <item>
+          <uuid>00000000000000000000000000000001</uuid>
+          <name>Gateway health check</name>
+          <key>gateway.health</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000001</uuid>
+              <expression>{last()}&lt;&gt;200</expression>
+              <name>Gateway health check failed (HTTP {ITEM.LASTVALUE})</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- Queue depth — gateway_smtp_queue_depth gauge exists in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000002</uuid>
+          <name>SMTP outbound queue depth</name>
+          <key>gateway.queue.depth</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>FLOAT</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000002</uuid>
+              <expression>{last()}&gt;500</expression>
+              <name>Outbound queue depth &gt;500 (current: {ITEM.LASTVALUE})</name>
+              <priority>AVERAGE</priority>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000003</uuid>
+              <expression>{last()}&gt;1000</expression>
+              <name>Outbound queue depth &gt;1000 (current: {ITEM.LASTVALUE})</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- Queue oldest — [future] gateway_queue_oldest_seconds not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000004</uuid>
+          <name>Oldest queued item age (seconds) [future]</name>
+          <key>gateway.queue.oldest</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>FLOAT</value_type>
+          <delay>60s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000004</uuid>
+              <expression>{last()}&gt;3600</expression>
+              <name>Oldest queue item &gt;60min (current: {ITEM.LASTVALUE}s)</name>
+              <priority>WARNING</priority>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000005</uuid>
+              <expression>{last()}&gt;7200</expression>
+              <name>Oldest queue item &gt;120min (current: {ITEM.LASTVALUE}s)</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- Replication lag — [future] gateway_db_replication_lag not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000006</uuid>
+          <name>DB replication lag (seconds) [future]</name>
+          <key>gateway.db.replication_lag</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>FLOAT</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000006</uuid>
+              <expression>{last()}&gt;10</expression>
+              <name>Replication lag &gt;10s (current: {ITEM.LASTVALUE}s)</name>
+              <priority>WARNING</priority>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000007</uuid>
+              <expression>{last()}&gt;60</expression>
+              <name>Replication lag &gt;60s (current: {ITEM.LASTVALUE}s)</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- DB connections — [future] gateway_db_connections not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000008</uuid>
+          <name>DB connections [future]</name>
+          <key>gateway.db.connections</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000008</uuid>
+              <expression>{last()}&gt;80</expression>
+              <name>DB connections &gt;80 (current: {ITEM.LASTVALUE})</name>
+              <priority>WARNING</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- S3 latency — [future] gateway_s3_operation_duration_seconds not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000010</uuid>
+          <name>S3 operation latency (seconds) [future]</name>
+          <key>gateway.s3.latency</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>FLOAT</value_type>
+          <delay>60s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000010</uuid>
+              <expression>{last()}&gt;0.5</expression>
+              <name>S3 latency &gt;500ms (current: {ITEM.LASTVALUE}s)</name>
+              <priority>WARNING</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- Auth failures — gateway_request_4xx_total counter exists in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000011</uuid>
+          <name>Auth failures (total 4xx)</name>
+          <key>gateway.auth.failures</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000011</uuid>
+              <expression>{last()}&gt;50</expression>
+              <name>Auth failures &gt;50 (current: {ITEM.LASTVALUE})</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- TLS cert expiry — [future] gateway_tls_cert_expiry_seconds not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000012</uuid>
+          <name>TLS certificate expiry (seconds until) [future]</name>
+          <key>gateway.tls.expiry</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>FLOAT</value_type>
+          <delay>3600s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000012</uuid>
+              <expression>{last()}&lt;2592000</expression>
+              <name>TLS cert expires in &lt;30 days</name>
+              <priority>WARNING</priority>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000013</uuid>
+              <expression>{last()}&lt;604800</expression>
+              <name>TLS cert expires in &lt;7 days</name>
+              <priority>HIGH</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <!-- MAM non-compliant devices — [future] gateway_mam_noncompliant_devices not yet in handler.go -->
+        <item>
+          <uuid>00000000000000000000000000000014</uuid>
+          <name>MAM non-compliant devices [future]</name>
+          <key>gateway.mam.noncompliant</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>300s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000014</uuid>
+              <expression>{last()}&gt;0</expression>
+              <name>Non-compliant devices detected</name>
+              <priority>INFO</priority>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000015</uuid>
+              <expression>{last()}&gt;5</expression>
+              <name>&gt;5 non-compliant devices</name>
+              <priority>WARNING</priority>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000020</uuid>
+          <name>Identity metrics collector healthy</name>
+          <key>gateway.identity.collector</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000020</uuid>
+              <expression>{last()}&lt;&gt;1</expression>
+              <name>Identity metrics collector unavailable</name>
+              <priority>HIGH</priority>
+              <url>docs/guides/IDENTITY_ALERTING.md#collector-down</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000021</uuid>
+          <name>Identity critical divergences</name>
+          <key>gateway.identity.divergence</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000021</uuid>
+              <expression>{last()}&gt;0</expression>
+              <name>Critical identity divergence detected</name>
+              <priority>DISASTER</priority>
+              <url>docs/guides/IDENTITY_UPGRADE_AND_ROLLBACK.md</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000022</uuid>
+          <name>Identity source cursor age</name>
+          <key>gateway.identity.cursor_age</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <units>s</units>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000022</uuid>
+              <expression>{last()}&gt;600</expression>
+              <name>Identity source cursor is stale</name>
+              <priority>WARNING</priority>
+              <url>docs/guides/IDENTITY_TROUBLESHOOTING.md</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000023</uuid>
+          <name>Quarantined identity entries</name>
+          <key>gateway.identity.inbox_quarantined</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000023</uuid>
+              <expression>{last()}&gt;0</expression>
+              <name>Identity source entries require quarantine review</name>
+              <priority>WARNING</priority>
+              <url>docs/guides/IDENTITY_INVENTORY_AND_CONFLICTS.md</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000024</uuid>
+          <name>Oldest identity transition age</name>
+          <key>gateway.identity.transition_age</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <units>s</units>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000024</uuid>
+              <expression>{last()}&gt;300</expression>
+              <name>Identity transition is stuck</name>
+              <priority>WARNING</priority>
+              <url>docs/guides/IDENTITY_RECOVERY.md</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000025</uuid>
+          <name>Oldest identity effect age</name>
+          <key>gateway.identity.effect_age</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <units>s</units>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000025</uuid>
+              <expression>{last()}&gt;300</expression>
+              <name>Identity post-commit effects are stuck</name>
+              <priority>WARNING</priority>
+              <url>docs/guides/IDENTITY_RECOVERY.md</url>
+            </trigger>
+            <trigger>
+              <uuid>10000000000000000000000000000026</uuid>
+              <expression>{last()}&gt;1800</expression>
+              <name>Identity post-commit effects exceeded the critical SLO</name>
+              <priority>HIGH</priority>
+              <url>docs/guides/IDENTITY_RECOVERY.md</url>
+            </trigger>
+          </triggers>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000026</uuid>
+          <name>Pending identity approvals</name>
+          <key>gateway.identity.approvals_pending</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <delay>30s</delay>
+        </item>
+
+        <item>
+          <uuid>00000000000000000000000000000027</uuid>
+          <name>Earliest identity approval expiry</name>
+          <key>gateway.identity.approval_expiry</key>
+          <type>ZABBIX_ACTIVE</type>
+          <value_type>UNSIGNED</value_type>
+          <units>s</units>
+          <delay>30s</delay>
+          <triggers>
+            <trigger>
+              <uuid>10000000000000000000000000000027</uuid>
+              <expression>last(/SetJoin Gateway/gateway.identity.approvals_pending)&gt;0 and last(/SetJoin Gateway/gateway.identity.approval_expiry)&lt;1800</expression>
+              <name>Protected identity approval expires within 30 minutes</name>
+              <priority>WARNING</priority>
+              <url>docs/guides/IDENTITY_TRANSITION.md</url>
+            </trigger>
+          </triggers>
+        </item>
+      </items>
+    </template>
+  </templates>
+</zabbix_export>

@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/upgrade/canary",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"enabled\":true,\"expectedGeneration\":\"3\",\"reason\":\"operator request\",\"sourceKey\":\"directory\",\"userIds\":[\"7\",\"9\"]}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

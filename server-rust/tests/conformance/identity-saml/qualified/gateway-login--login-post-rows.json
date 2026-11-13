@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "route": "* /auth/saml/ login",
+  "case": "login-post-row-effects",
+  "effects": [
+    {
+      "table": "saml_projection",
+      "snapshot": [],
+      "identity": null,
+      "mapping": null
+    }
+  ]
+}

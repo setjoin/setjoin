@@ -1,0 +1,13 @@
+[Unit]
+Description=Setjoin native IMAP STARTTLS listener
+
+[Socket]
+ListenStream={{IMAP_LISTEN}}
+FileDescriptorName=imap
+Service=setjoin-gateway.service
+Accept=no
+NoDelay=true
+Backlog=4096
+
+[Install]
+WantedBy=sockets.target

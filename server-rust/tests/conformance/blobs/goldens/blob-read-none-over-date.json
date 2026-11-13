@@ -1,0 +1,123 @@
+{
+  "case": "none-over-date",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "normalization": [
+    "HTTP Date",
+    "validated 60-hex multipart boundary"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "external_path": "/api/blobs/{sha256}",
+      "headers": {
+        "if-modified-since": "Fri, 01 Jan 2100 00:00:00 GMT",
+        "if-none-match": "\"other\"",
+        "range": "bytes=0-16"
+      },
+      "method": "GET",
+      "path": "/blobs/{sha256}"
+    },
+    "response": {
+      "body": "scoped attachment",
+      "headers": {
+        "accept-ranges": [
+          "bytes"
+        ],
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "17"
+        ],
+        "content-range": [
+          "bytes 0-16/17"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "text/plain"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "last-modified": [
+          "Sat, 31 Oct 2026 00:00:00 GMT"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs3-read-oracle"
+        ]
+      },
+      "status": 206
+    },
+    "responses": [
+      {
+        "body": "scoped attachment",
+        "headers": {
+          "accept-ranges": [
+            "bytes"
+          ],
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "17"
+          ],
+          "content-range": [
+            "bytes 0-16/17"
+          ],
+          "content-security-policy": [
+            "default-src 'none'; sandbox"
+          ],
+          "content-type": [
+            "text/plain"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "last-modified": [
+            "Sat, 31 Oct 2026 00:00:00 GMT"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs3-read-oracle"
+          ]
+        },
+        "status": 206
+      }
+    ]
+  },
+  "route": "GET /blobs/{sha256}"
+}

@@ -1,0 +1,24 @@
+{
+  "case": "legacy-rsa1024-session",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "cookie": "_existing_legacy_sp_session",
+      "method": "GET",
+      "path": "/auth/saml/idfed3/login"
+    },
+    "response": {
+      "body": "<a href=\"/\">Found</a>.\n\n",
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "location": "/"
+      },
+      "status": 302
+    }
+  },
+  "route": "GET /auth/saml/{idp}/login"
+}

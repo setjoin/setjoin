@@ -1,0 +1,63 @@
+-- mailserver/sql/tests/drive_file_put_version.pg — clean path, manifest shape,
+-- idempotency, + P4 per-ref branch-save cases (Task 4)
+BEGIN;
+SELECT plan(18);
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT mk_account('dpv') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT drive_space_create(:u, 'V', 'regular') AS sid \gset
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'doc.bin') AS nid \gset
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 4194304);
+SELECT drive_chunk_register(:u, :sid, repeat('2',64), 100);
+
+SELECT drive_file_put_version(:u, :nid, repeat('f',64), 4194404, 'application/octet-stream', NULL,
+  format('[{"sha256":"%s","size":4194304},{"sha256":"%s","size":100}]', repeat('1',64), repeat('2',64))::jsonb,
+  'v1', 'test') AS r1 \gset
+SELECT is((:'r1'::jsonb->>'conflict')::boolean, FALSE, 'clean v1: no conflict');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:nid), (:'r1'::jsonb->>'versionId')::bigint, 'head advanced');
+SELECT is((SELECT size_bytes FROM drive_files WHERE node_id=:nid), 4194404::bigint, 'drive_files size updated');
+SELECT is((SELECT count(*) FROM drive_version_chunks WHERE version_id=(:'r1'::jsonb->>'versionId')::bigint)::int, 2, 'manifest rows written');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE sha256=repeat('1',64)), 1::bigint, 'ref_count moved by trigger');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:sid), 4194404::bigint, 'used_bytes charged');
+SELECT is((SELECT count(*) FROM drive_upload_claims WHERE user_id=:u)::int, 0, 'consumed claims deleted');
+SELECT is((SELECT op FROM drive_changes WHERE space_id=:sid ORDER BY seq DESC LIMIT 1), 'create', 'v1 journals op=create');
+-- idempotent re-POST: same (file, sha, base) returns the existing version, no double charge
+SELECT is((drive_file_put_version(:u, :nid, repeat('f',64), 4194404, 'application/octet-stream', NULL,
+  format('[{"sha256":"%s","size":4194304},{"sha256":"%s","size":100}]', repeat('1',64), repeat('2',64))::jsonb,
+  'v1', 'test')->>'versionId')::bigint, (:'r1'::jsonb->>'versionId')::bigint, 'idempotent re-POST');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:sid), 4194404::bigint, 'no double quota charge');
+-- manifest shape errors
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 200, NULL, NULL,
+  '[{"sha256":"%s","size":100}]', NULL, 'test') $$, :u, :nid, repeat('d',64), repeat('2',64)),
+  'BZ141', NULL, 'sizes must sum to p_size');
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 4194405, NULL, NULL,
+  '[{"sha256":"%s","size":100},{"sha256":"%s","size":4194305}]', NULL, 'test') $$,
+  :u, :nid, repeat('d',64), repeat('2',64), repeat('1',64)),
+  'BZ141', NULL, 'non-final chunk must be exactly 4 MiB');
+-- P4: unknown/wrong-file branch id → BZ150 (not P1's blanket BZ141)
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 1, NULL, NULL,
+  '[{"sha256":"%s","size":1}]', NULL, 'test', 999999) $$, :u, :nid, repeat('d',64), repeat('2',64)),
+  'BZ150', NULL, 'unknown p_branch_id → BZ150');
+
+-- P4 per-ref branch save: create a branch off v1, save onto it via p_branch_id
+SELECT drive_branch_create(:u, :nid, 'wip', (:'r1'::jsonb->>'versionId')::bigint) AS bid \gset
+SELECT drive_chunk_register(:u, :sid, repeat('3',64), 50);
+SELECT drive_file_put_version(:u, :nid, repeat('e',64), 50, NULL,
+  (:'r1'::jsonb->>'versionId')::bigint,
+  format('[{"sha256":"%s","size":50}]', repeat('3',64))::jsonb, 'branch save', 'test', :bid) AS rbr \gset
+SELECT is((:'rbr'::jsonb->>'conflict')::boolean, FALSE, 'clean branch save: no conflict');
+SELECT is((:'rbr'::jsonb->>'branchId')::bigint, :bid::bigint, 'branch save reports its branchId');
+SELECT is((SELECT head_version_id FROM drive_file_branches WHERE id = :bid),
+  (:'rbr'::jsonb->>'versionId')::bigint, 'branch head advanced, not drive_files.head_version_id');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id = :nid),
+  (:'r1'::jsonb->>'versionId')::bigint, 'main head UNCHANGED by a branch save');
+
+-- p_branch_id of a MERGED branch → BZ150
+SELECT drive_branch_resolve(:u, :bid, 'discard');
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 50, NULL,
+  (SELECT head_version_id FROM drive_file_branches WHERE id = %s),
+  '[{"sha256":"%s","size":50}]', NULL, 'test', %s) $$,
+  :u, :nid, repeat('f',64), :bid, repeat('3',64), :bid),
+  'BZ150', NULL, 'save onto a discarded branch → BZ150');
+SELECT * FROM finish();
+ROLLBACK;

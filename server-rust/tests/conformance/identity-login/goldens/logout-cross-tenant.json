@@ -1,0 +1,107 @@
+{
+  "case": "logout-cross-tenant",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [
+      {
+        "details": null,
+        "email": "actor@<domain>",
+        "event": "login",
+        "ip_address": "127.0.0.1",
+        "occurred_at": "<time>",
+        "provider": "jwt",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": {
+      "oauth": [
+        {
+          "client_id": null,
+          "expires_at": "<time>",
+          "family_id": "<family>",
+          "id": "<row-id>",
+          "issued_at": "<time>",
+          "last_used_protocol": null,
+          "previous_token_hash": null,
+          "revoked_by": null,
+          "scope": [],
+          "token_hash": "<token-hash>",
+          "token_type": "refresh",
+          "user_id": "<actor>"
+        }
+      ],
+      "sessions": [],
+      "signins": [
+        {
+          "auth_method": "password",
+          "client": "web",
+          "correlation_id": null,
+          "device_fingerprint": null,
+          "device_name": null,
+          "fail_reason": null,
+          "location": null,
+          "platform": null,
+          "protocol": "http",
+          "session_id": null,
+          "source_ip": "127.0.0.1",
+          "success": true,
+          "user_id": "<actor>"
+        }
+      ]
+    },
+    "notify": [
+      {
+        "expires_at": "<time>",
+        "family_id": null,
+        "jti": "<jti>",
+        "not_before": "<time>",
+        "scope": "all",
+        "user_id": "<actor>"
+      }
+    ],
+    "request": {
+      "body": "{\"user_id\":\"<actor>\"}",
+      "method": "POST",
+      "path": "/auth/logout"
+    },
+    "response": {
+      "body": "",
+      "headers": {},
+      "status": 204,
+      "tokens": []
+    },
+    "security_effects": {
+      "audit": [
+        {
+          "action": "revoke_user_sessions",
+          "after_state": {
+            "expires_at": "<time>",
+            "family_id": null,
+            "jti": "<jti>",
+            "not_before": "<time>",
+            "scope": "all",
+            "user_id": "<actor>"
+          },
+          "target_id": "<actor>",
+          "target_type": "user",
+          "user_id": null
+        }
+      ],
+      "revocations": [
+        {
+          "created_at": "<time>",
+          "created_by": null,
+          "expires_at": "<time>",
+          "family_id": null,
+          "jti": "<jti>",
+          "not_before": "<time>",
+          "reason": "token_revoke_all",
+          "scope": "all",
+          "user_id": "<actor>"
+        }
+      ]
+    }
+  },
+  "route": "POST /auth/logout"
+}

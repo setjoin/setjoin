@@ -1,0 +1,27 @@
+-- #316: the public batch seam preserves Go's phase order, ownership and atomicity.
+BEGIN;
+SELECT plan(5);
+SELECT mk_account('jmap2batch') AS mb \gset
+SELECT mk_account('jmap2foreign') AS fmb \gset
+SELECT jmap_mailbox_set_create(:fmb, '{"f":{"name":"Foreign"}}')->'created'->'f'->>'id' AS fid \gset
+SELECT ok(
+  jmap_mailbox_set_batch(:mb, '{"c":{"name":"Work"}}', '{}'::jsonb, NULL) ? 'created',
+  'create and update phases merge into one response'
+);
+SELECT throws_ok(
+  format($q$SELECT jmap_mailbox_set_batch(%s, '{"c":{"name":"MustRollback"}}', '{"bad":{}}', NULL)$q$, :mb),
+  '22P02', NULL,
+  'an infrastructure failure in update rejects the whole batch'
+);
+SELECT is(jsonb_array_length(jmap_mailbox_query(:mb, '{"name":"MustRollback"}')->'ids'), 0,
+  'failed batch leaves no created folder visible through the read seam');
+SELECT is(
+  jmap_mailbox_set_batch(:mb, NULL, jsonb_build_object(:'fid', jsonb_build_object('name','Stolen')), NULL)->'notUpdated'->:'fid'->>'type',
+  'notFound', 'foreign folder cannot be updated'
+);
+SELECT is(
+  jmap_mailbox_set_batch(:mb, NULL, NULL, ARRAY[:fid]::bigint[])->'notDestroyed'->:'fid'->>'type',
+  'notFound', 'foreign folder cannot be destroyed'
+);
+SELECT * FROM finish();
+ROLLBACK;

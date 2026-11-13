@@ -1,0 +1,420 @@
+[
+  {
+    "name": "link-qp-invalid-hex",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-invalid-hex@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n=ZZ https://external.test/q\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-incomplete-hex",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-incomplete-hex@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nhello https://external.test/q=F\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-final-soft-break",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-final-soft-break@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nhello https://external.test/q=\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-raw-utf8",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-raw-utf8@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf\u00e9 https://external.test/q\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-lowercase-hex",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-lowercase-hex@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=c3=a9 https://external.test/q\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-raw-control",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-raw-control@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\none\u0001 https://external.test/q\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-trailing-whitespace",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-trailing-whitespace@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\none \t\r\nhttps://external.test/q\t \r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-soft-url",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-soft-url@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nhttps://external.test/q?x=3D1=\r\n&y=3D2\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-qp-encoding-field",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-qp-encoding-field@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: QuOtEd-PrInTaBlE extra\r\n\r\nhttps://external.test/q?x=3D1\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-base64-invalid-padding",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-base64-invalid-padding@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\naHR0cHM6Ly9leHRlcm5hbC50ZXN0L3E\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-base64-nonmime-whitespace",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-base64-nonmime-whitespace@smtp6.test>\r\nSubject: Encoding edge\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\naHR0cHM6Ly9leHRlcm5hbC50ZXN0L3E=\u00a0\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  }
+]

@@ -1,0 +1,93 @@
+-- mailserver/sql/tests/drive_preview.pg — drive_preview_request / drive_preview_attach
+-- (P3 Task 14, spec §8.3). Genre: drive_file_put_version.pg (mk_account fixtures,
+-- format()+throws_ok/lives_ok) + rls_smtp_delivery.pg (SET LOCAL ROLE setjoin_worker
+-- for the BYPASSRLS worker-role assertions).
+BEGIN;
+SELECT plan(18);
+
+SELECT mk_account('dpvA') AS mb  \gset
+SELECT mk_account('dpvB') AS mb2 \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb  \gset
+-- u2 is an outsider, never a member of any space created below
+SELECT user_id AS u2 FROM mailboxes WHERE id = :mb2 \gset
+
+SELECT drive_space_create(:u, 'V', 'regular') AS sid \gset
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'doc.docx') AS nid \gset
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 100);
+SELECT drive_file_put_version(:u, :nid, repeat('a',64), 100,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', NULL,
+  format('[{"sha256":"%s","size":100}]', repeat('1',64))::jsonb, 'v1', 'test') AS r1 \gset
+SELECT (:'r1'::jsonb->>'versionId')::bigint AS vid \gset
+
+-- ── drive_preview_request ────────────────────────────────────────────────
+SELECT is(drive_preview_request(:u, :vid), 'pending', 'member request flips none->pending');
+SELECT is((SELECT preview_status FROM drive_file_versions WHERE id=:vid), 'pending', 'pending status persisted');
+SELECT is(drive_preview_request(:u, :vid), 'pending', 'repeat call is idempotent (still pending, no error)');
+
+SELECT throws_ok(format($$ SELECT drive_preview_request(%s, %s) $$, :u2, :vid),
+  'BZ139', NULL, 'non-member request -> BZ139 (no membership oracle)');
+
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'plain.txt') AS nid2 \gset
+SELECT drive_chunk_register(:u, :sid, repeat('2',64), 50);
+SELECT drive_file_put_version(:u, :nid2, repeat('b',64), 50, 'text/plain', NULL,
+  format('[{"sha256":"%s","size":50}]', repeat('2',64))::jsonb, 'v1', 'test') AS r2 \gset
+SELECT (:'r2'::jsonb->>'versionId')::bigint AS vid2 \gset
+SELECT is(drive_preview_request(:u, :vid2), 'unsupported', 'non-office content_type -> unsupported');
+SELECT is((SELECT preview_status FROM drive_file_versions WHERE id=:vid2), 'unsupported', 'unsupported status persisted');
+
+-- ── drive_preview_attach: success (worker role, BYPASSRLS) ───────────────
+SET LOCAL ROLE setjoin_worker;
+SELECT lives_ok(
+  format($$ SELECT drive_preview_attach(%s, %L, %L::jsonb) $$,
+    :vid, repeat('c',64), format('[{"sha256":"%s","size":200}]', repeat('d',64))),
+  'worker attach (setjoin_worker/BYPASSRLS) succeeds — I-6 posture');
+RESET ROLE;
+SELECT is((SELECT preview_status FROM drive_file_versions WHERE id=:vid), 'ready', 'status flipped to ready after attach');
+SELECT is((SELECT preview_sha256 FROM drive_file_versions WHERE id=:vid), repeat('c',64), 'preview_sha256 recorded');
+SELECT is((SELECT count(*) FROM drive_version_chunks WHERE version_id=:vid AND stream='preview')::int, 1, 'preview manifest row inserted (stream=preview)');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('d',64)), 1::bigint, 'G7 trigger incremented ref_count for the new preview chunk');
+SELECT is((SELECT storage_ref FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('d',64)), 'drive/g/'||repeat('d',64), 'storage_ref computed as drive/<scope>/<sha>');
+
+-- ── drive_preview_attach: failure + invalid status ────────────────────────
+SELECT throws_ok(format($$ SELECT drive_preview_attach(%s, NULL, NULL, 'bogus') $$, :vid),
+  'BZ141', NULL, 'invalid p_status -> BZ141');
+
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'doc2.docx') AS nid3 \gset
+SELECT drive_chunk_register(:u, :sid, repeat('3',64), 60);
+SELECT drive_file_put_version(:u, :nid3, repeat('e',64), 60,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', NULL,
+  format('[{"sha256":"%s","size":60}]', repeat('3',64))::jsonb, 'v1', 'test') AS r3 \gset
+SELECT (:'r3'::jsonb->>'versionId')::bigint AS vid3 \gset
+SELECT drive_preview_request(:u, :vid3) AS req3 \gset
+
+SET LOCAL ROLE setjoin_worker;
+SELECT lives_ok(format($$ SELECT drive_preview_attach(%s, NULL, NULL, 'failed') $$, :vid3),
+  'attach with p_status=>failed marks the failure');
+RESET ROLE;
+SELECT is((SELECT preview_status FROM drive_file_versions WHERE id=:vid3), 'failed', 'failed status persisted');
+
+-- ── WORM carve-out: preview-only UPDATE allowed inside gxp retention,
+--    a genuine content UPDATE on the same row still raises BZ145 ───────────
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive_compliance';
+SELECT drive_space_create(:u, 'GXP', 'gxp', false, 30, 'governance') AS gsid \gset
+SELECT drive_node_create(:u, :gsid, NULL, 'file', 'reg.docx') AS gnid \gset
+SELECT drive_chunk_register(:u, :gsid, repeat('4',64), 70);
+SELECT drive_file_put_version(:u, :gnid, repeat('f',64), 70,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', NULL,
+  format('[{"sha256":"%s","size":70}]', repeat('4',64))::jsonb, 'v1', 'test') AS gr1 \gset
+SELECT (:'gr1'::jsonb->>'versionId')::bigint AS gvid \gset
+SELECT drive_preview_request(:u, :gvid) AS greq \gset
+
+SET LOCAL ROLE setjoin_worker;
+SELECT lives_ok(
+  format($$ SELECT drive_preview_attach(%s, %L, %L::jsonb) $$,
+    :gvid, repeat('9',64), format('[{"sha256":"%s","size":80}]', repeat('8',64))),
+  'preview attach succeeds on a gxp version still inside retention (§2.1.1 carve-out)');
+RESET ROLE;
+SELECT is((SELECT preview_status FROM drive_file_versions WHERE id=:gvid), 'ready', 'gxp version preview_status=ready despite retention');
+SELECT throws_ok(
+  format($$ UPDATE drive_file_versions SET note='tampered' WHERE id=%s $$, :gvid),
+  'BZ145', NULL, 'a genuine content-field UPDATE on the same in-retention gxp version still raises BZ145');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,153 @@
+
+[[ From Client ]]                [[ From Server ]]
+
+GET /jmap/ws/ HTTP/1.1
+Host: server.example.com
+Upgrade: websocket
+Connection: Upgrade
+Authorization: Basic Zm9vOmJhcg==
+Sec-WebSocket-Key:
+  dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Protocol: jmap
+Sec-WebSocket-Version: 13
+Origin: https://www.example.com
+
+                                 HTTP/1.1 101 Switching Protocols
+                                 Upgrade: websocket
+                                 Connection: Upgrade
+                                 Sec-WebSocket-Accept:
+                                   s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+                                 Sec-WebSocket-Protocol: jmap
+
+[WebSocket connection established]
+
+WS_DATA
+{
+  "@type": "WebSocketPushEnable",
+  "dataTypes": [ "Mailbox", "Email" ],
+  "pushState": "aaa"
+}
+
+                                 WS_DATA
+                                 {
+                                   "@type": "StateChange",
+                                   "changed": {
+                                     "a456": {
+                                       "Mailbox": "d35ecb040aab"
+                                     }
+                                   },
+                                   "pushState": "bbb"
+                                 }
+
+WS_DATA
+{
+  "@type": "Request",
+  "id": "R1",
+  "using": [ "urn:ietf:params:jmap:core" ],
+  "methodCalls": [
+    [
+      "Core/echo", {
+        "hello": true,
+        "high": 5
+      },
+      "b3ff"
+    ]
+  ]
+}
+
+                                 WS_DATA
+                                 {
+                                   "@type": "Response",
+                                   "requestId": "R1",
+                                   "methodResponses": [
+                                     [
+                                       "Core/echo", {
+                                         "hello": true,
+                                         "high": 5
+                                       },
+                                       "b3ff"
+                                     ]
+                                   ]
+                                 }
+
+WS_DATA
+The quick brown fox jumps
+ over the lazy dog.
+
+                                 WS_DATA
+                                 {
+                                   "@type": "RequestError",
+                                   "requestId": null,
+                                   "type":
+                             "urn:ietf:params:jmap:error:notJSON",
+                                   "status": 400,
+                                   "detail":
+                             "The request did not parse as I-JSON."
+                                 }
+
+[A new email is received]
+
+                                 WS_DATA
+                                 {
+                                   "@type": "StateChange",
+                                   "changed": {
+                                     "a123": {
+                                       "Email": "0af7a512ce70"
+                                     }
+                                   }
+                                   "pushState": "ccc"
+                                 }
+
+WS_CLOSE
+
+                                 WS_CLOSE
+
+[WebSocket connection closed]
+
+
+
+[[ From Client ]]                [[ From Server ]]
+
+                                 SETTINGS
+                                 SETTINGS_ENABLE_CONNECT_PROTOCOL = 1
+
+HEADERS + END_HEADERS
+:method = CONNECT
+:protocol = websocket
+:scheme = https
+:path = /jmap/ws/
+:authority = server.example.com
+origin: https://example.com
+authorization = Basic Zm9vOmJhcg==
+sec-websocket-protocol = jmap
+sec-websocket-version = 13
+sec-websocket-extensions =
+  permessage-deflate
+origin = https://www.example.com
+
+                                 HEADERS + END_HEADERS
+                                 :status = 200
+                                 sec-websocket-protocol = jmap
+                                 sec-websocket-extensions =
+                                   permessage-deflate
+
+[WebSocket connection established]
+
+DATA
+WS_DATA
+[compressed text]
+
+                                 DATA
+                                 WS_DATA
+                                 [compressed text]
+
+...
+
+DATA + END_STREAM
+WS_CLOSE
+
+                                 DATA + END_STREAM
+                                 WS_CLOSE
+
+[WebSocket connection closed]
+[HTTP/2 stream closed]

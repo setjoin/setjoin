@@ -1,0 +1,66 @@
+-- scheduled_actions_retry.pg: Task 7 — retry / backoff / terminal-failure policy
+-- + admin failed-actions view. See spec §5.
+-- A handler returning {"status":"retry"} re-queues with exponential backoff up to
+-- MAX_ATTEMPTS (5), then goes terminal `failed`. {"status":"permanent_fail"} goes
+-- terminal immediately. failed_scheduled_actions() lists the terminal failures.
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (name, is_local) VALUES ('rty.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (197001, 'rty', (SELECT id FROM domains WHERE name='rty.test'),
+        'rty@rty.test', 'Rty', crypt('x', gen_salt('bf')), FALSE) ON CONFLICT (id) DO NOTHING;
+-- ADR-003: DIVERGENT ids (user 197001 != mailbox 97001).
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (97001, 197001, (SELECT id FROM domains WHERE name='rty.test'),
+        'rty@rty.test', 'Rty', 'personal', TRUE) ON CONFLICT (id) DO NOTHING;
+
+-- A `send` action whose payload references a non-existent message → the send
+-- handler returns permanent_fail. It must go straight to terminal `failed`.
+INSERT INTO scheduled_actions (id, action_kind, fire_at, status, payload, mailbox_id, dedup_key)
+VALUES ('00000000-0000-0000-0000-0000000000f1', 'send', now() - interval '1 minute',
+        'pending', jsonb_build_object('message_id', 999999, 'received_at', now()), 97001, 'dk-pf-1');
+SELECT dispatch_scheduled_actions('worker-pf', 50);
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f1'),
+  'failed', 'permanent_fail goes straight to terminal failed (no re-queue)');
+SELECT isnt(
+  (SELECT last_error FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f1'),
+  NULL, 'last_error recorded on terminal failure');
+
+-- A `send` action with a transient (retry) outcome — driven by the documented
+-- test hook payload key `_test_outcome` honoured by run_scheduled_action.
+INSERT INTO scheduled_actions (id, action_kind, fire_at, status, payload, mailbox_id)
+VALUES ('00000000-0000-0000-0000-0000000000f2', 'snooze', now() - interval '1 minute',
+        'pending', jsonb_build_object('_test_outcome', 'retry'), 97001);
+SELECT dispatch_scheduled_actions('worker-r1', 50);
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f2'),
+  'pending', 'transient retry re-queues to pending');
+SELECT is(
+  (SELECT attempts FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f2'),
+  1, 'attempts incremented to 1');
+SELECT cmp_ok(
+  (SELECT fire_at FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f2'),
+  '>', now(), 'fire_at pushed into the future by backoff');
+
+-- Exhaust MAX_ATTEMPTS: force the row due + bump attempts to 4, then one more
+-- retry tick (attempt 5) must go terminal failed.
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute', attempts = 4
+WHERE id='00000000-0000-0000-0000-0000000000f2';
+SELECT dispatch_scheduled_actions('worker-r5', 50);
+SELECT is(
+  (SELECT status FROM scheduled_actions WHERE id='00000000-0000-0000-0000-0000000000f2'),
+  'failed', 'MAX_ATTEMPTS exhausted → terminal failed');
+
+-- ── Admin view: failed_scheduled_actions lists the terminal failures ──
+SELECT cmp_ok(
+  (SELECT count(*) FROM failed_scheduled_actions(100)),
+  '>=', 2::BIGINT, 'failed_scheduled_actions lists the terminal failures');
+SELECT is(
+  (SELECT count(*) FROM failed_scheduled_actions(100)
+   WHERE (action->>'id') = '00000000-0000-0000-0000-0000000000f1'),
+  1::BIGINT, 'the permanent-fail action appears in the admin view');
+
+SELECT * FROM finish();
+ROLLBACK;

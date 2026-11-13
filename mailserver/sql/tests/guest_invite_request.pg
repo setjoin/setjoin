@@ -1,0 +1,80 @@
+-- Guest G1 Task 7: member-requested guest invite approval lifecycle.
+BEGIN;
+SELECT plan(18);
+
+INSERT INTO domains (id,name,is_local) OVERRIDING SYSTEM VALUE
+VALUES (91470,'guest-request.test',TRUE);
+INSERT INTO users (id,username,domain_id,email,display_name,enabled) OVERRIDING SYSTEM VALUE VALUES
+  (91471,'gireq',91470,'requester@guest-request.test','Guest Requester',TRUE),
+  (91472,'giapprover',91470,'approver@guest-request.test','Guest Approver',TRUE),
+  (91473,'gimember',91470,'collision@guest-request.test','Existing Member',TRUE);
+
+UPDATE feature_toggles SET enabled=TRUE WHERE key IN ('feature.guest_accounts','approval.guest_invite');
+INSERT INTO approval_policies(consumer_type,name,priority,conditions,approver_spec)
+VALUES ('guest.invite','guest-request-default',91470,'{}',jsonb_build_object('kind','named','user_id',91472));
+
+SELECT throws_ok(
+  $$SELECT guest_invite_request_create(91471,'not-an-email',NULL)$$,
+  'BZ222',NULL,'malformed email is rejected');
+SELECT throws_ok(
+  $$SELECT guest_invite_request_create(91471,'collision@guest-request.test',NULL)$$,
+  'BZ221',NULL,'existing member collision is rejected before approval');
+
+INSERT INTO guest_invite_domains(domain,host_domain_id,added_by,added_by_email)
+VALUES ('allowed-external.test',91470,91471,'requester@guest-request.test');
+SELECT throws_ok(
+  $$SELECT guest_invite_request_create(91471,'person@blocked-external.test',NULL)$$,
+  'BZ218',NULL,'allowlist is enforced at request time');
+
+CREATE TEMP TABLE _guest_request AS
+SELECT guest_invite_request_create(91471,'  Person@Allowed-External.Test  ','Please collaborate') AS id;
+SELECT ok((SELECT id FROM _guest_request)>0,'matching policy creates a request');
+SELECT is((SELECT payload->>'invited_email' FROM approval_requests WHERE id=(SELECT id FROM _guest_request)),
+          'person@allowed-external.test','payload stores normalized email');
+SELECT is((SELECT payload->>'requester_name' FROM approval_requests WHERE id=(SELECT id FROM _guest_request)),
+          'Guest Requester','safe requester evidence is stored');
+SELECT is((SELECT payload->>'message' FROM approval_requests WHERE id=(SELECT id FROM _guest_request)),
+          'Please collaborate','optional message is stored');
+SELECT is((SELECT approver_ref FROM approval_requests WHERE id=(SELECT id FROM _guest_request)),
+          91472::bigint,'named approver resolves');
+
+SELECT is((SELECT status FROM guest_invite_approval_decide((SELECT id FROM _guest_request),91472,'deny','no')),
+          'denied','deny returns denied');
+SELECT is((SELECT count(*) FROM guest_accounts WHERE user_id IN
+          (SELECT id FROM users WHERE email='person@allowed-external.test')),0::bigint,
+          'deny provisions no guest');
+
+CREATE TEMP TABLE _approved AS
+SELECT guest_invite_request_create(91471,'approved@allowed-external.test',NULL) AS id;
+SELECT is((SELECT status FROM guest_invite_approval_decide((SELECT id FROM _approved),91472,'approve',NULL)),
+          'applied','approve applies atomically');
+SELECT throws_ok(
+  $$SELECT guest_invite_approval_decide((SELECT id FROM _approved),91472,'approve',NULL)$$,
+  'BZ108',NULL,'second decision is rejected rather than replayed');
+
+CREATE TEMP TABLE _flip AS
+SELECT guest_invite_request_create(91471,'flip@allowed-external.test',NULL) AS id;
+UPDATE feature_toggles SET enabled=FALSE WHERE key='feature.guest_accounts';
+SELECT throws_ok(
+  $$SELECT guest_invite_approval_decide((SELECT id FROM _flip),91472,'approve',NULL)$$,
+  'BZ223',NULL,'feature toggle flip fails closed at apply time');
+SELECT is((SELECT status FROM approval_requests WHERE id=(SELECT id FROM _flip)),
+          'pending','toggle failure rolls the approval decision back');
+
+UPDATE feature_toggles SET enabled=TRUE WHERE key='feature.guest_accounts';
+DELETE FROM guest_invite_domains WHERE domain='allowed-external.test';
+INSERT INTO guest_invite_domains(domain,host_domain_id,added_by,added_by_email)
+VALUES ('different-external.test',91470,91471,'requester@guest-request.test');
+SELECT throws_ok(
+  $$SELECT guest_invite_approval_decide((SELECT id FROM _flip),91472,'approve',NULL)$$,
+  'BZ218',NULL,'allowlist is rechecked at apply time');
+SELECT is((SELECT count(*) FROM guest_accounts ga JOIN users u ON u.id=ga.user_id WHERE u.email='flip@allowed-external.test'),
+          0::bigint,'allowlist flip provisions no guest');
+
+SELECT function_owner_is('guest_invite_request_create',ARRAY['bigint','text','text'],'setjoin_worker',
+                         'request reducer is worker-owned');
+SELECT function_owner_is('guest_invite_approval_decide',ARRAY['bigint','bigint','text','text'],'setjoin_worker',
+                         'decide reducer is worker-owned');
+
+SELECT * FROM finish();
+ROLLBACK;

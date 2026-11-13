@@ -1,0 +1,48 @@
+{
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observed": {
+    "states": [
+      "claimed",
+      "preflight",
+      "recovery_point",
+      "staged",
+      "maintenance",
+      "migrations",
+      "switched",
+      "readiness",
+      "rolling_back",
+      "rolled_back"
+    ],
+    "host": [
+      "is-enabled setjoin-gateway setjoin setjoin-auth",
+      "stop setjoin-gateway setjoin setjoin-auth",
+      "start setjoin-auth setjoin setjoin-gateway",
+      "start setjoin-auth setjoin setjoin-gateway"
+    ],
+    "result": {
+      "rollback": "verified",
+      "failed_step": "commit_checks",
+      "upgrade_error": "fixed login contract: login returned HTTP 500",
+      "failed_release": "<release>",
+      "feature_registry": {
+        "mode": "observe",
+        "present": true,
+        "unknown_rows": 0,
+        "catalog_digest": "0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf"
+      }
+    },
+    "files": [
+      "authserverd",
+      "installed.evidence.json",
+      "mailctl",
+      "mailserverd",
+      "manifest.digest",
+      "manifest.json",
+      "setjoin-gateway",
+      "share/docs/UPGRADE_RECOVERY.md",
+      "share/evidence/provenance.json",
+      "share/evidence/sbom.json",
+      "webmail/index.html"
+    ]
+  }
+}

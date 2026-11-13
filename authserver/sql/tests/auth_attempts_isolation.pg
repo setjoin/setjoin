@@ -1,0 +1,207 @@
+-- pgTAP: auth_attempts_isolation.pg — V064 RLS posture pins for auth_attempts
+-- (finding D-AUTHSERVER-SQL-TESTS-003; L2-C10, astra-proposal-c611-r2).
+-- Mirrors mailserver/sql/tests/rls_denial_extra.pg (SET LOCAL ROLE setjoin_app
+-- probing); detect_spray.pg stays the behavioral reducer suite.
+--
+-- WHAT THIS FILE PROVES — and what it honestly does NOT:
+-- auth_attempts is the only authserver-adjacent table with an RLS fence
+-- (V064__auth_attempts_rls.sql: ENABLE + FORCE, three policies, none for
+-- UPDATE/DELETE). Nothing tested that before this file — dropping the FORCE
+-- fence or weakening a policy predicate passed every suite. These arms pin:
+--   1. BOTH RLS flags (relrowsecurity AND relforcerowsecurity): dropping
+--      either fails here.
+--   2. The role fence premise: setjoin_app is NOBYPASSRLS (V064:5-7). The
+--      flag/expression pins are meaningless if the probing role could bypass.
+--   3. Policy inventory: exactly the three V064 policies, commands
+--      SELECT/SELECT/INSERT, ROLES {PUBLIC} (V064 declares no TO clause —
+--      the gate is the role fence in (2)). A fourth policy — including any
+--      newly added UPDATE/DELETE policy — fails the cardinality arm.
+--   4. Policy EXPRESSIONS, not just names/commands: name/command inventory is
+--      vacuous for predicate drift by construction (permissive policies are
+--      OR-combined per command, so admin_read USING (true) keeps every
+--      positive visibility check green even if auth_attempts_self flips to
+--      USING (false)). auth_attempts_self.qual is therefore pinned textually
+--      (whitespace-normalized pg_policies deparse, plus the load-bearing
+--      fragments), and admin_read.qual / app_insert.with_check are pinned to
+--      exactly `true`.
+--   5. Behavioral posture under SET LOCAL ROLE setjoin_app:
+--      - sprayed history cannot be rewritten or erased (no UPDATE/DELETE
+--        policy → mutations affect nothing, rows survive byte-identical);
+--      - the gateway write path INSERT succeeds (app_insert WITH CHECK (true));
+--      - the sanctioned cross-user scan detect_spray — production caller is
+--        shared/threat/store.go:153 `SELECT detect_spray($1::INET, $2, $3)`
+--        from stepSpray (shared/threat/interceptor.go:692, gated on
+--        FeatureSprayDetect; there is NO worker) — explicitly returns TRUE at
+--        the caller's exact argument shape under the V064 posture.
+--   6. HONEST POSTURE: SELECT is deliberately OPEN under setjoin_app because
+--      auth_attempts_admin_read USING (true) is OR-combined with the self
+--      policy (V064 default-deploy design; the app-layer access.policy_read
+--      gate is the backstop). The open-SELECT assertions below assert that
+--      documented posture — NOT a false "RLS hides the other user" claim —
+--      and double as the behavioral canary for admin_read (if admin_read
+--      stops granting, they go red). auth_attempts_self has NO behavioral
+--      detection while admin_read stays open, which is precisely why its
+--      expression pin (4) exists.
+
+BEGIN;
+SELECT plan(27);
+
+-- ── 1. RLS flag guards: ENABLE + FORCE (V064:21-22) ─────────────────────────
+SELECT is((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.auth_attempts'::regclass),
+  TRUE, 'auth_attempts: ROW LEVEL SECURITY is ENABLED (V064)');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.auth_attempts'::regclass),
+  TRUE, 'auth_attempts: ROW LEVEL SECURITY is FORCED — even the table owner is constrained (V064)');
+
+-- ── 2. Role fence premise (V064:5-7) ────────────────────────────────────────
+SELECT is((SELECT rolbypassrls FROM pg_roles WHERE rolname = 'setjoin_app'), FALSE,
+  'setjoin_app is NOBYPASSRLS — the premise of every pin below');
+
+-- ── 3. Policy inventory: exactly the three V064 policies ────────────────────
+SELECT is((SELECT count(*) FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts')::INT, 3,
+  'auth_attempts has exactly the three V064 policies (a 4th, or any UPDATE/DELETE policy, fails here)');
+SELECT is((SELECT array_agg(policyname ORDER BY policyname) FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts')::text,
+  '{auth_attempts_admin_read,auth_attempts_app_insert,auth_attempts_self}',
+  'policy inventory is exactly {admin_read, app_insert, self}');
+SELECT is((SELECT cmd FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_self'),
+  'SELECT', 'auth_attempts_self: FOR SELECT');
+SELECT is((SELECT roles::text FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_self'),
+  '{public}', 'auth_attempts_self: ROLES {PUBLIC} (V064 declares no TO — the gate is the role fence)');
+SELECT is((SELECT cmd FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_admin_read'),
+  'SELECT', 'auth_attempts_admin_read: FOR SELECT');
+SELECT is((SELECT roles::text FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_admin_read'),
+  '{public}', 'auth_attempts_admin_read: ROLES {PUBLIC}');
+SELECT is((SELECT cmd FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_app_insert'),
+  'INSERT', 'auth_attempts_app_insert: FOR INSERT');
+SELECT is((SELECT roles::text FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_app_insert'),
+  '{public}', 'auth_attempts_app_insert: ROLES {PUBLIC}');
+
+-- ── 4. Expression pins — the load-bearing drift guards ──────────────────────
+-- self.qual pinned verbatim from V064:28-33 (whitespace-normalized deparse:
+-- normalization strips only pg_get_expr's cosmetic line-wrap padding; ANY term
+-- drift — column, GUC name, NULLIF fail-closed wrapper, ::bigint cast — breaks
+-- the pin; mutation-checked: self → USING (false) fails this arm while the
+-- visibility arms below stay green).
+SELECT is(
+  (SELECT regexp_replace(qual, '\s+', ' ', 'g') FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+      AND policyname = 'auth_attempts_self'),
+  $q$(target_username = ( SELECT users.email FROM users WHERE (users.id = ( SELECT (NULLIF(current_setting('app.current_user_id'::text, true), ''::text))::bigint AS "nullif"))))$q$,
+  'auth_attempts_self.qual pins the V064 self predicate: target_username = users.email resolved from the GUC'
+);
+SELECT ok(
+  (SELECT position('target_username =' in qual) > 0 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts' AND policyname = 'auth_attempts_self'),
+  'self.qual fragment: the target_username comparison');
+SELECT ok(
+  (SELECT position('users.email' in qual) > 0 AND position('FROM users' in qual) > 0 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts' AND policyname = 'auth_attempts_self'),
+  'self.qual fragment: the public.users email subquery');
+SELECT ok(
+  (SELECT position($n$NULLIF(current_setting('app.current_user_id'::text, true)$n$ in qual) > 0
+      AND position($n$''::text$n$ in qual) > 0 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'auth_attempts' AND policyname = 'auth_attempts_self'),
+  'self.qual fragment: fail-closed GUC read — current_setting(..., TRUE) inside the NULLIF empty-string wrapper');
+SELECT is((SELECT qual FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_admin_read'),
+  'true', 'auth_attempts_admin_read.qual is exactly true — the documented open SELECT (V064:39-40)');
+SELECT is((SELECT with_check FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auth_attempts'
+    AND policyname = 'auth_attempts_app_insert'),
+  'true', 'auth_attempts_app_insert.with_check is exactly true — the open gateway write path (V064:47-48)');
+
+-- ── 5. Fixtures: two disjoint users (mk_account), seeded as superuser ───────
+-- BEFORE SET LOCAL ROLE, mirroring rls_denial_extra.pg. Two rows per user plus
+-- the production spray shape: 5 DISTINCT target usernames (A's and B's emails
+-- among them) failing from one source IP inside the 300s window.
+SELECT mk_account('iso-a') AS mba \gset
+SELECT mk_account('iso-b') AS mbb \gset
+SELECT user_id AS ua, email AS email_a FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub, email AS email_b FROM mailboxes WHERE id = :mbb \gset
+
+INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, failure_reason, occurred_at)
+VALUES
+    ('198.51.100.10', :'email_a', 'http', 'failure', 'bad_password',        now() - interval '1 minute'),
+    ('198.51.100.10', :'email_a', 'imap', 'failure', 'bad_password',        now() - interval '2 minutes'),
+    ('198.51.100.20', :'email_b', 'http', 'failure', 'credential_stuffing', now() - interval '1 minute'),
+    ('198.51.100.20', :'email_b', 'smtp', 'failure', 'credential_stuffing', now() - interval '2 minutes'),
+    ('192.0.2.77',    :'email_a', 'http', 'failure', 'bad_password',        now() - interval '30 seconds'),
+    ('192.0.2.77',    :'email_b', 'http', 'failure', 'bad_password',        now() - interval '30 seconds'),
+    ('192.0.2.77',    'spray-c3@test.local', 'http', 'failure', 'bad_password', now() - interval '30 seconds'),
+    ('192.0.2.77',    'spray-c4@test.local', 'http', 'failure', 'bad_password', now() - interval '30 seconds'),
+    ('192.0.2.77',    'spray-c5@test.local', 'http', 'failure', 'bad_password', now() - interval '30 seconds');
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :ua::text, true);
+
+-- Self visibility (honest read): A's rows ARE visible under the GUC — but with
+-- admin_read OR'd open this passes under EITHER self-policy predicate, so it
+-- documents visibility; it does NOT prove the self policy (the expression pin
+-- above is that proof — see the header, point 6).
+SELECT is((SELECT count(*) FROM auth_attempts
+    WHERE target_username = :'email_a' AND source_ip = '198.51.100.10')::INT, 2,
+  'GUC=user A: A''s auth rows are visible');
+
+-- HONEST OPEN-POSTURE assertion (r2.4-5): SELECT is deliberately open under
+-- setjoin_app — admin_read USING (true) is OR-combined with the self policy.
+-- Every seeded row is visible to A's context, including B's. This doubles as
+-- the behavioral canary for auth_attempts_admin_read (if admin_read stops
+-- granting, this goes red). It is NOT a claim that RLS hides user B.
+SELECT is((SELECT count(*) FROM auth_attempts)::INT, 9,
+  'SELECT is deliberately OPEN under setjoin_app (admin_read USING(true) OR''d) — all 9 seeded rows visible');
+-- Deterministic rowset, not LIMIT 1: B's fixtures mix credential_stuffing
+-- (pre-spray, 198.51.100.20) with the newer bad_password spray row
+-- (192.0.2.77), and auth_attempts_user_time_idx is (target_username,
+-- occurred_at DESC) — a bare LIMIT 1 can return that newer bad_password row
+-- and fail correct code. now() is transaction-constant, so (occurred_at,
+-- protocol) is tie-free and this ordered array is fully deterministic.
+SELECT is((SELECT array_agg(failure_reason ORDER BY occurred_at, protocol)::text[] FROM auth_attempts
+    WHERE target_username = :'email_b'),
+  ARRAY['credential_stuffing','credential_stuffing','bad_password']::text[],
+  'cross-user SELECT: B''s sprayed history is readable under setjoin_app (documented open posture)');
+
+-- Mutation denial: V064 ships NO UPDATE/DELETE policy — sprayed history cannot
+-- be rewritten or erased via the pooled app role. RLS makes the rows invisible
+-- to those commands: UPDATE/DELETE silently affect nothing (same assertion
+-- shape as rls_denial_extra.pg).
+UPDATE auth_attempts SET failure_reason = 'HACKED'
+ WHERE target_username IN (:'email_a', :'email_b');
+SELECT is((SELECT failure_reason FROM auth_attempts WHERE target_username = :'email_a' LIMIT 1),
+  'bad_password', 'UPDATE rewrote nothing — own row byte-identical (no UPDATE policy)');
+SELECT is((SELECT array_agg(failure_reason ORDER BY occurred_at, protocol)::text[] FROM auth_attempts
+    WHERE target_username = :'email_b'),
+  ARRAY['credential_stuffing','credential_stuffing','bad_password']::text[],
+  'UPDATE rewrote nothing — other-user rows byte-identical');
+DELETE FROM auth_attempts WHERE target_username IN (:'email_a', :'email_b');
+SELECT is((SELECT count(*) FROM auth_attempts)::INT, 9,
+  'DELETE erased nothing — no DELETE policy, all 9 rows survive');
+
+-- Open insert: the real gateway write path (authserver logs every login
+-- attempt as setjoin_app) succeeds under app_insert WITH CHECK (true).
+SELECT lives_ok(
+  $ins$INSERT INTO auth_attempts (source_ip, target_username, protocol, outcome, occurred_at)
+       VALUES ('203.0.113.200', 'fresh-login@test.local', 'http', 'failure', now())$ins$,
+  'INSERT as setjoin_app succeeds — the gateway write path (app_insert)');
+SELECT is((SELECT count(*) FROM auth_attempts)::INT, 10,
+  'the open insert actually appended a row');
+
+-- Production-shape spray detection under the V064 posture: caller-exact
+-- invocation (store.go:153 passes `SELECT detect_spray($1::INET, $2, $3)`;
+-- threshold 5 pinned — lowering it is rejected by design). The 5 distinct
+-- seeded usernames from 192.0.2.77 are inside the 300s window, so the scan
+-- must explicitly return TRUE — "ran without error" is not evidence.
+SELECT is(detect_spray('192.0.2.77'::INET, 300, 5), TRUE,
+  'detect_spray (store.go:153 caller shape) returns TRUE on the sprayed IP under setjoin_app — V064 does not break detection');
+SELECT is(detect_spray('192.0.2.77'::INET, 300, 6), FALSE,
+  'the scan computes: below-threshold call returns FALSE (not constant TRUE)');
+
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

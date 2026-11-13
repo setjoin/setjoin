@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown domain action: bogus (try: add, list, delete)\n",
+  "exit": 1
+}

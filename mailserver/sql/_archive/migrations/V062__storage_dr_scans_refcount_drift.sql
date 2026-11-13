@@ -1,0 +1,14 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- V062: Add refcount_drift_count to storage DR scans.
+-- The integrity scan already detects orphaned objects (in MinIO but not in blobs)
+-- and missing objects (in blobs but not in MinIO). This adds a third dimension:
+-- ref_count drift — blobs where the ref_count counter in the blobs table does
+-- not match the actual number of message_attachments rows referencing that blob.
+--
+-- Drift can occur after:
+--   - A power outage during complex multi-table transactions
+--   - An application bug bypassing the attachment trigger
+--   - Manual SQL operations on message_attachments or blobs
+--
+-- The reconciliation query runs as part of the DR scan and surfaces any mismatch.
+ALTER TABLE storage_dr_scans ADD COLUMN IF NOT EXISTS refcount_drift_count BIGINT NOT NULL DEFAULT 0;

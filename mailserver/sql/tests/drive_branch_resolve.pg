@@ -1,0 +1,139 @@
+-- mailserver/sql/tests/drive_branch_resolve.pg — the four resolve verbs
+-- (ff/adopt/keep_both/discard) + the resolver authorization matrix (Task 5).
+BEGIN;
+SELECT plan(30);
+-- M=manager, E=editor(branch creator), V=viewer, FA=subtree folder admin
+SELECT mk_account('dbrsm') AS mbm \gset
+SELECT mk_account('dbrse') AS mbe \gset
+SELECT mk_account('dbrsv') AS mbv \gset
+SELECT mk_account('dbrsf') AS mbf \gset
+SELECT user_id AS m  FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e  FROM mailboxes WHERE id = :mbe \gset
+SELECT user_id AS v  FROM mailboxes WHERE id = :mbv \gset
+SELECT user_id AS fa FROM mailboxes WHERE id = :mbf \gset
+
+SELECT drive_space_create(:m, 'R', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+SELECT drive_member_grant(:m, :sid, :v, 'viewer');
+-- Resolver = editor+ AND (manager OR subtree folder-admin OR creator-w/o-fa)
+-- (spec §6.3) -- FA needs editor+ membership on top of the folder-admin row.
+SELECT drive_member_grant(:m, :sid, :fa, 'editor');
+
+-- ── ff: main unmoved since fork ──────────────────────────────────────────
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'ff.bin') AS n1 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :n1, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't')->>'versionId')::bigint AS h1 \gset
+SELECT drive_branch_create(:e, :n1, 'ff-branch', :h1) AS bff \gset
+SELECT drive_chunk_register(:e, :sid, repeat('2',64), 10);
+SELECT (drive_file_put_version(:e, :n1, repeat('b',64), 10, NULL, :h1,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 't', :bff)->>'versionId')::bigint AS bhead \gset
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE file_node_id=:n1)::int, 2, 'ff setup: 2 versions before resolve');
+SELECT drive_branch_resolve(:e, :bff, 'ff') AS rff \gset
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE file_node_id=:n1)::int, 2, 'ff creates NO new version row');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:n1), :bhead::bigint, 'ff moves main to the branch head');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bff), 'merged', 'ff sets status merged');
+SELECT ok((SELECT resolved_by FROM drive_file_branches WHERE id=:bff) = :e, 'resolved_by recorded');
+SELECT ok((SELECT resolved_at FROM drive_file_branches WHERE id=:bff) IS NOT NULL, 'resolved_at recorded');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='branch.merge'), 'audited branch.merge');
+
+-- ff when main HAS moved since fork → BZ150, moves nothing
+SELECT drive_branch_create(:e, :n1, 'ff-stale', :h1) AS bstale \gset
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'ff') $$, :e, :bstale),
+  'BZ150', NULL, 'ff with a moved main → BZ150');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bstale), 'open', 'ff failure moves nothing (branch still open)');
+
+-- ── adopt: new merge-node version with BOTH parents ──────────────────────
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'adopt.xlsx') AS n2 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('3',64), 10);
+SELECT (drive_file_put_version(:m, :n2, repeat('c',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, NULL, 't')->>'versionId')::bigint AS ah1 \gset
+SELECT drive_branch_create(:e, :n2, 'adopt-branch', :ah1) AS badopt \gset
+SELECT drive_chunk_register(:e, :sid, repeat('4',64), 10);
+SELECT (drive_file_put_version(:e, :n2, repeat('d',64), 10, NULL, :ah1,
+  format('[{"sha256":"%s","size":10}]', repeat('4',64))::jsonb, NULL, 't', :badopt)->>'versionId')::bigint AS ah2 \gset
+-- main moves too, so adopt's parent must be the CURRENT main head, not ah1
+SELECT drive_chunk_register(:m, :sid, repeat('5',64), 10);
+SELECT (drive_file_put_version(:m, :n2, repeat('e',64), 10, NULL, :ah1,
+  format('[{"sha256":"%s","size":10}]', repeat('5',64))::jsonb, NULL, 't')->>'versionId')::bigint AS ah3 \gset
+SELECT (SELECT ref_count FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('4',64)) AS rc0 \gset
+SELECT drive_branch_resolve(:m, :badopt, 'adopt') AS radopt \gset
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE file_node_id=:n2)::int, 4, 'adopt writes exactly ONE new version');
+SELECT is((SELECT parent_version_id FROM drive_file_versions WHERE id=(:'radopt'::jsonb->>'headVersionId')::bigint),
+  :ah3::bigint, 'adopt parent = CURRENT main head');
+SELECT is((SELECT merged_from_version_id FROM drive_file_versions WHERE id=(:'radopt'::jsonb->>'headVersionId')::bigint),
+  :ah2::bigint, 'adopt merged_from = branch head');
+SELECT is((SELECT count(*) FROM drive_version_chunks WHERE version_id=(:'radopt'::jsonb->>'headVersionId')::bigint)::int, 1,
+  'adopt copies the branch head''s manifest');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('4',64)), (:rc0 + 1)::bigint,
+  'adopt''s manifest copy increments refcounts (I-6)');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:n2), (:'radopt'::jsonb->>'headVersionId')::bigint,
+  'main head advances to the merge node');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:badopt), 'merged', 'adopt sets status merged');
+
+-- ── keep_both: sibling FILE, original head untouched ─────────────────────
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'Report.xlsx') AS n3 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('6',64), 10);
+SELECT (drive_file_put_version(:m, :n3, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('6',64))::jsonb, NULL, 't')->>'versionId')::bigint AS kh1 \gset
+SELECT drive_branch_create(:e, :n3, 'budget-redo', :kh1) AS bkeep \gset
+SELECT drive_chunk_register(:e, :sid, repeat('7',64), 10);
+SELECT (drive_file_put_version(:e, :n3, repeat('b1',32), 10, NULL, :kh1,
+  format('[{"sha256":"%s","size":10}]', repeat('7',64))::jsonb, NULL, 't', :bkeep)->>'versionId')::bigint AS kh2 \gset
+SELECT drive_branch_resolve(:e, :bkeep, 'keep_both') AS rkeep \gset
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:n3), :kh1::bigint, 'keep_both never touches the original file''s head');
+SELECT ok((:'rkeep'::jsonb->>'newNodeId') IS NOT NULL, 'keep_both returns the new sibling node id');
+SELECT is((SELECT name FROM drive_nodes WHERE id=(:'rkeep'::jsonb->>'newNodeId')::bigint), 'Report — budget-redo.xlsx',
+  'default keep_both name: "<base> — <branch>.ext"');
+SELECT is((SELECT merged_from_version_id FROM drive_file_versions
+            WHERE file_node_id=(:'rkeep'::jsonb->>'newNodeId')::bigint), :kh2::bigint,
+  'sibling v1.merged_from = the branch head');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bkeep), 'merged', 'keep_both sets status merged');
+
+-- ── discard: status only ─────────────────────────────────────────────────
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'discard.bin') AS n4 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('8',64), 10);
+SELECT (drive_file_put_version(:m, :n4, repeat('b2',32), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('8',64))::jsonb, NULL, 't')->>'versionId')::bigint AS dh1 \gset
+SELECT drive_branch_create(:e, :n4, 'discard-me', :dh1) AS bdisc \gset
+SELECT drive_branch_resolve(:e, :bdisc, 'discard');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bdisc), 'discarded', 'discard sets status discarded');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:n4), :dh1::bigint, 'discard leaves main untouched');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='branch.discard'), 'audited branch.discard');
+
+-- ── authorization matrix ──────────────────────────────────────────────────
+-- creator resolves own branch when no folder admin exists
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'auth1.bin') AS n5 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('9',64), 10);
+SELECT (drive_file_put_version(:m, :n5, repeat('b3',32), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('9',64))::jsonb, NULL, 't')->>'versionId')::bigint AS auh1 \gset
+SELECT drive_branch_create(:e, :n5, 'auth-own', :auh1) AS bauth1 \gset
+SELECT lives_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :e, :bauth1),
+  'creator resolves own branch when no folder admin is set');
+
+-- with a folder admin present, creator → BZ140, manager/subtree-fa succeed
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'guarded') AS pfid \gset
+SELECT drive_node_create(:m, :sid, :pfid, 'file', 'auth2.bin') AS n6 \gset
+INSERT INTO drive_folder_admins (node_id, space_id, user_id, granted_by) VALUES (:pfid, :sid, :fa, :m);
+SELECT drive_chunk_register(:m, :sid, repeat('a1',32), 10);
+SELECT (drive_file_put_version(:m, :n6, repeat('b4',32), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('a1',32))::jsonb, NULL, 't')->>'versionId')::bigint AS auh2 \gset
+SELECT drive_branch_create(:e, :n6, 'auth-guarded', :auh2) AS bauth2 \gset
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :e, :bauth2),
+  'BZ140', NULL, 'creator CANNOT resolve when a folder admin is set on an ancestor');
+SELECT lives_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :fa, :bauth2),
+  'subtree folder-admin resolves under the guarded folder');
+
+SELECT drive_branch_create(:e, :n6, 'auth-guarded-2', :auh2) AS bauth3 \gset
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :v, :bauth3),
+  'BZ140', NULL, 'viewer → BZ140');
+SELECT lives_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :m, :bauth3),
+  'manager always resolves');
+
+-- unknown verb
+SELECT drive_branch_create(:e, :n1, 'verb-check', :h1) AS bverb \gset
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'squash') $$, :e, :bverb),
+  'BZ141', NULL, 'unknown verb → BZ141');
+
+SELECT * FROM finish();
+ROLLBACK;

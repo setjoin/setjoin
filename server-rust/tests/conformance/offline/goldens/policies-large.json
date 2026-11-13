@@ -1,0 +1,337 @@
+{
+  "case": "large",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "devices": [],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985011,
+              "max_offline_days": 30,
+              "name": "Large policy 1",
+              "opportunistic_requires_charging": true,
+              "priority": 11,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985012,
+              "max_offline_days": 30,
+              "name": "Large policy 2",
+              "opportunistic_requires_charging": true,
+              "priority": 12,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985013,
+              "max_offline_days": 30,
+              "name": "Large policy 3",
+              "opportunistic_requires_charging": true,
+              "priority": 13,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985014,
+              "max_offline_days": 30,
+              "name": "Large policy 4",
+              "opportunistic_requires_charging": true,
+              "priority": 14,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985015,
+              "max_offline_days": 30,
+              "name": "Large policy 5",
+              "opportunistic_requires_charging": true,
+              "priority": 15,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985016,
+              "max_offline_days": 30,
+              "name": "Large policy 6",
+              "opportunistic_requires_charging": true,
+              "priority": 16,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "devices": [],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985011,
+              "max_offline_days": 30,
+              "name": "Large policy 1",
+              "opportunistic_requires_charging": true,
+              "priority": 11,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985012,
+              "max_offline_days": 30,
+              "name": "Large policy 2",
+              "opportunistic_requires_charging": true,
+              "priority": 12,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985013,
+              "max_offline_days": 30,
+              "name": "Large policy 3",
+              "opportunistic_requires_charging": true,
+              "priority": 13,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985014,
+              "max_offline_days": 30,
+              "name": "Large policy 4",
+              "opportunistic_requires_charging": true,
+              "priority": 14,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985015,
+              "max_offline_days": 30,
+              "name": "Large policy 5",
+              "opportunistic_requires_charging": true,
+              "priority": 15,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            },
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985016,
+              "max_offline_days": 30,
+              "name": "Large policy 6",
+              "opportunistic_requires_charging": true,
+              "priority": 16,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "offline_policies+feature_toggles+user_devices"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/offline/policies",
+      "method": "GET",
+      "path": "/admin/offline/policies"
+    },
+    "response": {
+      "body": "[{\"id\": 985016, \"name\": \"Large policy 6\", \"enabled\": true, \"priority\": 16, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985015, \"name\": \"Large policy 5\", \"enabled\": true, \"priority\": 15, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985014, \"name\": \"Large policy 4\", \"enabled\": true, \"priority\": 14, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985013, \"name\": \"Large policy 3\", \"enabled\": true, \"priority\": 13, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985012, \"name\": \"Large policy 2\", \"enabled\": true, \"priority\": 12, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985011, \"name\": \"Large policy 1\", \"enabled\": true, \"priority\": 11, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}, {\"id\": 985001, \"name\": \"Global <offline> & policy\", \"enabled\": true, \"priority\": 5, \"scope_id\": null, \"created_at\": \"<timestamp>\", \"scope_type\": \"global\", \"updated_at\": \"<timestamp>\", \"wipe_on_logout\": \"admin_default\", \"max_offline_days\": 30, \"require_approval\": true, \"automatic_network_max\": \"unmetered\", \"connectivity_sync_mode\": \"off\", \"attachment_prefetch_max\": \"never\", \"background_sync_allowed\": true, \"opportunistic_requires_charging\": true}]",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/offline/policies"
+}

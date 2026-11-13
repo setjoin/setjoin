@@ -1,0 +1,82 @@
+-- pgTAP: gal_changes.sql — RFC 6578 sync delta for the read-only GAL CardDAV
+-- collection (/carddav/gal/). Change clock = users.updated_at (µs); visibility
+-- = directory_visible_users (ADR-004 seam, T1-fixed). All timestamps here are
+-- explicit literals (NOT now()/clock_timestamp()) because the whole pgTAP file
+-- runs inside one outer transaction — now() is frozen at transaction start, so
+-- a real clock read would collide across every statement in the file.
+BEGIN;
+SELECT plan(10);
+
+INSERT INTO domains (name, is_local) VALUES ('galchg.test', TRUE);
+
+-- t0 < t1 < t2, all explicit — the "created_at" baseline sits well before any
+-- of them so the hard-delete guard's "created after v_since" count stays 0
+-- throughout (it would otherwise see every fixture row's real created_at as
+-- newer than a v_since planted in the past).
+-- caller (7831/9831), A (7832/9832), B (7833/9833) — all visible initially.
+INSERT INTO users (id, username, domain_id, email, display_name, created_at, updated_at) VALUES
+  (7831, 'galchg_caller', (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_caller@galchg.test', 'Caller', '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7832, 'galchg_a',      (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_a@galchg.test',      'Alice',  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7833, 'galchg_b',      (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_b@galchg.test',      'Bob',    '2020-01-01+00', '2026-01-01 00:00:00+00');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name) VALUES
+  (9831, 7831, (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_caller@galchg.test', 'personal', TRUE, 'Caller'),
+  (9832, 7832, (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_a@galchg.test', 'personal', TRUE, 'Alice'),
+  (9833, 7833, (SELECT id FROM domains WHERE name='galchg.test'), 'galchg_b@galchg.test', 'personal', TRUE, 'Bob');
+
+-- ── 1. Initial sync (p_since_micros = 0): every visible user, resync=false ──
+SELECT is(gal_changes(9831, 0, 0)->>'resync', 'false', 'initial sync is not a resync');
+SELECT is(gal_changes(9831, 0, 0)->>'removed', '[]', 'initial sync has no removals');
+SELECT ok(
+  gal_changes(9831, 0, 0)->'changed' @> jsonb_build_array(jsonb_build_object('id', 7831))
+    AND gal_changes(9831, 0, 0)->'changed' @> jsonb_build_array(jsonb_build_object('id', 7832))
+    AND gal_changes(9831, 0, 0)->'changed' @> jsonb_build_array(jsonb_build_object('id', 7833)),
+  'initial sync carries all three visible users'
+);
+SELECT is((gal_changes(9831, 0, 0)->>'newCount')::BIGINT, 3::BIGINT, 'initial newCount is the visible count');
+SELECT (gal_changes(9831, 0, 0)->>'newMicros') AS micros0 \gset
+SELECT (gal_changes(9831, 0, 0)->>'newCount')  AS count0  \gset
+
+-- ── 2. Touch A: only A appears in the delta, with its new etag ──────────────
+UPDATE users SET job_title = 'CTO', updated_at = '2026-01-01 00:00:01+00' WHERE id = 7832;
+SELECT is(
+  jsonb_array_length(gal_changes(9831, :micros0, :count0)->'changed'), 1,
+  'incremental sync after touching A returns exactly one changed entry'
+);
+SELECT is(
+  gal_changes(9831, :micros0, :count0)->'changed'->0->>'etag',
+  'u7832-' || (EXTRACT(EPOCH FROM TIMESTAMPTZ '2026-01-01 00:00:01+00') * 1e6)::BIGINT,
+  'the changed entry carries A''s new etag (u{id}-{updated_at µs})'
+);
+SELECT (gal_changes(9831, :micros0, :count0)->>'newMicros') AS micros1 \gset
+SELECT (gal_changes(9831, :micros0, :count0)->>'newCount')  AS count1  \gset
+
+-- ── 3. Disable B: appears in removed, newCount drops ────────────────────────
+UPDATE users SET enabled = FALSE, updated_at = '2026-01-01 00:00:02+00' WHERE id = 7833;
+SELECT ok(
+  gal_changes(9831, :micros1, :count1)->'removed' @> jsonb_build_array(jsonb_build_object('id', 7833)),
+  'disabling B surfaces it in removed'
+);
+SELECT is(
+  (gal_changes(9831, :micros1, :count1)->>'newCount')::BIGINT, 2::BIGINT,
+  'newCount drops by one after disabling B'
+);
+SELECT (gal_changes(9831, :micros1, :count1)->>'newMicros') AS micros2 \gset
+SELECT (gal_changes(9831, :micros1, :count1)->>'newCount')  AS count2  \gset
+
+-- ── 4. Hard-delete A (bypassing the count math) → resync=true ──────────────
+DELETE FROM mailboxes WHERE id = 9832;
+DELETE FROM users WHERE id = 7832;
+SELECT is(
+  gal_changes(9831, :micros2, :count2)->>'resync', 'true',
+  'a hard-deleted visible user breaks the count invariant → forced resync'
+);
+
+-- ── 5. Unknown caller mailbox → BZ001 ────────────────────────────────────────
+SELECT throws_ok(
+  $$ SELECT gal_changes(999999999, 0, 0) $$,
+  'BZ001', NULL,
+  'unknown caller mailbox raises BZ001'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

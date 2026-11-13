@@ -1,0 +1,29 @@
+-- pgTAP: rust_platform_sod_mode_set.sql (#443) — frozen Go's PUT /admin/dengbao/sod-mode
+-- (precheck + flip + audit in one transaction).
+BEGIN;
+SELECT plan(8);
+SELECT mk_account('sodact') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO feature_toggles(key, enabled) VALUES ('dengbao.sod_mode', FALSE)
+ ON CONFLICT (key) DO UPDATE SET enabled = FALSE;
+
+-- A role group spanning two classes is a violation: nothing is written.
+INSERT INTO admin_role_groups(name, description, permissions, sod_class, is_builtin)
+ VALUES ('rpsod_span', 'span', ARRAY['users.create','users.suspend'], NULL, false);
+SELECT ok(rust_platform_sod_mode_set(:u, TRUE, '203.0.113.9') -> 'violations' @> '[{"subject":"rpsod_span"}]'::jsonb,
+          'a violation is reported');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'dengbao.sod_mode'), FALSE, 'the toggle stays OFF');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE user_id = :u), 0::bigint, 'no audit row on a refusal');
+
+-- With every role group removed the precheck is clean: the flip and its audit row commit.
+DELETE FROM admin_role_assignments;
+DELETE FROM admin_role_groups;
+SELECT is(rust_platform_sod_mode_set(:u, TRUE, '203.0.113.9'), '{"enabled": true}'::jsonb, 'a clean precheck enables');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'dengbao.sod_mode'), TRUE, 'the toggle is ON');
+SELECT is((SELECT action FROM admin_audit_log WHERE user_id = :u ORDER BY id DESC LIMIT 1), 'sod_mode_enable', 'enable is audited');
+
+-- Turning OFF is unconditional.
+SELECT is(rust_platform_sod_mode_set(:u, FALSE, ''), '{"enabled": false}'::jsonb, 'disable answers enabled=false');
+SELECT is((SELECT action FROM admin_audit_log WHERE user_id = :u ORDER BY id DESC LIMIT 1), 'sod_mode_disable', 'disable is audited');
+SELECT * FROM finish();
+ROLLBACK;

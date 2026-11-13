@@ -1,0 +1,197 @@
+-- federation_typing.pg — Pillar C2 Task 6: federation_typing_notify, the
+-- read-only+NOTIFY trust/resolution layer behind federated typing (Q5 —
+-- "federated typing", never "presence"; frames are non-attributed, not
+-- anonymous). Requires: V140 (room binding), federation_room_create/
+-- _invite/_remove.sql (C2 Task 2), federation_apply_chat.sql (C1 Task 4,
+-- reused here only as a fixture constructor for a real DM mirror channel),
+-- notify_chat_state.sql (the app_notify capture-tee genre, this file's
+-- pattern is notify_chat_state.pg:38's).
+--
+-- Every case below proves federation_typing_notify makes ZERO table writes
+-- (§5) — the plan's "READ-ONLY + NOTIFY" contract — distinguishing it from
+-- every other federation_* reducer in this suite, which all mutate.
+BEGIN;
+SELECT plan(29);
+
+SELECT has_function(
+  'federation_typing_notify', ARRAY['text','jsonb'],
+  'federation_typing_notify(peer_domain, payload) exists');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 malformed / non-typing payloads — always {"ok":false}, no notify
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(federation_typing_notify('bravo.test', '{}'::jsonb),
+  '{"ok":false}'::jsonb, 'an empty payload (no op) drops');
+SELECT is(federation_typing_notify('bravo.test', '{"op":"presence"}'::jsonb),
+  '{"ok":false}'::jsonb, 'a non-typing op drops (never anything but the typing op class)');
+SELECT is(federation_typing_notify('', '{"op":"typing","roomId":"x@alpha.test"}'::jsonb),
+  '{"ok":false}'::jsonb, 'an empty peer domain drops');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 DM shape — fixture: a real federated-DM mirror channel, built the
+--    SAME way federation_apply_chat.pg builds one (lazy mirror + one
+--    local member), so the (fromAddr,toAddr) key derivation is exercised
+--    against a channel a real inbound message actually created.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO domains (id, name, is_local) VALUES (84000, 'alpha.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, enabled)
+  VALUES (84001, 'alice-typing', 84000, 'alice-typing@alpha.test', 'Alice', 'x', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, enabled, receive_enabled)
+  VALUES (84101, 84001, 84000, 'alice-typing@alpha.test', 'Alice', TRUE, TRUE, TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+SELECT federation_apply_chat('bravo.test', 1, 'typing-dm-fixture', jsonb_build_object(
+  'fromAddr', 'bob-typing@bravo.test', 'toAddr', 'alice-typing@alpha.test',
+  'body', 'hi', 'sentAt', now(), 'clientMsgId', 'typing-wire-1'));
+SELECT id AS ch_dm FROM chat_channels WHERE federated_peer_domain = 'bravo.test'
+  AND federated_remote_id = 'bob-typing@bravo.test' \gset
+
+-- honest key, matching peer: ok, no relay, notify fires on the local member.
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object(
+    'op', 'typing', 'fromAddr', 'bob-typing@bravo.test', 'toAddr', 'alice-typing@alpha.test')),
+  '{"ok":true,"relay":false}'::jsonb, 'DM shape: honest key + matching stream peer resolves, relay false');
+SELECT is(notify_count(format('chat:%s', 84001)), 1, 'the local DM member gets exactly one typing push');
+SELECT is(last_notify_event(format('chat:%s', 84001)), 'typing', 'the push event is typing');
+SELECT is(
+  (last_notify_payload(format('chat:%s', 84001))::jsonb) ? 'fromAddr', false,
+  'the local push payload carries NO fromAddr/identity key (non-attributed, Q5 symmetry with local typing)');
+
+-- spoofed fromAddr domain (asserted domain != stream-authenticated peer): drop.
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object(
+    'op', 'typing', 'fromAddr', 'mallory@charlie.test', 'toAddr', 'alice-typing@alpha.test')),
+  '{"ok":false}'::jsonb, 'DM shape: a spoofed fromAddr domain (not the stream peer) drops');
+
+-- no established DM channel for this address pair yet: drop (never creates one).
+SELECT is(
+  federation_typing_notify('zulu.test', jsonb_build_object(
+    'op', 'typing', 'fromAddr', 'nobody@zulu.test', 'toAddr', 'alice-typing@alpha.test')),
+  '{"ok":false}'::jsonb, 'DM shape: no established channel for the pair drops (never lazily creates one)');
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE federated_peer_domain = 'zulu.test'), 0,
+  'confirms no channel was created by the unresolvable DM typing attempt');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 room shape — HUB org
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(84001, 'typing-hub-room') AS ch_hub \gset
+SELECT federation_room_create(84001, :ch_hub, 'alpha.test') AS room_hub \gset
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('bravo.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO UPDATE SET scope = 'room', enabled = true;
+SELECT federation_room_invite(84001, :ch_hub, 'bravo.test', 'bob@bravo.test');
+
+-- NOTE: notify_count(channel) is NOT usable from here on — chat:84001 is the
+-- sole member of the DM/hub/spoke channels below AND federation_room_create/
+-- _invite/_remove (called as fixture setup, not under test) each emit their
+-- OWN 'federation_roster' push on this same user channel. Every subsequent
+-- push-count assertion below is filtered to event='typing' specifically, so
+-- interleaved federation_roster pushes never pollute the count.
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object('op', 'typing', 'roomId', :'room_hub')),
+  '{"ok":true,"relay":true}'::jsonb,
+  'hub shape: a live (non-left) roster member resolves with relay:true');
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = format('chat:%s', 84001) AND (payload::jsonb ->> 'event') = 'typing'),
+  2, 'the hub channel owner gets a second typing push (first was the DM case above)');
+
+-- an uninvited domain: drop.
+SELECT is(
+  federation_typing_notify('unknown-peer.test', jsonb_build_object('op', 'typing', 'roomId', :'room_hub')),
+  '{"ok":false}'::jsonb, 'hub shape: a domain never invited to the roster drops');
+
+-- a removed (kicked) member: drop — left_at IS NOT NULL excludes it.
+SELECT federation_room_remove(84001, :ch_hub, 'bravo.test');
+
+-- §5 fixture: snapshot the sequencing/mutation-counter state right after the
+-- last LEGITIMATE write in this file (federation_room_remove, above) — every
+-- federation_typing_notify call from here to the end of the file (the
+-- remainder of §3, all of §4) must leave every one of these UNCHANGED. Plain
+-- row counts (below, in §5) miss an UPDATE that doesn't change a row count;
+-- these snapshots close that blindness for the specific columns a broken
+-- "read-only" reducer would actually touch (outbound sequencing, inbound
+-- cursor, and the per-channel mutation counter).
+SELECT count(*)::int AS outbox_before FROM federation_outbox \gset
+SELECT count(*)::int AS inbox_before FROM federation_inbox \gset
+SELECT COALESCE(sum(last_seq), 0)::bigint AS peers_seq_before FROM federation_peers \gset
+SELECT change_seq AS ch_dm_seq_before FROM chat_channels WHERE id = :ch_dm \gset
+SELECT change_seq AS ch_hub_seq_before FROM chat_channels WHERE id = :ch_hub \gset
+
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object('op', 'typing', 'roomId', :'room_hub')),
+  '{"ok":false}'::jsonb, 'hub shape: a removed/revoked roster member drops (left_at excludes it)');
+
+-- unknown roomId entirely: drop.
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object('op', 'typing', 'roomId', 'nonexistent@alpha.test')),
+  '{"ok":false}'::jsonb, 'an unknown roomId drops');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 room shape — SPOKE org (fabricated directly, the federation_room_
+--    lifecycle.pg precedent: Task 5 is the real mirror constructor, this
+--    file only proves federation_typing_notify's own resolution arm)
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO chat_channels (kind, name, created_by, federated_room_id, federated_peer_domain)
+  VALUES ('channel', 'typing-spoke-mirror', 84001, 'roomY@bravo.test', 'bravo.test')
+  RETURNING id AS ch_spoke \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_spoke, 84001, 'owner');
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id)
+  VALUES ('roomY@bravo.test', 'bravo.test', :ch_spoke);
+
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object('op', 'typing', 'roomId', 'roomY@bravo.test')),
+  '{"ok":true,"relay":false}'::jsonb,
+  'spoke shape: the bound hub resolves, relay:false (a spoke never re-relays)');
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = format('chat:%s', 84001) AND (payload::jsonb ->> 'event') = 'typing'),
+  3, 'the spoke mirror owner gets a third typing push');
+
+-- wrong stream peer (not the bound hub): drop.
+SELECT is(
+  federation_typing_notify('impostor.test', jsonb_build_object('op', 'typing', 'roomId', 'roomY@bravo.test')),
+  '{"ok":false}'::jsonb, 'spoke shape: a stream peer that is not the bound hub drops');
+
+-- kicked/closed mirror: drop.
+UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = :ch_spoke;
+SELECT is(
+  federation_typing_notify('bravo.test', jsonb_build_object('op', 'typing', 'roomId', 'roomY@bravo.test')),
+  '{"ok":false}'::jsonb, 'spoke shape: a kicked/closed mirror (federated_room_removed_at set) drops');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 zero table writes — the READ-ONLY + NOTIFY contract. Every case
+--    above (ok and drop alike) must leave every federation/chat table's
+--    row counts untouched; only _test_notify_log (the capture tee) moves.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT count(*)::int FROM federation_room_members WHERE room_id = :'room_hub'), 1,
+  'federation_room_members row count for room_hub is unchanged by every typing call above (still just bravo, now left)');
+SELECT is((SELECT count(*)::int FROM federation_rooms), 2,
+  'federation_rooms row count is unchanged (still exactly the hub + spoke fixture rows)');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id IN (:ch_dm, :ch_hub, :ch_spoke)), 1,
+  'chat_messages row count is unchanged by any typing call (still just the one DM fixture message)');
+
+-- Task 6 review (MINOR, pgTAP zero-write hardening): row COUNTS above can't
+-- see an UPDATE that doesn't change a row count — a mutant that made
+-- federation_typing_notify bump a sequencing counter or a change_seq in
+-- place would sail through every assertion above. These compare against the
+-- snapshot taken right after the last legitimate write (federation_room_
+-- remove, §3), catching exactly that class.
+SELECT is((SELECT count(*)::int FROM federation_outbox), :outbox_before,
+  'federation_outbox row count is unchanged by every typing call from the snapshot point onward');
+SELECT is((SELECT count(*)::int FROM federation_inbox), :inbox_before,
+  'federation_inbox row count is unchanged by every typing call from the snapshot point onward');
+SELECT is((SELECT COALESCE(sum(last_seq), 0)::bigint FROM federation_peers), :peers_seq_before::bigint,
+  'federation_peers.last_seq sum is unchanged (no outbound sequencing activity from typing)');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_dm), :ch_dm_seq_before::bigint,
+  'the DM mirror channel''s change_seq is unchanged by any typing call');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_hub), :ch_hub_seq_before::bigint,
+  'the hub room channel''s change_seq is unchanged by any typing call');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_spoke), 0::bigint,
+  'the spoke mirror channel''s change_seq is still its fresh-row default — unchanged by any typing call');
+
+SELECT * FROM finish();
+ROLLBACK;

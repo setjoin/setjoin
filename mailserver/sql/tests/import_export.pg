@@ -1,0 +1,243 @@
+-- pgTAP: import_message() quota enforcement, basic import, and the round-3
+-- statement-level actor authorization (p_actor_id/p_domain_scope evaluated in
+-- the INSERT's WHERE via admin_can_reach_mailbox — a revoked authority inserts
+-- ZERO rows and the function returns NULL), plus round 4 (Astra r13): the
+-- owner-less arm requires LIVE authority (revoking the assignment mid-session
+-- denies the domain-scoped actor), round 6 (Astra r5): the owner-less arm
+-- anchors that LIVE authority to the MAILBOX'S OWN domain (a wrong-domain
+-- authority denies an owner-less mailbox in another domain), and exactly ONE
+-- import_message signature is installed.
+-- Executed 2026-09-05: green against mailserver_test (pg_prove).
+BEGIN;
+SELECT plan(18);
+
+INSERT INTO domains (name, is_local) VALUES ('import.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 108001 != mailbox 8001). import_message() takes
+-- the MAILBOX id as its first arg.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108001, 'importer', (SELECT id FROM domains WHERE name = 'import.test'), 'importer@import.test', 'Importer');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (8001, 108001, (SELECT id FROM domains WHERE name = 'import.test'), 'importer@import.test', 'personal', TRUE, 'Importer');
+-- Override quota after trigger sets the default
+UPDATE mailboxes SET quota_bytes = 500 WHERE id = 8001;
+
+-- Test 1: import message within quota
+SELECT lives_ok(
+  $$ SELECT import_message(8001, NULL, '<msg1@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL) $$,
+  'import within quota succeeds'
+);
+
+-- Test 2: import over quota should fail
+-- Set used_bytes close to the limit so the next import exceeds quota
+UPDATE mailboxes SET used_bytes = 450 WHERE id = 8001;
+SELECT throws_ok(
+  $$ SELECT import_message(8001, NULL, '<msg2@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL) $$,
+  'BZ001',
+  'Mailbox over quota',
+  'import over quota raises over_quota'
+);
+
+-- ── Round-3 statement-level actor authorization fixtures ────────────────────
+-- actor 108002: active global-style assignment (NULL domain, NULL scope_type)
+-- over role group 910001 → admin_can_reach(108002, 108001) is TRUE.
+-- actor 108003: NO assignment → predicate FALSE for every target.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108002, 'import-actor', (SELECT id FROM domains WHERE name = 'import.test'), 'import-actor@import.test', 'Import Actor');
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108003, 'import-nobody', (SELECT id FROM domains WHERE name = 'import.test'), 'import-nobody@import.test', 'Import Nobody');
+INSERT INTO admin_role_groups (id, name, description, permissions, domain_scope, is_builtin)
+  VALUES (910001, 'pgTAP import actor role', 'import_export.pg round-3 fixture', ARRAY['users.create']::TEXT[], NULL, FALSE);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (108002, 910001, 108002);
+
+UPDATE mailboxes SET quota_bytes = 100000, used_bytes = 0 WHERE id = 8001;
+
+-- Test 3: an authorized actor's import inserts and returns the message id
+SELECT ok(
+  (SELECT import_message(8001, NULL, '<msg3@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+                         NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL,
+                         p_actor_id => 108002, p_domain_scope => NULL)) IS NOT NULL,
+  'authorized actor import inserts and returns message id'
+);
+
+-- Test 4: an actor with NO assignment inserts ZERO rows and returns NULL
+SELECT is(
+  (SELECT import_message(8001, NULL, '<msg4@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+                         NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL,
+                         p_actor_id => 108003, p_domain_scope => NULL)),
+  NULL,
+  'unauthorized actor import inserts zero rows, returns NULL'
+);
+
+-- Test 5: the same helper that gates the export SELECT — authorized actor TRUE
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108002, NULL, 8001)),
+  TRUE,
+  'admin_can_reach_mailbox TRUE for authorized actor'
+);
+
+-- Test 6: …and FALSE for the unauthorized actor (fail closed)
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108003, NULL, 8001)),
+  FALSE,
+  'admin_can_reach_mailbox FALSE for actor with no assignment'
+);
+
+-- Test 7: revocation BETWEEN statements — after the authority check that
+-- admitted test 3, expiring the assignment makes the very next actor import
+-- no-op (this is the exact mid-upload revocation window from the round-3 HOLD)
+UPDATE admin_role_assignments SET expires_at = now() - interval '1 second'
+  WHERE user_id = 108002 AND role_group_id = 910001;
+SELECT is(
+  (SELECT import_message(8001, NULL, '<msg5@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+                         NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL,
+                         p_actor_id => 108002, p_domain_scope => NULL)),
+  NULL,
+  'revoked-mid-upload actor import inserts zero rows, returns NULL'
+);
+
+-- Test 8: only test 3's actor-authorized message exists (tests 4/7 inserted nothing)
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = 8001),
+  2::BIGINT,  -- msg1 (system path) + msg3 (authorized actor)
+  'revoked/unauthorized attempts inserted no message rows'
+);
+
+-- ══ Round 4 (Astra r13): owner-less arm LIVE authority + signature unification
+-- Owner-less (user_id NULL) distribution mailbox 8002 in the import.test domain.
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (8002, NULL, (SELECT id FROM domains WHERE name = 'import.test'), 'dist@import.test', 'personal', FALSE, 'Dist');
+INSERT INTO distribution_groups (mailbox_id) VALUES (8002);
+
+-- Actor 108004: domain-scoped authority — role group 910002 carries
+-- domain_scope = import.test, so the effective (broadest) scope resolves to
+-- exactly that domain.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108004, 'import-domain-actor', (SELECT id FROM domains WHERE name = 'import.test'), 'domain-actor@import.test', 'Domain Actor');
+INSERT INTO admin_role_groups (id, name, description, permissions, domain_scope, is_builtin)
+  VALUES (910002, 'pgTAP import domain role', 'import_export.pg round-4 fixture', ARRAY['users.create']::TEXT[],
+          (SELECT id FROM domains WHERE name = 'import.test'), FALSE);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (108004, 910002, 108004);
+
+-- Actor 108005: a FRESH genuinely-global authority (910001: NULL domain,
+-- NULL scope_type) — test 7 expired 108002's row, so the fallback-exactness
+-- checks below need an active global grant of their own.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108005, 'import-global-actor', (SELECT id FROM domains WHERE name = 'import.test'), 'global-actor@import.test', 'Global Actor');
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (108005, 910001, 108005);
+
+-- Second domain for the non-matching-context-scope denial (test 14) and the
+-- round-6 wrong-domain denial (test 15).
+INSERT INTO domains (name, is_local) VALUES ('import2.test', TRUE);
+
+-- Round 6 (Astra r5): the owner-less arm must anchor LIVE authority to the
+-- MAILBOX'S OWN domain. Actor 108006 holds a LIVE import2.test-scoped
+-- authority (role group 910003, domain_scope = import2.test) — exactly the
+-- caller the pre-round-6 arm admitted for an owner-less mailbox in the
+-- import.test domain because its live authority matched its own claim.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (108006, 'import-wrongdomain-actor', (SELECT id FROM domains WHERE name = 'import2.test'), 'wrongdomain@import2.test', 'Wrong Domain Actor');
+INSERT INTO admin_role_groups (id, name, description, permissions, domain_scope, is_builtin)
+  VALUES (910003, 'pgTAP import2 domain role', 'import_export.pg round-6 fixture', ARRAY['users.create']::TEXT[],
+          (SELECT id FROM domains WHERE name = 'import2.test'), FALSE);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (108006, 910003, 108006);
+
+-- Owner-less (user_id NULL) distribution mailbox 8003 in the import2.test
+-- domain: the positive control for the mailbox-own-domain anchor (test 16).
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (8003, NULL, (SELECT id FROM domains WHERE name = 'import2.test'), 'dist2@import2.test', 'personal', FALSE, 'Dist2');
+INSERT INTO distribution_groups (mailbox_id) VALUES (8003);
+
+-- Test 9: the owner-less domain arm admits while the domain authority is LIVE
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108004, (SELECT id FROM domains WHERE name = 'import.test'), 8002)),
+  TRUE,
+  'owner-less domain arm TRUE while actor holds the domain authority'
+);
+
+-- Test 10: …and the owner-less import inserts under that live authority
+SELECT ok(
+  (SELECT import_message(8002, NULL, '<msg6@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+                         NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL,
+                         p_actor_id => 108004,
+                         p_domain_scope => (SELECT id FROM domains WHERE name = 'import.test'))) IS NOT NULL,
+  'domain-scoped actor imports into owner-less mailbox'
+);
+
+-- Test 11 (Astra r13 required assertion): revoke the assignment MID-SESSION —
+-- the exact owner-less domain-arm call that passed test 9 must now deny (the
+-- pre-round-4 arm trusted the cached p_domain_scope and kept admitting here).
+UPDATE admin_role_assignments SET expires_at = now() - interval '1 second'
+  WHERE user_id = 108004 AND role_group_id = 910002;
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108004, (SELECT id FROM domains WHERE name = 'import.test'), 8002)),
+  FALSE,
+  'assignment revoked mid-session: owner-less domain arm denies'
+);
+
+-- Test 12: …and the same owner-less import now inserts ZERO rows (NULL)
+SELECT is(
+  (SELECT import_message(8002, NULL, '<msg7@test>', 'Subj', 'f@ext.com', 'From', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+                         NULL, NULL, 'body', NULL, 100, FALSE, FALSE, 'raw', NULL,
+                         p_actor_id => 108004,
+                         p_domain_scope => (SELECT id FROM domains WHERE name = 'import.test'))),
+  NULL,
+  'assignment revoked mid-session: owner-less import inserts zero rows, returns NULL'
+);
+
+-- Test 13: canReachMailbox-exact fallback — genuinely-global authority with NO
+-- context scope passes the owner-less arm via the LIVE global check
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108005, NULL, 8002)),
+  TRUE,
+  'global actor with no context scope reaches owner-less mailbox (live global authority)'
+);
+
+-- Test 14: fallback exactness — a NON-matching context scope denies even a
+-- genuinely-global actor (the pre-round-4 unconditional fallback allowed this;
+-- canReachMailbox runs the DB-global check only when no scope is in context)
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108005, (SELECT id FROM domains WHERE name = 'import2.test'), 8002)),
+  FALSE,
+  'global actor with non-matching context scope denies owner-less mailbox'
+);
+
+-- Test 15 (Astra r5 required assertion): WRONG-DOMAIN owner-less denial — a
+-- LIVE authority scoped to import2.test must NOT reach the owner-less mailbox
+-- 8002 (import.test) even while claiming exactly that scope in context. The
+-- pre-round-6 arm compared the actor's live authority with the CLAIMED
+-- p_domain_scope and admitted exactly this caller.
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108006, (SELECT id FROM domains WHERE name = 'import2.test'), 8002)),
+  FALSE,
+  'wrong-domain live authority denies owner-less mailbox in another domain'
+);
+
+-- Test 16: positive control for the round-6 anchor — the SAME live authority
+-- admits the owner-less mailbox 8003 whose OWN domain is import2.test.
+SELECT is(
+  (SELECT admin_can_reach_mailbox(108006, (SELECT id FROM domains WHERE name = 'import2.test'), 8003)),
+  TRUE,
+  'live authority on the mailbox own domain admits the owner-less mailbox'
+);
+
+-- Test 15: signature unification — exactly ONE import_message overload is
+-- installed. The round-3 CREATE OR REPLACE left the stale 20-argument HEAD
+-- form beside the 22-argument body on upgrade, making every bare 18-argument
+-- call ambiguous; this reducer now drops the legacy signature first.
+SELECT is(
+  (SELECT count(*) FROM pg_proc WHERE proname = 'import_message'),
+  1::BIGINT,
+  'exactly one import_message signature (stale 20-arg overload dropped)'
+);
+
+-- Test 16: …and it is the unified 22-argument form (18 + p_user_id/p_list_id/
+-- p_actor_id/p_domain_scope). The 18-argument calls in tests 1-2 resolving
+-- proves DEFAULT resolution against that single signature.
+SELECT is(
+  (SELECT pronargs FROM pg_proc WHERE proname = 'import_message'),
+  22::SMALLINT,
+  'import_message is the unified 22-argument signature'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

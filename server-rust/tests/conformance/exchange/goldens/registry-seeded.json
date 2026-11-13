@@ -1,0 +1,183 @@
+{
+  "case": "seeded",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "exchange_assessment"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/exchange-replacement/registry",
+      "method": "GET",
+      "path": "/admin/exchange-replacement/registry"
+    },
+    "response": {
+      "body": "{\"roots\":[{\"id\":\"ROOT-COMPLIANCE\",\"enumerator\":\"Get-RetentionPolicy\",\"requiredRole\":\"View-Only Organization Management\"},{\"id\":\"ROOT-INFRASTRUCTURE\",\"enumerator\":\"Get-ExchangeServer\",\"requiredRole\":\"View-Only Organization Management\"},{\"id\":\"ROOT-MAILBOXES\",\"enumerator\":\"Get-Mailbox\",\"requiredRole\":\"View-Only Recipients\"},{\"id\":\"ROOT-ORGANIZATION\",\"enumerator\":\"Get-OrganizationConfig\",\"requiredRole\":\"View-Only Organization Management\"},{\"id\":\"ROOT-PUBLIC-FOLDERS\",\"enumerator\":\"Get-PublicFolder\",\"requiredRole\":\"Public Folders\"},{\"id\":\"ROOT-ROOM-LISTS\",\"enumerator\":\"Get-DistributionGroup\",\"requiredRole\":\"View-Only Recipients\"},{\"id\":\"ROOT-TRANSPORT\",\"enumerator\":\"Get-TransportRule\",\"requiredRole\":\"View-Only Organization Management\"}],\"probes\":[{\"id\":\"PROBE-ACCEPTED-DOMAINS\",\"rootId\":\"ROOT-TRANSPORT\",\"command\":\"Get-AcceptedDomain\",\"capabilityIds\":[\"EX-ACCEPTED-REMOTE-DOMAINS\"]},{\"id\":\"PROBE-ADDRESS-LISTS\",\"rootId\":\"ROOT-ORGANIZATION\",\"command\":\"Get-AddressList\",\"capabilityIds\":[\"EX-ADDRESS-LISTS-OAB\"]},{\"id\":\"PROBE-ADDRESS-POLICIES\",\"rootId\":\"ROOT-ORGANIZATION\",\"command\":\"Get-EmailAddressPolicy\",\"capabilityIds\":[\"EX-EMAIL-ADDRESS-POLICIES\"]},{\"id\":\"PROBE-ANTISPAM\",\"rootId\":\"ROOT-TRANSPORT\",\"command\":\"Get-ContentFilterConfig\",\"capabilityIds\":[\"EX-ANTISPAM-MALWARE\"]},{\"id\":\"PROBE-ARCHIVE\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-Mailbox\",\"capabilityIds\":[\"EX-ARCHIVE-MAILBOX\"]},{\"id\":\"PROBE-AUTO-REPLIES\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-MailboxAutoReplyConfiguration\",\"capabilityIds\":[\"EX-AUTO-REPLIES\"]},{\"id\":\"PROBE-CALENDAR-VISIBILITY\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-MailboxFolderPermission\",\"capabilityIds\":[\"EX-CALENDAR-VISIBILITY\"]},{\"id\":\"PROBE-CERTIFICATES\",\"rootId\":\"ROOT-INFRASTRUCTURE\",\"command\":\"Get-ExchangeCertificate\",\"capabilityIds\":[\"EX-CERTIFICATES-TLS\"]},{\"id\":\"PROBE-CLIENT-PROTOCOLS\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-CASMailbox\",\"capabilityIds\":[\"EX-AUTH-CLIENT-PROTOCOLS\"]},{\"id\":\"PROBE-CONNECTORS\",\"rootId\":\"ROOT-TRANSPORT\",\"command\":\"Get-SendConnector\",\"capabilityIds\":[\"EX-SEND-RECEIVE-CONNECTORS\"]},{\"id\":\"PROBE-DATABASE-HA\",\"rootId\":\"ROOT-INFRASTRUCTURE\",\"command\":\"Get-DatabaseAvailabilityGroup\",\"capabilityIds\":[\"EX-DATABASE-HA\"]},{\"id\":\"PROBE-DISTRIBUTION-GROUPS\",\"rootId\":\"ROOT-ROOM-LISTS\",\"command\":\"Get-DynamicDistributionGroup\",\"capabilityIds\":[\"EX-DISTRIBUTION-GROUPS\"]},{\"id\":\"PROBE-DLP\",\"rootId\":\"ROOT-COMPLIANCE\",\"command\":\"Get-DlpPolicy\",\"capabilityIds\":[\"EX-DLP\"]},{\"id\":\"PROBE-EDISCOVERY\",\"rootId\":\"ROOT-COMPLIANCE\",\"command\":\"Get-ComplianceSearch\",\"capabilityIds\":[\"EX-EDISCOVERY-SEARCH\"]},{\"id\":\"PROBE-FEDERATION\",\"rootId\":\"ROOT-ORGANIZATION\",\"command\":\"Get-OrganizationRelationship\",\"capabilityIds\":[\"EX-FEDERATION-ORG-RELATIONSHIPS\"]},{\"id\":\"PROBE-HYBRID\",\"rootId\":\"ROOT-ORGANIZATION\",\"command\":\"Get-HybridConfiguration\",\"capabilityIds\":[\"EX-HYBRID-COEXISTENCE\"]},{\"id\":\"PROBE-INBOX-RULES\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-InboxRule\",\"capabilityIds\":[\"EX-INBOX-RULES\"]},{\"id\":\"PROBE-JOURNALING\",\"rootId\":\"ROOT-COMPLIANCE\",\"command\":\"Get-JournalRule\",\"capabilityIds\":[\"EX-JOURNALING\"]},{\"id\":\"PROBE-MAIL-FLOW-RULES\",\"rootId\":\"ROOT-TRANSPORT\",\"command\":\"Get-TransportRule\",\"capabilityIds\":[\"EX-MAIL-FLOW-RULES\"]},{\"id\":\"PROBE-MAILBOX-AUDIT\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-AdminAuditLogConfig\",\"capabilityIds\":[\"EX-MAILBOX-AUDIT\"]},{\"id\":\"PROBE-MAILBOX-DELEGATION\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-MailboxPermission\",\"capabilityIds\":[\"EX-MAILBOX-DELEGATION\"]},{\"id\":\"PROBE-MIGRATION-SIZING\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-MailboxStatistics\",\"capabilityIds\":[\"EX-MIGRATION-SIZING\"]},{\"id\":\"PROBE-MOBILE\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-ActiveSyncMailboxPolicy\",\"capabilityIds\":[\"EX-MOBILE-ACTIVESYNC\"]},{\"id\":\"PROBE-OPERATIONS\",\"rootId\":\"ROOT-INFRASTRUCTURE\",\"command\":\"Get-Queue\",\"capabilityIds\":[\"EX-MONITORING-OPERATIONS\"]},{\"id\":\"PROBE-PUBLIC-FOLDERS\",\"rootId\":\"ROOT-PUBLIC-FOLDERS\",\"command\":\"Get-PublicFolder\",\"capabilityIds\":[\"EX-PUBLIC-FOLDERS\"]},{\"id\":\"PROBE-QUOTAS\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-TransportConfig\",\"capabilityIds\":[\"EX-QUOTAS-LIMITS\"]},{\"id\":\"PROBE-RBAC\",\"rootId\":\"ROOT-ORGANIZATION\",\"command\":\"Get-RoleGroup\",\"capabilityIds\":[\"EX-RBAC-MANAGEMENT-SCOPES\"]},{\"id\":\"PROBE-RESOURCE-BOOKING\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-CalendarProcessing\",\"capabilityIds\":[\"EX-RESOURCE-BOOKING\"]},{\"id\":\"PROBE-RETENTION\",\"rootId\":\"ROOT-COMPLIANCE\",\"command\":\"Get-RetentionPolicy\",\"capabilityIds\":[\"EX-RETENTION-HOLD\"]},{\"id\":\"PROBE-ROOM-LISTS\",\"rootId\":\"ROOT-ROOM-LISTS\",\"command\":\"Get-DistributionGroupMember\",\"capabilityIds\":[\"EX-ROOM-LISTS\"]},{\"id\":\"PROBE-SHARED-MAILBOX\",\"rootId\":\"ROOT-MAILBOXES\",\"command\":\"Get-MailboxPermission\",\"capabilityIds\":[\"EX-SHARED-MAILBOX\"]}],\"capabilities\":[{\"id\":\"EX-ACCEPTED-REMOTE-DOMAINS\",\"outcome\":{\"en\":\"Accepted domains, remote domains, and relay controls\",\"zh\":\"接受域、远程域与中继控制\"},\"category\":\"transport\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Authoritative and relay boundaries cannot be inferred.\"}],\"documentation\":\"outcomes/domains-routing\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"AcceptedDomain.DomainType\",\"RemoteDomain.AllowedOOFType\"],\"implementationUnits\":[\"SJ-DOMAINS\",\"SJ-SMTP-ROUTING\"]},{\"id\":\"EX-ADDRESS-LISTS-OAB\",\"outcome\":{\"en\":\"Address lists, GAL, and offline address books\",\"zh\":\"地址列表、全局地址簿与离线地址簿\"},\"category\":\"identity\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"degraded\",\"reason\":\"Client discovery may require an alternative workflow.\"}],\"documentation\":\"outcomes/address-lists\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"AddressList.RecipientFilter\",\"OfflineAddressBook.AddressLists\"],\"implementationUnits\":[\"SJ-GAL\",\"SJ-CARDDAV\"]},{\"id\":\"EX-ANTISPAM-MALWARE\",\"outcome\":{\"en\":\"Anti-spam, anti-malware, and quarantine\",\"zh\":\"反垃圾、反恶意软件与隔离\"},\"category\":\"security\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Protection parity and false-positive handling require evidence.\"}],\"documentation\":\"outcomes/antispam-malware\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"ContentFilterConfig.SCLRejectThreshold\",\"MalwareFilterPolicy.Action\"],\"implementationUnits\":[\"SJ-SPAM\",\"SJ-CLAMAV\",\"SJ-QUARANTINE\"]},{\"id\":\"EX-ARCHIVE-MAILBOX\",\"outcome\":{\"en\":\"Online archive and archive mailboxes\",\"zh\":\"联机存档与归档邮箱\"},\"category\":\"compliance\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"initial_copy\",\"impact\":\"blocker\",\"reason\":\"Archive content expands the migration denominator.\"}],\"documentation\":\"outcomes/archive-mailbox\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"Mailbox.ArchiveStatus\",\"Mailbox.ArchiveQuota\"],\"implementationUnits\":[\"SJ-RETENTION\",\"SJ-MAILBOX-LIFECYCLE\"]},{\"id\":\"EX-AUTH-CLIENT-PROTOCOLS\",\"outcome\":{\"en\":\"Client protocols, modern authentication, and app passwords\",\"zh\":\"客户端协议、现代认证与应用密码\"},\"category\":\"access\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Clients need a supported protocol and authentication path.\"}],\"documentation\":\"outcomes/client-protocols\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"CASMailbox.ImapEnabled\",\"CASMailbox.MapiEnabled\",\"OrganizationConfig.OAuth2ClientProfileEnabled\"],\"implementationUnits\":[\"SJ-OIDC\",\"SJ-IMAP\",\"SJ-SMTP-SUBMISSION\",\"SJ-APP-PASSWORDS\"]},{\"id\":\"EX-AUTO-REPLIES\",\"outcome\":{\"en\":\"Automatic replies and scheduled out-of-office settings\",\"zh\":\"自动回复与计划外出设置\"},\"category\":\"mailbox\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"degraded\",\"reason\":\"Active scheduled responses require reconciliation.\"}],\"documentation\":\"outcomes/automatic-replies\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"MailboxAutoReplyConfiguration.AutoReplyState\",\"MailboxAutoReplyConfiguration.StartTime\"],\"implementationUnits\":[\"SJ-VACATION\"]},{\"id\":\"EX-CALENDAR-VISIBILITY\",\"outcome\":{\"en\":\"Calendar free/busy and limited-details visibility\",\"zh\":\"日历忙闲与有限详情可见性\"},\"category\":\"calendar\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Scheduling requires predictable calendar visibility.\"}],\"documentation\":\"outcomes/calendar-visibility\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"CalendarFolderPermission.AccessRights\"],\"implementationUnits\":[\"SJ-CALENDAR-ACL\"]},{\"id\":\"EX-CERTIFICATES-TLS\",\"outcome\":{\"en\":\"Exchange certificates, service bindings, and TLS policy\",\"zh\":\"Exchange 证书、服务绑定与 TLS 策略\"},\"category\":\"infrastructure\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Certificate names and trust paths affect routing availability.\"}],\"documentation\":\"outcomes/certificates-tls\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"ExchangeCertificate.Services\",\"ExchangeCertificate.NotAfter\"],\"implementationUnits\":[\"SJ-TLS\",\"SJ-DANE\",\"SJ-MTA-STS\"]},{\"id\":\"EX-DATABASE-HA\",\"outcome\":{\"en\":\"Mailbox databases, DAG high availability, and recovery\",\"zh\":\"邮箱数据库、DAG 高可用与恢复\"},\"category\":\"infrastructure\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Setjoin uses a different HA and recovery architecture.\"}],\"documentation\":\"outcomes/database-ha\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"MailboxDatabase.Mounted\",\"DatabaseAvailabilityGroup.Servers\"],\"implementationUnits\":[\"SJ-POSTGRES-HA\",\"SJ-BACKUP-RESTORE\",\"SJ-CONTINUITY\"]},{\"id\":\"EX-DISTRIBUTION-GROUPS\",\"outcome\":{\"en\":\"Distribution groups, dynamic groups, and membership rules\",\"zh\":\"通讯组、动态通讯组与成员规则\"},\"category\":\"identity\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Static and calculated membership affect delivery.\"}],\"documentation\":\"outcomes/distribution-groups\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"DistributionGroup.GroupType\",\"DynamicDistributionGroup.RecipientFilter\"],\"implementationUnits\":[\"SJ-GROUPS\",\"SJ-DIRECTORY-SYNC\"]},{\"id\":\"EX-DLP\",\"outcome\":{\"en\":\"Data loss prevention policy, tips, and blocking\",\"zh\":\"数据防泄漏策略、提示与阻断\"},\"category\":\"security\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Data controls must be proven before routing production mail.\"}],\"documentation\":\"outcomes/dlp\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"DlpPolicy.State\",\"TransportRule.DlpPolicy\"],\"implementationUnits\":[\"SJ-DLP\"]},{\"id\":\"EX-EDISCOVERY-SEARCH\",\"outcome\":{\"en\":\"eDiscovery, content search, and export\",\"zh\":\"电子数据展示、内容搜索与导出\"},\"category\":\"compliance\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Active cases and exports need an accountable replacement path.\"}],\"documentation\":\"outcomes/ediscovery\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"ComplianceSearch.Status\",\"MailboxSearch.Status\"],\"implementationUnits\":[\"SJ-COMPLIANCE-SEARCH\",\"SJ-AUDIT-EXPORT\"]},{\"id\":\"EX-EMAIL-ADDRESS-POLICIES\",\"outcome\":{\"en\":\"Email address policies and alias generation\",\"zh\":\"邮箱地址策略与别名生成\"},\"category\":\"identity\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Primary and proxy address authority must be preserved.\"}],\"documentation\":\"outcomes/email-address-policies\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"EmailAddressPolicy.EnabledEmailAddressTemplates\",\"EmailAddressPolicy.Priority\"],\"implementationUnits\":[\"SJ-EMAIL-ADDRESS-POLICY\"]},{\"id\":\"EX-FEDERATION-ORG-RELATIONSHIPS\",\"outcome\":{\"en\":\"Organization relationships, sharing policy, and federated free/busy\",\"zh\":\"组织关系、共享策略与联合忙闲\"},\"category\":\"hybrid\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Cross-organization sharing is topology-specific.\"}],\"documentation\":\"outcomes/federation-sharing\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"OrganizationRelationship.FreeBusyAccessLevel\",\"SharingPolicy.Domains\"],\"implementationUnits\":[\"SJ-FEDERATION\",\"SJ-CALENDAR-ACL\"]},{\"id\":\"EX-HYBRID-COEXISTENCE\",\"outcome\":{\"en\":\"Exchange Online hybrid coexistence and migration endpoints\",\"zh\":\"Exchange Online 混合共存与迁移端点\"},\"category\":\"hybrid\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Hybrid routing and identity authority must be topology-bound.\"}],\"documentation\":\"outcomes/hybrid-coexistence\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"HybridConfiguration.Features\",\"MigrationEndpoint.EndpointType\"],\"implementationUnits\":[\"SJ-M365-MIGRATION\",\"SJ-FEDERATION\"]},{\"id\":\"EX-INBOX-RULES\",\"outcome\":{\"en\":\"User inbox rules and automatic processing\",\"zh\":\"用户收件箱规则与自动处理\"},\"category\":\"mailbox\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"degraded\",\"reason\":\"Unsupported actions require explicit remediation.\"}],\"documentation\":\"outcomes/inbox-rules\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"InboxRule.Enabled\",\"InboxRule.Priority\"],\"implementationUnits\":[\"SJ-RULES-ENGINE\"]},{\"id\":\"EX-JOURNALING\",\"outcome\":{\"en\":\"Journaling rules and compliance-copy delivery\",\"zh\":\"日记规则与合规副本投递\"},\"category\":\"compliance\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Compliance copies cannot be silently dropped.\"}],\"documentation\":\"outcomes/journaling\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"JournalRule.Scope\",\"JournalRule.Recipient\"],\"implementationUnits\":[\"SJ-JOURNALING\"]},{\"id\":\"EX-MAIL-FLOW-RULES\",\"outcome\":{\"en\":\"Organization mail-flow rules and actions\",\"zh\":\"组织邮件流规则与操作\"},\"category\":\"transport\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Transport enforcement must remain deterministic.\"}],\"documentation\":\"outcomes/mail-flow-rules\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"TransportRule.State\",\"TransportRule.Mode\",\"TransportRule.Priority\"],\"implementationUnits\":[\"SJ-MAIL-PIPELINE\"]},{\"id\":\"EX-MAILBOX-AUDIT\",\"outcome\":{\"en\":\"Mailbox access auditing and administrator action tracking\",\"zh\":\"邮箱访问审计与管理员操作追踪\"},\"category\":\"compliance\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Audit continuity is a regulated acceptance criterion.\"}],\"documentation\":\"outcomes/mailbox-audit\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"Mailbox.AuditEnabled\",\"AdminAuditLogConfig.AdminAuditLogEnabled\"],\"implementationUnits\":[\"SJ-AUDIT-CHAIN\",\"SJ-MAILBOX-AUDIT\"]},{\"id\":\"EX-MAILBOX-DELEGATION\",\"outcome\":{\"en\":\"Mailbox delegation and send-as workflows\",\"zh\":\"邮箱委派访问与代发\"},\"category\":\"mailbox\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Delegated access must be explicitly reconciled.\"}],\"documentation\":\"outcomes/mailbox-delegation\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"MailboxPermission.AccessRights\",\"RecipientPermission.AccessRights\"],\"implementationUnits\":[\"SJ-SHARED-MAILBOX\",\"SJ-SEND-AS\"]},{\"id\":\"EX-MIGRATION-SIZING\",\"outcome\":{\"en\":\"Migration sizing, dependency, and risk assessment\",\"zh\":\"迁移规模、依赖和风险评估\"},\"category\":\"migration\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"initial_copy\",\"impact\":\"blocker\",\"reason\":\"Capacity and dependency blockers must be known before admission.\"}],\"documentation\":\"outcomes/migration-sizing\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"Mailbox.TotalItemSize\",\"Mailbox.ItemCount\",\"Mailbox.RecipientTypeDetails\"],\"implementationUnits\":[\"SJ-MIGRATION-ASSESSMENT\"]},{\"id\":\"EX-MOBILE-ACTIVESYNC\",\"outcome\":{\"en\":\"Mobile mailbox access and ActiveSync policy\",\"zh\":\"移动设备邮箱访问与 ActiveSync 策略\"},\"category\":\"client\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Native clients replace, rather than emulate, ActiveSync.\"}],\"documentation\":\"outcomes/mobile-access\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"ActiveSyncMailboxPolicy.DevicePasswordEnabled\",\"CASMailbox.ActiveSyncEnabled\"],\"implementationUnits\":[\"SJ-NATIVE-CLIENTS\",\"SJ-MAM\"]},{\"id\":\"EX-MONITORING-OPERATIONS\",\"outcome\":{\"en\":\"Operational health, queues, message tracking, and diagnostics\",\"zh\":\"运行健康、队列、消息跟踪与诊断\"},\"category\":\"operations\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"degraded\",\"reason\":\"Operators need replacement observability before handover.\"}],\"documentation\":\"outcomes/monitoring-operations\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"Queue.Status\",\"ServerComponentState.State\"],\"implementationUnits\":[\"SJ-HEALTH\",\"SJ-QUEUE\",\"SJ-AUDIT\",\"SJ-OBSERVABILITY\"]},{\"id\":\"EX-PUBLIC-FOLDERS\",\"outcome\":{\"en\":\"Public folders, hierarchy, and permissions\",\"zh\":\"公用文件夹、层级与权限\"},\"category\":\"collaboration\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Each public-folder workload needs an explicit alternative.\"}],\"documentation\":\"outcomes/public-folders\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"PublicFolder.MailEnabled\",\"PublicFolderClientPermission.AccessRights\"],\"implementationUnits\":[\"SJ-SHARED-MAILBOX\",\"SJ-DRIVE\",\"SJ-CHAT\"]},{\"id\":\"EX-QUOTAS-LIMITS\",\"outcome\":{\"en\":\"Mailbox quotas, message size, and transport limits\",\"zh\":\"邮箱配额、邮件大小与传输限制\"},\"category\":\"operations\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"initial_copy\",\"impact\":\"blocker\",\"reason\":\"Capacity and delivery limits require explicit reconciliation.\"}],\"documentation\":\"outcomes/quotas-limits\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"Mailbox.ProhibitSendQuota\",\"TransportConfig.MaxReceiveSize\"],\"implementationUnits\":[\"SJ-QUOTAS\",\"SJ-MAIL-PIPELINE\"]},{\"id\":\"EX-RBAC-MANAGEMENT-SCOPES\",\"outcome\":{\"en\":\"Management roles, role groups, and management scopes\",\"zh\":\"管理角色、角色组与管理范围\"},\"category\":\"administration\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Administrative authority must be least-privilege and auditable.\"}],\"documentation\":\"outcomes/rbac-scopes\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"RoleGroup.Roles\",\"ManagementScope.RecipientRestrictionFilter\"],\"implementationUnits\":[\"SJ-RBAC\",\"SJ-SCOPE-SETS\",\"SJ-JIT\"]},{\"id\":\"EX-RESOURCE-BOOKING\",\"outcome\":{\"en\":\"Room and equipment booking policy\",\"zh\":\"会议室和设备预订策略\"},\"category\":\"resource\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"blocker\",\"reason\":\"Resource acceptance and conflict behavior must remain deterministic.\"}],\"documentation\":\"outcomes/resource-booking\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"CalendarProcessing.AutomateProcessing\",\"CalendarProcessing.BookingWindowInDays\",\"CalendarProcessing.AllowConflicts\"],\"implementationUnits\":[\"SJ-RESOURCE-BOOKING\"]},{\"id\":\"EX-RETENTION-HOLD\",\"outcome\":{\"en\":\"Retention policy, litigation hold, and immutability\",\"zh\":\"保留策略、诉讼保留与不可变性\"},\"category\":\"compliance\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Deletion and preservation semantics require legal acceptance.\"}],\"documentation\":\"outcomes/retention-hold\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"RetentionPolicy.RetentionPolicyTagLinks\",\"Mailbox.LitigationHoldEnabled\"],\"implementationUnits\":[\"SJ-RETENTION\",\"SJ-WORM\"]},{\"id\":\"EX-ROOM-LISTS\",\"outcome\":{\"en\":\"Room lists and location discovery\",\"zh\":\"会议室列表和地点发现\"},\"category\":\"resource\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"cutover\",\"impact\":\"degraded\",\"reason\":\"Users need a discoverable replacement workflow.\"}],\"documentation\":\"outcomes/room-lists\",\"mappingMaximum\":\"alternative\",\"sourceProperties\":[\"DistributionGroup.RecipientTypeDetails\",\"DistributionGroupMember.Identity\"],\"implementationUnits\":[\"SJ-RESOURCE-DIRECTORY\"]},{\"id\":\"EX-SEND-RECEIVE-CONNECTORS\",\"outcome\":{\"en\":\"Send/receive connectors, routing, and TLS\",\"zh\":\"发送和接收连接器、路由与 TLS\"},\"category\":\"transport\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"coexistence\",\"impact\":\"blocker\",\"reason\":\"Mail routing and trust must be reconstructed before coexistence.\"}],\"documentation\":\"outcomes/connectors\",\"mappingMaximum\":\"transformed\",\"sourceProperties\":[\"SendConnector.AddressSpaces\",\"SendConnector.SmartHosts\",\"ReceiveConnector.Bindings\"],\"implementationUnits\":[\"SJ-SMTP-ROUTING\",\"SJ-TLS\"]},{\"id\":\"EX-SHARED-MAILBOX\",\"outcome\":{\"en\":\"Shared mailbox lifecycle and member access\",\"zh\":\"共享邮箱生命周期与成员访问\"},\"category\":\"mailbox\",\"claimMaximum\":\"experimental\",\"phaseImpacts\":[{\"phase\":\"migration\",\"impact\":\"blocker\",\"reason\":\"Shared identities and access must survive cutover.\"}],\"documentation\":\"outcomes/shared-mailbox\",\"mappingMaximum\":\"native\",\"sourceProperties\":[\"Mailbox.RecipientTypeDetails\",\"MailboxPermission.AccessRights\"],\"implementationUnits\":[\"SJ-SHARED-MAILBOX\"]}],\"sourceDigest\":\"cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09\",\"supportCells\":[{\"id\":\"EX2019-ONPREM-INITIAL\",\"digest\":\"26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963\",\"namedCU\":\"explicit-at-collection\",\"topology\":\"on_premises\",\"admission\":\"unassessed\",\"productFamily\":\"Exchange Server 2019\",\"buildAllowlist\":[],\"catalogVersion\":1,\"setjoinRelease\":\"build-bound\",\"registryVersion\":1,\"collectorVersion\":\"1\",\"powerShellRuntime\":\"windows_powershell_5_1\",\"directoryAuthority\":\"active_directory\",\"cloudAdapterVersion\":\"none\"}],\"compatibility\":{\"schemaVersion\":\"setjoin.exchange.compatibility/v1\",\"featureDefault\":\"off\",\"serverContract\":\"V1A\",\"nMinusOnePolicy\":\"not_applicable_until_a_second_product_bundle_contract_exists\",\"collectorVersions\":[\"1\"],\"explicitlyRejected\":[\"setjoin.exchange.a0.input/v0\",\"setjoin.exchange.a0.report/v0\",\"setjoin.exchange.bundle/v0\"],\"unknownFieldPolicy\":\"reject_before_import\",\"acceptedBundleSchemas\":[\"setjoin.exchange.bundle/v1\"],\"acceptedCatalogVersions\":[1],\"acceptedRegistryVersions\":[1]},\"generatedFrom\":[\"registry-v1.json\",\"discovery-catalog-v1.json\",\"support-cells-v1.json\",\"redaction-profiles-v1.json\",\"compatibility-v1.json\"],\"schemaVersion\":\"setjoin.exchange.projection/v1\",\"catalogVersion\":1,\"registryVersion\":1,\"redactionProfiles\":[{\"id\":\"decision-safe-v1\",\"drop\":[\"credential\",\"accessToken\",\"refreshToken\",\"privateKey\",\"messageBody\"],\"hash\":[\"primarySmtpAddress\",\"userPrincipalName\",\"legacyExchangeDN\",\"distinguishedName\"],\"retain\":[\"recipientTypeDetails\",\"accessRights\",\"policyName\",\"counts\",\"sizes\",\"diagnosticId\"],\"default\":true}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox3"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/exchange-replacement/registry"
+}

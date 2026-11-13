@@ -1,0 +1,158 @@
+-- scheduled_action_remind.pg: remind handler + scan + ledger + window actions.
+-- scan_due_reminders enqueues a `remind` scheduled_action per due event-VALARM
+-- (absolute trigger) + task reminder_at; the handler upserts the fire-once
+-- reminders ledger + bumps jmap_reminder_state. reminder_dismiss / _snooze /
+-- _dismiss_all are owner-scoped (BZ038 not-found/ownership, BZ039 past-snooze).
+--
+-- ADR-003: the two accounts come from mk_account(), so user_id != mailbox_id
+-- (was coincident 96001/96001, 96002/96002). The owner-scoping here is by
+-- mailbox_id; divergent ids keep a stray user_id-vs-mailbox_id confusion
+-- observable. mb1/mb2 are the account MAILBOX ids the reducers take.
+BEGIN;
+SELECT plan(20);
+
+-- ── Fixtures: two mailboxes (the second proves cross-account rejection) ──
+CREATE TEMP TABLE _mb AS
+  SELECT mk_account('rem') AS mb1, mk_account('rem2') AS mb2;
+
+INSERT INTO calendars (mailbox_id, name, is_default)
+VALUES ((SELECT mb1 FROM _mb), 'Personal', TRUE);
+
+-- An event whose VALARM has an absolute trigger in the past (due). The trigger is
+-- a UTC ISO DATE-TIME (RFC 5545 form), built AT TIME ZONE 'UTC' so the literal 'Z'
+-- matches the actual instant regardless of the test session timezone.
+INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, valarm)
+VALUES ((SELECT id FROM calendars WHERE mailbox_id = (SELECT mb1 FROM _mb)),
+        'evt-rem-1', 'Standup', now() + interval '10 minutes', now() + interval '40 minutes',
+        jsonb_build_array(jsonb_build_object(
+          'trigger', to_char((now() - interval '2 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+          'action', 'DISPLAY', 'description', 'Standup soon')));
+
+-- A task with a past reminder_at (due).
+INSERT INTO tasks (mailbox_id, title, reminder_at)
+VALUES ((SELECT mb1 FROM _mb), 'File report', now() - interval '3 minutes');
+
+-- A flagged message past flag_due_at (due) — A2's flag-as-reminder source. This
+-- exercises the scan_due_reminders() flag branch, which V083 unblocks by adding
+-- messages.flag_due_at. ENUM-ENFORCEMENT: the `flag` source_type the scan emits
+-- must be fired by the handler, exactly like event/task.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, size_bytes,
+                      thread_id, raw_ref, received_at, is_read, is_flagged, flag_due_at)
+VALUES ((SELECT mb1 FROM _mb), get_tag_id('Inbox', (SELECT mb1 FROM _mb)), '<flag-rem-1@rem.test>',
+        'Reply by EOD', 'boss@rem.test', 100, 'thr-flag-96001', 's3://raw-flag-96001', now(), FALSE, TRUE,
+        now() - interval '1 minute');
+
+-- ── scan_due_reminders enqueues one remind action per due source ──
+SELECT lives_ok($$ SELECT scan_due_reminders() $$, 'scan_due_reminders runs');
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb)),
+  3::BIGINT, 'one remind action per due source (event VALARM + task reminder_at + flagged message)');
+-- The flag branch (A2) enqueued its own action with source_type='flag'.
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions
+   WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='flag'),
+  1::BIGINT, 'flagged message past flag_due_at enqueues a remind action');
+-- Idempotent: a re-scan adds none (already-enqueued guard).
+SELECT scan_due_reminders();
+SELECT is(
+  (SELECT count(*) FROM scheduled_actions WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb)),
+  3::BIGINT, 're-scan is idempotent (no duplicate remind actions)');
+
+-- ── Fire the remind handler on the task action → ledger row + state bump ──
+CREATE TEMP TABLE _rem_base AS SELECT jmap_reminder_state AS s0 FROM mailboxes WHERE id=(SELECT mb1 FROM _mb);
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute'
+WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb);
+
+-- WAVE 4 Phase 3 — REAL push capture: a fired reminder must PUSH on tag:{mb1} so
+-- the Reminders window pops. Capture the app_notify tee and prove the bespoke
+-- 'reminder_fired' event fires on the right channel (not just the state token).
+SET LOCAL app.capture_notify = 'on';
+
+-- state-bump ⇒ push guard: snapshot the mailbox's state tokens BEFORE the fire.
+-- The handler bumps jmap_reminder_state (asserted below) and MUST push on
+-- tag:{mb1} in the same txn — the guard asserts the bump and push come together.
+CREATE TEMP TABLE _rem_guard AS SELECT notify_guard_snapshot((SELECT mb1 FROM _mb)) AS s;
+
+SELECT is(
+  (SELECT scheduled_action_remind(sa)->>'status' FROM scheduled_actions sa
+   WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='task'),
+  'ok', 'remind handler reports ok');
+
+-- the fire pushed on tag:{mb1} with the bespoke reminder_fired event.
+SELECT is(
+  notify_count('tag:' || (SELECT mb1 FROM _mb)),
+  1,
+  'remind handler pushes once on tag:{mailbox} when a reminder fires');
+SELECT is(
+  last_notify_event('tag:' || (SELECT mb1 FROM _mb)),
+  'reminder_fired',
+  'fired reminder emits the bespoke reminder_fired event');
+SELECT is(
+  (SELECT count(*) FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND source_type='task' AND fired_at IS NOT NULL),
+  1::BIGINT, 'one reminders ledger row created (fired_at set)');
+SELECT cmp_ok(
+  (SELECT jmap_reminder_state FROM mailboxes WHERE id=(SELECT mb1 FROM _mb)),
+  '>', (SELECT s0 FROM _rem_base), 'jmap_reminder_state bumped');
+-- state-bump ⇒ push guard: jmap_reminder_state advanced → the handler MUST have
+-- pushed on tag:{mb1} (asserted concretely above too). The guard makes the
+-- bump↔push pairing a structural invariant, not an ad-hoc per-test check.
+SELECT ok(
+  reducer_pushed_if_bumped((SELECT mb1 FROM _mb), (SELECT s FROM _rem_guard)),
+  'scheduled_action_remind pushed on tag:{mailbox} for the reminder-state bump');
+-- Re-run: fire-once UNIQUE prevents a duplicate ledger row.
+SELECT scheduled_action_remind(sa) FROM scheduled_actions sa
+  WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='task';
+SELECT is(
+  (SELECT count(*) FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND source_type='task'),
+  1::BIGINT, 're-run inserts no duplicate (fire-once ledger)');
+
+-- ── Fire the remind handler on the FLAG action → flag-source ledger row (A2) ──
+SELECT is(
+  (SELECT scheduled_action_remind(sa)->>'status' FROM scheduled_actions sa
+   WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='flag'),
+  'ok', 'remind handler fires the flagged-message reminder');
+SELECT is(
+  (SELECT count(*) FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND source_type='flag' AND fired_at IS NOT NULL),
+  1::BIGINT, 'one flag-source reminders ledger row created (fired_at set)');
+
+-- ── Window actions: dismiss / snooze / dismiss-all ──
+SELECT lives_ok(
+  $$ SELECT reminder_dismiss((SELECT mb1 FROM _mb), (SELECT id FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND source_type='task')) $$,
+  'reminder_dismiss runs');
+
+-- WAVE 4 Phase 3 — the dismiss action pushes too, but with the DEFAULT
+-- 'reminder_changed' event (not reminder_fired). capture is still on; the latest
+-- push on tag:{mb1} is the dismiss → assert the event shape (order-robust, no
+-- count coupling to the interleaved fires above).
+SELECT is(
+  last_notify_event('tag:' || (SELECT mb1 FROM _mb)),
+  'reminder_changed',
+  'reminder_dismiss pushes the default reminder_changed event');
+SELECT is(
+  (SELECT count(*) FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND dismissed_at IS NOT NULL),
+  1::BIGINT, 'dismiss sets dismissed_at');
+
+-- Snooze a (fresh) reminder; reject a past snooze time with BZ039.
+SELECT throws_ok(
+  $$ SELECT reminder_snooze((SELECT mb1 FROM _mb),
+       (SELECT id FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) LIMIT 1), now() - interval '1 minute') $$,
+  'BZ039', NULL, 'past snooze time raises BZ039');
+
+-- Wrong-account dismiss raises BZ038 and leaves the row untouched.
+SELECT throws_ok(
+  $$ SELECT reminder_dismiss((SELECT mb2 FROM _mb),
+       (SELECT id FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) LIMIT 1)) $$,
+  'BZ038', NULL, 'cross-account dismiss raises BZ038');
+
+-- Fire the event reminder, then dismiss-all clears everything for the owner.
+UPDATE scheduled_actions SET fire_at = now() - interval '1 minute'
+WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='event';
+SELECT scheduled_action_remind(sa) FROM scheduled_actions sa
+  WHERE action_kind='remind' AND mailbox_id=(SELECT mb1 FROM _mb) AND (payload->>'source_type')='event';
+SELECT lives_ok($$ SELECT reminder_dismiss_all((SELECT mb1 FROM _mb)) $$, 'reminder_dismiss_all runs');
+SELECT is(
+  (SELECT count(*) FROM reminders WHERE mailbox_id=(SELECT mb1 FROM _mb) AND dismissed_at IS NULL),
+  0::BIGINT, 'dismiss_all clears all active reminders for the owner');
+
+SELECT * FROM finish();
+ROLLBACK;

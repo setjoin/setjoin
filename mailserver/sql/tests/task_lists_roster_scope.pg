@@ -1,0 +1,120 @@
+-- pgTAP: task_lists_roster_scope.pg — R1 scoping of task_list_get_roster
+-- (med-jmap-task-roster-001). The roster read now takes p_user_id (the
+-- authenticated caller, threaded from task_lists.go's TaskListMember/set
+-- fallback read): a caller with no owner-or-member relationship is denied
+-- with BZ130 — the 404-indistinguishable sibling denial — and the caller
+-- identity sits in the roster WHERE itself, so enumerating listIds can never
+-- project another tenant's roster. Section A runs as the test role (the
+-- worker-pool BYPASSRLS posture the reducers really ride); Section B re-proves
+-- the denial as the constrained setjoin_app runtime role with a second
+-- tenant's list present (0-count / no-op), mirroring rls_task_lists.pg.
+BEGIN;
+SELECT plan(16);
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Section A — app layer (production worker-pool posture)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT mk_account('trsO') AS mbo \gset
+SELECT mk_account('trsM') AS mbm \gset
+SELECT mk_account('trsS') AS mbs \gset
+SELECT user_id AS uo FROM mailboxes WHERE id = :mbo \gset
+SELECT user_id AS um FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS us FROM mailboxes WHERE id = :mbs \gset
+
+SELECT task_list_create(:uo, 'Roster scope list', NULL) AS c_json \gset
+SELECT ((:'c_json'::jsonb)->>'id')::BIGINT AS lid \gset
+
+-- owner: the scoped read still projects the caller's own roster
+SELECT task_list_get_roster(:uo, :lid) AS roster_o \gset
+SELECT is(jsonb_array_length(:'roster_o'::jsonb), 1,
+  'roster(owner): the owner sees their own single-seat roster');
+SELECT is((:'roster_o'::jsonb)->0->>'role', 'owner',
+  'roster(owner): the entry carries the owner role');
+
+-- add_member's return rides the same scoped helper (owner arm)
+SELECT task_list_add_member(:uo, :lid, (SELECT email FROM mailboxes WHERE id = :mbm)) AS add_json \gset
+SELECT is(jsonb_array_length(:'add_json'::jsonb), 2,
+  'add_member: returned roster has owner + the new member');
+
+-- member: the member arm passes (full roster, unchanged app-layer semantics)
+SELECT is(jsonb_array_length(task_list_get_roster(:um, :lid)), 2,
+  'roster(member): a genuine member still sees the full roster');
+
+-- THE FIX: a stranger enumerating listIds gets BZ130, never the roster
+SELECT throws_ok(
+  format($$ SELECT task_list_get_roster(%s, %s) $$, :us, :lid),
+  'BZ130', NULL, 'roster(stranger): foreign listId → BZ130 (no roster projection)');
+
+-- nonexistent list: the SAME denial (no membership oracle)
+SELECT throws_ok(
+  format($$ SELECT task_list_get_roster(%s, 915999999) $$, :uo),
+  'BZ130', NULL, 'roster(owner, nonexistent list): identical BZ130 (no oracle)');
+
+-- stranger enumeration through task_list_get is still empty
+SELECT is(task_list_get(:us), '[]'::jsonb,
+  'task_list_get(stranger): shows nothing');
+
+-- the leave path survives the scoped read: the leaver's view is captured
+-- BEFORE their own roster row is deleted (post-delete the WHERE predicate —
+-- correctly — denies them). The \gset call itself performs the leave; if it
+-- raised, the txn would abort and every assert below would fail loudly.
+SELECT task_list_remove_member(:um, :lid, :um) AS leave_json \gset
+SELECT is(jsonb_array_length(:'leave_json'::jsonb), 2,
+  'leave: the departing member still receives the roster (captured pre-delete)');
+SELECT is(
+  (SELECT count(*)::INT FROM task_list_members WHERE list_id = :lid AND user_id = :um),
+  0, 'leave: the leaver''s roster row is gone');
+
+-- owner-removes-member return: post-delete roster excludes the removed member
+SELECT task_list_add_member(:uo, :lid, (SELECT email FROM mailboxes WHERE id = :mbm)) AS readd_json \gset
+SELECT task_list_remove_member(:uo, :lid, :um) AS owner_rm_json \gset
+SELECT is(jsonb_array_length(:'owner_rm_json'::jsonb), 1,
+  'owner removal: returned roster keeps only the owner (post-delete view)');
+SELECT is(
+  (SELECT count(*)::INT FROM task_list_members WHERE list_id = :lid AND user_id = :um),
+  0, 'owner removal: the member row is gone');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Section B — constrained-runtime-role denial (SET LOCAL ROLE setjoin_app)
+-- with a SECOND TENANT's list present: 0-count / no-op, rls_task_lists.pg form
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT mk_account('trsV') AS mbv \gset
+SELECT user_id AS uv FROM mailboxes WHERE id = :mbv \gset
+SELECT task_list_create(:uv, 'Second tenant list', NULL) AS v_json \gset
+SELECT ((:'v_json'::jsonb)->>'id')::BIGINT AS vlid \gset
+
+-- Defensive re-grants (provision-roles.sql provisions these at load; BYPASSRLS
+-- bypasses policies, not GRANTs — setjoin_app has neither).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.task_lists TO setjoin_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.task_list_members TO setjoin_app;
+GRANT SELECT ON public.users TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :us::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = :vlid)::INT, 0,
+  'setjoin_app / user GUC=stranger: ZERO rows of the second tenant''s roster');
+SELECT throws_ok(
+  format($$ SELECT task_list_get_roster(%s, %s) $$, :us, :vlid),
+  'BZ130', NULL,
+  'setjoin_app / user GUC=stranger: task_list_get_roster on the second tenant''s list → BZ130');
+SELECT is(task_list_get(:us), '[]'::jsonb,
+  'setjoin_app / user GUC=stranger: task_list_get stays a no-op');
+
+-- fail-closed: no GUC at all → the same denial (un-wrapped-connection case)
+SELECT set_config('app.current_user_id', '', true);
+SELECT throws_ok(
+  format($$ SELECT task_list_get_roster(%s, %s) $$, :us, :vlid),
+  'BZ130', NULL,
+  'setjoin_app / no GUC: fail-closed BZ130');
+
+RESET ROLE;
+
+-- non-vacuity: the superuser control sees the second tenant's roster row
+SELECT is(
+  (SELECT count(*) FROM task_list_members WHERE list_id = :vlid)::INT, 1,
+  'non-vacuity: control sees the second tenant''s owner row (the denials above were real)');
+
+SELECT * FROM finish();
+ROLLBACK;

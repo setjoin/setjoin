@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/events",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"items\": [\n    {\n      \"id\": \"7\",\n      \"occurredAt\": \"2026-01-01T00:00:00Z\",\n      \"action\": \"preview\",\n      \"reason\": \"operator request\",\n      \"correlationId\": \"00000000-0000-4000-8000-000000000001\"\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

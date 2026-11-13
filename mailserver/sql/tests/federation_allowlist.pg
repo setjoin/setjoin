@@ -1,0 +1,98 @@
+-- federation_allowlist.pg — Pillar C0 spike Task 3 (E4): allow-list
+-- default-off + mutual opt-in (federation_peer_authorize) + s2s ingress
+-- spam/rate gate (federation_ingress_check). Requires:
+-- federation_peer_authorize.sql, federation_ingress_check.sql.
+BEGIN;
+SELECT plan(12);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_peer_authorize: default-OFF, mutual opt-in, per-scope
+-- ══════════════════════════════════════════════════════════════════════
+
+-- No federation_allowlist row at all → BZ203 (default-OFF: a stranger with
+-- no row is refused, not silently allowed).
+SELECT throws_ok(
+  $$ SELECT federation_peer_authorize('zulu.test', 'dm') $$,
+  'BZ203', NULL, 'a peer with NO allow-list row at all is refused (BZ203)'
+);
+
+-- A row exists but enabled=false (the default) → still BZ203 — mutual
+-- opt-in means an allow-list ROW alone (e.g. just pinning the anchor at
+-- Task 1 time) is not consent to talk; enabled must be explicitly flipped.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('zulu.test', 'test fixture anchor', 'dm', false);
+SELECT throws_ok(
+  $$ SELECT federation_peer_authorize('zulu.test', 'dm') $$,
+  'BZ203', NULL, 'an allow-list row with enabled=false (the default) is still refused (BZ203)'
+);
+
+-- enabled=true, scope='dm': authorizes 'dm', refuses 'room'.
+UPDATE federation_allowlist SET enabled = true WHERE peer_domain = 'zulu.test';
+SELECT is(
+  federation_peer_authorize('zulu.test', 'dm'), true,
+  'enabled=true scope=dm authorizes a dm request'
+);
+SELECT throws_ok(
+  $$ SELECT federation_peer_authorize('zulu.test', 'room') $$,
+  'BZ203', NULL, 'enabled=true scope=dm REFUSES a room request — scope is not a flat switch'
+);
+
+-- scope='room' is a superset: authorizes BOTH dm and room.
+UPDATE federation_allowlist SET scope = 'room' WHERE peer_domain = 'zulu.test';
+SELECT is(
+  federation_peer_authorize('zulu.test', 'dm'), true,
+  'enabled=true scope=room authorizes a dm request (room is a superset)'
+);
+SELECT is(
+  federation_peer_authorize('zulu.test', 'room'), true,
+  'enabled=true scope=room authorizes a room request'
+);
+
+-- Disabling again (an admin revoking consent) immediately re-refuses, even
+-- though the row (and its pinned anchor) still exists — enabled is the live
+-- consent bit, not the row's mere presence.
+UPDATE federation_allowlist SET enabled = false WHERE peer_domain = 'zulu.test';
+SELECT throws_ok(
+  $$ SELECT federation_peer_authorize('zulu.test', 'dm') $$,
+  'BZ203', NULL, 'flipping enabled back to false re-refuses immediately (revocable consent)'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 federation_ingress_check: spam (oversized-payload heuristic) + rate
+-- ══════════════════════════════════════════════════════════════════════
+
+-- Oversized payload → 'spam'. (A minimal shape/size heuristic — NOT the real
+-- content-classification engine, which is Go-side only; see the reducer's
+-- own doc comment for the named C1 seam.)
+SELECT is(
+  federation_ingress_check('yankee.test', jsonb_build_object('body', repeat('x', 70000))),
+  'spam', 'an oversized (>64KiB) payload is flagged spam by the shape heuristic'
+);
+
+-- A normal small payload is 'ok' while under the rate limit.
+SELECT is(
+  federation_ingress_check('yankee.test', '{"body":"hi"}'::jsonb),
+  'ok', 'a small payload under the rate limit is ok'
+);
+
+-- Past the rate window: set a low per-minute cap and prove the NEXT calls
+-- throttle without ever dropping the underlying frame decision to the caller
+-- (verdict is a return value, never an exception — Handle in receiver.go
+-- treats it as advisory precisely so a 'throttled' verdict can never itself
+-- break the stream).
+SELECT set_system_config('federation.ingress_rate_per_minute', '2'::jsonb);
+SELECT is(
+  federation_ingress_check('xray.test', '{"body":"a"}'::jsonb),
+  'ok', 'rate=2: 1st call in the window is ok'
+);
+SELECT is(
+  federation_ingress_check('xray.test', '{"body":"b"}'::jsonb),
+  'ok', 'rate=2: 2nd call in the window is ok'
+);
+SELECT is(
+  federation_ingress_check('xray.test', '{"body":"c"}'::jsonb),
+  'throttled', 'rate=2: the 3rd call in the SAME window is throttled'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

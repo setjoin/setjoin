@@ -1,0 +1,22 @@
+# bz-coverage-pending.txt — pgTAP coverage-debt ledger (auto-seeded; see check-bz-code-coverage.sh).
+# Format: BZxxx<TAB>reducer1.sql[,reducer2.sql]
+# Every line is a reducer error code with NO pgTAP assertion referencing it yet.
+# Add a throws_ok/throws_like test for the code, then DELETE its line here.
+# A code that is neither tested nor ledgered fails CI; a ledgered code that IS
+# now tested also fails CI (stale allowlist) — this list only shrinks.
+BZ008	deliver_group_vacation.sql,import_export.sql
+BZ010	rule_engine_or.sql
+BZ020	message_lifecycle.sql
+BZ042	quick_steps.sql
+BZ046	set_vacation.sql
+BZ047	set_vacation.sql
+BZ049	migration_orchestrate.sql
+BZ050	migration_orchestrate.sql
+BZ051	queue_read.sql
+BZ055	link_protect_check_and_audit.sql
+BZ070	set_signature_default.sql
+BZ072	provision_account.sql
+BZ079	ca_notify_policy_change.sql
+BZ093	ca_named_location_restore.sql
+BZ094	ca_auth_strength_set.sql
+BZ111	group_moderation_hold.sql

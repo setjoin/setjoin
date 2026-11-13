@@ -1,0 +1,4175 @@
+[
+  {
+    "name": "BZ001-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001', HINT='{\"type\": \"over_quota\"}'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ009-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ009'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ004-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ004'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ002-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ002'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ003-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ003'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ005-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ005'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ015-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ015'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ045-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ045'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ052-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ052'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ061-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ061'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ065-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ065'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ066-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ066'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ069-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ069'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ071-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ071'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ107-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ107'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ116-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ116'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ007-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ007'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ019-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ019'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ020-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ020'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ021-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ021'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ030-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ030'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ033-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ033'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ038-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ038'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ042-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ042'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ049-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ049'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ051-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ051'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ053-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ053'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ060-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ060'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ074-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ074'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ084-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ084'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ086-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ086'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ091-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ091'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ099-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ099'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ101-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ101'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ103-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ103'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ112-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ112'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ113-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ113'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ114-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ114'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ118-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ118'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ121-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ121'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ081-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ081'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ125-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ125'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ130-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ130'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ132-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ132'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ134-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ134'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ139-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ139'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ140-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ140'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ148-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ148'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ161-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ161'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ163-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ163'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ164-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ164'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ166-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ166'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ167-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ167'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ169-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ169'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ170-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ170'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ171-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ171'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ173-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ173'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ175-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ175'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ176-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ176'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ185-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ185'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ186-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ186'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ187-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ187'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ194-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ194'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ196-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ196'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ199-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ199'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ203-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ203'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ204-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ204'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ211-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ211'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ213-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ213'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ215-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ215'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ216-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ216'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ219-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ219'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ217-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ217'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ218-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ218'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ223-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ223'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ220-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ220'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ236-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ236'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ239-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ239'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ244-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ244'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ250-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ250'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ253-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ253'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ258-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ258'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ268-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ268'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ270-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ270'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ272-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ272'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ273-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ273'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ277-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ277'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ284-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ284'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ300-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ300'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ302-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ302'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ307-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ307'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ308-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ308'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ310-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ310'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ311-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ311'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ314-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ314'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ317-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ317'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ321-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ321'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ323-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ323'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ008-normal",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ008'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ001-no-hint",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ001-other-type",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ001', HINT='{\"type\": \"forbidden\"}'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ081-bad-outcome",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ081', HINT='{\"type\": \"bad_outcome\"}'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ099-last-global",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ099', HINT='{\"type\": \"last_global\"}'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ006-account-not-found",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ006'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "BZ041-invalid-arguments",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='BZ041'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "23505-infra",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='23505'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "ZZ999-unknown",
+    "setup_sql": "CREATE OR REPLACE FUNCTION public.smtp_inbound_deliver(p_params jsonb,p_envelope_from text,p_envelope_to text) RETURNS TABLE(message_id bigint,subject_user_id bigint,subject_mailbox_id bigint,publication_enrolled boolean) LANGUAGE plpgsql AS $smtp1$ BEGIN RAISE EXCEPTION USING MESSAGE='private SMTP1 diagnostic must not leak', ERRCODE='ZZ999'; END $smtp1$;",
+    "restore_reducer": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: Sender <sender@remote.test>\r\nTo: Alice <alice@smtp1.test>\r\nSubject: SMTP1 hello\r\nMessage-Id: <smtp1-basic@remote.test>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello Alice\r\n..dot stuffed\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

@@ -1,0 +1,203 @@
+{
+  "case": "possession-webauthn-finish-operation-rows",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "ceremonies": [
+          {
+            "family": null,
+            "hash": "<challenge-hash>",
+            "jti": "idmfa3-actor",
+            "kind": "management_assertion",
+            "live": true,
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "credentials": [
+          {
+            "attestation": "none",
+            "count": 7,
+            "id": "69646d6661322d6b65792d3037",
+            "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+            "owner": "actor",
+            "revoked": false,
+            "used": false,
+            "uv": true
+          },
+          {
+            "attestation": "none",
+            "count": 7,
+            "id": "666f726569676e2d75762d6b6579",
+            "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+            "owner": "foreign",
+            "revoked": false,
+            "used": false,
+            "uv": true
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ],
+        "webauthn_budgets": [
+          {
+            "count": 0,
+            "locked": false,
+            "owner": "actor"
+          },
+          {
+            "count": 0,
+            "locked": false,
+            "owner": "foreign"
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "ceremonies": [
+          {
+            "family": null,
+            "hash": "<challenge-hash>",
+            "jti": "idmfa3-actor",
+            "kind": "management_assertion",
+            "live": true,
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "credentials": [
+          {
+            "attestation": "none",
+            "count": 7,
+            "id": "69646d6661322d6b65792d3037",
+            "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+            "owner": "actor",
+            "revoked": false,
+            "used": false,
+            "uv": true
+          },
+          {
+            "attestation": "none",
+            "count": 7,
+            "id": "666f726569676e2d75762d6b6579",
+            "key": "a501020326200121582086ee18c5aed69e0db0acbbcb9578a9214c6fb5ecdc3a2643fec9eeaa07a87ccf225820b5207cbb9beb8fcf933604496e7799faa8697a557b80570f0e1fd31f63e007d6",
+            "owner": "foreign",
+            "revoked": false,
+            "used": false,
+            "uv": true
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ],
+        "webauthn_budgets": [
+          {
+            "count": 0,
+            "locked": false,
+            "owner": "actor"
+          },
+          {
+            "count": 0,
+            "locked": false,
+            "owner": "foreign"
+          }
+        ]
+      },
+      "table": "possession"
+    }
+  ],
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "route": "POST /auth/mfa/possession/webauthn/finish"
+}

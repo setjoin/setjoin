@@ -1,0 +1,37 @@
+{
+  "case": "worker-unfurl-redirect_cap",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "http": [
+      {
+        "method": "GET",
+        "uri": "/redirect_cap/<actor>"
+      },
+      {
+        "method": "GET",
+        "uri": "/redirect_cap/again"
+      },
+      {
+        "method": "GET",
+        "uri": "/redirect_cap/again"
+      },
+      {
+        "method": "GET",
+        "uri": "/redirect_cap/again"
+      }
+    ],
+    "notify": [],
+    "preview": {
+      "description": null,
+      "image": null,
+      "status": "error",
+      "title": null
+    },
+    "row": {
+      "changeSeq": 1,
+      "payload": null,
+      "seq": 1
+    }
+  }
+}

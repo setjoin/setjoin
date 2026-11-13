@@ -1,0 +1,177 @@
+-- mail_external_approval.pg — pgTAP: outbound external-send approval hold (Task 7).
+-- Proves the phantom-Sent/quota landmine is closed: with approval.mail_external on +
+-- a matching policy + an external recipient, send() parks an approval_request and
+-- returns NULL — NO Sent copy, NO quota bump — until decided. approve replays the
+-- send verbatim (Sent + quota); deny sends an NDR to the sender. Toggle off ⇒ unchanged.
+-- Seed ids: 95500 (domain), 95501/95502 (users), 95511 (mailbox) — no conflict with other 955xx files.
+
+BEGIN;
+SELECT plan(20);
+
+-- fixtures: local domain + sender (user+mailbox) + approver. competitor.test is NOT in
+-- domains ⇒ external (send()'s domain check: NOT EXISTS local domain).
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (95500, 'apprmail.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95501, 'appr_sender',   95500, 'apprsender@apprmail.test',   'Appr Sender',   TRUE),
+  (95502, 'appr_approver', 95500, 'apprapprover@apprmail.test', 'Appr Approver', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95511, 95501, 95500, 'apprsender@apprmail.test', 'Appr Sender', 'personal', TRUE);
+
+UPDATE feature_toggles SET enabled=true WHERE key='approval.mail_external';
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+
+-- policy: any external recipient requires approval; named approver = user 95502.
+INSERT INTO approval_policies(consumer_type,name,priority,conditions,requires_approval,approver_spec)
+  VALUES ('mail.external_send','hold-external',10,'{"external":true}'::jsonb,true,
+          jsonb_build_object('kind','named','user_id',95502));
+
+-- Production approval replay uses DB_WORKER_DSN.
+SET LOCAL ROLE setjoin_worker;
+
+-- ── Case (a): held send returns NULL, no Sent, no quota bump, request created ──
+
+-- a1: send() to an external recipient returns NULL (held, not sent)
+SELECT set_config('app.webhook_origin','smtp_submission',true);
+SELECT set_config('app.webhook_envelope_rcpts','["ext@competitor.test"]',true);
+SELECT is(
+  (SELECT send(95501, 95511, 'refheld1', '<held1>', 'apprsender@apprmail.test',
+       '[{"email":"ext@competitor.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Held Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL)),
+  NULL::bigint,
+  'held external send returns NULL (parked for approval)');
+
+-- a2: NO Sent copy was written for the held message
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id=95511 AND message_id='<held1>'),
+  0, 'held send writes NO Sent copy');
+
+-- a3: daily sending quota was NOT bumped
+SELECT is(
+  (SELECT sending_sent_today FROM mailboxes WHERE id=95511),
+  0, 'held send does NOT bump sending_sent_today');
+
+-- a4: exactly one pending approval_request for the sender
+SELECT is(
+  (SELECT COUNT(*)::int FROM approval_requests
+     WHERE requester_user_id=95501 AND consumer_type='mail.external_send' AND status='pending'),
+  1, 'held send creates one pending mail.external_send request');
+
+-- a5: payload captured the replay args verbatim (message_id round-trips)
+SELECT is(
+  (SELECT payload->>'p_message_id' FROM approval_requests
+     WHERE requester_user_id=95501 AND status='pending' ORDER BY id DESC LIMIT 1),
+  '<held1>', 'request payload captures the send args for replay');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,0,
+  'held submission creates no committed mail.sent fact');
+
+-- ── Case (b): approve replays the send → Sent appears + quota bumped ──
+
+-- b1: approve returns 'applied'
+SELECT is(
+  (SELECT mail_external_approval_decide(
+     (SELECT id FROM approval_requests WHERE requester_user_id=95501 AND status='pending' ORDER BY id DESC LIMIT 1),
+     95502, 'approve', 'ok to send')),
+  'applied', 'approve returns applied');
+
+-- b2: the Sent copy now exists (replay ran the full send path)
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id=95511 AND message_id='<held1>'),
+  1, 'approve replays: Sent copy now exists');
+
+-- b3: quota bumped exactly once by the replay
+SELECT is(
+  (SELECT sending_sent_today FROM mailboxes WHERE id=95511),
+  1, 'approve replays: sending_sent_today bumped to 1');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')::integer,1,
+  'approved replay creates exactly one committed mail.sent fact');
+SELECT is((SELECT payload FROM webhook_publications WHERE event_type='mail.sent'),
+  '{"from":"apprsender@apprmail.test","to":"ext@competitor.test"}'::jsonb,
+  'approved replay preserves the original envelope payload');
+
+-- ── Case (c): deny → NDR to sender, no Sent ──
+
+-- park a second send
+SELECT set_config('app.webhook_origin','smtp_submission',true);
+SELECT set_config('app.webhook_envelope_rcpts','["ext@competitor.test"]',true);
+SELECT send(95501, 95511, 'refheld2', '<held2>', 'apprsender@apprmail.test',
+     '[{"email":"ext@competitor.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+     'Held Subject 2', NULL, NULL, 'body', NULL, 100, FALSE, NULL);
+
+-- c1: deny returns 'denied'
+SELECT is(
+  (SELECT mail_external_approval_decide(
+     (SELECT id FROM approval_requests WHERE requester_user_id=95501 AND status='pending' ORDER BY id DESC LIMIT 1),
+     95502, 'deny', 'no external sends')),
+  'denied', 'deny returns denied');
+
+-- c2: an NDR landed in the sender's mailbox (from mailer-daemon)
+SELECT ok(
+  EXISTS (SELECT 1 FROM messages
+            WHERE mailbox_id=95511 AND from_addr='mailer-daemon@mailserver.local'),
+  'deny delivers an NDR to the sender mailbox');
+
+-- c3: no Sent copy for the denied message
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id=95511 AND message_id='<held2>'),
+  0, 'deny writes NO Sent copy');
+SELECT ok((SELECT count(*) FROM webhook_publications WHERE event_type='mail.sent')=1
+          AND (SELECT count(*) FROM webhook_publications WHERE event_type='mail.received')=0,
+  'deny and its system NDR create no mail event');
+
+-- ── Case (d): toggle OFF ⇒ byte-for-byte normal send (Sent + quota, no request) ──
+
+UPDATE feature_toggles SET enabled=false WHERE key='approval.mail_external';
+SELECT set_config('app.webhook_origin','',true);
+SELECT set_config('app.webhook_envelope_rcpts','',true);
+
+-- d1: send returns a real (non-NULL) message id
+SELECT isnt(
+  (SELECT send(95501, 95511, 'refplain1', '<plain1>', 'apprsender@apprmail.test',
+       '[{"email":"ext@competitor.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Plain Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL)),
+  NULL::bigint, 'toggle off: send returns a real message id (not held)');
+
+-- d2: a Sent copy exists
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id=95511 AND message_id='<plain1>'),
+  1, 'toggle off: Sent copy written as normal');
+
+-- d3: no new approval_request was created for the plain send
+SELECT is(
+  (SELECT COUNT(*)::int FROM approval_requests
+     WHERE requester_user_id=95501 AND consumer_type='mail.external_send'),
+  2, 'toggle off: no new request (only the 2 held/denied from a/c remain)');
+
+-- ── Case (e): the heldForApproval marker surfaces through the JMAP submission wrapper ──
+-- The compose→submission path (not the raw send() of case a) must expose held state so
+-- the client shows "held for approval" AND does NOT arm the undo-send timer. Placed last +
+-- re-enables the toggle so it never perturbs the mid-file request counts.
+UPDATE feature_toggles SET enabled=true WHERE key='approval.mail_external';
+SELECT create_system_tags(95511);
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (95520, 95511, 1, '<held-sub@apprmail.test>', 'HeldSub', 'apprsender@apprmail.test', 'Appr Sender',
+    '[{"email":"ext@competitor.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'thread-held-sub', 'raw/95520', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 95520, m.received_at, t.id, 'test', TRUE FROM tags t, messages m
+WHERE m.id=95520 AND t.mailbox_id=95511 AND t.name='Drafts' AND t.mailbox_id=m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+-- e1: created object marks heldForApproval=true (v_sent_id IS NULL on the held path)
+SELECT is(
+  (jmap_email_submission_set(95511, 95501,
+     jsonb_build_object('k1', jsonb_build_object('emailId','95520')))
+   ->'created'->'k1'->>'heldForApproval'),
+  'true',
+  'JMAP submission of a held external send marks heldForApproval=true');
+
+-- e2: the draft survives (held path skips deletion — it is parked as an approval_request)
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE id=95520),
+  1, 'held submission keeps the draft (not deleted)');
+
+SELECT * FROM finish();
+ROLLBACK;

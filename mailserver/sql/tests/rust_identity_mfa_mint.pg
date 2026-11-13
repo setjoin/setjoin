@@ -1,0 +1,10 @@
+BEGIN;
+SELECT plan(3);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-mint.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa1-mint','mint@idmfa1-mint.test','mint',:dom,'x') RETURNING id AS uid \gset
+SELECT is(rust_identity_mfa_mint(:uid,'{"credential_fence":"stale"}',decode('01','hex'),3600,'00000000-0000-4000-8000-000000000334')->>'status','credential_changed','stale first factor cannot anchor refresh');
+SELECT is(rust_identity_mfa_mint(:uid,'{}',decode('02','hex'),3600,'00000000-0000-4000-8000-000000000334')->>'status','minted','legacy pending challenge keeps Go compatibility');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:uid),1::bigint,'only proven completion creates an owned anchor');
+SELECT * FROM finish();
+ROLLBACK;

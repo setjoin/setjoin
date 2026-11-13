@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "setjoin.exchange.redaction-profiles/v1",
+  "profiles": [
+    {
+      "id": "decision-safe-v1",
+      "default": true,
+      "drop": ["credential", "accessToken", "refreshToken", "privateKey", "messageBody"],
+      "hash": ["primarySmtpAddress", "userPrincipalName", "legacyExchangeDN", "distinguishedName"],
+      "retain": ["recipientTypeDetails", "accessRights", "policyName", "counts", "sizes", "diagnosticId"]
+    }
+  ]
+}

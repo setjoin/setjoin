@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of approval audit:\n  -limit int\n    \tMax rows to return (default 50)\n  -offset int\n    \tRow offset\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

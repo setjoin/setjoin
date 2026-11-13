@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"description\":\"\",\"domainScope\":7,\"name\":\"Reader\",\"permissions\":[\"mail.read\",\"drive.read\"]}"
+    }
+  ],
+  "stdout": "{\n  \"id\": 9\n}\n",
+  "stderr": "",
+  "exit": 0
+}

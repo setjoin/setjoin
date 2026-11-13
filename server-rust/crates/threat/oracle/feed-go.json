@@ -1,0 +1,16 @@
+{
+  "requests": [
+    "GET https://www.spamhaus.org/drop/drop.txt",
+    "GET https://www.spamhaus.org/drop/drop.txt"
+  ],
+  "snapshots": [
+    [
+      "198.51.100.0/24|spamhaus-drop",
+      "2001:db8::/32|spamhaus-drop"
+    ],
+    [
+      "198.51.100.0/24|spamhaus-drop",
+      "2001:db8::/32|spamhaus-drop"
+    ]
+  ]
+}

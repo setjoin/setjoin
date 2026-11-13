@@ -1,0 +1,9 @@
+{
+ "schema": "setjoin.mailctl.dump-auth/v1",
+ "objectKey": "db-dump.dump",
+ "sizeBytes": 11213,
+ "sha256": "25293e2b59aa164e5c12e68159c26459ce79cacc6089e7bf449b74603be1f0e4",
+ "algorithm": "hmac-sha256",
+ "createdAt": "2026-10-31T13:12:09Z",
+ "hmacSha256": "f1be8e953df5d7d520ff1767159c334799cd92aea25733cdefcd402b6b91059f"
+}

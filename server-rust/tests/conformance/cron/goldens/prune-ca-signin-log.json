@@ -1,0 +1,34 @@
+{
+  "case": "prune-ca-signin-log",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "signins": [
+              "gofree-cron-ca-new",
+              "gofree-cron-ca-old"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "signins": [
+              "gofree-cron-ca-new"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

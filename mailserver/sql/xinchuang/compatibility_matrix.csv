@@ -1,0 +1,107 @@
+function,description,polardb,opengauss,gaussdb,kingbase,dameng,oceanbase_pg,oceanbase_oracle,uses_digest,notes
+startup_recovery,Crash recovery on startup,untested,untested,untested,untested,untested,untested,untested,no,Uses pg_notify; Dameng needs DBMS_ALERT; OceanBase Oracle mode needs polling
+deliver,Deliver an email,untested,untested,untested,untested,untested,untested,untested,no,Uses jsonb_populate_record; Dameng supports JSON but not jsonb; Oracle mode needs JSON_TABLE
+send,Send an email,untested,untested,untested,untested,untested,untested,untested,no,Uses jsonb functions; Dameng/OceanBase PG mode 4.3+ has partial JSON support
+set_message_location,Move message between folders,untested,untested,untested,untested,untested,untested,untested,no,Uses FOR UPDATE; OceanBase PG mode supports; Oracle mode uses FOR UPDATE WAIT
+import_message,Import message with dedup,untested,untested,untested,untested,untested,untested,untested,no,Uses ON CONFLICT DO UPDATE; Dameng needs MERGE INTO; Oracle mode uses MERGE
+check_quota,Check mailbox quota,untested,untested,untested,untested,untested,untested,untested,yes,Standard SQL with aggregates; Oracle mode minor syntax differences
+apply_action,Apply rules engine action,untested,untested,untested,untested,untested,untested,untested,no,Uses jsonb_each; needs JSON_TABLE on Dameng
+apply_rules,Evaluate and apply server-side rules,untested,untested,untested,untested,untested,untested,untested,no,Uses jsonb_each; needs JSON_TABLE on Dameng
+eval_condition,Evaluate a single rule condition,untested,untested,untested,untested,untested,untested,untested,no,Pure SQL expression evaluation; no DB-specific features
+eval_conditions,Evaluate OR-grouped rule conditions,untested,untested,untested,untested,untested,untested,untested,no,Pure SQL expression evaluation
+compute_thread_id,Compute email thread identifier,untested,untested,untested,untested,untested,untested,untested,yes,Standard SQL string manipulation
+bump_email_state,Bump JMAP email state counter,untested,untested,untested,untested,untested,untested,untested,yes,Simple UPDATE; universally supported
+bump_tag_mailbox_state,Bump JMAP tag+mailbox state,untested,untested,untested,untested,untested,untested,untested,no,Simple UPDATE
+get_tag_id,Get or create tag ID,untested,untested,untested,untested,untested,untested,untested,no,Uses ON CONFLICT; OceanBase Oracle mode uses MERGE
+tag_retention,Apply tag retention policies,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE with CTE
+message_cancel,Cancel a scheduled message,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+message_schedule,Schedule a message for later,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+notify_alerts,Send alert notifications,untested,untested,untested,untested,untested,untested,untested,no,Uses pg_notify; Dameng needs DBMS_ALERT
+mfa_status,Get MFA status for user,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+validate_password,Validate password strength,untested,untested,untested,untested,untested,untested,untested,no,Pure computation; no DB-specific SQL
+ensure_default_admin,Create default admin on fresh deploy,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT with check
+health_check,Database health check,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT 1
+next_imap_uid,Get next IMAP UID,untested,untested,untested,untested,untested,untested,untested,yes,Uses RETURNING; OceanBase Oracle mode needs SEQUENCE
+next_imap_uid_for_tag,Get next IMAP UID for tag,untested,untested,untested,untested,untested,untested,untested,no,Uses RETURNING
+jmap_email_get,Get emails by ID,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT; Oracle mode needs ROWNUM pagination
+jmap_email_query,Query email list,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with pagination
+jmap_email_query_deleted,Query deleted emails,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_email_changes,Get email changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_email_set_create,Create email draft,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+jmap_email_set_update,Update email metadata,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+jmap_email_set_destroy,Delete email,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE with CTE
+jmap_email_purge,Purge deleted emails,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE
+jmap_email_recover,Recover purged email,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT from archive
+jmap_email_submission_set,Submit email for delivery,untested,untested,untested,untested,untested,untested,untested,no,Uses jsonb functions
+jmap_mailbox_get,Get mailboxes,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_mailbox_query,Query mailboxes,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_mailbox_changes,Mailbox changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_mailbox_query_changes,Query mailbox changes,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_mailbox_set_update,Update mailbox,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+jmap_thread_get,Get threads,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_thread_changes,Thread changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_search_snippet_get,Get search snippets,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with text search
+jmap_contact_get,Get contacts,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+jmap_contact_query,Query contacts,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+jmap_contact_changes,Contact changes since state,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+jmap_contact_set_create,Create contact,untested,untested,untested,untested,untested,untested,untested,yes,Standard INSERT
+jmap_contact_set_update,Update contact,untested,untested,untested,untested,untested,untested,untested,yes,Standard UPDATE
+jmap_contact_set_destroy,Delete contact,untested,untested,untested,untested,untested,untested,untested,yes,Standard DELETE
+jmap_calendar_get,Get calendars,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_calendar_set_update,Update calendar,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+jmap_calendar_changes,Calendar changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_calendar_event_get,Get calendar events,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_calendar_event_query,Query calendar events,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_calendar_event_changes,Event changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_calendar_event_set_create,Create calendar event,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+jmap_calendar_event_set_update,Update calendar event,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+jmap_calendar_event_set_destroy,Delete calendar event,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE
+jmap_calendar_event_rsvp,RSVP to calendar event,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+calendar_book_resource,Book a room/resource,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT with check
+calendar_check_conflict,Check calendar conflicts,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with overlap check
+calendar_find_free_slots,Find free time slots,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with CTE
+calendar_free_busy,Get free/busy data,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+calendar_process_itip_cancel,Process iTIP cancellation,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+calendar_process_itip_reply,Process iTIP reply,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+calendar_send_invite,Send calendar invitation,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+expand_recurrence,Expand recurring event,untested,untested,untested,untested,untested,untested,untested,no,Pure SQL date math
+expand_recurrence_bysetpos,Expand BYSETPOS rule,untested,untested,untested,untested,untested,untested,untested,no,Pure SQL computation
+day_in_byday,Day-in-week helper,untested,untested,untested,untested,untested,untested,untested,no,Pure SQL computation
+day_of_week_num,Day-of-week numeric helper,untested,untested,untested,untested,untested,untested,untested,no,Simple arithmetic
+nth_day_of_week_in_month,Nth weekday of month,untested,untested,untested,untested,untested,untested,untested,no,Date math
+nth_month_day,Nth month day helper,untested,untested,untested,untested,untested,untested,untested,no,Date math
+positional_week,Positional week helper,untested,untested,untested,untested,untested,untested,untested,no,Date math
+is_byweekno_match,BYWEEKNO match helper,untested,untested,untested,untested,untested,untested,untested,no,Date math
+is_excluded,EXDATE exclusion helper,untested,untested,untested,untested,untested,untested,untested,no,Date comparison
+jmap_task_get,Get tasks,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_task_query,Query tasks,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_task_changes,Task changes since state,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+jmap_task_set_create,Create task,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+jmap_task_set_update,Update task,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+jmap_task_set_destroy,Delete task,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE
+jmap_addressbook_get,Get address books,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+jmap_addressbook_changes,Address book changes,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+jmap_addressbook_set_create,Create address book,untested,untested,untested,untested,untested,untested,untested,yes,Standard INSERT
+jmap_addressbook_set_destroy,Delete address book,untested,untested,untested,untested,untested,untested,untested,yes,Standard DELETE
+jmap_addressbook_set_update,Update address book,untested,untested,untested,untested,untested,untested,untested,yes,Standard UPDATE
+directory_search,Directory search (GAL),untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with ILIKE
+directory_members,Directory group members,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+directory_tree,Directory tree structure,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT with recursive CTE
+gal_search,Global Address List search,untested,untested,untested,untested,untested,untested,untested,yes,Standard SELECT
+org_chart_managers,Organization chart managers,untested,untested,untested,untested,untested,untested,untested,no,Standard recursive CTE
+org_chart_reports,Organization chart reports,untested,untested,untested,untested,untested,untested,untested,no,Standard recursive CTE
+get_hc_config,Get health check config,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+trace,Trace SQL execution,untested,untested,untested,untested,untested,untested,untested,yes,Standard INSERT
+content_purge_messages,Content search purge,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+purge_deleted_messages,Purge deleted messages by age,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE
+enforce_retention,Enforce retention policies,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE with timestamps
+drain_journal_queue,Drain journaling queue,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT+DELETE
+journal_if_policy_matches,Check journal policy,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+scim_upsert_user,Create or update SCIM user,untested,untested,untested,untested,untested,untested,untested,no,Uses ON CONFLICT; Dameng needs MERGE INTO
+scim_upsert_group,Create or update SCIM group,untested,untested,untested,untested,untested,untested,untested,no,Uses ON CONFLICT
+scim_delete_user,Delete SCIM user,untested,untested,untested,untested,untested,untested,untested,no,Standard DELETE
+scim_disable_user,Disable SCIM user,untested,untested,untested,untested,untested,untested,untested,no,Standard UPDATE
+scim_list_active_tokens,List active SCIM tokens,untested,untested,untested,untested,untested,untested,untested,no,Standard SELECT
+scim_record_token_usage,Record SCIM token usage,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT
+scim_apply_group_members,Apply SCIM group memberships,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT+DELETE
+send_read_receipt,Send read receipt,untested,untested,untested,untested,untested,untested,untested,no,Standard INSERT

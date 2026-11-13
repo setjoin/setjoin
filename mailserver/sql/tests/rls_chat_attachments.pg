@@ -1,0 +1,102 @@
+-- rls_chat_attachments.pg — Chat A2 Task 1 (V120): drive_spaces.chat_channel_id
+-- binding, chat_message_attachments FORCE-RLS, drive_member_role v2
+-- derivation, and the governance guards (DES-009 D2/D3).
+BEGIN;
+SELECT plan(15);
+-- fixture domain + users FIRST (FK order).
+INSERT INTO domains (id, name, created_at) VALUES (7700, 'a2-attach-test.example', now())
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (77001,'a2o',7700,'a2o@a2-attach-test.example','A2 O'),
+  (77002,'a2m',7700,'a2m@a2-attach-test.example','A2 M'),
+  (77099,'a2x',7700,'a2x@a2-attach-test.example','A2 X')
+  ON CONFLICT DO NOTHING;
+
+SELECT has_column('public','drive_spaces','chat_channel_id','binding column exists');
+SELECT has_table('public','chat_message_attachments','link table exists');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_message_attachments'::regclass), TRUE, 'attachments RLS FORCED');
+
+-- derivation: a chat member with NO drive_space_members row resolves a role
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel','a2t1',77001);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 77001, 'owner' FROM chat_channels WHERE name='a2t1';
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 77002, 'member' FROM chat_channels WHERE name='a2t1';
+INSERT INTO drive_spaces (name, classification, owner_user_id, chat_channel_id)
+  SELECT 'a2t1', 'regular', 77001, id FROM chat_channels WHERE name='a2t1';
+
+SELECT is(drive_member_role((SELECT id FROM drive_spaces WHERE name='a2t1'), 77001), 'manager',
+  'channel owner derives manager');
+SELECT is(drive_member_role((SELECT id FROM drive_spaces WHERE name='a2t1'), 77002), 'editor',
+  'channel member derives editor');
+SELECT is(drive_member_role((SELECT id FROM drive_spaces WHERE name='a2t1'), 77099), NULL,
+  'non-member derives nothing');
+
+-- GOVERNANCE (v2): ad-hoc drive_space_members rows are BLOCKED on chat-bound
+-- spaces (run under SET LOCAL ROLE setjoin_app + GUC so the WITH CHECK
+-- actually fires).
+GRANT INSERT ON public.drive_space_members TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '77001', true);  -- the owner/creator
+SELECT throws_ok($$ INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+    SELECT id, 77001, 'manager', 77001 FROM drive_spaces WHERE name='a2t1' $$,
+  NULL, NULL, 'ex-creator cannot self-seed a manager row on a chat-bound space');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+-- drive_member_grant on a chat-bound space raises BZ175 (reducer belt)
+SELECT throws_ok($$ SELECT drive_member_grant(77001,
+    (SELECT id FROM drive_spaces WHERE name='a2t1'), 77099, 'editor') $$,
+  'BZ175', NULL, 'drive_member_grant rejects a chat-bound space (BZ175)');
+
+-- non-chat spaces are untouched by the new arm (Failure Modes Registry #9):
+-- arm 1 (drive_space_members) still resolves for a plain, non-chat space.
+INSERT INTO drive_spaces (name, classification, owner_user_id) VALUES ('a2-nonchat', 'regular', 77001);
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+  SELECT id, 77002, 'viewer', 77001 FROM drive_spaces WHERE name='a2-nonchat';
+SELECT is(drive_member_role((SELECT id FROM drive_spaces WHERE name='a2-nonchat'), 77002), 'viewer',
+  'non-chat space: explicit drive_space_members role still resolves (arm 1 unchanged)');
+
+-- partial UNIQUE: a second space cannot bind to the SAME channel.
+SELECT throws_ok($$ INSERT INTO drive_spaces (name, classification, owner_user_id, chat_channel_id)
+    SELECT 'a2t1-dup', 'regular', 77001, id FROM chat_channels WHERE name='a2t1' $$,
+  '23505', NULL, 'chat_channel_id is UNIQUE among chat-bound spaces');
+
+-- non-chat spaces are untouched by the new arm
+SELECT is((SELECT prosecdef FROM pg_proc WHERE proname='drive_member_role'), TRUE, 'still SECURITY DEFINER');
+SELECT is((SELECT proowner::regrole::text FROM pg_proc WHERE proname='drive_member_role'), 'setjoin_worker',
+  'still worker-owned');
+
+-- REAL cross-tenant denial proof for chat_message_attachments FORCE-RLS
+-- (scripts/rls-denial-allowlist.txt COVERED classification): land a genuine
+-- attachment via the send reducer, then confirm a channel member can read
+-- the link row while 77099 (never joined) sees none.
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+SELECT drive_chunk_register(77001, (SELECT id FROM drive_spaces WHERE name='a2t1'), repeat('9', 64), 10);
+SELECT (chat_message_send(77001, (SELECT id FROM chat_channels WHERE name='a2t1'), 'see attached',
+    NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('9', 64) || '","size":10,"name":"denial.pdf","contentType":"application/pdf",'
+     || '"manifest":[{"sha256":"' || repeat('9', 64) || '","size":10}]}]')::jsonb)
+    ->>'messageId')::bigint AS deny_msg \gset
+
+GRANT SELECT ON public.chat_message_attachments TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '77002', true);  -- channel member
+-- V135 regression (2026-07-16 fresh-VM gate): a member whose ONLY Drive
+-- membership is chat-DERIVED (zero drive_space_members rows — DES-009 even
+-- blocks them) must be able to register a 'g'-scoped chunk as setjoin_app.
+-- The V114 policy's 'g' arm checked drive_space_members directly and denied
+-- every such user — chat attachment upload 500'd on real native-RLS deploys.
+SELECT lives_ok($$ SELECT drive_chunk_register(77002,
+    (SELECT id FROM drive_spaces WHERE name='a2t1'), repeat('c', 64), 12) $$,
+  'chat-derived editor registers a global chunk under setjoin_app (V135 drive_chunks_insert)');
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :deny_msg)::int, 1,
+  'channel member sees the chat attachment link row');
+SELECT set_config('app.current_user_id', '77099', true);  -- never joined
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :deny_msg)::int, 0,
+  'non-member sees no chat attachment link rows (FORCE-RLS denial)');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT finish();
+ROLLBACK;

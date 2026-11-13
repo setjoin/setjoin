@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/doctor?source=directory",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity doctor: passed=true blockers=0 generated=2026-01-01T00:00:00Z\nPASS info    schema — continue\n",
+  "stderr": "",
+  "exit": 0
+}

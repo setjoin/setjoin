@@ -1,0 +1,315 @@
+{
+  "case": "bad-date-row-effects",
+  "effects": [
+    {
+      "after": {
+        "delegation": [
+          {
+            "rows": [
+              {
+                "created_at": "2026-10-01T10:00:00+00:00",
+                "delegate": "<delegate>",
+                "ends_at": "<timestamp>",
+                "starts_at": "2026-10-05T09:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "created_at": "2026-10-01T10:00:00+00:00",
+                "delegate": "<delegate>",
+                "ends_at": "2026-10-08T17:30:00+00:00",
+                "starts_at": "2026-10-06T09:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "notification_prefs": [
+          {
+            "rows": [
+              {
+                "calendar": true,
+                "chat": "all",
+                "dnd_days": 127,
+                "dnd_end": null,
+                "dnd_start": null,
+                "fp": null,
+                "mail": "all",
+                "policy": "ask",
+                "push_enabled": true,
+                "push_sound": "default",
+                "stop": false,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              },
+              {
+                "calendar": false,
+                "chat": "mentions",
+                "dnd_days": 62,
+                "dnd_end": "07:30:15",
+                "dnd_start": "22:00:00",
+                "fp": "11111111-1111-4111-8111-111111111111",
+                "mail": "important",
+                "policy": "always",
+                "push_enabled": true,
+                "push_sound": "chime",
+                "stop": true,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "calendar": true,
+                "chat": "all",
+                "dnd_days": 127,
+                "dnd_end": null,
+                "dnd_start": null,
+                "fp": null,
+                "mail": "all",
+                "policy": "ask",
+                "push_enabled": true,
+                "push_sound": "default",
+                "stop": false,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              },
+              {
+                "calendar": false,
+                "chat": "mentions",
+                "dnd_days": 62,
+                "dnd_end": "07:30:15",
+                "dnd_start": "22:00:00",
+                "fp": "11111111-1111-4111-8111-111111111111",
+                "mail": "important",
+                "policy": "always",
+                "push_enabled": true,
+                "push_sound": "chime",
+                "stop": true,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "vacation": [
+          {
+            "rows": [
+              {
+                "audience": "contacts",
+                "body_external": "External text",
+                "body_external_html": "<i>ext</i>",
+                "body_html": "<p>Back & soon</p>",
+                "body_text": "Back soon",
+                "enabled": true,
+                "end_date": "2026-10-12",
+                "only_contacts": false,
+                "start_date": "2026-10-05",
+                "subject": "Away <now>",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "audience": "all",
+                "body_external": null,
+                "body_external_html": null,
+                "body_html": "<p>o</p>",
+                "body_text": "Other body",
+                "enabled": true,
+                "end_date": "2026-10-09",
+                "only_contacts": false,
+                "start_date": "2026-10-06",
+                "subject": "Other away",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "vip_senders": [
+          {
+            "rows": [
+              "zed@vip.test",
+              "amy@vip.test"
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              "amy@vip.test",
+              "other@vip.test"
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "before": {
+        "delegation": [
+          {
+            "rows": [
+              {
+                "created_at": "2026-10-01T10:00:00+00:00",
+                "delegate": "<delegate>",
+                "ends_at": "<timestamp>",
+                "starts_at": "2026-10-05T09:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "created_at": "2026-10-01T10:00:00+00:00",
+                "delegate": "<delegate>",
+                "ends_at": "2026-10-08T17:30:00+00:00",
+                "starts_at": "2026-10-06T09:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "notification_prefs": [
+          {
+            "rows": [
+              {
+                "calendar": true,
+                "chat": "all",
+                "dnd_days": 127,
+                "dnd_end": null,
+                "dnd_start": null,
+                "fp": null,
+                "mail": "all",
+                "policy": "ask",
+                "push_enabled": true,
+                "push_sound": "default",
+                "stop": false,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              },
+              {
+                "calendar": false,
+                "chat": "mentions",
+                "dnd_days": 62,
+                "dnd_end": "07:30:15",
+                "dnd_start": "22:00:00",
+                "fp": "11111111-1111-4111-8111-111111111111",
+                "mail": "important",
+                "policy": "always",
+                "push_enabled": true,
+                "push_sound": "chime",
+                "stop": true,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "calendar": true,
+                "chat": "all",
+                "dnd_days": 127,
+                "dnd_end": null,
+                "dnd_start": null,
+                "fp": null,
+                "mail": "all",
+                "policy": "ask",
+                "push_enabled": true,
+                "push_sound": "default",
+                "stop": false,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              },
+              {
+                "calendar": false,
+                "chat": "mentions",
+                "dnd_days": 62,
+                "dnd_end": "07:30:15",
+                "dnd_start": "22:00:00",
+                "fp": "11111111-1111-4111-8111-111111111111",
+                "mail": "important",
+                "policy": "always",
+                "push_enabled": true,
+                "push_sound": "chime",
+                "stop": true,
+                "task": true,
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "vacation": [
+          {
+            "rows": [
+              {
+                "audience": "contacts",
+                "body_external": "External text",
+                "body_external_html": "<i>ext</i>",
+                "body_html": "<p>Back & soon</p>",
+                "body_text": "Back soon",
+                "enabled": true,
+                "end_date": "2026-10-12",
+                "only_contacts": false,
+                "start_date": "2026-10-05",
+                "subject": "Away <now>",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              {
+                "audience": "all",
+                "body_external": null,
+                "body_external_html": null,
+                "body_html": "<p>o</p>",
+                "body_text": "Other body",
+                "enabled": true,
+                "end_date": "2026-10-09",
+                "only_contacts": false,
+                "start_date": "2026-10-06",
+                "subject": "Other away",
+                "updated_at": "2026-10-01T10:00:00+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ],
+        "vip_senders": [
+          {
+            "rows": [
+              "zed@vip.test",
+              "amy@vip.test"
+            ],
+            "who": "actor"
+          },
+          {
+            "rows": [
+              "amy@vip.test",
+              "other@vip.test"
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "table": "user_settings"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /user/automatic-replies"
+}

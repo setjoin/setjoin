@@ -1,0 +1,91 @@
+-- pgTAP: quarantine_message fail-closed hardening (D-MAILSERVER-INTERNAL-SMTP-V003).
+--
+-- The per-mailbox tag seed (create_system_tags) has never seeded the
+-- Quarantined tag, so for any mailbox created after the seed migration the
+-- reducer used to BZ074-abort and condemned mail stayed in Inbox — the exact
+-- outcome the quarantine seam exists to prevent. quarantine_message now
+-- self-seeds the Quarantined system tag (idempotent) before resolving, so the
+-- malware-gate verdict fails CLOSED into a quarantine association for EVERY
+-- mailbox, and the clamd degradation verdict ('ClamAV:unavailable',
+-- reason_type 'virus') lands in quarantined_messages like a detection.
+--
+-- The fixture mailbox deliberately gets NO pre-inserted Quarantined tag (the
+-- older quarantine_message.pg test inserts one explicitly; here its absence is
+-- the point).
+BEGIN;
+SELECT plan(11);
+
+-- ── Fixtures: mailbox without a Quarantined tag + a foreign mailbox ──
+SELECT mk_account('quarfc')    AS mb \gset
+SELECT mk_account('quarfcfgn') AS fmb \gset
+
+SELECT is(
+  (SELECT count(*)::INT FROM tags WHERE mailbox_id = :mb AND name = 'Quarantined'),
+  0,
+  'fixture precondition: mailbox has NO Quarantined tag');
+
+-- A message that starts in Inbox (the common case).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8811, :mb, get_tag_id('Inbox', :mb), '<vfc1@quar.test>', 'Degraded scan', 'attacker@ext.com', 100, 'thr-8811', 'raw-8811', now(), FALSE);
+SELECT tag_message(8811, (SELECT received_at FROM messages WHERE id = 8811), 'Inbox', :mb, 'deliver', TRUE);
+
+-- ── Test 1: the reducer succeeds WITHOUT a pre-existing tag (auto-seed) ──
+SELECT lives_ok(
+  format($$ SELECT quarantine_message(8811, %s, 'Malware scan unavailable — quarantined fail-closed (message never verified clean)', 'virus', 'ClamAV:unavailable', FALSE) $$, :mb),
+  'quarantine_message self-seeds the missing tag and succeeds');
+
+-- ── Test 2: exactly ONE quarantine-group tag exists and it is the seeded system tag ──
+SELECT is(
+  (SELECT count(*)::INT FROM tags WHERE mailbox_id = :mb AND name = 'Quarantined'
+     AND tag_type = 'system' AND exclusive_group = 'quarantine'),
+  1,
+  'exactly one seeded Quarantined system tag in the quarantine group');
+
+-- ── Test 3: the message carries it, and NO location tag remains (never Inbox) ──
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8811 AND t.mailbox_id = :mb AND t.exclusive_group = 'quarantine'),
+  1,
+  'the quarantined message carries the quarantine-group tag');
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8811 AND t.mailbox_id = :mb AND t.exclusive_group = 'location'),
+  0,
+  'no location tag remains (message unreachable from Inbox)');
+
+-- ── Test 4: the audit row records the distinct clamd degradation verdict ──
+SELECT is(
+  (SELECT virus_name FROM quarantined_messages WHERE message_id = 8811 AND mailbox_id = :mb),
+  'ClamAV:unavailable',
+  'audit row records the distinct scanner-degradation verdict');
+SELECT is(
+  (SELECT original_tag FROM quarantined_messages WHERE message_id = 8811 AND mailbox_id = :mb),
+  'Inbox',
+  'audit row records the real original location');
+
+-- ── Test 5: R3 preserved — a foreign mailbox call still BZ074s and the abort
+-- leaves NO stray seeded tag behind (the statement rolls back atomically). ──
+SELECT throws_ok(
+  format($$ SELECT quarantine_message(8811, %s, 'x', 'virus', 'ClamAV:unavailable', FALSE) $$, :fmb),
+  'BZ074', NULL,
+  'foreign mailbox still cannot quarantine another mailbox''s message (BZ074)');
+SELECT is(
+  (SELECT count(*)::INT FROM tags WHERE mailbox_id = :fmb AND name = 'Quarantined'),
+  0,
+  'the failed foreign call seeded no tag in the foreign mailbox');
+
+-- ── Test 6: idempotence — a second quarantine into the same mailbox still
+-- resolves exactly one Quarantined tag (no duplicate seeding). ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8812, :mb, get_tag_id('Inbox', :mb), '<vfc2@quar.test>', 'Degraded scan 2', 'attacker@ext.com', 100, 'thr-8812', 'raw-8812', now(), FALSE);
+SELECT tag_message(8812, (SELECT received_at FROM messages WHERE id = 8812), 'Inbox', :mb, 'deliver', TRUE);
+SELECT lives_ok(
+  format($$ SELECT quarantine_message(8812, %s, 'Virus detected: EICAR', 'virus', 'Eicar', FALSE) $$, :mb),
+  'second quarantine into the same mailbox succeeds');
+SELECT is(
+  (SELECT count(*)::INT FROM tags WHERE mailbox_id = :mb AND name = 'Quarantined'),
+  1,
+  'no duplicate Quarantined tag after repeated quarantines');
+
+SELECT * FROM finish();
+ROLLBACK;

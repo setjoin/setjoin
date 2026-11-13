@@ -1,0 +1,102 @@
+{
+  "case": "default-label",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "recipient_smime_certs": [],
+          "user_smime_certs": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+              "created_at": "2026-10-01T10:00:00+00:00",
+              "expires_at": null,
+              "id": "<cert-b>",
+              "is_default": true,
+              "issued_at": null,
+              "label": "cert-b",
+              "private_key_enc": null,
+              "user_id": "<b>"
+            },
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+              "created_at": "<timestamp>",
+              "expires_at": "2095-10-01T00:00:00+00:00",
+              "id": "<cert-created>",
+              "is_default": true,
+              "issued_at": "2026-10-01T00:00:00+00:00",
+              "label": "default",
+              "private_key_enc": "<validated-pgp-key>",
+              "user_id": "<a>"
+            }
+          ]
+        },
+        "before": {
+          "app_passwords": [],
+          "recipient_smime_certs": [],
+          "user_smime_certs": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+              "created_at": "2026-10-01T10:00:00+00:00",
+              "expires_at": null,
+              "id": "<cert-b>",
+              "is_default": true,
+              "issued_at": null,
+              "label": "cert-b",
+              "private_key_enc": null,
+              "user_id": "<b>"
+            }
+          ]
+        }
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "--gofree-idlogin4\r\nContent-Disposition: form-data; name=\"label\"\r\n\r\n \t \r\n--gofree-idlogin4\r\nContent-Disposition: form-data; name=\"cert\"; filename=\"cert.pem\"\r\nContent-Type: application/x-pem-file\r\n\r\n-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n\r\n--gofree-idlogin4\r\nContent-Disposition: form-data; name=\"key\"; filename=\"key.pem\"\r\nContent-Type: application/x-pem-file\r\n\r\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n\r\n--gofree-idlogin4--\r\n",
+      "content_type": "multipart/form-data; boundary=gofree-idlogin4",
+      "method": "POST",
+      "path": "/auth/me/smime/certs",
+      "wire_path": "/auth/me/smime/certs"
+    },
+    "response": {
+      "body": "{\"label\":\"default\",\"status\":\"stored\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "38"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /auth/me/smime/certs"
+}

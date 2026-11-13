@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Audit Report - Auth Server & Mail Gateway</title>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --critical: #ef4444;
+            --high: #f97316;
+            --medium: #eab308;
+            --low: #22c55e;
+            --info: #3b82f6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            padding: 3rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, var(--accent), #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header .meta {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Severity Badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-critical {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--critical);
+            border: 1px solid var(--critical);
+        }
+
+        .badge-high {
+            background: rgba(249, 115, 22, 0.2);
+            color: var(--high);
+            border: 1px solid var(--high);
+        }
+
+        .badge-medium {
+            background: rgba(234, 179, 8, 0.2);
+            color: var(--medium);
+            border: 1px solid var(--medium);
+        }
+
+        .badge-low {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--low);
+            border: 1px solid var(--low);
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .card h2 {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .card h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .stat-card.critical { border-top: 4px solid var(--critical); }
+        .stat-card.high { border-top: 4px solid var(--high); }
+        .stat-card.medium { border-top: 4px solid var(--medium); }
+        .stat-card.low { border-top: 4px solid var(--low); }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            margin: 0.5rem 0;
+        }
+
+        .stat-card.critical .stat-number { color: var(--critical); }
+        .stat-card.high .stat-number { color: var(--high); }
+        .stat-card.medium .stat-number { color: var(--medium); }
+        .stat-card.low .stat-number { color: var(--low); }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Findings Table */
+        .findings-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .findings-table th {
+            text-align: left;
+            padding: 1rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid var(--bg-tertiary);
+        }
+
+        .findings-table td {
+            padding: 1.25rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            vertical-align: top;
+        }
+
+        .findings-table tr:hover {
+            background: rgba(255,255,255,0.02);
+        }
+
+        .vuln-id {
+            font-family: 'Courier New', monospace;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .vuln-file {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .vuln-line {
+            display: inline-block;
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        /* Code Blocks */
+        pre {
+            background: var(--bg-primary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 1.5rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+        }
+
+        code {
+            font-family: 'Fira Code', 'Courier New', monospace;
+            color: #e2e8f0;
+        }
+
+        .code-vulnerable {
+            border-left: 4px solid var(--critical);
+        }
+
+        .code-fix {
+            border-left: 4px solid var(--low);
+        }
+
+        /* Risk Meter */
+        .risk-meter {
+            height: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+
+        .risk-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--critical), var(--high), var(--medium));
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        /* Section Navigation */
+        .nav-pills {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .nav-pill {
+            padding: 0.75rem 1.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .nav-pill:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        /* Executive Summary Box */
+        .exec-summary {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(139, 92, 246, 0.1));
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .exec-summary h3 {
+            color: var(--accent);
+            margin-bottom: 1rem;
+        }
+
+        .exec-summary p {
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        /* Recommendation Cards */
+        .recommendation {
+            background: var(--bg-primary);
+            border-left: 4px solid var(--info);
+            padding: 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .recommendation h4 {
+            color: var(--info);
+            margin-bottom: 0.5rem;
+        }
+
+        .recommendation p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+            border-top: 1px solid rgba(255,255,255,0.05);
+            margin-top: 3rem;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            .header h1 {
+                font-size: 1.75rem;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Security Audit Report</h1>
+            <p class="meta">Auth Server & Mail Gateway | 2026-05-13 | Comprehensive Code Review</p>
+        </div>
+
+        <!-- Executive Summary -->
+        <div class="exec-summary" id="executive-summary">
+            <h2>Executive Summary</h2>
+            <p>
+                This security audit identified <strong>179 findings</strong> across the Auth Server and Mail Gateway codebases.
+                Of these, <span style="color: var(--critical)"><strong>56 are Critical</strong></span>,
+                <span style="color: var(--high)"><strong>78 are High</strong></span>, and
+                <span style="color: var(--medium)"><strong>45 are Medium</strong></span> severity.
+                The most severe issues involve authentication bypasses (JWT secret validation, password race conditions),
+                weak cryptographic key derivation, and SQL injection vulnerabilities in IMAP and SQL reducers.
+                Immediate action is required to remediate Critical and High findings before production deployment.
+            </p>
+            <div class="risk-meter">
+                <div class="risk-fill" style="width: 75%"></div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="nav-pills">
+            <a href="#vulnerability-summary" class="nav-pill">Vulnerability Summary</a>
+            <a href="#detailed-findings" class="nav-pill">Detailed Findings</a>
+            <a href="#authentication-bypass" class="nav-pill">Authentication Bypass</a>
+            <a href="#authorization-flaws" class="nav-pill">Authorization Flaws</a>
+            <a href="#xss" class="nav-pill">XSS</a>
+            <a href="#information-disclosure" class="nav-pill">Information Disclosure</a>
+            <a href="#recommendations" class="nav-pill">Recommendations</a>
+        </div>
+
+        <!-- Vulnerability Summary -->
+        <div class="card" id="vulnerability-summary">
+            <h2>Vulnerability Summary</h2>
+            <div class="stats-grid">
+                <div class="stat-card critical">
+                    <div class="stat-label">Critical</div>
+                    <div class="stat-number">56</div>
+                    <div class="stat-label">Findings</div>
+                </div>
+                <div class="stat-card high">
+                    <div class="stat-label">High</div>
+                    <div class="stat-number">78</div>
+                    <div class="stat-label">Findings</div>
+                </div>
+                <div class="stat-card medium">
+                    <div class="stat-label">Medium</div>
+                    <div class="stat-number">45</div>
+                    <div class="stat-label">Findings</div>
+                </div>
+                <div class="stat-card low">
+                    <div class="stat-label">Total</div>
+                    <div class="stat-number">179</div>
+                    <div class="stat-label">Findings</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Findings -->
+        <div class="card" id="detailed-findings">
+            <h2>Detailed Findings</h2>
+            <table class="findings-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Severity</th>
+                        <th>Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="vuln-id">SEC-001</span></td>
+                        <td>JWT Secret length validation bypass</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/internal/config/config.go</span><span class="vuln-line">117-119</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-002</span></td>
+                        <td>Password modification race condition</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/internal/handlers/auth.go</span><span class="vuln-line">118-145</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-003</span></td>
+                        <td>config.go uses panic() for runtime validation</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/internal/config/config.go</span><span class="vuln-line">117-123</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-004</span></td>
+                        <td>AES-GCM cookie encryption reuse risk</td>
+                        <td><span class="badge badge-high">High</span></td>
+                        <td><span class="vuln-file">authserver/internal/handlers/auth.go</span><span class="vuln-line">554-590</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-005</span></td>
+                        <td>OIDC redirect_uri validation logic error</td>
+                        <td><span class="badge badge-high">High</span></td>
+                        <td><span class="vuln-file">authserver/internal/handlers/auth.go</span><span class="vuln-line">307-313</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-006</span></td>
+                        <td>User enumeration (timing attack)</td>
+                        <td><span class="badge badge-high">High</span></td>
+                        <td><span class="vuln-file">authserver/internal/handlers/auth.go</span><span class="vuln-line">54-59</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">MS-001</span></td>
+                        <td>SMTP submission: AUTH over cleartext without TLS</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/gateway/internal/smtp/submission.go</span><span class="vuln-line">143-148</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">MS-002</span></td>
+                        <td>JMAP: Missing request size limit validation</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/gateway/internal/handlers/jmap.go</span><span class="vuln-line">295</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">MS-003</span></td>
+                        <td>WebSocket: No origin validation in production</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/gateway/internal/handlers/ws.go</span><span class="vuln-line">228-244</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">MS-004</span></td>
+                        <td>IMAP: Potential SQL injection in SEARCH command</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/gateway/internal/imap/imap.go</span><span class="vuln-line">569-695</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">MS-005</span></td>
+                        <td>SMTP outbound: Connection pool TLS certificate verification missing</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/gateway/internal/smtp/outbound.go</span><span class="vuln-line">413-427</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SQL-001</span></td>
+                        <td>deliver() input sanitization missing for from_addr</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">mailserver/sql/reducers/deliver.sql</span><span class="vuln-line">36-67</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-009</span></td>
+                        <td>Weak key derivation (SHA256 instead of HKDF)</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/cmd/authserver/main.go</span><span class="vuln-line">77</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-010</span></td>
+                        <td>Threat Interceptor single-thread DoS via time.Sleep</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/internal/threat/interceptor.go</span><span class="vuln-line">286</span></td>
+                    </tr>
+                    <tr>
+                        <td><span class="vuln-id">SEC-011</span></td>
+                        <td>WebAuthn session data not bound</td>
+                        <td><span class="badge badge-critical">Critical</span></td>
+                        <td><span class="vuln-file">authserver/internal/authn/webauthn.go</span><span class="vuln-line">39-51</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Authentication Bypass -->
+        <div class="card" id="authentication-bypass">
+            <h2>Authentication Bypass</h2>
+
+            <div class="recommendation">
+                <h4>SEC-001: JWT Secret Validation Bypass</h4>
+                <p><strong>Risk:</strong> An attacker can bypass authentication entirely by providing any JWT when the secret is empty.</p>
+                <p><strong>Location:</strong> <code>authserver/internal/config/config.go:117-119</code></p>
+            </div>
+
+            <p>The validation logic only checks length if the secret is non-empty. An empty string (<code>""</code>) passes validation, but is then used as the HMAC key, allowing any JWT to be valid.</p>
+
+            <h4>Vulnerable Code</h4>
+            <pre class="code-vulnerable"><code>func (c *Config) validate() {
+    if c.JWTSecret != "" && len(c.JWTSecret) &lt; 32 {
+        panic("JWT_SECRET must be >= 32 characters or empty")
+    }
+}</code></pre>
+
+            <h4>Recommended Fix</h4>
+            <pre class="code-fix"><code>func (c *Config) validate() error {
+    if len(strings.TrimSpace(c.JWTSecret)) &lt; 32 {
+        return fmt.Errorf("JWT_SECRET must be >= 32 non-whitespace characters")
+    }
+    return nil
+}</code></pre>
+
+            <div class="recommendation">
+                <h4>SEC-002: Password Modification Race Condition</h4>
+                <p><strong>Risk:</strong> Two concurrent password change requests can result in an inconsistent state or last-write-wins overwrite.</p>
+            </div>
+
+            <pre class="code-vulnerable"><code>// No row locking used
+newHash, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+h.pool.Exec(r.Context(), `UPDATE users SET password_hash = $1 WHERE email = $2`, ...)</code></pre>
+
+            <pre class="code-fix"><code>tx, err := h.pool.Begin(r.Context())
+// Use SELECT FOR UPDATE to lock the row
+var currentHash string
+tx.QueryRow(r.Context(), `SELECT password_hash FROM users WHERE email = $1 FOR UPDATE`, ...).Scan(&currentHash)
+// ... verify and update within transaction
+tx.Commit(r.Context())</code></pre>
+        </div>
+
+        <!-- Weak Password Handling -->
+        <div class="card" id="weak-password-handling">
+            <h2>Weak Password Handling</h2>
+
+            <div class="recommendation">
+                <h4>SEC-008: Password Strength Check Insufficient</h4>
+                <p>Only checks for length >= 8. Missing complexity requirements (uppercase, lowercase, digits, special characters).</p>
+            </div>
+
+            <p>Current validation:</p>
+            <pre class="code-vulnerable"><code>if len(req.NewPassword) &lt; 8 {
+    writeJSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
+    return
+}</code></pre>
+
+            <p>Recommended validation:</p>
+            <pre class="code-fix"><code>func validatePasswordStrength(password string) error {
+    if len(password) &lt; 12 {
+        return errors.New("password must be at least 12 characters")
+    }
+    var hasUpper, hasLower, hasDigit, hasSpecial bool
+    for _, ch := range password {
+        switch {
+        case unicode.IsUpper(ch): hasUpper = true
+        case unicode.IsLower(ch): hasLower = true
+        case unicode.IsDigit(ch): hasDigit = true
+        case unicode.IsPunct(ch) || unicode.IsSymbol(ch): hasSpecial = true
+        }
+    }
+    if !(hasUpper && hasLower && hasDigit && hasSpecial) {
+        return errors.New("password must contain uppercase, lowercase, digit, and special character")
+    }
+    return nil
+}</code></pre>
+        </div>
+
+        <!-- Authorization Flaws -->
+        <div class="card" id="authorization-flaws">
+            <h2>Authorization Flaws (IDOR & RBAC)</h2>
+
+            <div class="recommendation">
+                <h4>SEC-015: WWW-Authenticate Header Leaks Internal Info</h4>
+                <p>Server name and authentication methods exposed in 401 responses.</p>
+            </div>
+
+            <pre class="code-vulnerable"><code>w.Header().Set("WWW-Authenticate", `Bearer realm="authserver"`)
+// Leaks: server name, Kerberos support</code></pre>
+
+            <pre class="code-fix"><code>w.Header().Set("WWW-Authenticate", `Bearer realm="api"`)
+// Use generic realm name</code></pre>
+
+            <div class="recommendation">
+                <h4>MS-006: CalDAV Missing CSRF Protection</h4>
+                <p>State-changing HTTP methods (PUT, DELETE, MKCALENDAR) lack CSRF token validation.</p>
+            </div>
+        </div>
+
+        <!-- XSS -->
+        <div class="card" id="xss">
+            <h2>Input Sanitization / XSS</h2>
+
+            <div class="recommendation">
+                <h4>SQL-002: send() SQL Injection via DLP Check</h4>
+                <p>User input in body text is passed to DLP check without proper sanitization.</p>
+            </div>
+
+            <pre class="code-vulnerable"><code>-- In send.sql, user content is used directly
+SELECT * INTO v_violation FROM dlp_check(
+  p_mailbox_id, v_mailbox.domain_id,
+  p_subject, p_body_text, p_body_html, NULL
+) LIMIT 1;</code></pre>
+
+            <pre class="code-fix"><code>-- Use escape functions or parameterized queries for DLP check
+SELECT * INTO v_violation FROM dlp_check(
+  p_mailbox_id, v_mailbox.domain_id,
+  quote_literal(p_subject), quote_literal(p_body_text), NULL
+) LIMIT 1;</code></pre>
+        </div>
+
+        <!-- Information Disclosure -->
+        <div class="card" id="information-disclosure">
+            <h2>Information Disclosure</h2>
+
+            <div class="recommendation">
+                <h4>Error Handling Leaks Internal Details</h4>
+                <p>Multiple locations expose internal implementation details, database names, and library versions in error messages.</p>
+            </div>
+
+            <table class="findings-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Exposed Information</th>
+                        <th>Risk</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>authserver/internal/handlers/auth.go</code></td>
+                        <td>JWT token type mismatch</td>
+                        <td>Application structure</td>
+                    </tr>
+                    <tr>
+                        <td><code>mailserver/gateway/internal/imap/imap.go</code></td>
+                        <td>Database schema details</td>
+                        <td>SQL injection targeting</td>
+                    </tr>
+                    <tr>
+                        <td><code>mailserver/gateway/internal/caldav/caldav.go</code></td>
+                        <td>Internal server structure</td>
+                        <td>Attack surface mapping</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card" id="recommendations">
+            <h2>Recommendations</h2>
+
+            <div class="recommendation">
+                <h4>Immediate Actions (24-48 hours)</h4>
+                <p>
+                    1. Fix JWT secret validation to reject empty strings<br>
+                    2. Implement row-level locking for password changes<br>
+                    3. Force STARTTLS before AUTH in SMTP submission<br>
+                    4. Add origin validation for WebSocket connections<br>
+                    5. Sanitize all user inputs in SQL reducers
+                </p>
+            </div>
+
+            <div class="recommendation">
+                <h4>Short-term (1-2 weeks)</h4>
+                <p>
+                    1. Replace SHA256 key derivation with HKDF<br>
+                    2. Implement CSRF tokens for all state-changing operations<br>
+                    3. Add distributed rate limiting (Redis/PostgreSQL)<br>
+                    4. Enable comprehensive security headers<br>
+                    5. Implement proper error handling without exposing internals
+                </p>
+            </div>
+
+            <div class="recommendation">
+                <h4>Long-term (1-2 months)</h4>
+                <p>
+                    1. Extract common JWT/middleware to shared packages<br>
+                    2. Implement mTLS for inter-service communication<br>
+                    3. Add Prometheus metrics and centralized logging<br>
+                    4. Conduct penetration testing on all protocols<br>
+                    5. Implement automated security scanning in CI/CD
+                </p>
+            </div>
+
+            <div class="recommendation">
+                <h4>Architecture Improvements</h4>
+                <p>
+                    1. <strong>Decouple services:</strong> Use event-driven architecture (NATS/RabbitMQ)<br>
+                    2. <strong>Zero Trust:</strong> Implement service mesh with mTLS<br>
+                    3. <strong>Least Privilege:</strong> Use PostgreSQL RLS policies<br>
+                    4. <strong>Secrets Management:</strong> Integrate with HashiCorp Vault<br>
+                    5. <strong>API Gateway:</strong> Centralize authentication and rate limiting
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>Security Audit Report | Generated 2026-05-13</p>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem;">For questions or follow-up, contact the security team.</p>
+        </div>
+    </div>
+</body>
+</html>

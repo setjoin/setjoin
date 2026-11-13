@@ -1,0 +1,256 @@
+{
+  "case": "ignored-query",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_empty",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": true,
+              "key": "tls_flagged",
+              "value": "visible-by-flag"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_null",
+              "value": null
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_num",
+              "value": 5
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_obj",
+              "value": {
+                "a": 1,
+                "b": [
+                  1,
+                  2
+                ]
+              }
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_plain_enc",
+              "value": "visible-by-suffix"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": true,
+              "key": "tls_secret_enc",
+              "value": {
+                "ciphertext": "abc",
+                "format": "x"
+              }
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_text",
+              "value": "hello <b> &   \"q\""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tlsx_wild",
+              "value": "wildcard"
+            }
+          ],
+          "files": []
+        },
+        "before": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_empty",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": true,
+              "key": "tls_flagged",
+              "value": "visible-by-flag"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_null",
+              "value": null
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_num",
+              "value": 5
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_obj",
+              "value": {
+                "a": 1,
+                "b": [
+                  1,
+                  2
+                ]
+              }
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_plain_enc",
+              "value": "visible-by-suffix"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": true,
+              "key": "tls_secret_enc",
+              "value": {
+                "ciphertext": "abc",
+                "format": "x"
+              }
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_text",
+              "value": "hello <b> &   \"q\""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tlsx_wild",
+              "value": "wildcard"
+            }
+          ],
+          "files": []
+        },
+        "table": "tls"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/tls/config",
+      "method": "GET",
+      "path": "/admin/tls/config",
+      "query": "?limit=-1&x=%zz"
+    },
+    "response": {
+      "body": "{\"tls_auto_renew\":\"true\",\"tls_autocert_challenge\":\"tls-alpn-01\",\"tls_autocert_domains\":\"\",\"tls_autocert_email\":\"\",\"tls_empty\":\"\",\"tls_flagged\":\"[ENCRYPTED]\",\"tls_mode\":\"none\",\"tls_null\":\"\",\"tls_num\":\"5\",\"tls_obj\":\"{\\\"a\\\": 1, \\\"b\\\": [1, 2]}\",\"tls_plain_enc\":\"[ENCRYPTED]\",\"tls_secret_enc\":\"[ENCRYPTED]\",\"tls_text\":\"hello \\u003cb\\u003e \\u0026 \\u2028 \\\"q\\\"\",\"tlsx_wild\":\"wildcard\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "379"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/tls/config"
+}

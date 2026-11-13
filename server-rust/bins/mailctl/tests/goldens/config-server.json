@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: http: Get \"/api/admin/health\": unsupported protocol scheme \"\"\n",
+  "exit": 1
+}

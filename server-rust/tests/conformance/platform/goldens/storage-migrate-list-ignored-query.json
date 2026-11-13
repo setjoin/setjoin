@@ -1,0 +1,104 @@
+{
+  "case": "ignored-query",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "before": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "table": "storage_migrations"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/storage/migrate",
+      "method": "GET",
+      "path": "/admin/storage/migrate",
+      "query": "?limit=-1&q=%00&x=%zz"
+    },
+    "response": {
+      "body": "[{\"id\":9505,\"migrated\":3,\"progress_pct\":42.857142857142854,\"source\":\"s3\",\"started\":\"2026-10-05T10:00:00Z\",\"status\":\"cutover\",\"target\":\"oss\",\"total\":7},{\"completed\":\"2026-10-04T10:01:00Z\",\"id\":9504,\"migrated\":0,\"source\":\"s3\",\"started\":\"2026-10-04T10:00:00Z\",\"status\":\"cancelled\",\"target\":\"posix\",\"total\":0},{\"id\":9503,\"migrated\":0,\"source\":\"s3\",\"started\":\"2026-10-03T10:00:00Z\",\"status\":\"dual_write\",\"target\":\"posix\",\"total\":0},{\"id\":9502,\"migrated\":100,\"progress_pct\":33.333333333333336,\"source\":\"s3\",\"started\":\"2026-10-02T10:00:00.25Z\",\"status\":\"backfill\",\"target\":\"oss\",\"total\":300},{\"completed\":\"2026-10-01T10:30:00Z\",\"id\":9501,\"migrated\":100,\"progress_pct\":100,\"source\":\"s3\",\"started\":\"2026-10-01T10:00:00Z\",\"status\":\"completed\",\"target\":\"posix\",\"total\":100}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "764"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/storage/migrate"
+}

@@ -1,0 +1,280 @@
+-- cron_prune_tasks.pg (med-shard3-010): the cron prune registry's contract.
+-- Covers the seven registered sweeps that used to 42883 on every run
+-- (prune-dmarc-reports, prune-spam, prune-greylist, prune-health-history,
+-- prune-vacation-replies, purge-expired-tokens, purge-saml-assertions) plus
+-- the destructive-parameter guards on the two day-count-taking pruners
+-- (ca_signin_log_prune, login_events_prune).
+-- Pins, per the remediation row:
+--   * every registered prune function resolves (has_function);
+--   * zero/negative/non-integer retention values are REFUSED (BZ040), and a
+--     refused call deletes/drops nothing;
+--   * expired rows ARE pruned through the registered path while in-window
+--     rows survive;
+--   * prune_spam can never re-enable scoring: an aged disabled
+--     (scoring-opted-out) user_spam_model row survives the sweep with
+--     disabled = TRUE intact — only enabled stale models are pruned;
+--   * the ca_signin_log append-only trigger stays ARMED and INTACT — ad-hoc
+--     DELETE raises BZ083 before any prune call (and still after the refused
+--     ones, proving a refused call never arms the GUC), and the sanctioned
+--     transaction-local GUC path prunes with the trigger in place;
+--   * login_events retention drops ONLY whole expired partitions and never
+--     an in-window one.
+-- NOTE (single-transaction ordering): the ca.signin_log_prune GUC is
+-- transaction-local, so every BZ083-negative assertion runs BEFORE the first
+-- prune call in this file.
+BEGIN;
+SELECT plan(61);
+
+-- Local fixture helper with EXPLICIT high ids (700001+): the shared
+-- mk_account sequence trails the committed mk.test fixture rows in this DB,
+-- so bare nextval collides. Everything here (including this helper and the
+-- fixture domain) is rolled back at the end of the file.
+CREATE OR REPLACE FUNCTION cronprune_account(p_label text, p_user_id bigint, p_mb_id bigint)
+RETURNS bigint AS $$
+DECLARE
+  v_domain_id bigint;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('cronprune.test', TRUE)
+    ON CONFLICT (name) DO NOTHING;
+  SELECT id INTO v_domain_id FROM domains WHERE name = 'cronprune.test';
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (p_user_id, p_label || '-' || p_user_id, v_domain_id,
+            p_label || '-' || p_user_id || '@cronprune.test', p_label, 'x');
+  -- Mailbox insert fires create_system_tags + folder triggers automatically.
+  INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+    VALUES (p_mb_id, p_user_id, v_domain_id,
+            p_label || '-' || p_mb_id || '@cronprune.test', p_label, 'personal', TRUE);
+  RETURN p_mb_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ── 1. Every registered prune function resolves against the schema ──────────
+SELECT has_function('cron_retention_days', ARRAY['text','integer'],
+  'shared retention resolver cron_retention_days(text,int) exists');
+SELECT has_function('prune_dmarc_reports', ARRAY[]::text[], 'prune_dmarc_reports() exists');
+SELECT has_function('prune_spam', ARRAY[]::text[], 'prune_spam() exists');
+SELECT has_function('prune_greylist_entries', ARRAY[]::text[], 'prune_greylist_entries() exists');
+SELECT has_function('prune_health_history', ARRAY[]::text[], 'prune_health_history() exists');
+SELECT has_function('prune_vacation_replies', ARRAY[]::text[], 'prune_vacation_replies() exists');
+SELECT has_function('purge_expired_tokens', ARRAY[]::text[], 'purge_expired_tokens() exists');
+SELECT has_function('purge_saml_assertions', ARRAY[]::text[], 'purge_saml_assertions() exists');
+SELECT has_function('ca_signin_log_prune', ARRAY['integer'], 'ca_signin_log_prune(int) exists');
+SELECT has_function('login_events_prune', ARRAY['integer'], 'login_events_prune(int) exists');
+
+-- ── 2. cron_retention_days: defaulting + destructive-parameter refusal ──────
+SELECT is(cron_retention_days('cron_prune_probe_days', 42), 42,
+  'absent system_config key falls back to the built-in default');
+INSERT INTO system_config (key, value, encrypted, updated_at)
+  VALUES ('cron_prune_probe_days', '42', false, now())
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+SELECT is(cron_retention_days('cron_prune_probe_days', 30), 42,
+  'stored positive day count wins over the default');
+UPDATE system_config SET value = '0' WHERE key = 'cron_prune_probe_days';
+SELECT throws_ok($$ SELECT cron_retention_days('cron_prune_probe_days', 30) $$,
+  'BZ040', NULL, 'zero-day retention is refused (BZ040), not a full-table delete');
+UPDATE system_config SET value = '-7' WHERE key = 'cron_prune_probe_days';
+SELECT throws_ok($$ SELECT cron_retention_days('cron_prune_probe_days', 30) $$,
+  'BZ040', NULL, 'negative retention is refused (BZ040)');
+UPDATE system_config SET value = to_jsonb('soon'::text) WHERE key = 'cron_prune_probe_days';
+SELECT throws_ok($$ SELECT cron_retention_days('cron_prune_probe_days', 30) $$,
+  'BZ040', NULL, 'non-integer retention is refused (BZ040)');
+UPDATE system_config SET value = '""'::jsonb WHERE key = 'cron_prune_probe_days';
+SELECT is(cron_retention_days('cron_prune_probe_days', 30), 30,
+  'blank stored value falls back to the built-in default');
+SELECT throws_ok($$ SELECT cron_retention_days('cron_prune_probe_days', 0) $$,
+  'BZ040', NULL, 'non-positive built-in default is refused (BZ040)');
+DELETE FROM system_config WHERE key = 'cron_prune_probe_days';
+
+-- ── 3. ca_signin_log_prune: refusals arm nothing, trigger stays intact ──────
+-- Seed one stale and one in-window telemetry row (user ids disjoint from
+-- other tests in this suite).
+INSERT INTO ca_signin_log (user_id, decision, occurred_at)
+  VALUES (8001, 'allow', now() - interval '40 days'),   -- stale
+         (8002, 'allow', now() - interval '5 days');    -- in-window
+-- BEFORE any prune call (GUC provably unset): ad-hoc DELETE is blocked.
+SELECT throws_ok(
+  $$ DELETE FROM ca_signin_log WHERE user_id = 8001 $$,
+  'BZ083', NULL, 'ad-hoc DELETE (no GUC) is blocked — trigger armed');
+-- Zero/negative/NULL day counts are refused BEFORE the GUC is armed.
+SELECT throws_ok($$ SELECT ca_signin_log_prune(0) $$,
+  'BZ040', NULL, 'ca_signin_log_prune(0) refused (BZ040)');
+SELECT throws_ok($$ SELECT ca_signin_log_prune(-5) $$,
+  'BZ040', NULL, 'ca_signin_log_prune(-5) refused (BZ040)');
+SELECT throws_ok($$ SELECT ca_signin_log_prune(NULL) $$,
+  'BZ040', NULL, 'ca_signin_log_prune(NULL) refused (BZ040)');
+-- The refusals armed nothing: ad-hoc DELETE is STILL blocked.
+SELECT throws_ok(
+  $$ DELETE FROM ca_signin_log WHERE user_id = 8001 $$,
+  'BZ083', NULL, 'refused prune calls do not arm the deletion GUC');
+-- The append-only trigger itself is intact and enabled.
+SELECT is(
+  (SELECT pg_get_triggerdef(oid) FROM pg_trigger
+    WHERE tgrelid = 'ca_signin_log'::regclass
+      AND tgname = 'ca_signin_log_append_only_trg'),
+  'CREATE TRIGGER ca_signin_log_append_only_trg BEFORE DELETE OR UPDATE ON public.ca_signin_log FOR EACH ROW EXECUTE FUNCTION ca_signin_log_append_only()',
+  'append-only trigger armed and intact');
+SELECT is(
+  (SELECT tgenabled FROM pg_trigger WHERE tgname = 'ca_signin_log_append_only_trg'),
+  'O', 'append-only trigger is enabled');
+-- Happy path: the sanctioned transaction-local GUC path prunes exactly the
+-- expired row, with the trigger armed and intact.
+SELECT is(ca_signin_log_prune(30), 1::bigint,
+  'prune(30) deletes exactly the expired row via the authorized GUC path');
+SELECT is((SELECT count(*)::int FROM ca_signin_log WHERE user_id = 8002), 1,
+  'in-window row survives the prune');
+SELECT is((SELECT count(*)::int FROM ca_signin_log WHERE user_id = 8001), 0,
+  'expired row is gone after the prune');
+
+-- ── 4. login_events_prune: only expired partitions drop, refusals drop none ─
+CREATE TABLE login_events_1971_01 PARTITION OF login_events
+  FOR VALUES FROM ('1971-01-01') TO ('1971-02-01');
+CREATE TABLE login_events_2099_12 PARTITION OF login_events
+  FOR VALUES FROM ('2099-12-01') TO ('2100-01-01');
+SELECT has_table('login_events_1971_01'::name, 'ancient partition created');
+SELECT has_table('login_events_2099_12'::name, 'in-window partition created');
+SELECT throws_ok($$ SELECT login_events_prune(0) $$,
+  'BZ040', NULL, 'login_events_prune(0) refused (BZ040)');
+SELECT throws_ok($$ SELECT login_events_prune(-1) $$,
+  'BZ040', NULL, 'login_events_prune(-1) refused (BZ040)');
+SELECT throws_ok($$ SELECT login_events_prune(NULL) $$,
+  'BZ040', NULL, 'login_events_prune(NULL) refused (BZ040)');
+SELECT has_table('login_events_1971_01'::name,
+  'refused prune calls drop no partition');
+SELECT ok(login_events_prune(30) >= 1, 'prune(30) drops the out-of-window partition(s)');
+SELECT hasnt_table('login_events_1971_01'::name, 'ancient partition dropped');
+SELECT has_table('login_events_2099_12'::name, 'in-window partition intact after prune');
+
+-- ── 5. prune_dmarc_reports: refusal routed through the guard + happy path ───
+INSERT INTO dmarc_reports (domain, report_uri, begin_time, end_time)
+  VALUES ('cron-prune-probe.invalid', 'mailto:agg@cron-prune-probe.invalid',
+          now() - interval '100 days', now() - interval '95 days'),
+         ('cron-prune-probe.invalid', 'mailto:agg@cron-prune-probe.invalid',
+          now() - interval '5 days', now() - interval '1 day');
+INSERT INTO system_config (key, value, encrypted, updated_at)
+  VALUES ('dmarc_reports_retain_days', '-5', false, now());
+SELECT throws_ok($$ SELECT prune_dmarc_reports() $$,
+  'BZ040', NULL, 'prune_dmarc_reports refuses a negative configured window');
+DELETE FROM system_config WHERE key = 'dmarc_reports_retain_days';
+SELECT lives_ok($$ SELECT prune_dmarc_reports() $$, 'prune_dmarc_reports runs with the default window');
+SELECT is((SELECT count(*)::int FROM dmarc_reports WHERE domain = 'cron-prune-probe.invalid'), 1,
+  'dmarc: expired report deleted, in-window report survives');
+
+-- ── 6. prune_spam ────────────────────────────────────────────────────────────
+-- user_spam_model.disabled = TRUE is the durable scoring opt-out (internal/spam
+-- store.go reads a MISSING row as a fresh ENABLED model), so an aged disabled
+-- row must survive the sweep: pruning can never re-enable scoring.
+SELECT cronprune_account('cronprunespam', 700001, 700101);
+SELECT cronprune_account('cronprunespam2', 700003, 700103);
+SELECT cronprune_account('cronprunespam3', 700019, 700119);
+INSERT INTO user_spam_model (user_id, model_bytes, trained_at, disabled)
+  VALUES ((SELECT user_id FROM mailboxes WHERE id = 700101), 'stale'::bytea,
+          now() - interval '200 days', FALSE),
+         ((SELECT user_id FROM mailboxes WHERE id = 700103), 'fresh'::bytea,
+          now(), FALSE),
+         ((SELECT user_id FROM mailboxes WHERE id = 700119), 'opted-out'::bytea,
+          now() - interval '400 days', TRUE);
+SELECT lives_ok($$ SELECT prune_spam() $$, 'prune_spam runs');
+SELECT is((SELECT count(*)::int FROM user_spam_model s
+             JOIN mailboxes m ON m.user_id = s.user_id
+            WHERE m.id IN (700101, 700103, 700119)),
+  2, 'spam: stale enabled model deleted; fresh enabled and aged disabled models survive');
+SELECT is((SELECT s.disabled FROM user_spam_model s
+             JOIN mailboxes m ON m.user_id = s.user_id
+            WHERE m.id = 700119),
+  TRUE, 'pruning cannot re-enable scoring: aged disabled model keeps disabled = TRUE');
+SELECT is((SELECT count(*)::int FROM user_spam_model s
+             JOIN mailboxes m ON m.user_id = s.user_id
+            WHERE m.id = 700101),
+  0, 'spam: the stale enabled model is still pruned');
+
+-- ── 7. prune_greylist_entries: whitelisted never age-pruned ─────────────────
+INSERT INTO greylist (ip, sender, recipient, first_seen, last_seen, whitelisted)
+  VALUES ('192.0.2.41', 'cron-prune@grey.test', 'rcpt@grey.test', now() - interval '30 days', now() - interval '30 days', false),
+         ('192.0.2.42', 'cron-prune@grey.test', 'rcpt@grey.test', now() - interval '30 days', now() - interval '2 days', true),
+         ('192.0.2.43', 'cron-prune@grey.test', 'rcpt@grey.test', now() - interval '1 hours', now() - interval '1 hours', false);
+SELECT lives_ok($$ SELECT prune_greylist_entries() $$, 'prune_greylist_entries runs');
+SELECT is((SELECT count(*)::int FROM greylist WHERE ip = '192.0.2.41'), 0,
+  'greylist: expired non-whitelisted triplet deleted');
+SELECT is((SELECT count(*)::int FROM greylist WHERE ip = '192.0.2.42'), 1,
+  'greylist: whitelisted triplet survives regardless of age');
+SELECT is((SELECT count(*)::int FROM greylist WHERE ip = '192.0.2.43'), 1,
+  'greylist: in-window triplet survives');
+
+-- ── 8. prune_health_history ─────────────────────────────────────────────────
+INSERT INTO health_history (checked_at, check_name, status)
+  VALUES (now() - interval '200 days', 'cron-prune-probe', 'ok'),
+         (now() - interval '1 hours', 'cron-prune-probe', 'ok');
+SELECT lives_ok($$ SELECT prune_health_history() $$, 'prune_health_history runs');
+SELECT is((SELECT count(*)::int FROM health_history WHERE check_name = 'cron-prune-probe'), 1,
+  'health: expired history deleted, in-window row survives');
+
+-- ── 9. prune_vacation_replies ───────────────────────────────────────────────
+SELECT cronprune_account('cronprunevac', 700005, 700105);
+SELECT cronprune_account('cronprunevac2', 700007, 700107);
+INSERT INTO vacation_replies (sender_email, mailbox_id, vacation_start, replied_at)
+  VALUES ('cron-prune@vac.test', 700105, CURRENT_DATE - 90, now() - interval '60 days'),
+         ('cron-prune@vac.test', 700107, CURRENT_DATE, now());
+SELECT lives_ok($$ SELECT prune_vacation_replies() $$, 'prune_vacation_replies runs');
+SELECT is((SELECT count(*)::int FROM vacation_replies WHERE sender_email = 'cron-prune@vac.test'), 1,
+  'vacation: stale reply ledger deleted, active ledger row survives');
+
+-- ── 10. purge_saml_assertions: replay cache prune ───────────────────────────
+INSERT INTO used_saml_assertions (assertion_id, used_at)
+  VALUES ('cron-prune-expired-assertion', now() - interval '60 days'),
+         ('cron-prune-fresh-assertion', now());
+SELECT lives_ok($$ SELECT purge_saml_assertions() $$, 'purge_saml_assertions runs');
+SELECT is((SELECT count(*)::int FROM used_saml_assertions
+            WHERE assertion_id LIKE 'cron-prune-%'), 1,
+  'saml: expired replay-cache entry deleted, fresh entry survives');
+
+-- ── 11. purge_expired_tokens: NULL expiry never touched ─────────────────────
+-- NOTE: every seed lands BEFORE the single purge call below.
+SELECT cronprune_account('cronprunetok', 700009, 700109);
+SELECT cronprune_account('cronprunetok2', 700011, 700111);
+SELECT cronprune_account('cronprunetok3', 700013, 700113);
+INSERT INTO oauth_tokens (user_id, token_hash, token_type, issued_at, expires_at)
+  VALUES ((SELECT user_id FROM mailboxes WHERE id = 700109), convert_to('cron-prune-expired-01', 'UTF8'), 'access', now() - interval '90 days', now() - interval '60 days'),
+         ((SELECT user_id FROM mailboxes WHERE id = 700111), convert_to('cron-prune-permanent-02', 'UTF8'), 'app_password', now() - interval '400 days', NULL),
+         ((SELECT user_id FROM mailboxes WHERE id = 700113), convert_to('cron-prune-fresh-03', 'UTF8'), 'access', now(), now() + interval '10 days');
+
+-- oidc_tokens: access-expired row dies only when its refresh is dead too.
+SELECT cronprune_account('cronpruneoidc', 700015, 700115);
+SELECT cronprune_account('cronpruneoidc2', 700017, 700117);
+INSERT INTO oidc_clients (id, name, secret, redirect_uris, grant_types, scopes, enabled)
+  VALUES ('cron-prune-probe-client', 'cron-prune-probe-client', 'x',
+          ARRAY['https://cron-prune-probe.invalid/cb'], ARRAY['authorization_code'],
+          ARRAY['openid'], true);
+INSERT INTO oidc_tokens (id, client_id, user_id, subject, refresh_token_hash, scopes, expires_at, refresh_expires_at)
+  SELECT 'cron-prune-oidc-tok-1', c.id, m.user_id, 'cron-prune-oidc-norefresh', NULL, ARRAY['openid'],
+         now() - interval '60 days', NULL
+    FROM oidc_clients c, mailboxes m
+   WHERE c.id = 'cron-prune-probe-client' AND m.id = 700115
+  UNION ALL
+  SELECT 'cron-prune-oidc-tok-2', c.id, m.user_id, 'cron-prune-oidc-refreshable', 'still-refreshable', ARRAY['openid'],
+         now() - interval '60 days', now() + interval '30 days'
+    FROM oidc_clients c, mailboxes m
+   WHERE c.id = 'cron-prune-probe-client' AND m.id = 700117;
+
+-- scim_tokens: permanent (NULL-expiry) provisioning token survives.
+INSERT INTO scim_tokens (name, token_hash, expires_at)
+  VALUES ('cron-prune-scim-expired', 'cron-prune-scim-hash-expired', now() - interval '60 days'),
+         ('cron-prune-scim-permanent', 'cron-prune-scim-hash-permanent', NULL);
+
+SELECT lives_ok($$ SELECT purge_expired_tokens() $$, 'purge_expired_tokens runs');
+SELECT is((SELECT count(*)::int FROM oauth_tokens WHERE token_hash = convert_to('cron-prune-expired-01', 'UTF8')), 0,
+  'tokens: expired oauth token deleted');
+SELECT is((SELECT count(*)::int FROM oauth_tokens WHERE token_hash = convert_to('cron-prune-permanent-02', 'UTF8')), 1,
+  'tokens: never-expiring app_password token survives');
+SELECT is((SELECT count(*)::int FROM oauth_tokens WHERE token_hash = convert_to('cron-prune-fresh-03', 'UTF8')), 1,
+  'tokens: in-window oauth token survives');
+SELECT is((SELECT count(*)::int FROM oidc_tokens WHERE subject = 'cron-prune-oidc-norefresh'), 0,
+  'tokens: oidc row with dead access AND no refresh is deleted');
+SELECT is((SELECT count(*)::int FROM oidc_tokens WHERE subject = 'cron-prune-oidc-refreshable'), 1,
+  'tokens: oidc row whose refresh token is still live survives');
+SELECT is((SELECT count(*)::int FROM scim_tokens WHERE name = 'cron-prune-scim-expired'), 0,
+  'tokens: expired scim token deleted');
+SELECT is((SELECT count(*)::int FROM scim_tokens WHERE name = 'cron-prune-scim-permanent'), 1,
+  'tokens: permanent scim token (NULL expiry) survives');
+
+SELECT * FROM finish();
+ROLLBACK;

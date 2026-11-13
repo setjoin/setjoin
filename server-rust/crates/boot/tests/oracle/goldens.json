@@ -1,0 +1,4078 @@
+{
+  "go_source": "4299914a0c0f5df40af44b0287681ccbf849719e",
+  "cases": {
+    "schema-absent": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "database has no schema \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "rls-disabled": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "ERROR",
+          "native-RLS boot check FAILED \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "partition-missing": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "ERROR",
+          "startup: create_monthly_partitions failed \u2014 audit/auth inserts will hard-fail once a month boundary passes without its partition"
+        ],
+        [
+          "ERROR",
+          "monthly partition ensure failed \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-bucket-probe-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "ERROR",
+          "WORM bucket bootstrap failed \u2014 refusing to start"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-policy-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "ERROR",
+          "WORM startup check failed \u2014 gateway cannot start without compliant storage"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "object-lock",
+          "lock": "",
+          "body": {
+            "ObjectLockEnabled": "Enabled",
+            "Mode": "GOVERNANCE",
+            "Days": "30"
+          }
+        }
+      ],
+      "database": {
+        "minio": "ok"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "secret-symlink": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "secret bootstrap failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 511,
+        "victim": "victim\n"
+      }
+    },
+    "security-seed-missing": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "security toggle seed check failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "legacy-secret-upgrade": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "assist.api_key": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:system",
+          "encrypted": true,
+          "keyVersion": 1
+        },
+        "ldap_sync_boot_enc": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ldap",
+          "encrypted": true,
+          "keyVersion": 1
+        },
+        "ad_sync_password_enc": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ad",
+          "encrypted": true,
+          "keyVersion": 1
+        }
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      },
+      "secrets": {
+        "ad_sync_password_enc": "connector-plain",
+        "assist.api_key": "assist-plain",
+        "ldap_sync_boot_enc": "ldap-plain"
+      }
+    },
+    "schema-behind": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "database schema is behind this binary \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "schema-probe-fault": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "schema-version probe failed \u2014 cannot verify the database schema"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "schema-newer-allowed": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "rls-owned-forced": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "ERROR",
+          "native-RLS boot check FAILED \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "recovery-function-missing": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "ERROR",
+          "database startup recovery failed \u2014 refusing to start"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "recovery-no-admin": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "WARN",
+          "startup recovery report: no admin user found"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "error": "reset by startup_recovery after crash",
+        "status": "pending"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "stale-list-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "WARN",
+          "startup: stale multipart abort encountered errors"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "minio": "ok"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "minio-probe-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "WARN",
+          "startup: MinIO ping failed \u2014 blobs unavailable until MinIO is reachable"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "minio": "error"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "minio-create-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "blob bucket missing, creating"
+        ],
+        [
+          "WARN",
+          "startup: MinIO ping failed \u2014 blobs unavailable until MinIO is reachable"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "minio": "error"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "minio-health-write-fault": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "WARN",
+          "failed to record MinIO health check in health_history"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-create-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "WORM-configured first boot: creating blob bucket with Object Lock enabled"
+        ],
+        [
+          "ERROR",
+          "WORM bucket bootstrap failed \u2014 refusing to start"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "true",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-invalid-mode": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "ERROR",
+          "WORM configuration invalid"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-zero-retention": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "ERROR",
+          "WORM configuration invalid"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "worm-first-boot": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "WORM-configured first boot: creating blob bucket with Object Lock enabled"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: active"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "true",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "object-lock",
+          "lock": "",
+          "body": {
+            "ObjectLockEnabled": "Enabled",
+            "Mode": "COMPLIANCE",
+            "Days": "2557"
+          }
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "stale-upload-abort": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "aborted stale multipart upload"
+        ],
+        [
+          "INFO",
+          "startup: aborted stale MinIO multipart uploads"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": "",
+          "prefix": "old"
+        },
+        {
+          "method": "DELETE",
+          "path": "/boot-bucket/old",
+          "operation": "abort",
+          "lock": "",
+          "body": "",
+          "upload_id": "id-old-2000"
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "stale-abort-denied": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "WARN",
+          "failed to abort stale multipart upload"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": "",
+          "prefix": "old"
+        },
+        {
+          "method": "DELETE",
+          "path": "/boot-bucket/old",
+          "operation": "abort",
+          "lock": "",
+          "body": "",
+          "upload_id": "id-old-2000"
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "stale-and-fresh-same-key": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "aborted stale multipart upload"
+        ],
+        [
+          "INFO",
+          "startup: aborted stale MinIO multipart uploads"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": "",
+          "prefix": "same"
+        },
+        {
+          "method": "DELETE",
+          "path": "/boot-bucket/same",
+          "operation": "abort",
+          "lock": "",
+          "body": "",
+          "upload_id": "id-same-2000"
+        },
+        {
+          "method": "DELETE",
+          "path": "/boot-bucket/same",
+          "operation": "abort",
+          "lock": "",
+          "body": "",
+          "upload_id": "id-same-2099"
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "secret-directory": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "secret bootstrap failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 493
+      }
+    },
+    "secret-empty-wide": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "secret bootstrap failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 420,
+        "content": ""
+      }
+    },
+    "secret-content-wide": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "preserved\n"
+      }
+    },
+    "secret-create": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "generated"
+      }
+    },
+    "secret-empty-private": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "generated"
+      }
+    },
+    "toggle-table-missing": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "toggle init failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "toggle-registry-state-missing": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "toggle init failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "connector-envelope-tampered": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "assist.api_key": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ldap_sync_boot_enc": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ad_sync_password_enc": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ad",
+          "encrypted": false,
+          "keyVersion": 1
+        }
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "named-envelope-tampered": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "assist.api_key": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ad",
+          "encrypted": false,
+          "keyVersion": 1
+        },
+        "ldap_sync_boot_enc": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ldap",
+          "encrypted": true,
+          "keyVersion": 1
+        },
+        "ad_sync_password_enc": {
+          "format": "setjoin-config-secret",
+          "source": "legacy:ad",
+          "encrypted": true,
+          "keyVersion": 1
+        }
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "upgrade-write-fault": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "assist.api_key": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ldap_sync_boot_enc": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ad_sync_password_enc": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        }
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "upgrade-key-unavailable": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "assist.api_key": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ldap_sync_boot_enc": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        },
+        "ad_sync_password_enc": {
+          "format": null,
+          "source": null,
+          "encrypted": false,
+          "keyVersion": null
+        }
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "secret-missing-deployment-id": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "secret-hostile-mmdb-pin-mismatch": {
+      "exit": 0,
+      "events": [
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-operator-valid-unpinned": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "INFO",
+          "geoip: operator database file present"
+        ],
+        [
+          "INFO",
+          "geoip: country resolution armed"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-operator-valid-pinned": {
+      "exit": 0,
+      "events": [
+        [
+          "INFO",
+          "geoip: operator database file present"
+        ],
+        [
+          "INFO",
+          "geoip: country resolution armed"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-operator-wrong-pin": {
+      "exit": 0,
+      "events": [
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-operator-malformed-pinned": {
+      "exit": 0,
+      "events": [
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-country-block-unarmed": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "geoip: GEO_BLOCK_COUNTRIES is configured but non-enforcing without a valid database \u2014 supply a validated database at the path above or unset GEO_BLOCK_COUNTRIES to acknowledge the gap"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-cache-unpinned-valid": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: no trusted digest authority configured (GEOIP_DB_SHA256 unset) \u2014 the download-cache path refuses to arm, and a file already at the default cache path is remote-channel input that does NOT arm without a pinned digest either; to supply a database under operator authority, configure GEOIP_DB_PATH explicitly"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "geoip: GEO_BLOCK_COUNTRIES is configured but non-enforcing without a valid database \u2014 supply a validated database at the path above or unset GEO_BLOCK_COUNTRIES to acknowledge the gap"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-cache-valid-pinned": {
+      "exit": 0,
+      "events": [
+        [
+          "INFO",
+          "geoip: cached database file present and matching the pinned digest"
+        ],
+        [
+          "INFO",
+          "geoip: country resolution armed"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-cache-wrong-pin": {
+      "exit": 0,
+      "events": [
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "geo-cache-malformed-pinned": {
+      "exit": 0,
+      "events": [
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "credential-split-and-partition-create": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: passed"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "partition": true,
+        "credentials": [
+          [
+            "owner",
+            "postgres",
+            "gofree-boot-owner"
+          ],
+          [
+            "request",
+            "setjoin_app",
+            "gofree-boot-request"
+          ],
+          [
+            "worker",
+            "postgres",
+            "gofree-boot-worker"
+          ]
+        ],
+        "partition_owner": "postgres"
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "partition-ddl-denied-go-warns": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: passed"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "partition": false,
+        "credentials": [
+          [
+            "owner",
+            "setjoin_app",
+            "gofree-boot-owner"
+          ],
+          [
+            "request",
+            "setjoin_app",
+            "gofree-boot-request"
+          ],
+          [
+            "worker",
+            "postgres",
+            "gofree-boot-worker"
+          ]
+        ],
+        "partition_owner": null
+      },
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "upgrade-flag-repair-and-repeat": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ],
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "flags": true,
+        "unchanged": true
+      },
+      "file": {
+        "mode": 384,
+        "idempotent": true,
+        "content": "operator content\n"
+      },
+      "secrets": {
+        "ad_sync_password_enc": "connector-plain",
+        "assist.api_key": "assist-plain",
+        "ldap_sync_boot_enc": "ldap-plain"
+      }
+    },
+    "secret-file-repeat-keeps-generated-keys": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ],
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "idempotent": true,
+        "content": "generated"
+      }
+    },
+    "worker-pool-invalid": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "worker database pool failed"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "owner-pool-invalid": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "owner database pool failed"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "request-pool-invalid": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "ERROR",
+          "database pool failed"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "s3-constructor-invalid-path": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "ERROR",
+          "object storage client init failed"
+        ]
+      ],
+      "storage": [],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "s3-discovered-region": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: active"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": "",
+          "region": "eu-west-1"
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": "",
+          "region": "eu-west-1"
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": "",
+          "region": "eu-west-1"
+        },
+        {
+          "method": "PUT",
+          "path": "/boot-bucket",
+          "operation": "object-lock",
+          "lock": "",
+          "body": {
+            "ObjectLockEnabled": "Enabled",
+            "Mode": "COMPLIANCE",
+            "Days": "2557"
+          },
+          "region": "eu-west-1"
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    },
+    "generated-file-key-reload-refuses-old-envelopes": {
+      "exit": 1,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ],
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "ERROR",
+          "identity connector secret startup validation failed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {
+        "format": "setjoin-config-secret",
+        "encrypted": true
+      },
+      "file": {
+        "mode": 384,
+        "idempotent": true,
+        "content": "generated"
+      }
+    },
+    "http-loopback-storage-endpoint": {
+      "exit": 0,
+      "events": [
+        [
+          "WARN",
+          "geoip: operator-provided database accepted without a digest pin (GEOIP_DB_SHA256 unset) \u2014 structural validation only, on the operator's own authority (residual risk recorded)"
+        ],
+        [
+          "ERROR",
+          "geoip: database unavailable \u2014 country resolution cannot arm (geo-block and country conditional-access conditions will not fire)"
+        ],
+        [
+          "ERROR",
+          "geoip: country resolution NOT armed \u2014 GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire"
+        ],
+        [
+          "INFO",
+          "database schema version verified"
+        ],
+        [
+          "INFO",
+          "native-RLS boot check: runtime is a superuser identity \u2014 FORCE is inert (flip not live), skipping"
+        ],
+        [
+          "INFO",
+          "monthly partitions ready (current + next month, catalog-derived)"
+        ],
+        [
+          "INFO",
+          "database startup recovery completed"
+        ],
+        [
+          "INFO",
+          "MinIO startup check passed"
+        ],
+        [
+          "INFO",
+          "WORM immutability: disabled (WORM_MODE not set)"
+        ],
+        [
+          "INFO",
+          "legacy identity connector secrets encrypted at rest"
+        ],
+        [
+          "INFO",
+          "server boot checks completed"
+        ]
+      ],
+      "storage": [
+        {
+          "method": "GET",
+          "path": "/boot-bucket",
+          "operation": "uploads",
+          "lock": "",
+          "body": ""
+        },
+        {
+          "method": "HEAD",
+          "path": "/boot-bucket",
+          "operation": "bucket",
+          "lock": "",
+          "body": ""
+        }
+      ],
+      "database": {},
+      "file": {
+        "mode": 384,
+        "content": "operator content\n"
+      }
+    }
+  },
+  "recordings": [
+    {
+      "go_source": "0ac23390607707e7efc2d54ebaf9e10acf50486c",
+      "cases": [
+        "worm-bucket-probe-denied"
+      ]
+    },
+    {
+      "go_source": "0ac23390607707e7efc2d54ebaf9e10acf50486c",
+      "cases": [
+        "worm-policy-denied"
+      ]
+    },
+    {
+      "go_source": "0ac23390607707e7efc2d54ebaf9e10acf50486c",
+      "cases": [
+        "secret-symlink"
+      ]
+    },
+    {
+      "go_source": "0ac23390607707e7efc2d54ebaf9e10acf50486c",
+      "cases": [
+        "security-seed-missing"
+      ]
+    },
+    {
+      "go_source": "0ac23390607707e7efc2d54ebaf9e10acf50486c",
+      "cases": [
+        "legacy-secret-upgrade"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "schema-absent",
+        "rls-disabled",
+        "partition-missing",
+        "worm-bucket-probe-denied",
+        "worm-policy-denied",
+        "secret-symlink",
+        "security-seed-missing",
+        "legacy-secret-upgrade",
+        "schema-behind",
+        "schema-probe-fault",
+        "schema-newer-allowed",
+        "rls-owned-forced",
+        "recovery-function-missing",
+        "recovery-no-admin",
+        "stale-list-denied",
+        "minio-probe-denied",
+        "minio-create-denied",
+        "minio-health-write-fault",
+        "worm-create-denied",
+        "worm-invalid-mode",
+        "worm-zero-retention",
+        "worm-first-boot",
+        "stale-upload-abort",
+        "stale-abort-denied",
+        "stale-and-fresh-same-key",
+        "secret-directory",
+        "secret-empty-wide",
+        "secret-content-wide",
+        "secret-create",
+        "secret-empty-private",
+        "toggle-table-missing",
+        "toggle-registry-state-missing",
+        "connector-envelope-tampered",
+        "named-envelope-tampered",
+        "upgrade-write-fault",
+        "upgrade-key-unavailable",
+        "secret-missing-deployment-id",
+        "secret-hostile-mmdb-pin-mismatch"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "schema-absent",
+        "rls-disabled",
+        "partition-missing",
+        "worm-bucket-probe-denied",
+        "worm-policy-denied",
+        "secret-symlink",
+        "security-seed-missing",
+        "legacy-secret-upgrade",
+        "schema-behind",
+        "schema-probe-fault",
+        "schema-newer-allowed",
+        "rls-owned-forced",
+        "recovery-function-missing",
+        "recovery-no-admin",
+        "stale-list-denied",
+        "minio-probe-denied",
+        "minio-create-denied",
+        "minio-health-write-fault",
+        "worm-create-denied",
+        "worm-invalid-mode",
+        "worm-zero-retention",
+        "worm-first-boot",
+        "stale-upload-abort",
+        "stale-abort-denied",
+        "stale-and-fresh-same-key",
+        "secret-directory",
+        "secret-empty-wide",
+        "secret-content-wide",
+        "secret-create",
+        "secret-empty-private",
+        "toggle-table-missing",
+        "toggle-registry-state-missing",
+        "connector-envelope-tampered",
+        "named-envelope-tampered",
+        "upgrade-write-fault",
+        "upgrade-key-unavailable",
+        "secret-missing-deployment-id",
+        "secret-hostile-mmdb-pin-mismatch",
+        "geo-operator-valid-unpinned",
+        "geo-operator-valid-pinned",
+        "geo-operator-wrong-pin",
+        "geo-operator-malformed-pinned",
+        "geo-country-block-unarmed",
+        "geo-cache-unpinned-valid",
+        "geo-cache-valid-pinned",
+        "geo-cache-wrong-pin",
+        "geo-cache-malformed-pinned",
+        "credential-split-and-partition-create",
+        "partition-ddl-denied-go-warns",
+        "upgrade-flag-repair-and-repeat",
+        "secret-file-repeat-keeps-generated-keys"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "worker-pool-invalid"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "owner-pool-invalid"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "request-pool-invalid"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "s3-constructor-invalid-path"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "cases": [
+        "s3-discovered-region"
+      ]
+    },
+    {
+      "go_source": "386a8e6e22c197c4cb48ce699b7dfb0ec4374198",
+      "recorder_sha256": "c38d920fcb27eef462579743653fe8516627185108650f8f235195b800a9ff31",
+      "cases_sha256": "548c27014b8ae36b02067f1f1061b1270a088b2a2ac07d25d4457bdd36a01d43",
+      "harness_sha256": "811fa81ea05d5c870268eb7dd333abfa272143d64c4e986611d2434fb0dc5b0a",
+      "cases": [
+        "generated-file-key-reload-refuses-old-envelopes"
+      ]
+    },
+    {
+      "go_source": "d24e64f8760cf735cefb46c02f7bf41ddc4138e0",
+      "recorder_sha256": "23927c9dbd4074b9f3883e66a7466f5c0b23b1bf410e4d11d071c666486fc1fa",
+      "cases_sha256": "c01741574ef6b6e7de86b6b24d3eab6ff35b9294b5bca29ff54a2789203a81a5",
+      "harness_sha256": "6e1e93ae06612cb98e9bc44f51037a16259012a3c30ef0327fd4dbacafbc86a7",
+      "cases": [
+        "http-loopback-storage-endpoint"
+      ]
+    },
+    {
+      "go_source": "d24e64f8760cf735cefb46c02f7bf41ddc4138e0",
+      "recorder_sha256": "23927c9dbd4074b9f3883e66a7466f5c0b23b1bf410e4d11d071c666486fc1fa",
+      "cases_sha256": "c01741574ef6b6e7de86b6b24d3eab6ff35b9294b5bca29ff54a2789203a81a5",
+      "harness_sha256": "6e1e93ae06612cb98e9bc44f51037a16259012a3c30ef0327fd4dbacafbc86a7",
+      "cases": [
+        "schema-absent",
+        "rls-disabled",
+        "partition-missing",
+        "worm-bucket-probe-denied",
+        "worm-policy-denied",
+        "secret-symlink",
+        "security-seed-missing",
+        "legacy-secret-upgrade",
+        "schema-behind",
+        "schema-probe-fault",
+        "schema-newer-allowed",
+        "rls-owned-forced",
+        "recovery-function-missing",
+        "recovery-no-admin",
+        "stale-list-denied",
+        "minio-probe-denied",
+        "minio-create-denied",
+        "minio-health-write-fault",
+        "worm-create-denied",
+        "worm-invalid-mode",
+        "worm-zero-retention",
+        "worm-first-boot",
+        "stale-upload-abort",
+        "stale-abort-denied",
+        "stale-and-fresh-same-key",
+        "secret-directory",
+        "secret-empty-wide",
+        "secret-content-wide",
+        "secret-create",
+        "secret-empty-private",
+        "toggle-table-missing",
+        "toggle-registry-state-missing",
+        "connector-envelope-tampered",
+        "named-envelope-tampered",
+        "upgrade-write-fault",
+        "upgrade-key-unavailable",
+        "secret-missing-deployment-id",
+        "secret-hostile-mmdb-pin-mismatch",
+        "geo-operator-valid-unpinned",
+        "geo-operator-valid-pinned",
+        "geo-operator-wrong-pin",
+        "geo-operator-malformed-pinned",
+        "geo-country-block-unarmed",
+        "geo-cache-unpinned-valid",
+        "geo-cache-valid-pinned",
+        "geo-cache-wrong-pin",
+        "geo-cache-malformed-pinned",
+        "credential-split-and-partition-create",
+        "partition-ddl-denied-go-warns",
+        "upgrade-flag-repair-and-repeat",
+        "secret-file-repeat-keeps-generated-keys",
+        "worker-pool-invalid",
+        "owner-pool-invalid",
+        "request-pool-invalid",
+        "s3-constructor-invalid-path",
+        "s3-discovered-region",
+        "generated-file-key-reload-refuses-old-envelopes",
+        "http-loopback-storage-endpoint"
+      ]
+    }
+  ]
+}

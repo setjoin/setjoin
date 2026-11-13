@@ -1,0 +1,56 @@
+-- pgTAP: release_quarantine_tags.sql — the atomic inverse of quarantine_message
+-- (arch A8). Proves the Quarantined→original swap restores the location tag with
+-- an FK-correct received_at (the admin path's former now() silently violated the
+-- composite FK, leaving the message with NO location tag) and is R3-scoped.
+--
+-- Divergent ids via mk_account (ADR-003): the MAILBOX id is the account slot.
+BEGIN;
+SELECT plan(5);
+
+SELECT mk_account('rlsq')    AS mb \gset
+SELECT mk_account('rlsqfgn') AS fmb \gset
+
+-- Quarantined tag (quarantine exclusive-group) in each mailbox.
+INSERT INTO tags (mailbox_id, name, tag_type, exclusive_group)
+  VALUES (:mb,  'Quarantined', 'system', 'quarantine'),
+         (:fmb, 'Quarantined', 'system', 'quarantine');
+
+-- A message in Inbox, then quarantined (records original_tag='Inbox').
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8901, :mb, get_tag_id('Inbox', :mb), '<r1@rlsq.test>', 'Msg', 'x@ext.com', 100, 'thr-8901', 'raw-8901', now(), FALSE);
+SELECT tag_message(8901, (SELECT received_at FROM messages WHERE id = 8901), 'Inbox', :mb, 'deliver', TRUE);
+SELECT quarantine_message(8901, :mb, 'test', 'virus', NULL, FALSE);
+
+-- Test 1: release runs.
+SELECT lives_ok(
+  format($$ SELECT release_quarantine_tags(8901, %s, 'Inbox', FALSE) $$, :mb),
+  'release_quarantine_tags succeeds (Quarantined -> Inbox)');
+
+-- Test 2: no quarantine-group tag remains.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8901 AND t.exclusive_group = 'quarantine'),
+  0, 'no quarantine tag after release');
+
+-- Test 3 (THE FK REGRESSION): the original location tag is restored — exactly one.
+-- If the reducer used now() for received_at (the old admin bug), the composite FK
+-- would reject the INSERT and this count would be 0.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8901 AND t.exclusive_group = 'location'),
+  1, 'exactly one location tag after release (original restored with FK-correct received_at)');
+
+-- Test 4: and it is the recorded original (Inbox).
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8901 AND t.exclusive_group = 'location' LIMIT 1),
+  'Inbox', 'the restored location tag is the recorded original (Inbox)');
+
+-- Test 5 (R3): a foreign mailbox cannot resolve the message → BZ074, nothing mutated.
+SELECT throws_ok(
+  format($$ SELECT release_quarantine_tags(8901, %s, 'Inbox', FALSE) $$, :fmb),
+  'BZ074', NULL,
+  'release from a foreign mailbox raises BZ074 (R3 no-op)');
+
+SELECT * FROM finish();
+ROLLBACK;

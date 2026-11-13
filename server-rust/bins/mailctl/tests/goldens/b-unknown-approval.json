@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown approval action: unsupported (try: list, create, update, delete, reorder, export, apply, diff, audit)\n",
+  "exit": 1
+}

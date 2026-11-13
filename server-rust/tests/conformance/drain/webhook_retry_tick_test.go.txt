@@ -1,0 +1,50 @@
+// Recording-only overlay (#302): runs frozen Go's real webhook retry worker for one tick.
+// StartRetryWorker starts the delivery executor and completes the first residue claim
+// before returning; the test then waits for every admitted delivery to settle. The fake
+// receivers live on loopback, which the production SSRF client refuses, so the client
+// is replaced by the same client without the dial guard (redirects still not followed).
+package webhook
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/cryptokey"
+	"setjoin.com/shared/pgxutil"
+	wh "setjoin.com/shared/webhook"
+)
+
+func goFreeWaitIdle(d *Dispatcher) {
+	deadline := time.Now().Add(30 * time.Second)
+	for len(d.admission) > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func goFreeDispatcher(t *testing.T, ctx context.Context) *Dispatcher {
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec := wh.NewSecretCodec([]byte(os.Getenv("GOFREE_WEBHOOK_MASTER")), cryptokey.ProfileStandard)
+	d := NewDispatcher(pool, slog.Default(), WithSecretCodec(codec))
+	d.httpClient = &http.Client{
+		Timeout:       deliveryTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return d
+}
+
+func TestGoFreeWebhookRetryTick(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := goFreeDispatcher(t, ctx)
+	d.StartRetryWorker(ctx)
+	goFreeWaitIdle(d)
+	cancel()
+	d.executorWG.Wait()
+}

@@ -1,0 +1,110 @@
+# authserver/config.yaml — SetJoin Auth Server configuration.
+# All values shown are defaults. Omit any key to use the default.
+# Secrets (JWT_SECRET, keys, passwords) MUST come from env vars — do not put them here.
+
+listen:
+  addr: ":8443"
+  # Explicit listen.addr (here or LISTEN_ADDR) always wins over AUTHSERVER_URL
+  # derivation. Startup is REFUSED when the effective bind is wildcard or
+  # non-loopback while AUTHSERVER_URL is absent/malformed — bind loopback or
+  # configure a valid AUTHSERVER_URL.
+hostname: "localhost"
+
+# TLS (optional — set both to enable TLS)
+tls:
+  cert: ""          # TLS_CERT — PEM path
+  key: ""           # TLS_KEY — PEM path
+
+db:
+  dsn: ""           # DB_DSN — PgBouncer pool DSN (REQUIRED)
+  direct_dsn: ""    # DB_DIRECT_DSN — direct PG connection for NOTIFY (defaults to DB_DSN)
+  max_conns: 25     # DB_MAX_CONNS — pgxpool MaxConns
+  encryption_key: "" # DB_ENCRYPTION_KEY — 32-char AES key for encrypted PG data
+
+# JWT (REQUIRED: JWT_SECRET must be set via env var, never in YAML)
+jwt:
+  expiry: "1h"            # JWT_EXPIRY — access token TTL
+  refresh_expiry: "720h"  # JWT_REFRESH_EXPIRY — refresh token TTL
+  issuer: "mailserver"    # JWT_ISSUER — must match gateway's expected issuer
+
+# SM2 national cryptography (required when CRYPTO_ALGORITHM_PROFILE=smx)
+sm2:
+  private_key_file: ""    # SM2_PRIVATE_KEY_FILE — PEM path for SM2 signing key
+
+crypto:
+  algorithm_profile: "standard"  # CRYPTO_ALGORITHM_PROFILE: standard | smx | hybrid
+
+# CAPTCHA token signing key (defaults to JWT_SECRET if not set)
+captcha:
+  secret: ""
+
+webauthn:
+  rp_id: "localhost"              # WEBAUTHN_RP_ID
+  rp_name: "SetJoin"              # WEBAUTHN_RP_NAME
+  rp_origin: "http://localhost:8080"  # WEBAUTHN_RP_ORIGIN
+
+# Shared secret between gateway and auth server
+internal:
+  api_key: ""
+
+# Trust boundary for forwarded headers (X-Forwarded-Proto -> cookie Secure).
+# Default: loopback peers only. AUTH_TRUST_PROXY=true trusts ANY peer.
+auth:
+  trust_proxy: false            # AUTH_TRUST_PROXY — blanket trust for any peer
+  trusted_proxy_cidrs: ""       # AUTH_TRUSTED_PROXY_CIDRS — comma-separated CIDR allowlist
+                                # (e.g. "10.0.8.0/24,fd7a::/48"). Bare IPs need /32 or /128;
+                                # 0.0.0.0/0 and ::/0 are refused at startup.
+
+# Threat detection
+geoip_db:
+  path: "/etc/mail/GeoLite2-City.mmdb"  # GEOIP_DB_PATH
+
+geo:
+  block_countries: ""   # GEO_BLOCK_COUNTRIES — comma-separated (e.g. "CN,RU,KP")
+
+threat:
+  spray_window_secs: 300    # THREAT_SPRAY_WINDOW_SECS
+  spray_max_users: 5        # THREAT_SPRAY_MAX_USERS
+  spray_lockout_mins: 30    # THREAT_SPRAY_LOCKOUT_MINS
+  captcha_window_mins: 5    # THREAT_CAPTCHA_WINDOW_MINS
+  captcha_threshold: 3      # THREAT_CAPTCHA_THRESHOLD
+  tarpit_window_mins: 15    # THREAT_TARPIT_WINDOW_MINS
+  tarpit_threshold: 3       # THREAT_TARPIT_THRESHOLD
+  rate_limit_per_min: 20    # THREAT_RATE_LIMIT_PER_MIN
+
+# Feature toggles
+kerberos:
+  enabled: false     # KERBEROS_ENABLED
+saml:
+  enabled: false     # SAML_ENABLED
+  cert_file: ""      # SAML_CERT_FILE — SP signing cert (PEM)
+  key_file: ""       # SAML_KEY_FILE — SP signing key (PEM)
+oidc:
+  enabled: false     # OIDC_ENABLED
+oidc_provider:
+  enabled: false     # OIDC_PROVIDER_ENABLED
+jit:
+  enabled: false     # JIT_ENABLED — just-in-time user provisioning
+ad_sync:
+  enabled: false     # AD_SYNC_ENABLED
+  domain: ""         # AD_SYNC_DOMAIN
+  bind_dn: ""        # AD_SYNC_BIND_DN
+  password_enc: ""   # AD_SYNC_PASSWORD_ENC — AES-256-GCM encrypted
+  interval_min: 15   # AD_SYNC_INTERVAL_MIN
+  ldap_host: ""      # AD_SYNC_LDAP_HOST
+
+threat_feed:
+  enabled: true      # THREAT_FEED_ENABLED
+geo_block:
+  enabled: true      # GEO_BLOCK_ENABLED
+spray_detect:
+  enabled: true      # SPRAY_DETECT_ENABLED
+captcha:
+  enabled: true      # CAPTCHA_ENABLED
+tarpit:
+  enabled: true      # TARPIT_ENABLED
+
+# Push MFA (Web Push VAPID)
+vapid:
+  private_key: ""                     # VAPID_PRIVATE_KEY
+  subject: "mailto:admin@localhost"    # VAPID_SUBJECT

@@ -1,0 +1,57 @@
+-- device_enroll_transition.pg: pgTAP for device_enroll_transition reducer (CA-2, BZ095).
+-- Tests: legal transitions, metadata stamps, illegal transition raises BZ095,
+--        revoke fires conditional_access NOTIFY via ca_notify_policy_change,
+--        revoke ROTATES the stored hmac_secret (med-shard2-006).
+BEGIN;
+SELECT plan(8);
+SET app.capture_notify = 'on';
+
+-- Fixture: domain + user + an unenrolled device.
+INSERT INTO domains (name, is_local) VALUES ('enroll.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 90001, 'enroll_actor',
+    (SELECT id FROM domains WHERE name = 'enroll.test'),
+    'dev@enroll.test', 'Enroll Actor', 'x'
+  WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = 90001);
+INSERT INTO devices (id, user_id, fingerprint, hmac_secret)
+  VALUES (90001, 90001, repeat('a',40), 'deadbeef')
+  ON CONFLICT (id) DO NOTHING;
+
+-- 1) unenrolled -> enrolled (legal)
+SELECT is(
+  (device_enroll_transition(90001, 90001, 'enrolled', 'admin enroll') ->> 'to_state'),
+  'enrolled', 'unenrolled -> enrolled');
+
+-- 2) enrolled -> approved (legal); sets approved_by/approved_at
+SELECT lives_ok(
+  $$ SELECT device_enroll_transition(90001, 90001, 'approved', 'admin approve') $$,
+  'enrolled -> approved');
+SELECT is((SELECT approved_by FROM devices WHERE id=90001), 90001::bigint,
+  'approved_by stamped');
+
+-- 3) illegal: approved -> enrolled raises BZ095
+SELECT throws_ok(
+  $$ SELECT device_enroll_transition(90001, 90001, 'enrolled', 'bad') $$,
+  'BZ095', NULL, 'illegal transition raises BZ095');
+
+-- 4) approved -> revoked sets revoked_at + fires conditional_access NOTIFY
+SELECT lives_ok(
+  $$ SELECT device_enroll_transition(90001, 90001, 'revoked', 'admin revoke') $$,
+  'approved -> revoked');
+SELECT is(
+  (SELECT channel FROM _test_notify_log ORDER BY seq DESC LIMIT 1),
+  'conditional_access', 'revoke fires conditional_access NOTIFY');
+
+-- 5) revoke ROTATES the stored hmac_secret (med-shard2-006): the pre-revoke
+--    secret ('deadbeef') must no longer be what the row holds, and the new
+--    value must be a fresh 64-char hex secret.
+SELECT isnt(
+  (SELECT hmac_secret FROM devices WHERE id = 90001),
+  'deadbeef', 'revoke rotates the stored hmac_secret away from the old value');
+SELECT ok(
+  (SELECT hmac_secret FROM devices WHERE id = 90001) ~* '^[0-9a-f]{64}$',
+  'rotated secret is a fresh 32-byte hex value');
+
+SELECT * FROM finish();
+ROLLBACK;

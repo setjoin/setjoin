@@ -1,0 +1,105 @@
+{
+  "case": "cert-strict-duplicate-policies-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_cache_dir",
+            "value": "<tlsdir>"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "http-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": "a.test, b.test"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": "ops@a.test"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_dns_provider",
+            "value": "cloudflare"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": []
+      },
+      "before": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_cache_dir",
+            "value": "<tlsdir>"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "http-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": "a.test, b.test"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": "ops@a.test"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_dns_provider",
+            "value": "cloudflare"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "GET /admin/tls/status"
+}

@@ -1,0 +1,21 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"email\":\"admin@example.test\",\"password\":\"synthetic-password\"}"
+    }
+  ],
+  "stdout": "Email: Password: \nLogged into http://127.0.0.1:$PORT\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    ".mailctl/config.yaml": {
+      "body": "server: http://127.0.0.1:$PORT\nauth:\n    mode: jwt\n    token: synthetic-access\n    refresh_token: synthetic-refresh\n",
+      "mode": 384
+    }
+  }
+}

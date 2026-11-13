@@ -1,0 +1,204 @@
+{
+  "schema": "setjoin.sec.deep-security-remediation-transitions/v2",
+  "contract": "setjoin.sec.security-program-remediation/v1",
+  "canonicalController": "scripts/verify-security-program.sh",
+  "frozenOn": "2026-09-22",
+  "authority": {
+    "accepted": [
+      "service_role"
+    ],
+    "violationCode": "E_SECURITY_PROGRAM_APPROVAL_REQUIRED",
+    "versionHeader": "contract",
+    "unknownVersionCode": "E_SECURITY_PROGRAM_SCHEMA_UNSUPPORTED"
+  },
+  "enums": {
+    "disposition": [
+      "fixed",
+      "no_change",
+      "blocked"
+    ],
+    "localStatus": [
+      "unmapped",
+      "traced",
+      "fix_required",
+      "no_change_candidate",
+      "blocked",
+      "patched",
+      "proof_patched"
+    ],
+    "verificationStatus": [
+      "none",
+      "receipt_bound",
+      "derived_green"
+    ],
+    "releaseStatus": [
+      "not_ready",
+      "external_evidence_open",
+      "release_ready"
+    ]
+  },
+  "operations": [
+    {
+      "op": "start",
+      "readonly": false,
+      "opensAttempt": true,
+      "from": {
+        "disposition": "blocked",
+        "verificationStatus": "none"
+      },
+      "to": {},
+      "localRewrites": {
+        "unmapped": "traced"
+      },
+      "requires": [
+        "attemptId",
+        "runId"
+      ],
+      "attemptState": "active"
+    },
+    {
+      "op": "complete",
+      "readonly": false,
+      "requiresActiveAttempt": true,
+      "from": {
+        "disposition": "blocked",
+        "verificationStatus": "none"
+      },
+      "to": {
+        "localStatus": "proof_patched",
+        "verificationStatus": "receipt_bound",
+        "releaseStatus": "not_ready"
+      },
+      "outcomes": [
+        "fixed",
+        "no_change"
+      ],
+      "outcomeFrom": {
+        "no_change": {
+          "localStatus": "no_change_candidate"
+        }
+      },
+      "requires": [
+        "attemptId",
+        "runId",
+        "closurePatch",
+        "tests",
+        "evidenceManifest"
+      ],
+      "receiptRequires": [
+        "evidenceSha256"
+      ],
+      "attemptState": "completed"
+    },
+    {
+      "op": "reject",
+      "readonly": false,
+      "requiresActiveAttempt": true,
+      "from": {
+        "disposition": "blocked",
+        "verificationStatus": "none"
+      },
+      "to": {
+        "disposition": "blocked",
+        "localStatus": "blocked",
+        "verificationStatus": "none",
+        "releaseStatus": "not_ready"
+      },
+      "requires": [
+        "attemptId",
+        "runId",
+        "reason"
+      ],
+      "attemptState": "rejected"
+    },
+    {
+      "op": "status",
+      "readonly": true,
+      "from": {},
+      "to": {}
+    }
+  ],
+  "errorCatalog": [
+    {
+      "code": "E_SECURITY_PROGRAM_USAGE",
+      "problem": "The command grammar is invalid",
+      "cause": "Arguments do not match a supported command",
+      "fix": "Run --help"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_APPROVAL_REQUIRED",
+      "problem": "The requested operation lacks explicit approval",
+      "cause": "No matching immutable approval is bound to the attempt",
+      "fix": "Obtain a reviewed approval before retrying"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_ATTEMPT_UNKNOWN",
+      "problem": "The attempt is unavailable for this action",
+      "cause": "The requested ID is not the current verified attempt in the required state",
+      "fix": "Run coverage resume and use its exact next argv"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_EVIDENCE_INVALID",
+      "problem": "Retained evidence failed validation",
+      "cause": "A hash, binding, state transition, or envelope is inconsistent",
+      "fix": "Quarantine the affected artifact and reconcile from retained authority"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_SCHEMA_UNSUPPORTED",
+      "problem": "An evidence schema is unsupported",
+      "cause": "The reader cannot safely interpret the retained version",
+      "fix": "Run coverage migrate --check"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_PREREQUISITE_BLOCKED",
+      "problem": "The selected resume branch has an unmet prerequisite",
+      "cause": "Persisted authority is readable but not eligible to advance",
+      "fix": "Run the exact read-only next command and resolve the reported prerequisite"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_PUBLICATION_BUSY",
+      "problem": "Canonical publication is already locked",
+      "cause": "Another publisher or retained crash lock owns the operation",
+      "fix": "Reconcile the publication lock before retrying"
+    },
+    {
+      "code": "E_SECURITY_PROGRAM_INTERNAL",
+      "problem": "The control plane failed closed",
+      "cause": "An unexpected internal error prevented a trustworthy result",
+      "fix": "Run the offline doctor and inspect the stable diagnostic code"
+    }
+  ],
+  "ledgerBinding": {
+    "ownedRowFields": [
+      "disposition",
+      "localStatus",
+      "verificationStatus",
+      "releaseStatus",
+      "blockedReason",
+      "closurePatch",
+      "tests",
+      "evidence.verification",
+      "evidence.manifest",
+      "evidence.sourceFingerprint",
+      "evidence.verdict",
+      "remediation",
+      "remediationTransitions"
+    ],
+    "ownedCounts": [
+      "fixed",
+      "no_change",
+      "blocked",
+      "locallyRemediated"
+    ],
+    "verificationStatement": {
+      "zeroReceiptsContains": "No sealed occurrence carries closure verification",
+      "withReceipts": "Closure verification is receipt-bound per sealed occurrence: remediationTransitions and published evidence manifests own the receipts; nightly deep-run receipts remain intake input only."
+    }
+  },
+  "publication": {
+    "mode": "atomic-two-target-journal",
+    "evidenceSchema": "setjoin.sec.security-program-remediation-evidence/v1",
+    "busyCode": "E_SECURITY_PROGRAM_PUBLICATION_BUSY",
+    "hashBinding": "the journal binds evidence sha256 and ledger-after sha256 into one atomic commit; Recover replays deterministically"
+  }
+}

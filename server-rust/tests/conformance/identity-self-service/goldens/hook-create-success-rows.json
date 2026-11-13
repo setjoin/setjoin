@@ -1,0 +1,120 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "app_passwords": [],
+        "webhook_subscriptions": [
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "event_types": [
+              "mail.received"
+            ],
+            "id": "<hook-a>",
+            "is_active": true,
+            "max_retries": 12,
+            "prev_secret": null,
+            "prev_secret_enc": null,
+            "prev_secret_key_id": null,
+            "retry_enabled": true,
+            "scope": "self",
+            "secret": "fixture-secret-not-returned",
+            "secret_enc": null,
+            "secret_key_id": null,
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "url": "https://example.net/hook-a",
+            "user_id": "<a>"
+          },
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "event_types": [
+              "mail.received"
+            ],
+            "id": "<hook-b>",
+            "is_active": true,
+            "max_retries": 12,
+            "prev_secret": null,
+            "prev_secret_enc": null,
+            "prev_secret_key_id": null,
+            "retry_enabled": true,
+            "scope": "self",
+            "secret": "fixture-secret-not-returned",
+            "secret_enc": null,
+            "secret_key_id": null,
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "url": "https://example.net/hook-b",
+            "user_id": "<b>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "event_types": [
+              "mail.received"
+            ],
+            "id": "<hook-created>",
+            "is_active": true,
+            "max_retries": 12,
+            "prev_secret": null,
+            "prev_secret_enc": null,
+            "prev_secret_key_id": null,
+            "retry_enabled": true,
+            "scope": "self",
+            "secret": null,
+            "secret_enc": "<validated-hook-envelope>",
+            "secret_key_id": "v1",
+            "updated_at": "<timestamp>",
+            "url": "https://example.net/new-hook",
+            "user_id": "<a>"
+          }
+        ]
+      },
+      "before": {
+        "app_passwords": [],
+        "webhook_subscriptions": [
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "event_types": [
+              "mail.received"
+            ],
+            "id": "<hook-a>",
+            "is_active": true,
+            "max_retries": 12,
+            "prev_secret": null,
+            "prev_secret_enc": null,
+            "prev_secret_key_id": null,
+            "retry_enabled": true,
+            "scope": "self",
+            "secret": "fixture-secret-not-returned",
+            "secret_enc": null,
+            "secret_key_id": null,
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "url": "https://example.net/hook-a",
+            "user_id": "<a>"
+          },
+          {
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "event_types": [
+              "mail.received"
+            ],
+            "id": "<hook-b>",
+            "is_active": true,
+            "max_retries": 12,
+            "prev_secret": null,
+            "prev_secret_enc": null,
+            "prev_secret_key_id": null,
+            "retry_enabled": true,
+            "scope": "self",
+            "secret": "fixture-secret-not-returned",
+            "secret_enc": null,
+            "secret_key_id": null,
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "url": "https://example.net/hook-b",
+            "user_id": "<b>"
+          }
+        ]
+      }
+    }
+  ],
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "route": "POST /auth/me/webhooks"
+}

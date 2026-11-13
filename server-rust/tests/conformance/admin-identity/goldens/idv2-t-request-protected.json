@@ -1,0 +1,284 @@
+{
+  "case": "protected",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "approval_created",
+        "after_state": {
+          "consumer_type": "identity.transition",
+          "subject": "Protected identity transition"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<target_id>",
+        "target_type": "approval_request",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "approvals": [
+            {
+              "approver_ref": "<other>",
+              "comment": null,
+              "decided_by": null,
+              "requester_user_id": "<admin>",
+              "status": "pending"
+            }
+          ],
+          "challenges": [
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest3>",
+              "generation": 2,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000013",
+              "invalidated": false
+            }
+          ],
+          "effects": [],
+          "elevations": [
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": true,
+              "factor_digest": "<digest4>",
+              "generation": 2,
+              "idempotency_key": "95400000-0000-4000-8000-000000000513",
+              "invalidated": false,
+              "session_digest": "<digest5>"
+            }
+          ],
+          "events": [
+            {
+              "action": "transition_previewed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "expiresAt": "<timestamp>",
+                "previewVersion": 1,
+                "protected": true
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            },
+            {
+              "action": "transition_approval_requested",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "approvalRequestId": "<approvalRequestId>",
+                "transitionGeneration": 3
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            }
+          ],
+          "steps": [
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 1,
+              "stage": "preview",
+              "state": "completed",
+              "user_id": "<target>"
+            },
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 2,
+              "stage": "request",
+              "state": "completed",
+              "user_id": "<target>"
+            }
+          ],
+          "transitions": [
+            {
+              "actor_user_id": "<admin>",
+              "approver_elevation": false,
+              "authorized_generation": null,
+              "boundary": "not_committed",
+              "committed": false,
+              "completed": false,
+              "decided_by": null,
+              "execution_elevation": false,
+              "failure": null,
+              "generation": 3,
+              "has_approval": true,
+              "has_rollback_approval": false,
+              "kind": "directory_to_local",
+              "preview_digest": "<digest3>",
+              "protected": true,
+              "reason": "admin8 reason <&>",
+              "requester_elevation": true,
+              "rollback_digest": null,
+              "rollback_execution_elevation": false,
+              "rollback_reason": null,
+              "rollback_requester_elevation": false,
+              "state": "awaiting_approval",
+              "user_id": "<target>"
+            }
+          ]
+        },
+        "before": {
+          "approvals": [],
+          "challenges": [
+            {
+              "actor_user_id": "<admin>",
+              "completed": true,
+              "digest": "<digest3>",
+              "generation": 2,
+              "has_elevation": true,
+              "idempotency_key": "95400000-0000-4000-8000-000000000013",
+              "invalidated": false
+            }
+          ],
+          "effects": [],
+          "elevations": [
+            {
+              "acr": "aal2",
+              "actor_user_id": "<admin>",
+              "amr": [
+                "mfa",
+                "otp",
+                "pwd"
+              ],
+              "consumed": false,
+              "factor_digest": "<digest4>",
+              "generation": 2,
+              "idempotency_key": "95400000-0000-4000-8000-000000000513",
+              "invalidated": false,
+              "session_digest": "<digest5>"
+            }
+          ],
+          "events": [
+            {
+              "action": "transition_previewed",
+              "actor_user_id": "<admin>",
+              "metadata": {
+                "expiresAt": "<timestamp>",
+                "previewVersion": 1,
+                "protected": true
+              },
+              "reason": "admin8 reason <&>",
+              "user_id": "<target>"
+            }
+          ],
+          "steps": [
+            {
+              "attempts": 1,
+              "error": null,
+              "ordinal": 1,
+              "stage": "preview",
+              "state": "completed",
+              "user_id": "<target>"
+            }
+          ],
+          "transitions": [
+            {
+              "actor_user_id": "<admin>",
+              "approver_elevation": false,
+              "authorized_generation": null,
+              "boundary": "not_committed",
+              "committed": false,
+              "completed": false,
+              "decided_by": null,
+              "execution_elevation": false,
+              "failure": null,
+              "generation": 2,
+              "has_approval": false,
+              "has_rollback_approval": false,
+              "kind": "directory_to_local",
+              "preview_digest": "<digest3>",
+              "protected": true,
+              "reason": "admin8 reason <&>",
+              "requester_elevation": false,
+              "rollback_digest": null,
+              "rollback_execution_elevation": false,
+              "rollback_reason": null,
+              "rollback_requester_elevation": false,
+              "state": "previewed",
+              "user_id": "<target>"
+            }
+          ]
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "approval_created",
+        "payload": {
+          "consumer_type": "identity.transition",
+          "request_id": "<request_id>"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"elevationId\":\"<uuid6>\",\"idempotencyKey\":\"95400000-0000-4000-8000-000000000001\",\"previewDigest\":\"<digest3>\",\"reason\":\"admin8 reason <&>\"}",
+      "external_path": "/api/admin/identity/v2/transitions/{id}/request",
+      "headers": [
+        "content-type",
+        "idempotency-key",
+        "x-audit-reason",
+        "if-match"
+      ],
+      "method": "POST",
+      "path": "/admin/identity/v2/transitions/{id}/request"
+    },
+    "response": {
+      "body": "{\"type\": \"directory_to_local\", \"state\": \"awaiting_approval\", \"steps\": [{\"stage\": \"preview\", \"state\": \"completed\", \"ordinal\": 1, \"retryAt\": null, \"errorCode\": null, \"startedAt\": \"<timestamp>\", \"finishedAt\": \"<timestamp>\", \"attemptCount\": 1}, {\"stage\": \"request\", \"state\": \"completed\", \"ordinal\": 2, \"retryAt\": null, \"errorCode\": null, \"startedAt\": \"<timestamp>\", \"finishedAt\": \"<timestamp>\", \"attemptCount\": 1}], \"effects\": [], \"personId\": \"<target>\", \"rollback\": {\"boundary\": \"not_committed\", \"approvedAt\": null, \"approvedBy\": null, \"requestedAt\": null, \"previewDigest\": null, \"previewExpiresAt\": null, \"approvalRequestId\": null}, \"sourceId\": \"<sourceId>\", \"createdAt\": \"<timestamp>\", \"protected\": true, \"approvedAt\": null, \"approvedBy\": null, \"committedAt\": null, \"completedAt\": null, \"failureCode\": null, \"requestedAt\": \"<timestamp>\", \"requestedBy\": \"<admin>\", \"authorizedAt\": null, \"sourceLinkId\": \"<sourceLinkId>\", \"targetLinkId\": null, \"transitionId\": \"<uuid1>\", \"correlationId\": \"<uuid2>\", \"previewDigest\": \"<digest3>\", \"previewVersion\": \"1\", \"targetSourceId\": null, \"previewExpiresAt\": \"<timestamp>\", \"approvalRequestId\": \"<approvalRequestId>\", \"transitionGeneration\": \"3\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1180"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "\"3\""
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin8-oracle"
+        ]
+      },
+      "status": 202
+    }
+  },
+  "route": "POST /admin/identity/v2/transitions/{id}/request"
+}

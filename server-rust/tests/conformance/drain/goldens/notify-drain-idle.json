@@ -1,0 +1,14 @@
+{
+  "case": "notify-drain-idle",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "notifies": {
+      "gofree-drain-a": [],
+      "gofree-drain-b": [],
+      "gofree-drain-bulk": [],
+      "gofree-drain-locked": []
+    },
+    "remaining": []
+  }
+}

@@ -1,0 +1,55 @@
+-- pgTAP test for V005 backup_restore: backup_runs + restore_jobs + the
+-- backup_run NOTIFY trigger that the ARCH-007 collapse dropped.
+
+BEGIN;
+SELECT plan(19);
+
+-- ── backup_runs table + the columns internal/backup/engine.go writes ──────────
+SELECT has_table('backup_runs');
+SELECT has_column('backup_runs', 'status');
+SELECT has_column('backup_runs', 'retention_policy');
+SELECT has_column('backup_runs', 'blob_count');
+SELECT has_column('backup_runs', 'blobs_copied');
+SELECT has_column('backup_runs', 'blobs_skipped');
+SELECT has_column('backup_runs', 'error_log');
+SELECT has_column('backup_runs', 'started_at');
+SELECT has_column('backup_runs', 'completed_at');
+SELECT has_column('backup_runs', 'manifest_timestamp'); -- V006
+SELECT col_default_is('backup_runs', 'status', 'pending');
+
+-- ── the NOTIFY trigger (the edge the collapse severed) ────────────────────────
+SELECT has_function('trg_backup_runs_notify');
+SELECT has_trigger('backup_runs', 'trg_backup_runs_insert');
+
+-- ── inserting a job row succeeds (the trigger fires pg_notify on commit) ──────
+INSERT INTO backup_runs DEFAULT VALUES;
+SELECT results_eq(
+  $$SELECT status FROM backup_runs ORDER BY id DESC LIMIT 1$$,
+  $$SELECT 'pending'::TEXT$$,
+  'a new backup_runs row defaults to pending'
+);
+
+-- ── status CHECK constraint rejects an unknown value ─────────────────────────
+SELECT throws_ok(
+  $$INSERT INTO backup_runs (status) VALUES ('bogus')$$,
+  '23514',
+  NULL,
+  'backup_runs.status CHECK rejects an unknown status'
+);
+
+-- ── restore_jobs table + its type CHECK ──────────────────────────────────────
+SELECT has_table('restore_jobs');
+SELECT has_column('restore_jobs', 'restore_type');
+SELECT throws_ok(
+  $$INSERT INTO restore_jobs (restore_type) VALUES ('partial')$$,
+  '23514',
+  NULL,
+  'restore_jobs.restore_type CHECK rejects an unknown type'
+);
+SELECT lives_ok(
+  $$INSERT INTO restore_jobs (restore_type, backup_timestamp) VALUES ('full', '2026-06-21T03:00:00Z')$$,
+  'restore_jobs accepts a valid full restore row'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

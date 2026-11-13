@@ -1,0 +1,46 @@
+{
+  "case": "control-restore-explicit-hashes",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [],
+      "primary_objects": [
+        "/mailblobs/blobs/360b991993a470ff148b2682cbe746ae87459f7276ad12df6c8dc2fa75731197"
+      ],
+      "quarantine": [],
+      "restore_jobs": [
+        {
+          "error_log": [
+            "1 restore error(s); first: blob \"../../etc/passwd\": not a canonical sha-256 hash — rejected"
+          ],
+          "status": "failed",
+          "type": "blobs"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/restore"
+    },
+    "response": {
+      "body": {
+        "errors": [
+          "blob \"../../etc/passwd\": not a canonical sha-256 hash — rejected"
+        ],
+        "restore_job_id": "<id>",
+        "restored_blobs": 1,
+        "restored_config_keys": 0,
+        "status": "completed"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /setup/restore"
+}

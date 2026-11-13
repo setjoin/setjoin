@@ -1,0 +1,112 @@
+// Peripheral DNS/provider APIs, shared by recording and replay. This is never an ACME authority.
+package acme_test
+
+import (
+ "context"
+ "crypto/sha256"
+ "crypto/subtle"
+ "encoding/hex"
+ "encoding/base64"
+ "encoding/json"
+ "encoding/xml"
+ "fmt"
+ "io"
+ "net"
+ "net/http"
+ "os"
+ "strings"
+ "sync"
+ "testing"
+ "time"
+
+ awsv4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+ "github.com/aws/aws-sdk-go-v2/aws"
+ "github.com/miekg/dns"
+)
+
+type goFreeDNS struct { Ready, Journal, PublishStarted, PublishRelease string; AllowUnsigned bool }
+func goFreeDNSServer(t *testing.T, p goFreeDNS) {
+ var mu sync.Mutex
+ var events []any
+ records := map[string][]string{"_acme-challenge.example.test.": {`"keep"`}}
+ journal := func(e any) {events=append(events,e); b,_:=json.Marshal(events); if err:=os.WriteFile(p.Journal,b,0600);err!=nil {t.Fatal(err)}}
+ value := func(v string) string {if v==`"keep"` || v=="keep" {return v}; if raw,e:=base64.RawURLEncoding.DecodeString(strings.Trim(v,`"`));e!=nil||len(raw)!=32 {return "INVALID-TXT:"+v};return strings.ReplaceAll(v,strings.Trim(v,`"`),"$CHALLENGE")}
+ httpLn,err:=net.Listen("tcp","127.0.0.1:0");if err!=nil {t.Fatal(err)}
+ handler:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+   mu.Lock();defer mu.Unlock()
+   body,_:=io.ReadAll(r.Body)
+   path:=r.URL.Path
+   if strings.HasPrefix(path,"/client/v4/") {
+     if r.Header.Get("Authorization")!="Bearer public-test-token" {http.Error(w,"auth",403);return}
+     w.Header().Set("Content-Type","application/json")
+     switch {
+     case path=="/client/v4/zones":
+       journal(map[string]any{"api":"cf","op":"zone","name":r.URL.Query().Get("name")});fmt.Fprint(w,`{"success":true,"result":[{"id":"zone-id","name":"example.test"}]}`)
+     case r.Method=="POST":
+       var b map[string]any;if json.Unmarshal(body,&b)!=nil {http.Error(w,"json",400);return};b["content"]=value(b["content"].(string));journal(map[string]any{"api":"cf","op":"present","record":b})
+       // Hold the response after publication: cancellation must still collect
+       // the returned record ID and finish cleanup before the process exits.
+       if p.PublishStarted!="" {
+         if err:=os.WriteFile(p.PublishStarted,[]byte("published"),0600);err!=nil {t.Error(err);return}
+         deadline:=time.Now().Add(30*time.Second)
+         for {if _,err:=os.Stat(p.PublishRelease);err==nil {break};if time.Now().After(deadline) {http.Error(w,"publish gate timed out",500);return};time.Sleep(10*time.Millisecond)}
+       }
+       id:="record-id";if strings.Contains(b["name"].(string),".alt.") {id+="-alt"}
+       fmt.Fprintf(w,`{"success":true,"result":{"id":%q,"type":"TXT","name":%q,"content":"fixture"}}`,id,b["name"])
+     case r.Method=="DELETE":journal(map[string]any{"api":"cf","op":"cleanup","path":path});fmt.Fprint(w,`{"success":true,"result":{"id":"record-id"}}`)
+     default:http.Error(w,"unknown CF call",400)
+     };return
+   }
+   // Independent official AWS SDK signer verifies the production request signer.
+   auth:=r.Header.Get("Authorization");stamp,err:=time.Parse("20060102T150405Z",r.Header.Get("X-Amz-Date"));if err!=nil {http.Error(w,"date",403);return}
+   check:=r.Clone(context.Background());check.Header=r.Header.Clone();check.URL.Scheme="http";check.URL.Host=r.Host
+   authParts:=strings.SplitN(auth,"SignedHeaders=",2);if len(authParts)!=2 {http.Error(w,"authorization",403);return}
+   signed := strings.SplitN(authParts[1],",",2)[0]
+   for name := range check.Header {if !strings.Contains(";"+signed+";",";"+strings.ToLower(name)+";"){check.Header.Del(name)}}
+   if !strings.Contains(";"+signed+";",";content-length;"){check.ContentLength=0}
+   hash:=sha256.Sum256(body)
+   err=awsv4.NewSigner().SignHTTP(context.Background(),aws.Credentials{AccessKeyID:"public-access",SecretAccessKey:"public-secret"},check,hex.EncodeToString(hash[:]),"route53","us-east-1",stamp)
+   if err!=nil || subtle.ConstantTimeCompare([]byte(auth),[]byte(check.Header.Get("Authorization")))!=1 {fmt.Fprintf(os.Stderr,"signature mismatch: got=%s expected=%s\n",auth,check.Header.Get("Authorization"));http.Error(w,"signature",403);return}
+   w.Header().Set("Content-Type","text/xml")
+   switch {
+   case path=="/2013-04-01/hostedzonesbyname":
+     journal(map[string]any{"api":"r53","op":"zones"});fmt.Fprint(w,`<ListHostedZonesByNameResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZones><HostedZone><Id>/hostedzone/ZFIXTURE</Id><Name>example.test.</Name><Config><PrivateZone>false</PrivateZone></Config></HostedZone></HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesByNameResponse>`)
+   case r.Method=="GET" && strings.HasSuffix(path,"/rrset"):
+     name:=r.URL.Query().Get("name");journal(map[string]any{"api":"r53","op":"records","name":name,"type":r.URL.Query().Get("type")});fmt.Fprint(w,`<ListResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><ResourceRecordSets>`)
+     if values:=records[name];len(values)>0 {fmt.Fprintf(w,`<ResourceRecordSet><Name>%s</Name><Type>TXT</Type><TTL>0</TTL><ResourceRecords>`,name);for _,v:=range values {fmt.Fprintf(w,"<ResourceRecord><Value>%s</Value></ResourceRecord>",v)};fmt.Fprint(w,`</ResourceRecords></ResourceRecordSet>`)}
+     fmt.Fprint(w,`</ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListResourceRecordSetsResponse>`)
+   case r.Method=="POST" && strings.HasSuffix(path,"/rrset"):
+     // Decode with the standard XML parser; retain TXT records for cleanup's read.
+     b,err:=goFreeR53Change(body);if err!=nil {http.Error(w,err.Error(),400);return};norm:=make([]string,len(b.Values));for i,v:=range b.Values {norm[i]=value(v)}
+     journal(map[string]any{"api":"r53","op":b.Action,"name":b.Name,"ttl":b.TTL,"values":norm});if b.Action=="DELETE" {delete(records,b.Name)}else{records[b.Name]=b.Values}
+     fmt.Fprint(w,`<ChangeResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><ChangeInfo><Id>/change/fixture</Id><Status>INSYNC</Status><SubmittedAt>2026-01-01T00:00:00Z</SubmittedAt></ChangeInfo></ChangeResourceRecordSetsResponse>`)
+   default:http.Error(w,"unknown R53 call",400)
+   }
+ })
+ srv:=&http.Server{Handler:handler};go srv.Serve(httpLn);defer srv.Close()
+ packet,err:=net.ListenPacket("udp","127.0.0.1:0");if err!=nil {t.Fatal(err)}
+ const secret="cHVibGljLXRlc3Qta2V5"
+ dnsHandler:=dns.HandlerFunc(func(w dns.ResponseWriter,r *dns.Msg){
+   mu.Lock();defer mu.Unlock()
+   m:=new(dns.Msg);m.SetReply(r);m.Authoritative=true
+   if r.Opcode==dns.OpcodeUpdate {
+     if (r.IsTsig()==nil && !p.AllowUnsigned) || w.TsigStatus()!=nil {m.Rcode=dns.RcodeNotAuth;w.WriteMsg(m);return}
+     for _,rr:=range r.Ns {
+       h:=rr.Header();vals:=[]string{};if txt,ok:=rr.(*dns.TXT);ok {for _,v:=range txt.Txt {vals=append(vals,value(v))}}
+       journal(map[string]any{"api":"rfc2136","op":int(h.Class),"name":h.Name,"ttl":h.Ttl,"values":vals})
+     }
+     if r.IsTsig()!=nil {m.SetTsig(r.IsTsig().Hdr.Name,r.IsTsig().Algorithm,300,time.Now().Unix())};w.WriteMsg(m);return
+   }
+   for _,q:=range r.Question {switch q.Qtype {case dns.TypeSOA:m.Answer=append(m.Answer,&dns.SOA{Hdr:dns.RR_Header{Name:"example.test.",Rrtype:dns.TypeSOA,Class:dns.ClassINET,Ttl:60},Ns:"ns.example.test.",Mbox:"hostmaster.example.test.",Serial:1,Refresh:60,Retry:60,Expire:3600,Minttl:60});case dns.TypeNS:m.Answer=append(m.Answer,&dns.NS{Hdr:dns.RR_Header{Name:"example.test.",Rrtype:dns.TypeNS,Class:dns.ClassINET,Ttl:60},Ns:"ns.example.test."});case dns.TypeA:m.Answer=append(m.Answer,&dns.A{Hdr:dns.RR_Header{Name:q.Name,Rrtype:dns.TypeA,Class:dns.ClassINET,Ttl:60},A:net.ParseIP("127.0.0.1")})}}
+   w.WriteMsg(m)
+ })
+ ds:=&dns.Server{PacketConn:packet,Handler:dnsHandler,MsgAcceptFunc:func(dns.Header)dns.MsgAcceptAction{return dns.MsgAccept},TsigSecret:map[string]string{"fixture-key.":secret}};go ds.ActivateAndServe();defer ds.Shutdown()
+ b,_:=json.Marshal(map[string]string{"http":"http://"+httpLn.Addr().String(),"dns":packet.LocalAddr().String()});os.WriteFile(p.Ready,b,0600)
+ select{}
+}
+
+type goFreeChange struct { Action,Name string; TTL int; Values []string }
+func goFreeR53Change(body []byte)(goFreeChange,error){
+ var raw struct {Batch struct {Changes []struct {Action string `xml:"Action"`; Set struct {Name string; TTL int; Values []string `xml:"ResourceRecords>ResourceRecord>Value"`} `xml:"ResourceRecordSet"`} `xml:"Changes>Change"`} `xml:"ChangeBatch"`}
+ err:=xml.Unmarshal(body,&raw);if err!=nil{return goFreeChange{},err};if len(raw.Batch.Changes)!=1{return goFreeChange{},fmt.Errorf("changes != 1")};c:=raw.Batch.Changes[0];return goFreeChange{c.Action,c.Set.Name,c.Set.TTL,c.Set.Values},nil
+}

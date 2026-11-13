@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl upgrade cancel <intent-id> --generation <n> --reason <text>\n",
+  "exit": 1
+}

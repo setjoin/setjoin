@@ -1,0 +1,43 @@
+{
+  "case": "push-guest-digest",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "object_puts": [
+      {
+        "body": "From: \"SetJoin\" <noreply@gofree-drain.test>\r\nTo: <gofree-guest-h@guest.test>\r\nSubject: 4 new items in Gofree <Org> & Co\r\nMessage-ID: <digest/{N}@gofree-drain.test>\r\nDate: {DATE}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nYou were mentioned in #general by User S Name: \"Hi guest, a long message wi=\r\nth \\\"quotes\\\", tab\\tand a very long tail so that the excerpt reaches one hu=\r\nn\"\r\nNew message from User S Name: \"Direct hello Zo=C3=AB\"\r\nNew meeting: Standup <daily> (2026-11-03 09:30 UTC)\r\nNew meeting: Unscheduled (time not set)\r\n\r\nThis message was sent because you have a guest account in Gofree <Org> & Co=\r\n.\r\nLog in to view full content: https://gofree-drain.test\r\n\r\n",
+        "content_type": "message/rfc822",
+        "path": "/mailblobs/digest/{HASH}.eml"
+      },
+      {
+        "body": "From: \"SetJoin\" <noreply@gofree-drain.test>\r\nTo: <gofree-guest-i@guest.test>\r\nSubject: New activity in Gofree <Org> & Co\r\nMessage-ID: <digest/{N}@gofree-drain.test>\r\nDate: {DATE}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nNew meeting: Standup <daily> (2026-11-03 09:30 UTC)\r\n\r\nThis message was sent because you have a guest account in Gofree <Org> & Co=\r\n.\r\nLog in to view full content: https://gofree-drain.test\r\n\r\n",
+        "content_type": "message/rfc822",
+        "path": "/mailblobs/digest/{HASH}.eml"
+      }
+    ],
+    "requests": [],
+    "rows": {
+      "guest_intents": [
+        "gofree-drain-m:dm:9100002:9200002:true",
+        "gofree-drain-h:mention:9100001:9200001:true",
+        "gofree-drain-h:dm:9100002:9200002:true",
+        "gofree-drain-h:mention:9100001:9200003:true",
+        "gofree-drain-h:meeting_invite:9300001:true",
+        "gofree-drain-h:meeting_invite:9300002:true",
+        "gofree-drain-h:meeting_invite:0:true",
+        "gofree-drain-h:dm:garbage:true",
+        "gofree-drain-i:meeting_invite:9300001:true",
+        "gofree-drain-j:dm:9100002:9200002:true",
+        "gofree-drain-k:dm:9100002:9200002:true",
+        "gofree-drain-l:dm:9100002:9200002:false",
+        "gofree-drain-m:dm:9100002:9200002:false",
+        "gofree-drain-n:dm:9100002:9200099:true",
+        "gofree-drain-o:dm:9100002:9200002:true"
+      ],
+      "outbound": [
+        "{gofree-guest-h@guest.test}:pending:<digest/N@gofree-drain.test>:digest/H.eml:noreply@gofree-drain.test",
+        "{gofree-guest-i@guest.test}:pending:<digest/N@gofree-drain.test>:digest/H.eml:noreply@gofree-drain.test"
+      ]
+    }
+  }
+}

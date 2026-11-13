@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: invalid mailbox detach-retain flags\n",
+  "exit": 1
+}

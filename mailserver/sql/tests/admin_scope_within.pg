@@ -1,0 +1,90 @@
+-- pgTAP: admin_scope_within.pg
+--
+-- Rule A scope containment helper. admin_scope_within(actor, grant_scope_type,
+-- grant_scope_id, grant_domain) is TRUE iff a grant carrying that (domain, OU)
+-- is at/under the actor's own reach (admin_effective_authority).
+--
+-- OU axis: the grant's OU subtree must be contained in one of the actor's
+-- ou_reach subtrees (grant_path = ap OR grant_path LIKE ap || '/%'), OR the
+-- actor is OU-unconfined (ou_reach NULL/empty → may grant any OU). A grant with
+-- NO OU (scope_type IS NULL = domain-wide) from an OU-CONFINED actor is FALSE
+-- (broadening — THE self-broaden hole this closes).
+--
+-- Domain axis: the grant's domain must be within the actor's domain scope (a
+-- global actor grants any; a domain-scoped actor only their own domain).
+--
+-- A fully-global actor (no domain, no OU) → any grant TRUE.
+--
+-- Seed ids: 957xx (avoids conflicts with other admin_* test files).
+
+BEGIN;
+SELECT plan(6);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+--   /eng           the actor's OU subtree
+--   /eng/backend   descendant (contained in /eng)
+--   /sales         sibling (NOT contained in /eng)
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'Engineering', '/eng',         'ou=Engineering,dc=ou,dc=test'),
+  (95702, 'Backend',     '/eng/backend', 'ou=Backend,ou=Engineering,dc=ou,dc=test'),
+  (95703, 'Sales',       '/sales',       'ou=Sales,dc=ou,dc=test');
+
+-- ── Domains ──────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'ou.test',    TRUE),
+  (95702, 'other.test', TRUE);
+
+-- ── Users ────────────────────────────────────────────────────────────────────
+--   95721 eng_actor     OU-confined to /eng (global domain, OU /eng)
+--   95722 global_actor  fully global (no domain, no OU)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95721, 'sw_eng_actor',    95701, 95701, 'engactor@ou.test', 'EA', TRUE),
+  (95722, 'sw_global_actor', 95701, 95701, 'global@ou.test',   'GA', TRUE);
+
+-- ── Role group ───────────────────────────────────────────────────────────────
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95701, 'sw-help', ARRAY['roles.assign'], NULL);
+
+-- ── Assignments ──────────────────────────────────────────────────────────────
+-- eng_actor    : OU /eng (confined), global domain
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95721, 95701, 'ou', 95701, 95721);
+-- global_actor : no OU narrowing, global domain → fully global
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95722, 95701, 95721);
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+-- 1. eng_actor grants a NARROWER OU (/eng/backend) → contained → TRUE.
+SELECT ok(
+  admin_scope_within(95721, 'ou', 95702, NULL),
+  'OU-confined actor CAN grant a narrower contained OU');
+
+-- 2. eng_actor grants a SIBLING OU (/sales) → NOT contained → FALSE.
+SELECT ok(
+  NOT admin_scope_within(95721, 'ou', 95703, NULL),
+  'OU-confined actor CANNOT grant a sibling OU');
+
+-- 3. eng_actor grants the SAME OU (/eng) → contained (equal) → TRUE.
+SELECT ok(
+  admin_scope_within(95721, 'ou', 95701, NULL),
+  'OU-confined actor CAN grant their own exact OU');
+
+-- 4. THE HOLE: eng_actor grants a DOMAIN-WIDE (no-OU) grant → broadening → FALSE.
+SELECT ok(
+  NOT admin_scope_within(95721, NULL, NULL, NULL),
+  'OU-confined actor CANNOT grant a domain-wide (no-OU) grant — self-broaden');
+
+-- 5. global_actor grants a domain-wide grant → TRUE (no confinement).
+SELECT ok(
+  admin_scope_within(95722, NULL, NULL, NULL),
+  'global actor CAN grant a domain-wide grant');
+
+-- 6. global_actor grants any OU → TRUE (no confinement).
+SELECT ok(
+  admin_scope_within(95722, 'ou', 95703, NULL),
+  'global actor CAN grant any OU');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,229 @@
+-- Guest Accounts G5: system expiry, live-eviction evidence, and explicit
+-- sponsor/Chat/Drive ownership transfer.
+BEGIN;
+SELECT plan(48);
+
+INSERT INTO domains(name,is_local) VALUES ('g5-host.example',TRUE);
+
+INSERT INTO users(username,domain_id,email,display_name,enabled)
+SELECT 'g5-admin',id,'g5-admin@g5-host.example','G5 Admin',TRUE FROM domains WHERE name='g5-host.example';
+INSERT INTO users(username,domain_id,email,display_name,enabled)
+SELECT 'g5-sponsor',id,'g5-sponsor@g5-host.example','G5 Sponsor',TRUE FROM domains WHERE name='g5-host.example';
+INSERT INTO users(username,domain_id,email,display_name,enabled)
+SELECT 'g5-disabled',id,'g5-disabled@g5-host.example','G5 Disabled',FALSE FROM domains WHERE name='g5-host.example';
+INSERT INTO users(username,domain_id,email,display_name,enabled)
+SELECT 'g5-guest@ext.example',id,'g5-guest@ext.example','G5 Guest',TRUE FROM domains WHERE name='guest.invalid';
+INSERT INTO users(username,domain_id,email,display_name,enabled)
+SELECT 'g5-other-guest@ext.example',id,'g5-other-guest@ext.example','G5 Other Guest',TRUE FROM domains WHERE name='guest.invalid';
+
+INSERT INTO admin_role_groups(name,permissions)
+VALUES ('g5-guest-managers',ARRAY['guests.manage']);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by,eligible)
+SELECT a.id,rg.id,a.id,FALSE FROM users a,admin_role_groups rg
+ WHERE a.email='g5-admin@g5-host.example' AND rg.name='g5-guest-managers';
+
+INSERT INTO guest_accounts
+    (user_id,invited_email,invited_by,invited_by_email,sponsor_user_id,
+     host_domain_id,status,expires_at)
+SELECT g.id,g.email,a.id,a.email,a.id,d.id,'active',now()+interval '1 hour'
+  FROM users g,users a,domains d
+ WHERE g.email='g5-guest@ext.example' AND a.email='g5-admin@g5-host.example'
+   AND d.name='g5-host.example';
+INSERT INTO guest_accounts
+    (user_id,invited_email,invited_by,invited_by_email,sponsor_user_id,
+     host_domain_id,status,expires_at)
+SELECT g.id,g.email,a.id,a.email,a.id,d.id,'active',now()+interval '1 day'
+  FROM users g,users a,domains d
+ WHERE g.email='g5-other-guest@ext.example' AND a.email='g5-admin@g5-host.example'
+   AND d.name='g5-host.example';
+
+SELECT id AS g5_admin_id FROM users WHERE email='g5-admin@g5-host.example' \gset
+SELECT id AS g5_sponsor_id FROM users WHERE email='g5-sponsor@g5-host.example' \gset
+SELECT id AS g5_disabled_id FROM users WHERE email='g5-disabled@g5-host.example' \gset
+SELECT id AS g5_guest_id FROM users WHERE email='g5-guest@ext.example' \gset
+SELECT id AS g5_other_guest_id FROM users WHERE email='g5-other-guest@ext.example' \gset
+
+INSERT INTO meetings(title,owner_user_id,state)
+VALUES ('G5 live meeting',:g5_admin_id,'live') RETURNING id AS g5_meeting_id \gset
+INSERT INTO meeting_participants(meeting_id,user_id,identity,role)
+VALUES (:g5_meeting_id,:g5_guest_id,'u:'||:g5_guest_id,'member');
+
+-- A left participant can still reconnect with a previously minted token.
+-- One stale token may name the parent or any breakout the participant moved
+-- through, so G5 snapshots the complete ongoing-meeting room set.
+INSERT INTO meetings(title,owner_user_id,state)
+VALUES ('G5 stale-token meeting',:g5_admin_id,'live') RETURNING id AS g5_stale_meeting_id \gset
+INSERT INTO meeting_breakouts(meeting_id,idx,title)
+VALUES (:g5_stale_meeting_id,1,'G5 stale breakout') RETURNING id AS g5_stale_breakout_id \gset
+INSERT INTO meeting_participants(meeting_id,user_id,identity,role,left_at,breakout_id)
+VALUES (:g5_stale_meeting_id,:g5_other_guest_id,'u:'||:g5_other_guest_id,
+        'member',now()-interval '1 hour',:g5_stale_breakout_id);
+
+INSERT INTO chat_channels(kind,name,created_by)
+VALUES ('channel','g5-owned-channel',:g5_admin_id) RETURNING id AS g5_channel_id \gset
+INSERT INTO chat_channel_members(channel_id,user_id,role)
+VALUES (:g5_channel_id,:g5_guest_id,'owner');
+INSERT INTO drive_spaces(name,owner_user_id)
+VALUES ('g5-owned-space',:g5_guest_id) RETURNING id AS g5_space_id \gset
+
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(NULL,%s,'disable',NULL) $$,:g5_guest_id),
+  'BZ002',NULL,'system actor cannot disable a guest');
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(NULL,%s,'enable',NULL) $$,:g5_guest_id),
+  'BZ002',NULL,'system actor cannot enable a guest');
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(NULL,%s,'extend',now()+interval '2 days') $$,:g5_guest_id),
+  'BZ002',NULL,'system actor cannot extend a guest');
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(NULL,%s,'reinvite',NULL) $$,:g5_guest_id),
+  'BZ002',NULL,'system actor cannot re-invite a guest');
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(NULL,%s,'expire',NULL) $$,:g5_guest_id),
+  'BZ162',NULL,'system actor cannot expire a not-due guest early');
+SELECT throws_ok(
+  $$ SELECT guest_expire_due(0) $$,
+  'BZ162',NULL,'expiry sweep rejects an unsafe batch limit');
+
+UPDATE guest_accounts SET expires_at=now()-interval '1 minute' WHERE user_id=:g5_guest_id;
+SELECT is(guest_expire_due(10),1,'expiry sweep transitions one due active guest');
+SELECT ok((SELECT g.status='expired' AND NOT u.enabled
+             FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE g.user_id=:g5_guest_id),
+  'expiry atomically aligns guest status and users.enabled');
+SELECT is((SELECT count(*)::int FROM session_revocations
+            WHERE user_id=:g5_guest_id AND scope='all'),1,
+  'expiry writes the durable all-session revocation');
+SELECT is((SELECT count(*)::int FROM guest_live_eviction_intents
+            WHERE guest_user_id=:g5_guest_id AND action='expire'
+              AND room_name=(SELECT room_name FROM meetings WHERE id=:g5_meeting_id)
+              AND identity='u:'||:g5_guest_id),1,
+  'expiry snapshots the exact live SFU room and identity');
+SELECT ok((SELECT retry_until >= transition_at+interval '4 hours 5 minutes'
+             FROM guest_live_eviction_intents WHERE guest_user_id=:g5_guest_id),
+  'eviction evidence remains active through the stale-token horizon');
+SELECT ok((SELECT relrowsecurity FROM pg_class
+            WHERE oid=to_regclass('public.guest_live_eviction_intents')),
+  'guest_live_eviction_intents has row-level security enabled');
+SELECT ok((SELECT relforcerowsecurity FROM pg_class
+            WHERE oid=to_regclass('public.guest_live_eviction_intents')),
+  'guest_live_eviction_intents has row-level security forced');
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::int FROM guest_live_eviction_intents),0,
+  'guest_live_eviction_intents denies all app-role reads');
+RESET ROLE;
+SELECT ok(EXISTS(SELECT 1 FROM pg_constraint
+                   WHERE conrelid='conditional_access_policies'::regclass
+                     AND conname='conditional_access_policies_guest_scope_target_check'),
+  'Conditional Access guest scope is targetless by schema');
+SELECT ok(EXISTS(SELECT 1 FROM pg_constraint
+                   WHERE conrelid='ca_templates'::regclass
+                     AND conname='ca_templates_guest_scope_target_check'),
+  'Conditional Access guest templates are targetless by schema');
+SELECT ok(position('guest_require_grantable(p_user_id)' IN
+              pg_get_functiondef('meeting_join(bigint,bigint)'::regprocedure)) > 0,
+  'meeting_join serializes guest token mint with lifecycle transitions');
+SELECT ok(position('guest_require_grantable(p_user_id)' IN
+              pg_get_functiondef('meeting_breakout_join(bigint,bigint,bigint)'::regprocedure)) > 0,
+  'meeting_breakout_join serializes guest token re-mint with lifecycle transitions');
+SELECT ok(position('guest_require_grantable(v_req.user_id)' IN
+              pg_get_functiondef('meeting_join_request_poll(text,bigint,text)'::regprocedure)) > 0,
+  'admitted guest poll serializes token re-mint with lifecycle transitions');
+SELECT ok(position('guest_require_meet_ready(p_user_id)' IN
+              pg_get_functiondef('meeting_join(bigint,bigint)'::regprocedure)) > 0,
+  'meeting_join checks the recovery eviction fence before token mint');
+SELECT ok(position('guest_require_meet_ready(p_user_id)' IN
+              pg_get_functiondef('meeting_breakout_join(bigint,bigint,bigint)'::regprocedure)) > 0,
+  'meeting_breakout_join checks the recovery eviction fence before token re-mint');
+SELECT ok(position('guest_require_meet_ready(v_req.user_id)' IN
+              pg_get_functiondef('meeting_join_request_poll(text,bigint,text)'::regprocedure)) > 0,
+  'admitted guest poll checks the recovery eviction fence before token mint');
+SELECT ok((SELECT left_at IS NULL AND banned_at IS NULL
+             FROM meeting_participants WHERE meeting_id=:g5_meeting_id AND user_id=:g5_guest_id),
+  'expiry freezes retained Meet grants while external live access is evicted');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action='guest.expire' AND target_id=:g5_guest_id),1,
+  'system expiry writes one lifecycle audit act');
+SELECT is(guest_expire_due(10),0,'repeat expiry sweep is idempotent');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action='guest.expire' AND target_id=:g5_guest_id),1,
+  'repeat expiry does not duplicate audit evidence');
+
+SELECT guest_set_status(:g5_admin_id,:g5_other_guest_id,'disable',NULL);
+SELECT is((SELECT count(*)::int FROM guest_live_eviction_intents
+            WHERE guest_user_id=:g5_other_guest_id AND action='disable'),2,
+  'disable snapshots parent and breakout rooms even for a recently-left participant');
+UPDATE users SET sync_source='sso', oidc_subject='g5-imported-subject',
+                 oidc_issuer='https://idp.g5.example'
+ WHERE id=:g5_other_guest_id;
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(%s,%s,'reinvite',NULL) $$,:g5_admin_id,:g5_other_guest_id),
+  'BZ162',NULL,'federated guest recovery cannot mint a local password fallback');
+SELECT is((SELECT status FROM guest_accounts WHERE user_id=:g5_other_guest_id),
+  'disabled','federated recovery denial leaves lifecycle state unchanged');
+
+-- Credential recovery is an explicit lifecycle transition. It freezes sign-in,
+-- revokes sessions, snapshots the stable LiveKit identity, and fences new Meet
+-- grants until the recovery eviction horizon has completed.
+SELECT throws_ok(
+  format($$ SELECT guest_set_status(%s,%s,'reinvite',NULL) $$,:g5_admin_id,:g5_guest_id),
+  'BZ162',NULL,'expired guest recovery requires a replacement future expiry');
+SELECT is((SELECT status FROM guest_accounts WHERE user_id=:g5_guest_id),
+  'expired','failed recovery leaves the expired lifecycle state unchanged');
+SELECT lives_ok(
+  format($$ SELECT guest_set_status(%s,%s,'reinvite',now()+interval '2 days') $$,:g5_admin_id,:g5_guest_id),
+  'guests.manage actor can explicitly re-arm the same expired identity');
+SELECT ok((SELECT g.status='invited' AND NOT u.enabled
+                  AND g.expires_at > now()+interval '1 day'
+             FROM guest_accounts g JOIN users u ON u.id=g.user_id
+            WHERE g.user_id=:g5_guest_id),
+  'recovery atomically freezes sign-in and installs the future expiry');
+SELECT is((SELECT count(*)::int FROM session_revocations
+            WHERE user_id=:g5_guest_id AND scope='all' AND reason='guest.reinvite'),1,
+  'recovery creates a durable all-session revocation in the same transaction');
+SELECT is((SELECT count(*)::int FROM guest_live_eviction_intents
+            WHERE guest_user_id=:g5_guest_id AND action='reinvite'
+              AND room_name=(SELECT room_name FROM meetings WHERE id=:g5_meeting_id)
+              AND identity='u:'||:g5_guest_id),1,
+  'recovery snapshots the stable exact LiveKit room and identity');
+SELECT throws_ok(
+  format($$ SELECT guest_require_meet_ready(%s) $$,:g5_guest_id),
+  'BZ219',NULL,'incomplete recovery eviction evidence fences new Meet grants');
+UPDATE guest_live_eviction_intents SET completed_at=now()
+ WHERE guest_user_id=:g5_guest_id AND action='reinvite';
+SELECT lives_ok(
+  format($$ SELECT guest_require_meet_ready(%s) $$,:g5_guest_id),
+  'completed recovery eviction evidence releases the Meet fence');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action='guest.reinvite' AND target_id=:g5_guest_id),1,
+  'recovery writes one durable lifecycle audit act');
+
+SELECT ok(guest_admin_can_transfer_to(:g5_admin_id,:g5_guest_id,:g5_sponsor_id),
+  'one live guests.manage assignment reaches guest and sponsor together');
+SELECT is((guest_transfer(:g5_admin_id,:g5_guest_id,:g5_sponsor_id)->>'channelOwnersTransferred')::int,
+          1,'transfer reports the guest-owned channel');
+SELECT is((SELECT sponsor_user_id FROM guest_accounts WHERE user_id=:g5_guest_id),
+          :g5_sponsor_id::bigint,'transfer updates the accountable sponsor');
+SELECT is((SELECT role FROM chat_channel_members
+            WHERE channel_id=:g5_channel_id AND user_id=:g5_sponsor_id),
+          'owner','replacement sponsor becomes channel owner');
+SELECT is((SELECT role FROM chat_channel_members
+            WHERE channel_id=:g5_channel_id AND user_id=:g5_guest_id),
+          'member','guest owner is demoted without deleting attribution');
+SELECT is((SELECT owner_user_id FROM drive_spaces WHERE id=:g5_space_id),
+          :g5_sponsor_id::bigint,'Drive space ownership transfers atomically');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action='guest.transfer' AND target_id=:g5_guest_id),1,
+  'transfer writes one durable audit act');
+SELECT throws_ok(
+  format($$ SELECT guest_transfer(%s,%s,%s) $$,:g5_admin_id,:g5_guest_id,:g5_sponsor_id),
+  'BZ162',NULL,'unchanged sponsor transfer is rejected');
+SELECT throws_ok(
+  format($$ SELECT guest_transfer(%s,%s,%s) $$,:g5_admin_id,:g5_guest_id,:g5_disabled_id),
+  'BZ170',NULL,'disabled member cannot become sponsor');
+SELECT throws_ok(
+  format($$ SELECT guest_transfer(%s,%s,%s) $$,:g5_admin_id,:g5_guest_id,:g5_other_guest_id),
+  'BZ170',NULL,'another guest cannot become sponsor');
+
+SELECT * FROM finish();
+ROLLBACK;

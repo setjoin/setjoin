@@ -1,0 +1,52 @@
+{
+  "case": "retention-repeat-row-effects",
+  "effects": [
+    {
+      "acts": [
+        {
+          "action": "retention.change",
+          "after": {
+            "retentionDays": 30
+          },
+          "before": {
+            "retentionDays": null
+          },
+          "id": 1,
+          "notes": null,
+          "targetId": "channel",
+          "targetType": "channel",
+          "userId": "admin"
+        },
+        {
+          "action": "retention.change",
+          "after": {
+            "retentionDays": 30
+          },
+          "before": {
+            "retentionDays": 30
+          },
+          "id": 2,
+          "notes": null,
+          "targetId": "channel",
+          "targetType": "channel",
+          "userId": "admin"
+        }
+      ],
+      "chainValid": true,
+      "channel": {
+        "changeSeq": 0,
+        "classification": "regular",
+        "lastPurgedSeq": 0,
+        "legalHold": false,
+        "legalHoldReason": null,
+        "retentionDays": 30,
+        "wormMode": null
+      }
+    },
+    [],
+    []
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "PUT /admin/chat-channels/{id}/retention"
+}

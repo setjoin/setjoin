@@ -1,0 +1,7 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "route": "PUT /recovery/uploads/{sessionId}/items/{itemId}"
+}

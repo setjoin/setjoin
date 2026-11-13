@@ -1,0 +1,27 @@
+{
+  "case": "alias-invalid-input",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/auth/oidc/link",
+      "query": "?provider=missing",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/link"
+    },
+    "response": {
+      "body": "Method Not Allowed\n",
+      "headers": {
+        "allow": "POST",
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 405
+    }
+  },
+  "route": "GET /auth/oidc/link"
+}

@@ -1,0 +1,219 @@
+{
+  "exit": 0,
+  "stdout": "{\n  \"createdAt\": \"$CREATED\",\n  \"expiresAt\": \"$EXPIRES\",\n  \"manifestDigest\": \"$VERIFIED_MANIFEST_SHA\",\n  \"recoverySetId\": \"$UUID\",\n  \"status\": \"verified\"\n}\n",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/recovery-context",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/system/backup",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "create pre-upgrade application recovery point"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/system/backup/list",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/system/version",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/system/upgrades/recovery-sets",
+      "body": "{\"checks\":{\"blobs\":true,\"configuration\":true,\"database\":true,\"databaseRestoreList\":true,\"featureToggles\":true,\"hmac\":true,\"protectedKey\":true},\"createdAt\":\"$CREATED\",\"expiresAt\":\"$EXPIRES\",\"manifestDigest\":\"$VERIFIED_MANIFEST_SHA\",\"reason\":\"create pre-upgrade application recovery point\",\"recoverySetId\":\"$UUID\",\"schemaVersion\":275,\"sourceReleaseId\":\"2.4.0\",\"timelineId\":\"00000000-0000-4000-8000-000000000002\"}",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "create pre-upgrade application recovery point"
+      }
+    }
+  ],
+  "envelope": {
+    "manifest": {
+      "version": 1,
+      "recoverySetId": "$UUID",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "timelineId": "00000000-0000-4000-8000-000000000002",
+      "sourceReleaseId": "2.4.0",
+      "schemaVersion": 275,
+      "createdAt": "$CREATED",
+      "expiresAt": "$EXPIRES",
+      "database": {
+        "objectKey": "recovery-sets/$UUID/database.dump",
+        "size": "$VERIFIED_DUMP_SIZE",
+        "sha256": "$VERIFIED_DATABASE_SHA"
+      },
+      "databaseRestoreList": {
+        "objectKey": "recovery-sets/$UUID/database.list",
+        "size": "$VERIFIED_LIST_SIZE",
+        "sha256": "$VERIFIED_LIST_SHA"
+      },
+      "blobs": {
+        "objectKey": "manifests/incr-20260823T010000Z.json",
+        "size": 150,
+        "sha256": "ac495395e7c6b8a3fdf35be49a14b51dfeac70f17299f466d3e6638d7dd359b4"
+      },
+      "configuration": {
+        "objectKey": "config-20260823T010000Z.json",
+        "size": 155,
+        "sha256": "e982094b45af202578cbbb0d38c0bdd560dcfa1a950bd95c1d646150ee4b032e"
+      },
+      "protectedKeyEvidence": {
+        "mode": "external",
+        "keyId": "db-encryption-key",
+        "fingerprint": "9f71fb69421a937b0dcad40a50920d859d8982e4339f0f8a822539f492b7bfa4"
+      },
+      "featureToggleSha256": "18b54bea562d5d199a19e2fbee2662ac4f248be5ee592d2c95898f27385ae3dc",
+      "counts": {
+        "blobs": 1,
+        "blobBytes": 24,
+        "users": 1,
+        "mailboxes": 1
+      },
+      "representativeIds": [
+        "user:7",
+        "mailbox:17",
+        "blob:00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+      ]
+    },
+    "manifestSha256": "$VERIFIED_MANIFEST_SHA",
+    "hmacSha256": "$VERIFIED_HMAC"
+  },
+  "objects": [
+    "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2",
+    "fixture/config-20260823T010000Z.json",
+    "fixture/manifests/incr-20260823T010000Z.json",
+    "fixture/recovery-sets/$UUID/database.dump",
+    "fixture/recovery-sets/$UUID/database.list",
+    "fixture/recovery-sets/$UUID/manifest.json"
+  ],
+  "operations": [
+    [
+      "HEAD",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "PUT",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "PUT",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "HEAD",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "HEAD",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "PUT",
+      "fixture/recovery-sets/$UUID/manifest.json"
+    ]
+  ]
+}

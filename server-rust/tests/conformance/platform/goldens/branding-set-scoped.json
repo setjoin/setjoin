@@ -1,0 +1,72 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "description": "Brand display name",
+            "encrypted": false,
+            "key": "brand_name",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "Acme"
+          }
+        ],
+        "before": [],
+        "table": "system_config"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "--plat5boundary\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n\"Acme\"\r\n--plat5boundary--\r\n",
+      "external_path": "/api/admin/branding",
+      "method": "POST",
+      "path": "/admin/branding"
+    },
+    "response": {
+      "body": "{\"status\":\"ok\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "16"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 200
+    },
+    "s3": []
+  },
+  "route": "POST /admin/branding"
+}

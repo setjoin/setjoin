@@ -1,0 +1,26 @@
+{
+  "case": "discovery-head",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/.well-known/openid-configuration",
+      "wire_method": "HEAD",
+      "wire_path": "/.well-known/openid-configuration"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "content-length": "1619",
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /.well-known/openid-configuration"
+}

@@ -1,0 +1,66 @@
+{
+  "title": "Setjoin Identity Safety",
+  "uid": "setjoin-identity",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Critical divergences",
+      "targets": [{ "expr": "setjoin_identity_shadow_divergences", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Sources needing attention",
+      "targets": [{ "expr": "gateway_identity_sources_attention", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Pending effects",
+      "targets": [{ "expr": "setjoin_identity_effect_intents", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Canary members",
+      "targets": [{ "expr": "gateway_identity_canary_members", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Collector healthy",
+      "targets": [{ "expr": "gateway_identity_collector_success", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Oldest cursor age",
+      "targets": [{ "expr": "setjoin_identity_cursor_age_seconds", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Oldest transition age",
+      "targets": [{ "expr": "setjoin_identity_transition_age_seconds", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Oldest effect age",
+      "targets": [{ "expr": "setjoin_identity_effect_oldest_age_seconds", "refId": "A" }],
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 }
+    }
+  ]
+}

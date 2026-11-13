@@ -1,0 +1,114 @@
+-- pgTAP test: FTS tsvector trigger — verifies tsvector columns are populated
+-- when app.skip_fts is explicitly set to 'false' (the default when unset is 'true',
+-- which caused the trigger to silently skip all FTS population).
+BEGIN;
+SELECT plan(4);
+
+-- Fixture: domain + user + mailbox needed for message FK constraints.
+DO $$
+DECLARE
+    v_domain_id   BIGINT;
+    v_user_id     BIGINT;
+    v_mailbox_id  BIGINT;
+    v_folder_id   BIGINT;
+BEGIN
+    INSERT INTO domains (name, is_local) VALUES ('ftstest.example', TRUE)
+    RETURNING id INTO v_domain_id;
+    INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+    VALUES ('fts', 'fts@ftstest.example', 'FTS Test', 'x', v_domain_id, TRUE)
+    RETURNING id INTO v_user_id;
+    INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+    VALUES (v_user_id, v_domain_id, 'fts@ftstest.example', 'FTS Test', TRUE)
+    RETURNING id INTO v_mailbox_id;
+    -- Use the inbox folder auto-created by the trigger
+    SELECT id INTO v_folder_id FROM folders WHERE mailbox_id = v_mailbox_id AND role = 'inbox';
+
+    PERFORM set_config('app.test_mailbox_id', v_mailbox_id::TEXT, TRUE);
+    PERFORM set_config('app.test_folder_id', v_folder_id::TEXT, TRUE);
+END;
+$$;
+
+-- =====================================================================
+-- Test 1: When app.skip_fts = 'false', body_tsv is populated on insert
+-- =====================================================================
+DO $$
+DECLARE
+    v_mb   BIGINT := current_setting('app.test_mailbox_id')::BIGINT;
+    v_fld  BIGINT := current_setting('app.test_folder_id')::BIGINT;
+    v_id   BIGINT := 9100001;
+BEGIN
+    SET LOCAL app.skip_fts = 'false';
+
+    INSERT INTO messages (id, mailbox_id, folder_id, message_id, thread_id, raw_ref, received_at, body_text, subject, from_addr)
+    VALUES (v_id, v_mb, v_fld, '<fts1@test>', 'fts-thread-1', 'raw/fts/1', '2026-06-01', 'the quick brown fox jumps over the lazy dog', 'Test Subject', 'sender@ftstest.example');
+END;
+$$;
+SELECT is(
+    (SELECT body_tsv FROM messages WHERE id = 9100001),
+    to_tsvector('simple', 'the quick brown fox jumps over the lazy dog'),
+    'body_tsv populated when app.skip_fts is false');
+
+-- =====================================================================
+-- Test 2: When app.skip_fts = 'false', subject_tsv is populated on insert
+-- =====================================================================
+DO $$
+DECLARE
+    v_mb   BIGINT := current_setting('app.test_mailbox_id')::BIGINT;
+    v_fld  BIGINT := current_setting('app.test_folder_id')::BIGINT;
+    v_id   BIGINT := 9100002;
+BEGIN
+    SET LOCAL app.skip_fts = 'false';
+
+    INSERT INTO messages (id, mailbox_id, folder_id, message_id, thread_id, raw_ref, received_at, body_text, subject, from_addr)
+    VALUES (v_id, v_mb, v_fld, '<fts2@test>', 'fts-thread-2', 'raw/fts/2', '2026-06-01', 'another message', 'Important Meeting Agenda', 'sender@ftstest.example');
+END;
+$$;
+SELECT is(
+    (SELECT subject_tsv FROM messages WHERE id = 9100002),
+    to_tsvector('simple', 'Important Meeting Agenda'),
+    'subject_tsv populated when app.skip_fts is false');
+
+-- =====================================================================
+-- Test 3: When app.skip_fts = 'false', from_tsv is populated on insert (from_addr + from_name)
+-- =====================================================================
+DO $$
+DECLARE
+    v_mb   BIGINT := current_setting('app.test_mailbox_id')::BIGINT;
+    v_fld  BIGINT := current_setting('app.test_folder_id')::BIGINT;
+    v_id   BIGINT := 9100003;
+BEGIN
+    SET LOCAL app.skip_fts = 'false';
+
+    INSERT INTO messages (id, mailbox_id, folder_id, message_id, thread_id, raw_ref, received_at, body_text, subject, from_addr, from_name)
+    VALUES (v_id, v_mb, v_fld, '<fts3@test>', 'fts-thread-3', 'raw/fts/3', '2026-06-01', 'body', 'Subject', 'alice@ftstest.example', 'Alice Johnson');
+END;
+$$;
+-- from_tsv must contain both from_addr and from_name tokens (NULL tsv → NULL → fail).
+SELECT ok(
+    (SELECT from_tsv @@ to_tsquery('simple', 'alice & johnson') FROM messages WHERE id = 9100003),
+    'from_tsv populated when app.skip_fts is false');
+
+-- =====================================================================
+-- Test 4: When app.skip_fts is NOT set (default 'true'), tsvector stays NULL
+-- =====================================================================
+DO $$
+DECLARE
+    v_mb   BIGINT := current_setting('app.test_mailbox_id')::BIGINT;
+    v_fld  BIGINT := current_setting('app.test_folder_id')::BIGINT;
+    v_id   BIGINT := 9100004;
+BEGIN
+    -- Explicitly reset skip_fts to 'true' so the trigger skips FTS population.
+    -- (SET LOCAL in prior DO blocks persists for the transaction, so we must reset.)
+    SET LOCAL app.skip_fts = 'true';
+
+    INSERT INTO messages (id, mailbox_id, folder_id, message_id, thread_id, raw_ref, received_at, body_text, subject, from_addr)
+    VALUES (v_id, v_mb, v_fld, '<fts4@test>', 'fts-thread-4', 'raw/fts/4', '2026-06-01', 'this should not be indexed', 'Skip Test', 'skip@ftstest.example');
+END;
+$$;
+SELECT is(
+    (SELECT body_tsv FROM messages WHERE id = 9100004),
+    NULL::TSVECTOR,
+    'body_tsv stays NULL when app.skip_fts defaults to true');
+
+SELECT * FROM finish();
+ROLLBACK;

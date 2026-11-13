@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox purge-schedule <mailbox-id> --generation N --preview-digest HEX --approver-user ID --reason TEXT\n",
+  "exit": 1
+}

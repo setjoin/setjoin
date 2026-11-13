@@ -1,0 +1,580 @@
+{
+  "case": "ews-repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "ews": {
+                "impersonateAs": "source@example.test",
+                "includeCalendar": false,
+                "includeContacts": false,
+                "includeMail": false,
+                "insecureSkipVerify": false,
+                "password": "pw",
+                "serverURL": "https://ews.mbox7.test/EWS",
+                "username": "service"
+              },
+              "self_service": false,
+              "source_type": "ews",
+              "use_global_auth": true
+            },
+            "cursor": {
+              "delta": {
+                "inbox": "state-inbox"
+              }
+            },
+            "error_log": [
+              "import source event \"calendar-item\": projection reducer did not create an object"
+            ],
+            "id": "<job-new-1>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "connector": {
+                "current_folder": "calendar",
+                "deleted": 0,
+                "imported": 1,
+                "items_done": 1,
+                "items_failed": 1,
+                "moved": 0,
+                "replayed": 0,
+                "unchanged": 0,
+                "updated": 0
+              }
+            },
+            "source": "ews",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "ews": {
+                "impersonateAs": "source@example.test",
+                "includeCalendar": false,
+                "includeContacts": false,
+                "includeMail": false,
+                "insecureSkipVerify": false,
+                "password": "pw",
+                "serverURL": "https://ews.mbox7.test/EWS",
+                "username": "service"
+              },
+              "self_service": false,
+              "source_type": "ews",
+              "use_global_auth": true
+            },
+            "cursor": {
+              "delta": {
+                "inbox": "state-inbox"
+              }
+            },
+            "error_log": [
+              "import source event \"calendar-item\": projection reducer did not create an object"
+            ],
+            "id": "<job-new-2>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "connector": {
+                "current_folder": "calendar",
+                "deleted": 0,
+                "imported": 1,
+                "items_done": 1,
+                "items_failed": 1,
+                "moved": 0,
+                "replayed": 0,
+                "unchanged": 0,
+                "updated": 0
+              }
+            },
+            "source": "ews",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          }
+        ],
+        "messages": [
+          {
+            "body_text": "hello",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.test",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m7@example.test>",
+            "raw_ref": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+            "size": 126,
+            "subject": "Provider mail",
+            "tags": [
+              "inbox"
+            ],
+            "to": [
+              {
+                "email": "bob@example.test",
+                "name": "Bob"
+              }
+            ]
+          },
+          {
+            "body_text": "hello",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.test",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m7@example.test>",
+            "raw_ref": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+            "size": 126,
+            "subject": "Provider mail",
+            "tags": [
+              "inbox"
+            ],
+            "to": [
+              {
+                "email": "bob@example.test",
+                "name": "Bob"
+              }
+            ]
+          }
+        ],
+        "objects": [
+          "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00"
+        ],
+        "provider_effects": {
+          "checkpoints": [
+            {
+              "committed_count": 1,
+              "cursor_kind": "ews_sync_state",
+              "cursor_value": "state-inbox",
+              "job_id": "<job-new-1>",
+              "scope_key": "inbox",
+              "source_generation": 1
+            },
+            {
+              "committed_count": 1,
+              "cursor_kind": "ews_sync_state",
+              "cursor_value": "state-inbox",
+              "job_id": "<job-new-2>",
+              "scope_key": "inbox",
+              "source_generation": 1
+            }
+          ],
+          "consents": [],
+          "contacts": [],
+          "events": [],
+          "instances": [
+            {
+              "digest": "7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "generation": 1,
+              "job_id": "<job-new-1>",
+              "key": "ews:7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "type": "ews"
+            },
+            {
+              "digest": "7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "generation": 1,
+              "job_id": "<job-new-2>",
+              "key": "ews:7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "type": "ews"
+            }
+          ],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "error_code": null,
+              "job_id": "<job-new-1>",
+              "object_type": "mail",
+              "source_change": "upsert",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "state": "completed",
+              "target_kind": "message"
+            },
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "error_code": null,
+              "job_id": "<job-new-2>",
+              "object_type": "mail",
+              "source_change": "upsert",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "state": "completed",
+              "target_kind": "message"
+            }
+          ],
+          "source_objects": [
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "object_type": "mail",
+              "projection_state": "applied",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "target_kind": "message"
+            },
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "object_type": "mail",
+              "projection_state": "applied",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "target_kind": "message"
+            }
+          ],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [
+          {
+            "body_len": 126,
+            "body_sha256": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00"
+          }
+        ],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": "#caadbc",
+            "mailbox": "<mailbox-b>",
+            "name": "inbox",
+            "parent": null,
+            "sort": 10,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "before": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": {
+              "ews": {
+                "impersonateAs": "source@example.test",
+                "includeCalendar": false,
+                "includeContacts": false,
+                "includeMail": false,
+                "insecureSkipVerify": false,
+                "password": "pw",
+                "serverURL": "https://ews.mbox7.test/EWS",
+                "username": "service"
+              },
+              "self_service": false,
+              "source_type": "ews",
+              "use_global_auth": true
+            },
+            "cursor": {
+              "delta": {
+                "inbox": "state-inbox"
+              }
+            },
+            "error_log": [
+              "import source event \"calendar-item\": projection reducer did not create an object"
+            ],
+            "id": "<job-new-1>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "connector": {
+                "current_folder": "calendar",
+                "deleted": 0,
+                "imported": 1,
+                "items_done": 1,
+                "items_failed": 1,
+                "moved": 0,
+                "replayed": 0,
+                "unchanged": 0,
+                "updated": 0
+              }
+            },
+            "source": "ews",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          }
+        ],
+        "messages": [
+          {
+            "body_text": "hello",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.test",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m7@example.test>",
+            "raw_ref": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+            "size": 126,
+            "subject": "Provider mail",
+            "tags": [
+              "inbox"
+            ],
+            "to": [
+              {
+                "email": "bob@example.test",
+                "name": "Bob"
+              }
+            ]
+          }
+        ],
+        "objects": [
+          "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00"
+        ],
+        "provider_effects": {
+          "checkpoints": [
+            {
+              "committed_count": 1,
+              "cursor_kind": "ews_sync_state",
+              "cursor_value": "state-inbox",
+              "job_id": "<job-new-1>",
+              "scope_key": "inbox",
+              "source_generation": 1
+            }
+          ],
+          "consents": [],
+          "contacts": [],
+          "events": [],
+          "instances": [
+            {
+              "digest": "7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "generation": 1,
+              "job_id": "<job-new-1>",
+              "key": "ews:7ec8e38bc66052f07f71ab34d68a510e479b71d6a5ba786bfb903c44ddf78757",
+              "type": "ews"
+            }
+          ],
+          "m365_config": {
+            "client_id": "client",
+            "client_secret": "secret",
+            "cloud": "global",
+            "source_email": "source@example.test",
+            "tenant_id": "tenant"
+          },
+          "operations": [
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "error_code": null,
+              "job_id": "<job-new-1>",
+              "object_type": "mail",
+              "source_change": "upsert",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "state": "completed",
+              "target_kind": "message"
+            }
+          ],
+          "source_objects": [
+            {
+              "content_hash": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+              "object_type": "mail",
+              "projection_state": "applied",
+              "source_folder_id": "inbox",
+              "source_object_id": "inbox-item",
+              "source_version": "v1",
+              "target_kind": "message"
+            }
+          ],
+          "states": [
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-a>",
+              "thread": 0
+            },
+            {
+              "calendar": [
+                0
+              ],
+              "contact": [
+                0
+              ],
+              "email": 0,
+              "mailbox": "<mailbox-b>",
+              "thread": 0
+            }
+          ]
+        },
+        "s3": [
+          {
+            "body_len": 126,
+            "body_sha256": "269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/269e6f859e4140a6b6af38f412bb6d34a1830249a11735a9b03f25531b816c00"
+          }
+        ],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": "#caadbc",
+            "mailbox": "<mailbox-b>",
+            "name": "inbox",
+            "parent": null,
+            "sort": 10,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "table": "migration_jobs+messages+tags+objects"
+    }
+  ],
+  "format": 1,
+  "go_source": "ad5c2e3480ddd3776062cbc03f9fac49814d968b",
+  "route": "POST /admin/migration/start"
+}

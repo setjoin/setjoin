@@ -1,0 +1,166 @@
+-- pgTAP tests for auth_policy.sql — validate_password() + mfa_status()
+BEGIN;
+SELECT plan(19);
+
+-- ── validate_password — pure function, no fixtures ──
+
+-- Custom config for strict testing (system_config not needed — defaults are strict)
+-- Test 1: valid password with all character classes
+SELECT results_eq(
+    $$ SELECT validate_password('Abcdef1!', FALSE) $$,
+    $$ SELECT '{"valid": true}'::JSONB $$,
+    'valid password with all char classes passes'
+);
+
+-- Test 2: too short
+SELECT results_eq(
+    $$ SELECT validate_password('Ab1!', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password must be at least 8 characters"}'::JSONB $$,
+    'password shorter than 8 chars fails'
+);
+
+-- Test 3: missing uppercase
+SELECT results_eq(
+    $$ SELECT validate_password('abcdef1!', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password must contain at least one uppercase letter"}'::JSONB $$,
+    'password without uppercase fails'
+);
+
+-- Test 4: missing lowercase
+SELECT results_eq(
+    $$ SELECT validate_password('ABCDEF1!', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password must contain at least one lowercase letter"}'::JSONB $$,
+    'password without lowercase fails'
+);
+
+-- Test 5: missing digit
+SELECT results_eq(
+    $$ SELECT validate_password('Abcdefgh!', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password must contain at least one digit"}'::JSONB $$,
+    'password without digit fails'
+);
+
+-- Test 6: missing special
+SELECT results_eq(
+    $$ SELECT validate_password('Abcdef12', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password must contain at least one special character"}'::JSONB $$,
+    'password without special char fails'
+);
+
+-- Test 7: all requirements met, 12 chars
+SELECT results_eq(
+    $$ SELECT validate_password('MyStr0ng!Pass', FALSE) $$,
+    $$ SELECT '{"valid": true}'::JSONB $$,
+    'strong password passes'
+);
+
+-- Test 8: the cross-profile hash boundary is UTF-8 bytes, not characters.
+SELECT results_eq(
+    $$ SELECT validate_password(repeat('好', 25) || 'Aa1!', FALSE) $$,
+    $$ SELECT '{"valid": false, "error": "Password exceeds the 72-byte limit"}'::JSONB $$,
+    'password above 72 UTF-8 bytes fails before hashing'
+);
+
+-- ── mfa_status — needs fixtures ──
+
+INSERT INTO domains (name, is_local) VALUES ('pg.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, mfa_exempt)
+  VALUES (9001, 'mfa_user', (SELECT id FROM domains WHERE name = 'pg.test'), 'mfa@pg.test', 'MFA User', TRUE, FALSE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, mfa_exempt)
+  VALUES (9002, 'no_mfa_user', (SELECT id FROM domains WHERE name = 'pg.test'), 'nomfa@pg.test', 'No MFA User', FALSE, FALSE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, mfa_exempt)
+  VALUES (9003, 'exempt_user', (SELECT id FROM domains WHERE name = 'pg.test'), 'exempt@pg.test', 'Exempt User', FALSE, TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, mfa_exempt)
+  VALUES (9004, 'no_webauthn', (SELECT id FROM domains WHERE name = 'pg.test'), 'nowa@pg.test', 'No WA User', FALSE, FALSE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, push_mfa_enabled, mfa_exempt)
+  VALUES (9005, 'push_mfa_user', (SELECT id FROM domains WHERE name = 'pg.test'), 'push@pg.test', 'Push MFA User', FALSE, TRUE, FALSE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, webauthn_credentials, mfa_exempt)
+  VALUES (9006, 'legacy_webauthn', (SELECT id FROM domains WHERE name = 'pg.test'), 'legacywa@pg.test', 'Legacy WA User', FALSE, '[{"id":"legacy"}]'::jsonb, FALSE);
+INSERT INTO users (id, username, domain_id, email, display_name, totp_enabled, mfa_exempt)
+  VALUES (9007, 'passkey_only', (SELECT id FROM domains WHERE name = 'pg.test'), 'passkey@pg.test', 'Passkey User', FALSE, FALSE);
+INSERT INTO passkey_credentials(id,user_id,public_key)
+  VALUES (digest('passkey-only-id','sha256'),9007,digest('passkey-only-public-key','sha256'));
+
+-- Ensure enforcement mode is 'required' (default seed may already set this)
+INSERT INTO system_config (key, value) VALUES ('mfa_enforcement_mode', '"required"')
+  ON CONFLICT (key) DO NOTHING;
+INSERT INTO feature_toggles (key, enabled) VALUES ('feature.require_mfa', TRUE)
+  ON CONFLICT (key) DO NOTHING;
+
+-- Test 9: enrolled user (totp=true) returns 'enrolled'
+SELECT results_eq(
+    $$ SELECT mfa_status(9001)->>'status' $$,
+    $$ SELECT 'enrolled' $$,
+    'user with TOTP returns enrolled'
+);
+
+-- Test 10: no MFA user with enforcement=required returns enrollment_required
+SELECT results_eq(
+    $$ SELECT mfa_status(9002)->>'status' $$,
+    $$ SELECT 'enrollment_required' $$,
+    'user without MFA gets enrollment_required when enforcement is required'
+);
+
+-- Test 11: exempt user
+SELECT results_eq(
+    $$ SELECT mfa_status(9003)->>'status' $$,
+    $$ SELECT 'exempt' $$,
+    'mfa_exempt user returns exempt'
+);
+
+-- Test 12: no MFA with no webauthn returns enrollment_required
+SELECT results_eq(
+    $$ SELECT mfa_status(9004)->>'status' $$,
+    $$ SELECT 'enrollment_required' $$,
+    'user without any MFA gets enrollment_required'
+);
+
+-- Test 13: unknown user returns error
+SELECT ok(
+    (SELECT mfa_status(99999)->>'error' = 'user not found'),
+    'unknown user returns error'
+);
+
+-- Test 14: enrolled user has webauthn_count
+SELECT ok(
+    (SELECT (mfa_status(9001)->>'webauthn_count')::INT = 0),
+    'enrolled user reports webauthn_count'
+);
+
+-- Test 15: push is challengeable on the password-first path.
+SELECT results_eq(
+    $$ SELECT mfa_status(9005)->>'status' $$,
+    $$ SELECT 'enrolled' $$,
+    'push-only user returns enrolled'
+);
+
+-- Test 16: the legacy JSON WebAuthn column cannot bypass required MFA.
+SELECT results_eq(
+    $$ SELECT mfa_status(9006)->>'status' $$,
+    $$ SELECT 'enrollment_required' $$,
+    'legacy WebAuthn-only user must enroll a password-step-up factor'
+);
+
+-- Test 17: a normalized passkey remains a separate passwordless login method.
+SELECT results_eq(
+    $$ SELECT mfa_status(9007)->>'status' $$,
+    $$ SELECT 'enrollment_required' $$,
+    'passkey-only user must enroll a password-step-up factor'
+);
+
+-- Test 18: normalized passkeys remain visible as informational inventory.
+SELECT is(
+    (SELECT (mfa_status(9007)->>'webauthn_count')::INT),
+    1,
+    'mfa_status reports active normalized passkeys'
+);
+
+-- Test 19: legacy JSON credentials are not counted as active passkeys.
+SELECT is(
+    (SELECT (mfa_status(9006)->>'webauthn_count')::INT),
+    0,
+    'enrollment-required response does not present legacy JSON as active MFA'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

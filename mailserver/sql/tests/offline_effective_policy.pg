@@ -1,0 +1,57 @@
+-- pgTAP: offline_effective_policy.pg
+BEGIN;
+SELECT plan(7);
+
+-- Actor user required by admin_audit_log FK (same pattern as offline_policy_set.pg).
+INSERT INTO domains (id, name, is_local) VALUES (98701, 'ops.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (1, 'ops_actor', 98701, 'actor@ops.test', 'Actor', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+CREATE TEMP TABLE _a AS SELECT mk_account('oep') AS mb;
+CREATE TEMP TABLE _u AS SELECT user_id AS uid FROM mailboxes WHERE id=(SELECT mb FROM _a);
+CREATE TEMP TABLE _d AS SELECT mk_offline_device((SELECT mb FROM _a),'approved') AS id;
+-- Master toggle ON + enabled user policy + opted-in + approved ⇒ allowed.
+UPDATE feature_toggles SET enabled=true WHERE key='feature.offline_mail';
+SELECT offline_policy_set(1,NULL,'p','user',(SELECT uid FROM _u),true,14,true,'always',100);
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'allowed'),
+  'true', 'all four gates true ⇒ allowed');
+-- Window = min(user 7, policy 14) = 7.
+SELECT offline_device_opt_in((SELECT mb FROM _a),(SELECT id FROM _d),true,7);
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'maxOfflineDays'),
+  '7', 'window = min(user, policy)');
+-- Master toggle OFF ⇒ not allowed.
+UPDATE feature_toggles SET enabled=false WHERE key='feature.offline_mail';
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'allowed'),
+  'false', 'master toggle off ⇒ not allowed');
+-- F4: revoked device ⇒ allowed=false (seed withheld).
+UPDATE feature_toggles SET enabled=true WHERE key='feature.offline_mail';
+UPDATE user_devices SET offline_approval='revoked' WHERE id=(SELECT id FROM _d);
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'allowed'),
+  'false', 'F4: revoked ⇒ not allowed (no seed)');
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'approvalState'),
+  'revoked', 'approvalState surfaced');
+-- Fix 1: group-scoped policy resolves for a member (was silently ignored).
+-- Reset: clear user policy so group policy wins.
+DELETE FROM offline_policies WHERE scope_type='user';
+UPDATE user_devices SET offline_approval='approved' WHERE id=(SELECT id FROM _d);
+INSERT INTO offline_policies (name, scope_type, scope_id, enabled, max_offline_days, require_approval, priority)
+  VALUES ('grp','group',55999,true,10,false,50);
+INSERT INTO user_group_members (user_id, group_id)
+  SELECT uid, 55999 FROM _u ON CONFLICT DO NOTHING;
+UPDATE feature_toggles SET enabled=true WHERE key='feature.offline_mail';
+SELECT offline_device_opt_in((SELECT mb FROM _a),(SELECT id FROM _d),true,10);
+SELECT is(
+  (offline_effective_policy((SELECT mb FROM _a),(SELECT id FROM _d)) ->> 'allowed'),
+  'true', 'Fix 1: group-scoped policy resolves for member');
+-- Fix 4: null-user fast-return emits all 5 keys.
+SELECT is(
+  jsonb_typeof((SELECT offline_effective_policy(0,0) -> 'requireApproval')),
+  'boolean', 'Fix 4: null-user path returns complete 5-key deny payload');
+SELECT finish();
+ROLLBACK;

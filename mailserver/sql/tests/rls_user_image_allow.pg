@@ -1,0 +1,94 @@
+-- pgTAP: rls_user_image_allow.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Correctness proof for the V091 user_image_allow RLS policy (per-sender
+-- remote-image trust, WAVE-5 #5). V091 copies the V078 focus_sender_overrides
+-- shape exactly: ENABLE+FORCE ship in the migration, one self policy keyed on
+-- app.current_user_id. This test first asserts the persistent force-state,
+-- then proves the policy as the REAL constrained runtime role inside a
+-- BEGIN…ROLLBACK (fixtures rolled back).
+--
+-- WHY SET LOCAL ROLE setjoin_app: the test connection (`mail`) is a SUPERUSER
+-- and the table owner — both bypass RLS even under FORCE. setjoin_app is the
+-- runtime role the flip targets (NOSUPERUSER + NOBYPASSRLS).
+--
+-- Policy contract:
+--   · a user sees + mutates ONLY rows with their own user_id,
+--   · INSERT for another user → 42501 (WITH CHECK),
+--   · DELETE of another user's row → invisible → no-op,
+--   · no GUC → fail-closed (zero rows).
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(11);
+
+-- ── Force-state: V091 shipped ENABLE+FORCE persistently (not test-local). ───
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.user_image_allow'::regclass),
+  TRUE, 'V091: user_image_allow has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.user_image_allow'::regclass),
+  TRUE, 'V091: user_image_allow has ROW LEVEL SECURITY FORCED');
+
+-- ── Fixtures: two users A + B. ───────────────────────────────────────────────
+SELECT mk_account('imgallowA') AS mba \gset
+SELECT mk_account('imgallowB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+-- Seed one row per user (as the superuser, BEFORE SET ROLE).
+INSERT INTO user_image_allow (user_id, sender) VALUES
+  (:ua, 'news@partner.test'),
+  (:ub, 'promo@other.test');
+
+-- Superuser non-vacuity: both rows really exist before the role flip.
+SELECT is(
+  (SELECT count(*) FROM user_image_allow
+    WHERE sender IN ('news@partner.test', 'promo@other.test'))::INT, 2,
+  'superuser sees both seeded rows (non-vacuous fixtures)');
+
+-- Defensive re-grant (provision-roles.sql provisions these at load; GRANTs are
+-- orthogonal to policies and setjoin_app has no BYPASSRLS).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_image_allow TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- ── READ: self-scoped ────────────────────────────────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is(
+  (SELECT count(*) FROM user_image_allow)::INT, 1,
+  'GUC=A: sees exactly their own row');
+SELECT is(
+  (SELECT sender FROM user_image_allow), 'news@partner.test',
+  'GUC=A: and it is A''s sender row');
+
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is(
+  (SELECT count(*) FROM user_image_allow WHERE user_id = :ua)::INT, 0,
+  'GUC=B: A''s row is invisible');
+
+-- ── FAIL-CLOSED: no GUC → zero rows ─────────────────────────────────────────
+SELECT set_config('app.current_user_id', '', true);
+SELECT is(
+  (SELECT count(*) FROM user_image_allow)::INT, 0,
+  'no GUC: fail-closed — ZERO rows visible');
+
+-- ── WRITE: self only ─────────────────────────────────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT lives_ok(
+  format($$ INSERT INTO user_image_allow (user_id, sender) VALUES (%s, 'extra@partner.test') $$, :ua),
+  'A may INSERT their own row');
+SELECT throws_ok(
+  format($$ INSERT INTO user_image_allow (user_id, sender) VALUES (%s, 'forged@evil.test') $$, :ub),
+  '42501', NULL,
+  'A INSERTing a row for B is REJECTED (42501, WITH CHECK)');
+
+-- DELETE of B's row: invisible under USING → executes but removes nothing.
+SELECT lives_ok(
+  $$ DELETE FROM user_image_allow WHERE sender = 'promo@other.test' $$,
+  'A DELETE of B''s row executes without error…');
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is(
+  (SELECT count(*) FROM user_image_allow)::INT, 1,
+  '…but removed NOTHING (B''s row survives, B-visible)');
+
+SELECT * FROM finish();
+ROLLBACK;

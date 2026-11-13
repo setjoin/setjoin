@@ -1,0 +1,90 @@
+-- mailserver/sql/tests/worker_ownership.pg — apply_worker_ownership(regprocedure) applicator (V118).
+-- Drive architecture-hardening Task 2: a throwaway DEFINER function is
+-- reassigned to setjoin_worker + PUBLIC EXECUTE revoked, exactly like the
+-- inline footer every DEFINER-under-FORCE-RLS reducer repeats today.
+BEGIN;
+SELECT plan(7);
+
+CREATE FUNCTION _worker_ownership_test_fn() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN END $$;
+
+SELECT apply_worker_ownership('_worker_ownership_test_fn()'::regprocedure);
+
+SELECT is(
+  (SELECT proowner::regrole FROM pg_proc WHERE oid = '_worker_ownership_test_fn()'::regprocedure),
+  'setjoin_worker'::regrole,
+  'apply_worker_ownership sets OWNER TO setjoin_worker');
+
+SELECT ok(
+  NOT EXISTS (
+    SELECT 1 FROM pg_proc, aclexplode(proacl) acl
+    WHERE oid = '_worker_ownership_test_fn()'::regprocedure
+      AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+  ),
+  'PUBLIC has no EXECUTE after applicator runs');
+
+-- Drive architecture-hardening Task 4: sound invariant — every SECURITY
+-- DEFINER drive_ reducer must be owner-flipped to setjoin_worker (Task 3
+-- wired all 12; this also covers the V114/V115 DEFINER helpers, which pass
+-- via their own untouched inline footers). LIKE 'drive\_%' escapes the
+-- underscore so it only matches names literally starting "drive_" (not
+-- trg_drive_* triggers, which aren't SECURITY DEFINER anyway).
+--
+-- Manual mutation self-test performed 2026-07-11: commented out the
+-- `apply_worker_ownership('drive_file_unlock(...)'::regprocedure)` call in
+-- mailserver/sql/reducers/drive_file_unlock.sql, reran
+-- `bash scripts/load-test-schema.sh && pg_prove -d mailserver_test
+-- mailserver/sql/tests/worker_ownership.pg` — assertion #3 went RED
+-- (count 1, not 0). Restored the call, reran — GREEN (3/3). Repeat the same
+-- way to re-verify the guard bites.
+SELECT is(
+  (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname LIKE 'drive\_%' AND p.prosecdef
+      AND p.proowner <> 'setjoin_worker'::regrole),
+  0, 'every SECURITY DEFINER drive_ reducer is worker-owned');
+
+CREATE TEMP TABLE _entitlement_worker_manifest(signature regprocedure PRIMARY KEY);
+INSERT INTO _entitlement_worker_manifest VALUES
+  ('check_user_app_entitlement(bigint,text)'::regprocedure),
+  ('check_app_entitlement(bigint,text)'::regprocedure);
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM _entitlement_worker_manifest m JOIN pg_proc p ON p.oid = m.signature
+    WHERE NOT p.prosecdef),
+  0,
+  'both entitlement authorities are SECURITY DEFINER');
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM _entitlement_worker_manifest m JOIN pg_proc p ON p.oid = m.signature
+    WHERE p.proowner <> 'setjoin_worker'::regrole),
+  0,
+  'both entitlement authorities are owned by setjoin_worker');
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM _entitlement_worker_manifest m JOIN pg_proc p ON p.oid = m.signature
+    WHERE p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, public']::text[]),
+  0,
+  'both entitlement authorities pin search_path to pg_catalog, public');
+
+SELECT is(
+  (SELECT count(*)::int
+     FROM _entitlement_worker_manifest m JOIN pg_proc p ON p.oid = m.signature
+    WHERE (
+      SELECT array_agg(format('%s:%s:%s:%s', grantee.rolname, grantor.rolname,
+                              acl.privilege_type, acl.is_grantable) ORDER BY grantee.rolname)
+        FROM aclexplode(p.proacl) acl
+        LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+        LEFT JOIN pg_roles grantor ON grantor.oid = acl.grantor
+    ) IS DISTINCT FROM ARRAY[
+      'setjoin_app:setjoin_worker:EXECUTE:f',
+      'setjoin_owner:setjoin_worker:EXECUTE:f',
+      'setjoin_worker:setjoin_worker:EXECUTE:f'
+    ]::text[]),
+  0,
+  'both entitlement authorities expose EXECUTE only to runtime roles');
+
+SELECT * FROM finish();
+ROLLBACK;

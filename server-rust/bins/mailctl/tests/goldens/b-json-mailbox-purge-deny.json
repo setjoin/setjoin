@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/mailbox-purge-approvals/8",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"comment\":\"reviewed\",\"decision\":\"deny\"}"
+    }
+  ],
+  "stdout": "{\n  \"accepted\": true\n}\n",
+  "stderr": "",
+  "exit": 0
+}

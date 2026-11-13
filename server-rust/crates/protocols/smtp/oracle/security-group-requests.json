@@ -1,0 +1,335 @@
+[
+  {
+    "name": "group-open-hold",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-open-hold@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,true,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-closed-internal-hold",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <alice@smtp1.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-closed-internal-hold@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,false,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-closed-external-reject",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-closed-external-reject@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,false,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-open-fanout",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-open-fanout@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,false,true,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-closed-internal-fanout",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <alice@smtp1.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-closed-internal-fanout@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,false,false,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-condemned-hold-defers",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-condemned-hold-defers@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: Group.Test FOUND"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,true,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-condemned-fanout",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-condemned-fanout@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: Group.Test FOUND"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,false,true,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-alias-hold",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team-alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team-alias@smtp1.test\r\nMessage-ID: <group-alias-hold@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,true,9348021); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  },
+  {
+    "name": "group-no-moderator-tempfails",
+    "mail_auth": {
+      "approval.group_moderation": true,
+      "feature.clamav": true
+    },
+    "capture": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<team@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: team@smtp1.test\r\nMessage-ID: <group-no-moderator-tempfails@smtp6.test>\r\nSubject: Ordinary post\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "clam_reply": "stream: OK"
+    },
+    "setup_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;INSERT INTO mailboxes(id,domain_id,email,display_name,type,is_primary) VALUES(9348024,9348001,'team@smtp1.test','Team','personal',false); INSERT INTO aliases(mailbox_id,domain_id,email) VALUES(9348024,9348001,'team-alias@smtp1.test'); INSERT INTO distribution_groups(id,mailbox_id,moderated,allow_external_senders,moderator_mailbox_id) VALUES(9348041,9348024,true,true,NULL); INSERT INTO distribution_group_members(group_id,mailbox_id) VALUES(9348041,9348021),(9348041,9348022);",
+    "teardown_sql": "DELETE FROM approval_requests WHERE id IN (SELECT approval_request_id FROM held_inbound_messages WHERE group_id=9348041); DELETE FROM distribution_groups WHERE id=9348041; DELETE FROM aliases WHERE mailbox_id=9348024; DELETE FROM mailboxes WHERE id=9348024;"
+  }
+]

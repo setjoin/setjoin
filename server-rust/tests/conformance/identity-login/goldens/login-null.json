@@ -1,0 +1,45 @@
+{
+  "case": "login-null",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": [
+        {
+          "auth_method": "password",
+          "client": "web",
+          "correlation_id": null,
+          "device_fingerprint": null,
+          "device_name": null,
+          "fail_reason": "invalid_credentials",
+          "location": null,
+          "platform": null,
+          "protocol": "http",
+          "session_id": null,
+          "source_ip": "127.0.0.1",
+          "success": false,
+          "user_id": null
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "null",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"invalid credentials\",\"instance\":\"/auth/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 401,
+      "tokens": []
+    }
+  },
+  "route": "POST /auth/login"
+}

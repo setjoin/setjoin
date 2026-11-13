@@ -1,0 +1,13 @@
+-- pgTAP: SSO group provisioning schema
+BEGIN;
+SELECT plan(6);
+
+SELECT has_column('users', 'oidc_subject', 'users has oidc_subject column');
+SELECT has_column('users', 'oidc_issuer', 'users has oidc_issuer column');
+SELECT has_column('users', 'saml_name_id', 'users has saml_name_id column');
+SELECT has_column('users', 'saml_idp_entity_id', 'users has saml_idp_entity_id column');
+SELECT has_column('saml_sp_registrations', 'group_attribute', 'saml_sp_registrations has group_attribute column');
+SELECT has_column('distribution_group_members', 'source', 'distribution_group_members has source column');
+
+SELECT * FROM finish();
+ROLLBACK;

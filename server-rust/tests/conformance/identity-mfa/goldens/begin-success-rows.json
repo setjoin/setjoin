@@ -1,0 +1,97 @@
+{
+  "case": "begin-success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [
+          {
+            "action": "totp_removal_step_up_authorized",
+            "ip": "127.0.0.1/32",
+            "notes": null,
+            "owner": "actor",
+            "target_type": "user"
+          }
+        ],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": true
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": true,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": true,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": true,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ff",
+  "route": "POST /auth/totp/remove/begin"
+}

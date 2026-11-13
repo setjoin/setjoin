@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: unknown push action: bogus (try: doctor, test)\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

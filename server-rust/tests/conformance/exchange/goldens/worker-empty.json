@@ -1,0 +1,174 @@
+{
+  "case": "empty",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "artifacts": [],
+      "audit": [
+        {
+          "action": "exchange.assessment.delete.active_store",
+          "after_state": {
+            "disposition": "backup_expiry_pending",
+            "receiptId": "<receipts-0>",
+            "requestId": "<deletions-0>"
+          },
+          "before_state": null,
+          "checksum": "<checksum>",
+          "id": "<audit>",
+          "ip": null,
+          "notes": "retention expired",
+          "occurred_at": "<timestamp>",
+          "target_id": "<project-a>",
+          "target_type": "exchange_assessment_project",
+          "user_id": "<admin>"
+        },
+        {
+          "action": "exchange.assessment.delete.active_store",
+          "after_state": {
+            "disposition": "backup_expiry_pending",
+            "receiptId": "<receipts-1>",
+            "requestId": "<deletions-1>"
+          },
+          "before_state": null,
+          "checksum": "<checksum>",
+          "id": "<audit>",
+          "ip": null,
+          "notes": "retention expired",
+          "occurred_at": "<timestamp>",
+          "target_id": "<project-b>",
+          "target_type": "exchange_assessment_project",
+          "user_id": "<other>"
+        }
+      ],
+      "deletions": [
+        {
+          "artifact_id": null,
+          "id": "<deletions-0>",
+          "project_id": "<project-a>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<admin>",
+          "run_id": null,
+          "scope": "project",
+          "state": "backup_pending",
+          "updated_at": "<timestamp>"
+        },
+        {
+          "artifact_id": null,
+          "id": "<deletions-1>",
+          "project_id": "<project-b>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<other>",
+          "run_id": null,
+          "scope": "project",
+          "state": "backup_pending",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "receipts": [
+        {
+          "created_at": "<timestamp>",
+          "created_by": "<admin>",
+          "id": "<receipts-0>",
+          "kind": "deletion",
+          "receipt": {
+            "algorithm": "ed25519",
+            "claims": {
+              "disposition": "backup_expiry_pending",
+              "installationId": "<installation>",
+              "issuedAt": "<timestamp>",
+              "keyId": "blobs1-test-continuity",
+              "kind": "deletion",
+              "projectId": "<project-a>",
+              "receiptId": "<receipt-id>",
+              "schemaVersion": "setjoin.exchange.receipt/v1",
+              "subjectSha256": "<deletion-subject-0>",
+              "tenantId": "<domain-a>"
+            },
+            "signature": "<Ed25519 signature>"
+          },
+          "run_id": null,
+          "signature": "<64-byte Ed25519 signature>",
+          "signature_algorithm": "ed25519",
+          "signing_key_id": "blobs1-test-continuity",
+          "subject_digest": "<deletion-subject-0>"
+        },
+        {
+          "created_at": "<timestamp>",
+          "created_by": "<other>",
+          "id": "<receipts-1>",
+          "kind": "deletion",
+          "receipt": {
+            "algorithm": "ed25519",
+            "claims": {
+              "disposition": "backup_expiry_pending",
+              "installationId": "<installation>",
+              "issuedAt": "<timestamp>",
+              "keyId": "blobs1-test-continuity",
+              "kind": "deletion",
+              "projectId": "<project-b>",
+              "receiptId": "<receipt-id>",
+              "schemaVersion": "setjoin.exchange.receipt/v1",
+              "subjectSha256": "<deletion-subject-1>",
+              "tenantId": "<domain-b>"
+            },
+            "signature": "<Ed25519 signature>"
+          },
+          "run_id": null,
+          "signature": "<64-byte Ed25519 signature>",
+          "signature_algorithm": "ed25519",
+          "signing_key_id": "blobs1-test-continuity",
+          "subject_digest": "<deletion-subject-1>"
+        }
+      ],
+      "tombstones": []
+    },
+    "before": {
+      "artifacts": [],
+      "audit": [],
+      "deletions": [
+        {
+          "artifact_id": null,
+          "id": "<deletions-0>",
+          "project_id": "<project-a>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<admin>",
+          "run_id": null,
+          "scope": "project",
+          "state": "requested",
+          "updated_at": "<timestamp>"
+        },
+        {
+          "artifact_id": null,
+          "id": "<deletions-1>",
+          "project_id": "<project-b>",
+          "reason": "retention expired",
+          "requested_at": "<timestamp>",
+          "requested_by": "<other>",
+          "run_id": null,
+          "scope": "project",
+          "state": "requested",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "receipts": [],
+      "tombstones": []
+    },
+    "io": [],
+    "notify": [
+      {
+        "event": "deletion.backup_pending",
+        "projectId": "<project-a>",
+        "requestId": "<deletions-0>"
+      },
+      {
+        "event": "deletion.backup_pending",
+        "projectId": "<project-b>",
+        "requestId": "<deletions-1>"
+      }
+    ]
+  }
+}

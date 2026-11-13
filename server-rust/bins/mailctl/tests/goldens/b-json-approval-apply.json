@@ -1,0 +1,34 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/approval-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/approval-policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"approverSpec\":{},\"conditions\":{},\"consumerType\":\"mail.external_send\",\"enabled\":true,\"name\":\"New\",\"requiresApproval\":false}"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/approval-policies/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"approverSpec\":null,\"conditions\":null,\"enabled\":true,\"name\":\"Changed\",\"requiresApproval\":false}"
+    }
+  ],
+  "stdout": "Apply complete: 1 created, 1 updated, 0 unchanged.\n",
+  "stderr": "",
+  "exit": 0
+}

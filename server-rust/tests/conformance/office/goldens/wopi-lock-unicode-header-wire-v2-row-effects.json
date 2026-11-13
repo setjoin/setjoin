@@ -1,0 +1,25 @@
+{
+  "case": "unicode-header-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "expires_at": "<timestamp>",
+          "fence_generation": 1,
+          "file_node_id": "<file>",
+          "lock_epoch": 1,
+          "opaque_lock_hash": "d1c710a1dd11964b1cdc6578665b9c94c039d33b87826b879dcd27f55c571dfb",
+          "opaque_lock_value": "Office1-锁🔒",
+          "session_id": "<session:0>",
+          "space_id": "<space>",
+          "updated_at": "<timestamp>"
+        }
+      ],
+      "before": [],
+      "table": "locks"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /office/wopi/files/{id}"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown ca action: unsupported (try: list, create, update, delete, reorder, export, import, validate, apply, diff, plan, fmt, migrate, promote, init, why, simulate, coverage, doctor, explain, install-pack, pack, signin-log)\n",
+  "exit": 1
+}

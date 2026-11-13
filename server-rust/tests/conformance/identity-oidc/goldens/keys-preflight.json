@@ -1,0 +1,25 @@
+{
+  "case": "keys-preflight",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "OPTIONS",
+      "path": "/keys"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "access-control-allow-headers": "authorization,content-type",
+        "access-control-allow-methods": "POST",
+        "access-control-allow-origin": "https://auth.idfed1.test",
+        "vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+      },
+      "status": 204
+    }
+  },
+  "route": "* /keys"
+}

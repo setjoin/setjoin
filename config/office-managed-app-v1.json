@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "appId": "collabora-code",
+  "displayName": "Collabora CODE",
+  "channel": "test",
+  "source": "docker.io/collabora/code",
+  "image": "collabora/code@sha256:6b70f91f0b6e9c76f75f162f58ef0a12cf9415d78e14713d33c0318ddc4a2cc0",
+  "digest": "sha256:6b70f91f0b6e9c76f75f162f58ef0a12cf9415d78e14713d33c0318ddc4a2cc0",
+  "platformDigests": {
+    "linux/amd64": "sha256:b535b0f3c1cb8b5b43c8225172c8dac3cda55d07864360db7700e782d197c2a1",
+    "linux/arm64": "sha256:788bf2e4e520c039712d84fcb8a75cdb737b0e8141776ca7ec1e2719bb9ebec8"
+  },
+  "containerName": "setjoin-collabora-code",
+  "networkName": "setjoin-office",
+  "configVolume": "setjoin-collabora-config",
+  "listenAddress": "127.0.0.1",
+  "listenPort": 9980,
+  "license": "MPL-2.0",
+  "licenseSource": "https://github.com/CollaboraOnline/online.mirror/blob/main/COPYING",
+  "sourceCode": "https://github.com/CollaboraOnline/online.mirror",
+  "supportProfile": "self-supported-test",
+  "retrievedAt": "2026-08-24T11:30:00Z"
+}

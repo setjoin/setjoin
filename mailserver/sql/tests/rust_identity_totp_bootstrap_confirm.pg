@@ -1,0 +1,17 @@
+BEGIN;
+SELECT plan(5);
+SELECT set_config('app.encryption_key','idmfa1-key',true);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-bootstrap-confirm.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,mfa_exempt)
+VALUES('idmfa1-bootstrap-confirm','confirm@idmfa1-bootstrap-confirm.test','confirm',:dom,'x',false) RETURNING id AS uid \gset
+INSERT INTO totp_pending_enrollments(user_id,secret_enc,staged_by_jti,staged_via,expires_at)
+VALUES(:uid,pgp_sym_encrypt('STAGED','idmfa1-key'),'sid','enroll_setup',now()+interval '15 minutes') RETURNING id AS enrollment \gset
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,target_ref,proof_method,bound_factor_generation,token_scope,expires_at)
+SELECT 'proof',:uid,'sid','bootstrap.totp.enroll',:'enrollment','password',factor_generation,'mfa_pending',now()+interval '5 minutes' FROM users WHERE id=:uid;
+SELECT is(rust_identity_totp_bootstrap_read(:uid,'{"jti":"sid"}','proof',:'enrollment','127.0.0.1')->>'secret','STAGED','bootstrap crypto reads fenced staged secret');
+SELECT is(rust_identity_totp_bootstrap_fail(:uid)->>'status','invalid_code','invalid code commits only the shared failure budget');
+SELECT is(rust_identity_totp_bootstrap_confirm(:uid,'{"jti":"sid"}','proof',:'enrollment','127.0.0.1',decode('03','hex'),3600,'00000000-0000-4000-8000-000000000334',100,digest('fixture','sha256'))->>'status','minted','activation and refresh anchor share one transaction');
+SELECT ok((SELECT totp_enabled AND totp_failed_attempts=0 AND last_totp_used_at IS NOT NULL FROM users WHERE id=:uid),'activation resets shared budget');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:uid),1::bigint,'one owned refresh anchor');
+SELECT * FROM finish();
+ROLLBACK;

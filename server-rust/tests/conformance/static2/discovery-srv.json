@@ -1,0 +1,32 @@
+{
+  "case": "srv",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "audit": [],
+    "dns": [
+      "SRV:_jmap._tcp.srv.static2.test."
+    ],
+    "effects": {},
+    "notify": [],
+    "peer": [
+      {
+        "host": "peer.static2.test:443",
+        "method": "GET",
+        "path": "/.well-known/setjoin"
+      }
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/discover"
+    },
+    "response": {
+      "body_text": "{\"url\":\"https://peer.static2.test:443\",\"login_field\":\"email\",\"login_domain_hint\":\"corp\\u003c\\u0026\\u003e.test\",\"discovered_via\":\"srv\"}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /api/discover"
+}

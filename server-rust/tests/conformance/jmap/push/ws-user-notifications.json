@@ -1,0 +1,24 @@
+{
+  "case": "ws-user-notifications",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"ChatEvent\",\"event\":{\"marker\":\"own\"}}\n",
+        "{\"@type\":\"MeetEvent\",\"event\":{\"marker\":\"own\"}}\n",
+        "{\"@type\":\"DriveWatch\",\"event\":{\"marker\":\"own\"}}\n"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

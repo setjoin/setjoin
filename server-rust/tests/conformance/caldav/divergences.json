@@ -1,0 +1,14 @@
+[
+  {
+    "baseline": "goldens/propfind-timezone-foreign.json",
+    "sha256": "8d25ea41d916d77c8907457a5ef08f5f9a9860ee6ec055caa676f50a16296a10",
+    "expectation": "security/propfind-timezone-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#426/#512: the CalDAV timezone cache is keyed by calendar and TZID, so a foreign calendar's TZID never serves another calendar)",
+    "issue": "#426",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/caldav.rs::propfind_timezone_foreign",
+    "mutant": "caldav-tz-global-key"
+  }
+]

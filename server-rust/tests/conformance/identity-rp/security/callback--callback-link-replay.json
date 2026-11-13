@@ -1,0 +1,108 @@
+{
+  "case": "callback-link-replay",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "after": {
+        "actor_identity": {
+          "events": [
+            "auth_linked",
+            "entitlements_reconciled"
+          ],
+          "grants": 0,
+          "links": [
+            {
+              "generation": 1,
+              "state": "active",
+              "subject": "linked-subject"
+            }
+          ]
+        },
+        "foreign_identity": {
+          "events": [],
+          "grants": 0,
+          "links": []
+        },
+        "store": {
+          "actor_anchors": 0,
+          "actor_elevations": [
+            true
+          ],
+          "actor_sessions": 1,
+          "foreign_anchors": 0,
+          "foreign_elevations": 0
+        }
+      },
+      "before": {
+        "actor_identity": {
+          "events": [
+            "auth_linked",
+            "entitlements_reconciled"
+          ],
+          "grants": 0,
+          "links": [
+            {
+              "generation": 1,
+              "state": "active",
+              "subject": "linked-subject"
+            }
+          ]
+        },
+        "foreign_identity": {
+          "events": [],
+          "grants": 0,
+          "links": []
+        },
+        "store": {
+          "actor_anchors": 0,
+          "actor_elevations": [
+            true
+          ],
+          "actor_sessions": 1,
+          "foreign_anchors": 0,
+          "foreign_elevations": 0
+        }
+      }
+    },
+    "notify": [],
+    "outbound": [
+      {
+        "authorization": "Basic c2V0am9pbi1jbGllbnQtMzQwOg==",
+        "form": {
+          "code": "_code",
+          "code_verifier": "_verifier",
+          "grant_type": "authorization_code",
+          "redirect_uri": "https://auth.idfed2.test/auth/oidc/callback"
+        },
+        "method": "POST",
+        "path": "/token"
+      }
+    ],
+    "request": {
+      "cookie": "_bound-link-flow",
+      "method": "GET",
+      "path": "/auth/oidc/callback",
+      "query": "code=_code&state=_state",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/callback"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz234\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"conflict\",\"instance\":\"/auth/oidc/callback\",\"remediation\":\"Refresh current state, resolve the conflict, and retry.\",\"code\":\"BZ234\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json",
+        "set-cookie": [
+          "oidc_state=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_verifier=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_nonce=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_provider=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "identity_link_flow=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+        ]
+      },
+      "status": 409
+    }
+  },
+  "route": "GET /auth/oidc/callback"
+}

@@ -1,0 +1,72 @@
+// Recording-only overlay (#408): runs frozen Go's real pushjobs.Worker.Run for
+// exactly one tick (it fires at 3 s; the context ends at 4.5 s) with the real
+// provider set built from the environment, a loopback-only Web Push client, an
+// APNs dial pinned to the owned peer, and a MinIO client on the owned fake S3.
+package pushjobs
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sideshow/apns2"
+	"setjoin.com/shared/pgxutil"
+	sharedpush "setjoin.com/shared/push"
+)
+
+func TestGoFreePushDrainTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, os.Getenv("DB_ENCRYPTION_KEY"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	if target := os.Getenv("MAILCTL_ORACLE_APNS_ADDR"); target != "" {
+		apns2.DialTLS = func(network, address string, cfg *tls.Config) (net.Conn, error) {
+			c := cfg.Clone()
+			if c.ServerName == "" {
+				c.ServerName, _, _ = net.SplitHostPort(address)
+			}
+			return tls.Dial(network, target, c)
+		}
+	}
+	cfg := sharedpush.LoadConfig()
+	if os.Getenv("MAILCTL_ORACLE_WEBPUSH_LOOPBACK") == "1" {
+		cfg.WebPushHTTPClient = &http.Client{
+			Timeout:       30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			Transport: &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+					return nil, fmt.Errorf("oracle Web Push address must be loopback")
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, address)
+			}},
+		}
+	}
+	set, _ := sharedpush.Build(cfg)
+
+	mc, err := minio.New(os.Getenv("GOFREE_DRAIN_S3"), &minio.Options{
+		Creds: credentials.NewStaticV4("test-access", "test-secret", ""), Secure: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := NewWorker(pgxutil.WorkerPool{Pool: pool}, set, slog.Default())
+	w.SetGuestDigestConfig(GuestDigestConfig{
+		MC: mc, Bucket: "mailblobs", FromAddr: "noreply@gofree-drain.test",
+		FromName: "SetJoin", WebmailURL: "https://gofree-drain.test",
+	})
+	runCtx, cancel := context.WithTimeout(ctx, 4500*time.Millisecond)
+	defer cancel()
+	w.Run(runCtx)
+}

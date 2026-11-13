@@ -1,0 +1,76 @@
+{
+  "exit": 0,
+  "stdout": "{\n  \"createdAt\": \"$CREATED\",\n  \"expiresAt\": \"$EXPIRES\",\n  \"fresh\": true,\n  \"manifestDigest\": \"$VERIFIED_MANIFEST_SHA\",\n  \"recoverySetId\": \"$UUID\",\n  \"status\": \"verified\"\n}\n",
+  "stderr": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/upgrades/recovery-context",
+      "body": "",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/system/upgrades/recovery-sets",
+      "body": "{\"checks\":{\"blobs\":true,\"configuration\":true,\"database\":true,\"databaseRestoreList\":true,\"featureToggles\":true,\"hmac\":true,\"protectedKey\":true},\"createdAt\":\"$CREATED\",\"expiresAt\":\"$EXPIRES\",\"manifestDigest\":\"$VERIFIED_MANIFEST_SHA\",\"reason\":\"create pre-upgrade application recovery point\",\"recoverySetId\":\"$UUID\",\"schemaVersion\":275,\"sourceReleaseId\":\"2.4.0\",\"timelineId\":\"00000000-0000-4000-8000-000000000002\"}",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "create pre-upgrade application recovery point"
+      }
+    }
+  ],
+  "operations": [
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/manifest.json"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.dump"
+    ],
+    [
+      "HEAD",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "GET",
+      "fixture/recovery-sets/$UUID/database.list"
+    ],
+    [
+      "HEAD",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/config-20260823T010000Z.json"
+    ],
+    [
+      "GET",
+      "fixture/manifests/incr-20260823T010000Z.json"
+    ],
+    [
+      "HEAD",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "fixture/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ]
+  ]
+}

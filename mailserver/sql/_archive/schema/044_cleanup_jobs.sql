@@ -1,0 +1,37 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- 044: Audit remediation — pg_cron cleanup jobs (Phase 44c/d).
+-- Token and SAML assertion table cleanup prevents unbounded growth.
+
+-- Clean up expired/revoked tokens weekly (Sunday 04:00)
+-- [pg_cron→Go cron worker] SELECT cron.schedule('purge-expired-tokens', '0 4 * * 0',
+--   $$
+--   DELETE FROM health_history
+--   WHERE checked_at < now() - interval '7 days';
+--   $$
+-- );
+
+-- Clean up SAML assertion replay table weekly (Monday 04:15)
+-- [pg_cron→Go cron worker] SELECT cron.schedule('purge-saml-assertions', '15 4 * * 1',
+--   $$
+--   UPDATE mailboxes SET sending_sent_today = 0
+--   WHERE sending_quota_reset_at < CURRENT_DATE;
+--   $$
+-- );
+
+-- Drop message_tags partitions older than 6 months (monthly)
+-- [pg_cron→Go cron worker] SELECT cron.schedule('drop-old-message-tags-partitions', '0 3 1 * *',
+--   $job$
+--   DO $inner$DECLARE
+--     v_part TEXT;
+--   BEGIN
+--     FOR v_part IN
+--       SELECT tablename FROM pg_tables
+--       WHERE schemaname = 'public'
+--         AND tablename LIKE 'message_tags_%'
+--         AND tablename < 'message_tags_' || to_char(now() - interval '6 months', 'YYYY_MM')
+--     LOOP
+--       EXECUTE 'DROP TABLE IF EXISTS ' || v_part;
+--     END LOOP;
+--   END$inner$;
+--   $job$
+-- );

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: read certificate file: open $HOME/cert.pem: no such file or directory\n",
+  "exit": 1
+}

@@ -1,0 +1,140 @@
+-- pgTAP: jmap_email_query has a total order (#223, spec #225).
+-- Owner decision: `received_at` then `id`, the `id` tiebreak in the same
+-- direction as the sort's primary key, so position-based pages over messages
+-- that share a `received_at` neither repeat nor skip. The Rust inbox-list read
+-- (server-rust/crates/domains/jmap/src/email_list.rs) uses the same order; the
+-- conformance email_list oracle keeps the two equal.
+--
+-- Fixture: 40 Inbox messages share one `received_at` and are inserted in a
+-- permuted id order (so heap order is not id order), one is newer, one older,
+-- one pinned (oldest). Every listing is read whole and in pages of 7 (a page
+-- size that does not divide the tie block), in both directions.
+BEGIN;
+SELECT plan(28);
+
+CREATE TEMP TABLE _acct AS SELECT mk_account('qtiebreak') AS mb;
+CREATE TEMP TABLE _t AS SELECT date_trunc('minute', now()) - interval '1 hour' AS t;
+
+-- ids 22301..22340, inserted in the order (k * 17) % 40 (17 is coprime to 40).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at)
+SELECT 22301 + (k * 17) % 40, a.mb, get_tag_id('Inbox', a.mb),
+       '<tie' || (22301 + (k * 17) % 40) || '@tie.test>', 'Tie', 't@ext.com', 100,
+       'thr-tie-' || k, 's3://raw-tie-' || k, (SELECT t FROM _t)
+FROM _acct a, generate_series(0, 39) AS k ORDER BY k;
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, pinned_at)
+SELECT v.id, a.mb, get_tag_id('Inbox', a.mb), '<tie' || v.id || '@tie.test>', 'Tie', 't@ext.com', 100,
+       'thr-tie-' || v.id, 's3://raw-tie-' || v.id, (SELECT t FROM _t) + v.off, v.pinned
+FROM _acct a, (VALUES (22300::BIGINT, interval '-5 minutes', NULL::timestamptz),   -- older
+                      (22341, interval '5 minutes', NULL),                         -- newer
+                      (22342, interval '-10 minutes', now())) AS v(id, off, pinned); -- pinned, oldest
+SELECT tag_message(id, received_at, 'Inbox', mailbox_id, 'deliver', TRUE)
+FROM messages WHERE mailbox_id = (SELECT mb FROM _acct);
+
+-- ids of a query, as a BIGINT[] in answer order.
+CREATE FUNCTION pg_temp.q(p_asc BOOL, p_pos INT, p_lim INT) RETURNS BIGINT[] LANGUAGE sql AS $$
+  SELECT COALESCE(array_agg(x::BIGINT ORDER BY o), '{}')
+  FROM jsonb_array_elements_text(
+         jmap_email_query((SELECT mb FROM _acct),
+                          jsonb_build_object('inMailbox', get_tag_id('Inbox', (SELECT mb FROM _acct))::TEXT),
+                          jsonb_build_array(jsonb_build_object('property', 'receivedAt', 'isAscending', p_asc)),
+                          p_pos, p_lim)->'ids') WITH ORDINALITY AS e(x, o);
+$$;
+-- pages of 7 concatenated, until an empty page.
+CREATE FUNCTION pg_temp.paged(p_asc BOOL) RETURNS BIGINT[] LANGUAGE plpgsql AS $$
+DECLARE v_all BIGINT[] := '{}'; v_page BIGINT[]; v_pos INT := 0;
+BEGIN
+  LOOP
+    v_page := pg_temp.q(p_asc, v_pos, 7);
+    EXIT WHEN cardinality(v_page) = 0;
+    v_all := v_all || v_page;
+    v_pos := v_pos + 7;
+  END LOOP;
+  RETURN v_all;
+END $$;
+
+-- The default sort (no p_sort) is newest first with the same tiebreak.
+CREATE FUNCTION pg_temp.q_default(p_pos INT, p_lim INT) RETURNS BIGINT[] LANGUAGE sql AS $$
+  SELECT COALESCE(array_agg(x::BIGINT ORDER BY o), '{}')
+  FROM jsonb_array_elements_text(
+         jmap_email_query((SELECT mb FROM _acct),
+                          jsonb_build_object('inMailbox', get_tag_id('Inbox', (SELECT mb FROM _acct))::TEXT),
+                          NULL, p_pos, p_lim)->'ids') WITH ORDINALITY AS e(x, o);
+$$;
+
+CREATE TEMP TABLE _exp AS SELECT
+  ARRAY[22342::BIGINT, 22341] || ARRAY(SELECT g::BIGINT FROM generate_series(22340, 22301, -1) g) || ARRAY[22300::BIGINT] AS desc_ids,
+  ARRAY[22342::BIGINT, 22300] || ARRAY(SELECT g::BIGINT FROM generate_series(22301, 22340) g) || ARRAY[22341::BIGINT] AS asc_ids;
+
+-- ── newest first ───────────────────────────────────────────────────────────
+SELECT is(pg_temp.q(FALSE, 0, 256), (SELECT desc_ids FROM _exp),
+  'desc: whole listing is pinned, then received_at DESC, then id DESC');
+SELECT is(pg_temp.paged(FALSE), (SELECT desc_ids FROM _exp),
+  'desc: pages of 7 concatenate to the whole listing');
+SELECT is((SELECT count(DISTINCT x) FROM unnest(pg_temp.paged(FALSE)) x), 43::BIGINT,
+  'desc: pages of 7 repeat nothing');
+SELECT is(cardinality(pg_temp.paged(FALSE)), 43,
+  'desc: pages of 7 skip nothing');
+SELECT is(pg_temp.q(FALSE, 9, 7), (SELECT desc_ids[10:16] FROM _exp),
+  'desc: a page inside the tie block is the ids at those positions');
+
+-- ── oldest first ───────────────────────────────────────────────────────────
+SELECT is(pg_temp.q(TRUE, 0, 256), (SELECT asc_ids FROM _exp),
+  'asc: whole listing is pinned, then received_at ASC, then id ASC');
+SELECT is(pg_temp.paged(TRUE), (SELECT asc_ids FROM _exp),
+  'asc: pages of 7 concatenate to the whole listing');
+SELECT is((SELECT count(DISTINCT x) FROM unnest(pg_temp.paged(TRUE)) x), 43::BIGINT,
+  'asc: pages of 7 repeat nothing');
+SELECT is(cardinality(pg_temp.paged(TRUE)), 43,
+  'asc: pages of 7 skip nothing');
+SELECT is(pg_temp.q(TRUE, 9, 7), (SELECT asc_ids[10:16] FROM _exp),
+  'asc: a page inside the tie block is the ids at those positions');
+
+-- ── default sort ───────────────────────────────────────────────────────────
+SELECT is(pg_temp.q_default(0, 256), (SELECT desc_ids FROM _exp),
+  'no sort: newest first with the id DESC tiebreak');
+SELECT is(pg_temp.q_default(16, 7), (SELECT desc_ids[17:23] FROM _exp),
+  'no sort: a page inside the tie block is the ids at those positions');
+
+-- ── the other sort keys (spec #225 follow-up) ─────────────────────────────
+-- Every fixture row shares subject, from_addr, size_bytes and a NULL sent_at,
+-- so under sentAt/size/subject/from ALL unpinned rows tie on the primary key
+-- and the listing is the pinned row, then the `id` tiebreak in the sort's
+-- direction alone — which is exactly desc_ids / asc_ids (the pinned row 22342
+-- is the highest id; 22300..22341 are contiguous).
+CREATE FUNCTION pg_temp.qs(p_prop TEXT, p_asc BOOL, p_pos INT, p_lim INT) RETURNS BIGINT[] LANGUAGE sql AS $$
+  SELECT COALESCE(array_agg(x::BIGINT ORDER BY o), '{}')
+  FROM jsonb_array_elements_text(
+         jmap_email_query((SELECT mb FROM _acct),
+                          jsonb_build_object('inMailbox', get_tag_id('Inbox', (SELECT mb FROM _acct))::TEXT),
+                          jsonb_build_array(jsonb_build_object('property', p_prop, 'isAscending', p_asc)),
+                          p_pos, p_lim)->'ids') WITH ORDINALITY AS e(x, o);
+$$;
+CREATE FUNCTION pg_temp.paged_s(p_prop TEXT, p_asc BOOL) RETURNS BIGINT[] LANGUAGE plpgsql AS $$
+DECLARE v_all BIGINT[] := '{}'; v_page BIGINT[]; v_pos INT := 0;
+BEGIN
+  LOOP
+    v_page := pg_temp.qs(p_prop, p_asc, v_pos, 7);
+    EXIT WHEN cardinality(v_page) = 0;
+    v_all := v_all || v_page;
+    v_pos := v_pos + 7;
+  END LOOP;
+  RETURN v_all;
+END $$;
+
+SELECT is(pg_temp.qs(k.prop, d.asc_, 0, 256),
+          (SELECT CASE WHEN d.asc_ THEN asc_ids ELSE desc_ids END FROM _exp),
+          k.prop || CASE WHEN d.asc_ THEN ' asc' ELSE ' desc' END
+            || ': whole listing is pinned, then the id tiebreak in the sort direction')
+FROM (VALUES ('sentAt'), ('size'), ('subject'), ('from')) AS k(prop),
+     (VALUES (FALSE), (TRUE)) AS d(asc_)
+ORDER BY k.prop, d.asc_;
+SELECT is(pg_temp.paged_s(k.prop, d.asc_),
+          (SELECT CASE WHEN d.asc_ THEN asc_ids ELSE desc_ids END FROM _exp),
+          k.prop || CASE WHEN d.asc_ THEN ' asc' ELSE ' desc' END
+            || ': pages of 7 concatenate to the whole listing (no repeat, no skip)')
+FROM (VALUES ('sentAt'), ('size'), ('subject'), ('from')) AS k(prop),
+     (VALUES (FALSE), (TRUE)) AS d(asc_)
+ORDER BY k.prop, d.asc_;
+
+SELECT * FROM finish();
+ROLLBACK;

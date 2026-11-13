@@ -1,0 +1,21 @@
+-- pgTAP: V030_schema.pg — V030 CA core schema assertions.
+-- Tables: named_locations, auth_strengths, ca_templates.
+-- Columns: conditional_access_policies.deleted_at, .created_from_template.
+-- Seeds: 3 built-in auth_strengths, role scope on policies, grant-array baseline seeds.
+BEGIN;
+SELECT plan(9);
+SELECT has_table('public', 'named_locations', 'named_locations exists');
+SELECT has_table('public', 'auth_strengths', 'auth_strengths exists');
+SELECT has_table('public', 'ca_templates', 'ca_templates exists');
+SELECT has_column('public', 'conditional_access_policies', 'deleted_at', 'policies.deleted_at exists');
+SELECT has_column('public', 'conditional_access_policies', 'created_from_template', 'policies.created_from_template exists');
+SELECT is(
+  (SELECT count(*) FROM auth_strengths WHERE builtin AND slug IN ('phishing-resistant','passwordless','mfa')),
+  3::bigint, '3 built-in auth-strength seeds present');
+-- role scope is now allowed
+SELECT lives_ok($$ INSERT INTO conditional_access_policies (priority,name,scope_type,scope_target) VALUES (9991,'rtest','role','1') $$, 'role scope accepted');
+-- baseline seeds are grant-array shape, none enabled
+SELECT is((SELECT count(*) FROM conditional_access_policies WHERE actions ? 'action' AND id <= 5), 0::bigint, 'no baseline seed uses bare single-action');
+SELECT is((SELECT count(*) FROM conditional_access_policies WHERE id <= 5 AND enabled), 0::bigint, 'baseline seeds remain disabled');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,61 @@
+{
+  "case": "empty-db",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "none"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/monitor/live",
+      "method": "GET",
+      "path": "/admin/monitor/live"
+    },
+    "response": {
+      "body": "{\"timestamp\":\"\",\"dmarc\":{\"pass\":0,\"fail\":0,\"none\":0,\"temperror\":0,\"byDomain\":null},\"queue\":{\"pending\":0,\"deferred\":0,\"bounced\":0},\"quarantine\":{\"active\":0,\"today\":0,\"released\":0},\"volume\":{\"received24h\":4,\"sent24h\":0,\"bytes24h\":40},\"threats\":{\"authFailures\":0,\"rblBlocks\":0,\"topVirusNames\":null},\"system\":{\"goroutines\":\"<n>\"}}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "327"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/monitor/live"
+}

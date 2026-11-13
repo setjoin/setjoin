@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -id: parse error\nUsage of eap apply:\n  -id int\n    \tPolicy ID to apply (omit to apply all enabled policies)\n",
+  "exit": 2
+}

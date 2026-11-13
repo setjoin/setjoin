@@ -1,0 +1,137 @@
+-- chat_attachments.pg: Chat A2 Task 3 — attachments landing atomically in
+-- chat_message_send (chat_space_ensure -> drive_node_create -> auto-suffix
+-- -> drive_file_put_version -> chat_message_attachments link row).
+--
+-- drive_spaces.owner_user_id AND drive_file_versions.author_user_id AND
+-- drive_upload_claims.user_id all carry real FKs to users(id) (unlike
+-- chat_channel_members, which has none — V119) — every user that actually
+-- reaches drive work in this file is a real mk_account'd user. A user whose
+-- call fails BEFORE any drive-side insert (BZ163 membership, BZ172 cap) may
+-- stay a bare fixture bigint.
+--
+-- Requires: chat_channel.sql, chat_message.sql, chat_space_ensure.sql,
+-- drive_node_create.sql, drive_file_put_version.sql, drive_chunk_register.sql,
+-- V120 (chat_message_attachments, drive_member_role v2).
+BEGIN;
+SELECT plan(22);
+
+SELECT mk_account('attA') AS mba \gset
+SELECT mk_account('attB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+
+SELECT chat_channel_create(:ua, 'a2-attach-chan') AS chan \gset
+SELECT chat_member_add(:ua, :chan, :ub);
+SELECT chat_space_ensure(:ua, :chan) AS space \gset
+
+-- ═══════════════════════ happy path ═══════════════════════════════════
+SELECT drive_chunk_register(:ua, :space, repeat('1', 64), 10);
+SELECT chat_message_send(:ua, :chan, 'see attached', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('1', 64) || '","size":10,"name":"report.pdf","contentType":"application/pdf",'
+     || '"manifest":[{"sha256":"' || repeat('1', 64) || '","size":10}]}]')::jsonb) AS happy \gset
+SELECT ok((:'happy'::jsonb ? 'messageId'), 'happy path: send succeeds');
+SELECT (:'happy'::jsonb ->> 'messageId')::bigint AS happy_msg \gset
+SELECT is((SELECT count(*) FROM chat_message_attachments WHERE message_id = :happy_msg)::int, 1,
+  'happy path: one chat_message_attachments link row');
+SELECT is((SELECT filename FROM chat_message_attachments WHERE message_id = :happy_msg), 'report.pdf',
+  'happy path: filename preserved');
+SELECT is((SELECT n.kind FROM chat_message_attachments a JOIN drive_nodes n ON n.id = a.file_node_id
+            WHERE a.message_id = :happy_msg), 'file', 'happy path: a real drive_nodes file row exists');
+SELECT is((SELECT v.content_sha256 FROM chat_message_attachments a
+             JOIN drive_file_versions v ON v.id = a.version_id WHERE a.message_id = :happy_msg),
+  repeat('1', 64), 'happy path: a real drive_file_versions row with the right content hash');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id = :space), 10::bigint,
+  'happy path: space used_bytes charged for the attachment');
+SELECT is((SELECT elem->'attachments'->0->>'filename'
+             FROM jsonb_array_elements(chat_messages_list(:ua, :chan, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :happy_msg),
+  'report.pdf', 'happy path: chat_message_to_json projection carries the attachment');
+
+-- ═══════════════════ atomicity: no claim -> whole-txn fails, no message ══
+SELECT count(*)::int AS msgs_before FROM chat_messages WHERE channel_id = :chan \gset
+SELECT throws_ok(format($$ SELECT chat_message_send(%s, %s, 'never claimed', NULL, '{}'::bigint[], NULL,
+    '[{"sha256":"%s","size":5,"name":"ghost.bin","manifest":[{"sha256":"%s","size":5}]}]'::jsonb) $$,
+  :ub, :chan, repeat('c', 64), repeat('c', 64)),
+  'BZ144', NULL, 'attaching a never-claimed sha raises the BZ144-class chunk-not-proven error');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :chan), :msgs_before,
+  'atomicity: the whole send unwinds — no orphan message row from the failed attempt');
+
+-- ═══════════════════════════ BZ172: >8 attachments ═══════════════════════
+SELECT throws_ok(format($$ SELECT chat_message_send(%s, %s, 'too many', NULL, '{}'::bigint[], NULL,
+    (SELECT jsonb_agg(jsonb_build_object('sha256', repeat('9',64), 'size', 1, 'name', 'f'||g||'.txt'))
+       FROM generate_series(1,9) g)) $$, :ua, :chan),
+  'BZ172', NULL, '9 attachments (over the 8 cap) raises BZ172');
+
+-- ═════════════════ collision: auto-suffix on duplicate name ═════════════
+SELECT drive_chunk_register(:ua, :space, repeat('2', 64), 20);
+SELECT chat_message_send(:ua, :chan, 'again', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('2', 64) || '","size":20,"name":"report.pdf",'
+     || '"manifest":[{"sha256":"' || repeat('2', 64) || '","size":20}]}]')::jsonb) AS coll \gset
+SELECT (:'coll'::jsonb ->> 'messageId')::bigint AS coll_msg \gset
+SELECT is((SELECT filename FROM chat_message_attachments WHERE message_id = :coll_msg),
+  'report (2).pdf', 'name collision auto-suffixes report.pdf -> report (2).pdf');
+SELECT is((SELECT count(*)::int FROM drive_nodes WHERE space_id = :space AND lower(name) = 'report.pdf'), 1,
+  'exactly one live node still owns the original report.pdf name');
+
+-- ═════ dotfile collision: extension-only name must not surface a leading
+-- space in the auto-suffix (an unbtrimmed ' (2).env' fails drive_nodes'
+-- `name = btrim(name)` CHECK as BZ141, unwinding the whole send) ══════════
+SELECT drive_chunk_register(:ua, :space, repeat('f', 64), 1);
+SELECT chat_message_send(:ua, :chan, 'dotfile 1', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('f', 64) || '","size":1,"name":".env",'
+     || '"manifest":[{"sha256":"' || repeat('f', 64) || '","size":1}]}]')::jsonb) AS dot1 \gset
+SELECT drive_chunk_register(:ua, :space, repeat('b', 64), 1);
+SELECT lives_ok(format($$ SELECT chat_message_send(%s, %s, 'dotfile 2', NULL, '{}'::bigint[], NULL,
+    '[{"sha256":"%s","size":1,"name":".env","manifest":[{"sha256":"%s","size":1}]}]'::jsonb) $$,
+  :ua, :chan, repeat('b', 64), repeat('b', 64)),
+  'dotfile collision on ''.env'' auto-suffixes without raising BZ141');
+SELECT (:'dot1'::jsonb ->> 'messageId')::bigint AS dot1_msg \gset
+SELECT is((SELECT filename FROM chat_message_attachments a
+             JOIN chat_messages m ON m.id = a.message_id
+            WHERE m.channel_id = :chan AND m.body = 'dotfile 2'),
+  '(2).env', 'dotfile collision auto-suffix has no leading space: ''(2).env'' not '' (2).env''');
+
+-- ══════════════════ soft-delete hides attachments in the projection ══════
+SELECT chat_message_delete(:ua, :happy_msg);
+SELECT is((SELECT elem->'attachments' FROM jsonb_array_elements(chat_messages_list(:ua, :chan, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :happy_msg),
+  '[]'::jsonb, 'soft-deleted message projects attachments: []');
+SELECT is((SELECT count(*)::int FROM chat_message_attachments WHERE message_id = :happy_msg), 1,
+  'soft-deleted message: the chat_message_attachments link row is RETAINED (C1 evidence posture)');
+
+-- ══════════════════════ attachment-only message (Design D2) ══════════════
+SELECT drive_chunk_register(:ub, :space, repeat('3', 64), 3);
+SELECT chat_message_send(:ub, :chan, '', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('3', 64) || '","size":3,"name":"tiny.bin",'
+     || '"manifest":[{"sha256":"' || repeat('3', 64) || '","size":3}]}]')::jsonb) AS attonly \gset
+SELECT (:'attonly'::jsonb ->> 'messageId')::bigint AS attonly_msg \gset
+SELECT is((SELECT jsonb_array_length(elem->'attachments')
+             FROM jsonb_array_elements(chat_messages_list(:ub, :chan, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :attonly_msg),
+  1, 'attachment-only message (empty body) projects one attachment');
+SELECT is((SELECT elem->>'body' FROM jsonb_array_elements(chat_messages_list(:ub, :chan, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :attonly_msg),
+  '', 'attachment-only message projects an empty body');
+
+-- ══════════════════ non-member sender: BZ163 before any drive work ═══════
+SELECT count(*)::int AS chunks_before FROM drive_chunks \gset
+SELECT throws_ok(format($$ SELECT chat_message_send(999999888, %s, 'hi', NULL, '{}'::bigint[], NULL,
+    '[{"sha256":"%s","size":1,"name":"x.txt","manifest":[{"sha256":"%s","size":1}]}]'::jsonb) $$,
+  :chan, repeat('d', 64), repeat('d', 64)),
+  'BZ163', NULL, 'a non-member sender is rejected (BZ163) before touching drive at all');
+SELECT is((SELECT count(*)::int FROM drive_chunks), :chunks_before,
+  'non-member rejection registered zero new drive_chunks rows');
+
+-- ══════════════════════════ BZ173: feature.drive off ═════════════════════
+UPDATE feature_toggles SET enabled = false WHERE key = 'feature.drive';
+SELECT throws_ok(format($$ SELECT chat_message_send(%s, %s, 'with attachment', NULL, '{}'::bigint[], NULL,
+    '[{"sha256":"%s","size":1,"name":"y.txt","manifest":[{"sha256":"%s","size":1}]}]'::jsonb) $$,
+  :ua, :chan, repeat('e', 64), repeat('e', 64)),
+  'BZ173', NULL, 'an attachment on a message raises BZ173 when feature.drive is disabled');
+SELECT lives_ok(format($$ SELECT chat_message_send(%s, %s, 'plain text still works') $$, :ua, :chan),
+  'plain text messaging is UNAFFECTED by feature.drive being off');
+
+SELECT * FROM finish();
+ROLLBACK;

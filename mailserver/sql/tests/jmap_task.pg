@@ -1,0 +1,542 @@
+-- pgTAP: jmap_task.sql — task query with filters + the notFound scope FIX +
+-- assignee authz (assigneeEmail resolve, raw-id oracle closed) + recurring tasks.
+BEGIN;
+SELECT plan(57);
+
+INSERT INTO domains (name, is_local) VALUES ('tsk.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 105101 != mailbox 5101). Reducer takes the MAILBOX id.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (105101, 'tskuser', (SELECT id FROM domains WHERE name='tsk.test'), 'u@tsk.test', 'User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5101, 105101, (SELECT id FROM domains WHERE name='tsk.test'), 'u@tsk.test', 'User', 'personal', TRUE);
+
+-- Test 1: query returns task list (empty)
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_task_query(5101)->'ids') = 'array'),
+  'task query returns array of IDs'
+);
+
+-- Test 2: filter by status
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_task_query(5101, '{"status":"needs-action"}'::JSONB)->'ids') = 'array'),
+  'filter by status works'
+);
+
+-- Test 3: filter by text
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_task_query(5101, '{"text":"buy"}'::JSONB)->'ids') = 'array'),
+  'filter by text works'
+);
+
+-- JMAP Id[] elements are STRINGS. A BIGINT[] here fed numeric ids straight
+-- into Task/get (Go: Ids []string) and 400'd every Tasks-app load.
+SELECT jmap_task_set_create(5101, '{"idtype":{"title":"id-type probe"}}'::JSONB);
+SELECT is(
+  (SELECT jsonb_typeof(jmap_task_query(5101)->'ids'->0)),
+  'string',
+  'task query ids are JMAP Id strings, not numbers'
+);
+
+-- ── DIVERGENT-ID notFound FIX (jmap_task_get) ─────────────────────────────────
+-- BEFORE the seam, jmap_task_get probed `tasks WHERE id = x` ORG-WIDE: a foreign
+-- mailbox's task id requested by this caller was NEITHER in list NOR in notFound
+-- (a cross-mailbox existence oracle). Routing through the found-set-diff seam
+-- fixes it — the foreign id now appears in notFound. mk_account guarantees
+-- disjoint user/mailbox ranges so the scope confusion cannot be masked.
+-- (This test FAILS on the old org-wide probe — that's the fix landing.)
+CREATE TEMP TABLE _ta AS SELECT mk_account('taskA') AS mb;
+CREATE TEMP TABLE _tb AS SELECT mk_account('taskB') AS mb;
+INSERT INTO tasks (id, mailbox_id, title) VALUES (5180, (SELECT mb FROM _ta), 'A owns');
+INSERT INTO tasks (id, mailbox_id, title) VALUES (5181, (SELECT mb FROM _tb), 'B owns (foreign)');
+
+-- Test 4: request [own_id, foreign_id] from A → foreign id IS in notFound.
+SELECT ok(
+  (jmap_task_get((SELECT mb FROM _ta), ARRAY[5180::BIGINT, 5181::BIGINT])->'notFound') ? '5181',
+  'task_get: a foreign-owned task id appears in notFound (org-wide oracle fixed)'
+);
+
+-- Test 5: the own id is NOT in notFound (and the foreign id never leaks into list).
+SELECT ok(
+  NOT ((jmap_task_get((SELECT mb FROM _ta), ARRAY[5180::BIGINT, 5181::BIGINT])->'notFound') ? '5180')
+  AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(jmap_task_get((SELECT mb FROM _ta), ARRAY[5180::BIGINT, 5181::BIGINT])->'list') e
+    WHERE e->>'id' = '5181'
+  ),
+  'task_get: own id absent from notFound; foreign id never in list'
+);
+
+-- ── Task push wiring (D2): create/update/destroy each fire the task: push ──────
+-- Capture the app_notify tee and assert each Task/set verb pushes exactly once on
+-- task:{mailbox} with the verbatim event. Uses mailbox 5101 (its own scope).
+SET LOCAL app.capture_notify = 'on';
+
+-- Test 6: create pushes 'task_created' on task:5101.
+SELECT jmap_task_set_create(5101, '{"c1":{"title":"Push me"}}'::JSONB);
+SELECT is(
+  last_notify_event('task:5101'),
+  'task_created',
+  'jmap_task_set_create pushes task_created on task:{mailbox}'
+);
+
+-- Test 7: update pushes 'task_updated' (target the just-created task).
+SELECT jmap_task_set_update(
+  5101,
+  jsonb_build_object(
+    (SELECT MIN(id) FROM tasks WHERE mailbox_id = 5101)::TEXT,
+    jsonb_build_object('status', 'completed')
+  )
+);
+SELECT is(
+  last_notify_event('task:5101'),
+  'task_updated',
+  'jmap_task_set_update pushes task_updated on task:{mailbox}'
+);
+
+-- Test 8: destroy pushes 'task_destroyed'.
+SELECT jmap_task_set_destroy(
+  5101,
+  ARRAY[(SELECT MIN(id) FROM tasks WHERE mailbox_id = 5101)]
+);
+SELECT is(
+  last_notify_event('task:5101'),
+  'task_destroyed',
+  'jmap_task_set_destroy pushes task_destroyed on task:{mailbox}'
+);
+
+-- ── State-token monotonicity (red-pim finding): create must stamp MAX+1, not a
+-- literal 1, so the Task/changes token (= MAX(tasks.jmap_state)) advances even when
+-- the mailbox already has tasks past state 1. Test 8 above emptied mailbox 5101. ──
+-- Seed a task and bump it twice so MAX(jmap_state) climbs past 1.
+SELECT jmap_task_set_create(5101, '{"s1":{"title":"Seed"}}'::JSONB);
+SELECT jmap_task_set_update(5101, jsonb_build_object(
+  (SELECT MAX(id) FROM tasks WHERE mailbox_id = 5101)::TEXT, '{"status":"completed"}'::JSONB));
+SELECT jmap_task_set_update(5101, jsonb_build_object(
+  (SELECT MAX(id) FROM tasks WHERE mailbox_id = 5101)::TEXT, '{"priority":2}'::JSONB));
+
+CREATE TEMP TABLE _tcs AS SELECT (SELECT COALESCE(MAX(jmap_state),0) FROM tasks WHERE mailbox_id = 5101) AS s0;
+
+-- Test 9: a SECOND create advances the Task/changes token. Under the literal-1 bug
+-- the new row's jmap_state=1 < current MAX, so MAX(tasks.jmap_state) would NOT move
+-- and a polling client misses the task — this FAILS before the fix.
+SELECT jmap_task_set_create(5101, '{"s2":{"title":"Second"}}'::JSONB);
+SELECT cmp_ok(
+  (SELECT COALESCE(MAX(jmap_state),0) FROM tasks WHERE mailbox_id = 5101),
+  '>',
+  (SELECT s0 FROM _tcs),
+  'task create advances the Task/changes token even when tasks exist past state 1');
+
+-- Test 10: set_create's oldState is the REAL prior token, not the fabricated
+-- newState-1. Post-A4 the token is the monotonic entity_state counter (not
+-- MAX(jmap_state)), so capture the prior token the same way the reducer reads it.
+CREATE TEMP TABLE _tcs2 AS SELECT entity_state(5101, 'Task') AS before;
+SELECT is(
+  (jmap_task_set_create(5101, '{"s3":{"title":"Third"}}'::JSONB)->>'oldState'),
+  (SELECT before::TEXT FROM _tcs2),
+  'task set_create oldState is the real prior token (not a fabricated newState-1)');
+
+-- Test 11: create nulls a parentId that belongs to ANOTHER mailbox (no dangling
+-- cross-tenant reference). Pre-fix the foreign id was stored verbatim. A foreign-
+-- but-real task id is used (a nonexistent id would fail the FK, masking the bug).
+INSERT INTO domains (name, is_local) VALUES ('tsk2.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (105102, 'tskuser2', (SELECT id FROM domains WHERE name='tsk2.test'), 'u2@tsk2.test', 'User2');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5102, 105102, (SELECT id FROM domains WHERE name='tsk2.test'), 'u2@tsk2.test', 'User2', 'personal', TRUE);
+SELECT (jmap_task_set_create(5102, '{"ft":{"title":"ForeignParent"}}'::JSONB)->'created'->'ft'->>'id') AS foreign_task \gset
+SELECT (jmap_task_set_create(5101, ('{"fk":{"title":"FK","parentId":"' || :foreign_task || '"}}')::JSONB)->'created'->'fk'->>'id') AS fkid \gset
+SELECT is(
+  (SELECT parent_id FROM tasks WHERE id = :fkid::BIGINT),
+  NULL::BIGINT,
+  'create: a parentId in another mailbox is nulled (no dangling cross-tenant ref)');
+
+-- A4: Task/changes returns REAL deltas from the journal — an up-to-date client
+-- (since == current) gets an empty delta; a stale since (0 = from-start) now returns
+-- the actual created/updated/destroyed list instead of a blanket BZ011 resync.
+SELECT lives_ok(
+  format($$ SELECT jmap_task_changes(5101, entity_state(5101,'Task')::TEXT) $$),
+  'Task/changes with the current state returns an empty delta (no BZ011)');
+SELECT ok(
+  jsonb_array_length(jmap_task_changes(5101, '0')->'created') > 0,
+  'Task/changes with sinceState 0 returns real created deltas (not a blanket BZ011)');
+
+-- Done-checkbox state (the inline list toggle relies on status + completed_at).
+SELECT (jmap_task_set_create(5101, '{"cb":{"title":"Toggle me"}}'::JSONB)->'created'->'cb'->>'id') AS cbid \gset
+SELECT jmap_task_set_update(5101, ('{"' || :cbid || '":{"status":"completed"}}')::JSONB);
+SELECT isnt(
+  (SELECT completed_at FROM tasks WHERE id = :cbid::BIGINT), NULL,
+  'completing a task stamps completed_at');
+-- Un-complete must CLEAR the stamp (regression guard — the old CASE kept it stale).
+SELECT jmap_task_set_update(5101, ('{"' || :cbid || '":{"status":"needs-action"}}')::JSONB);
+SELECT is(
+  (SELECT completed_at FROM tasks WHERE id = :cbid::BIGINT), NULL,
+  'un-completing a task clears completed_at');
+
+-- ── FEATURE A: assign-task authz (assigneeEmail resolve; raw-id oracle CLOSED) ──
+-- user 105101 / u@tsk.test is an internal (enabled, local-domain) user; mailbox 5101.
+-- user 105102 / u2@tsk2.test (created above at the parentId test) is the FOREIGN user
+-- whose id a crafted client would spoof.
+
+-- A1: create with an internal assigneeEmail resolves + stores the right users.id,
+-- and get echoes that assigneeEmail — the safe, validated assignment path.
+SELECT (jmap_task_set_create(5101, '{"as1":{"title":"Assigned","assigneeEmail":"u@tsk.test"}}'::JSONB)
+  ->'created'->'as1'->>'id') AS asid \gset
+SELECT is(
+  (SELECT assignee_user_id FROM tasks WHERE id = :asid::BIGINT),
+  105101::BIGINT,
+  'create: assigneeEmail resolves to the internal users.id (not a trusted raw id)');
+SELECT is(
+  (jmap_task_get(5101, ARRAY[:asid::BIGINT])->'list'->0->>'assigneeEmail'),
+  'u@tsk.test',
+  'get: returns the resolved assigneeEmail');
+
+-- A2: a RAW client assigneeUserId of ANOTHER user is NOT honored — the cross-tenant
+-- enumeration oracle is closed. assignee stays NULL and get leaks no foreign email.
+SELECT (jmap_task_set_create(5101, '{"sp":{"title":"Spoof","assigneeUserId":"105102"}}'::JSONB)
+  ->'created'->'sp'->>'id') AS spid \gset
+SELECT is(
+  (SELECT assignee_user_id FROM tasks WHERE id = :spid::BIGINT),
+  NULL::BIGINT,
+  'create: a raw client assigneeUserId is IGNORED (enumeration oracle closed)');
+SELECT is(
+  (jmap_task_get(5101, ARRAY[:spid::BIGINT])->'list'->0->>'assigneeEmail'),
+  NULL,
+  'get: a spoofed assigneeUserId does not leak a foreign users.email');
+
+-- A3: an explicitly-provided-but-unresolvable assigneeEmail fails LOUD → notCreated
+-- (RAISE BZ040 caught by the per-key handler), never a silently-dropped assignment.
+SELECT ok(
+  (jmap_task_set_create(5101, '{"bad":{"title":"BadAssign","assigneeEmail":"ghost@nowhere.invalid"}}'::JSONB)
+    ->'notCreated') ? 'bad',
+  'create: an unresolvable assigneeEmail lands the key in notCreated (fail loud)');
+
+-- Update path: a good assigneeEmail resolves+stores; a bad one → notUpdated.
+SELECT (jmap_task_set_create(5101, '{"u0":{"title":"ToAssign"}}'::JSONB)->'created'->'u0'->>'id') AS u0id \gset
+SELECT jmap_task_set_update(5101, ('{"' || :u0id || '":{"assigneeEmail":"u@tsk.test"}}')::JSONB);
+SELECT is(
+  (SELECT assignee_user_id FROM tasks WHERE id = :u0id::BIGINT),
+  105101::BIGINT,
+  'update: assigneeEmail resolves + stores the internal id');
+SELECT ok(
+  (jmap_task_set_update(5101, ('{"' || :u0id || '":{"assigneeEmail":"ghost@nowhere.invalid"}}')::JSONB)
+    ->'notUpdated') ? :'u0id',
+  'update: an unresolvable assigneeEmail lands the key in notUpdated');
+
+-- ── FEATURE C: task assignment notifies the assignee (was a silent no-op) ──────
+-- Two distinct accounts (mk_account guarantees disjoint user/mailbox ids): mo is
+-- the task owner, me is the assignee.
+CREATE TEMP TABLE _tc_mo AS SELECT mk_account('taskowner') AS mb;
+CREATE TEMP TABLE _tc_me AS SELECT mk_account('taskee') AS mb;
+SELECT (SELECT email FROM mailboxes WHERE id = (SELECT mb FROM _tc_mo)) AS mo_email \gset
+SELECT (SELECT email FROM mailboxes WHERE id = (SELECT mb FROM _tc_me)) AS me_email \gset
+
+-- C1: create — assigning to someone other than the owner delivers exactly one
+-- notification message into the assignee's OWN mailbox.
+CREATE TEMP TABLE _tc1 AS SELECT COUNT(*) AS n FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me);
+SELECT jmap_task_set_create((SELECT mb FROM _tc_mo),
+  ('{"ta":{"title":"Ship the report","assigneeEmail":"' || :'me_email' || '"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me)) - (SELECT n FROM _tc1),
+  1::BIGINT,
+  'create: assigning to someone other than the owner delivers one notification to the assignee');
+
+-- C2: create — the owner assigning a task TO THEMSELVES is NOT notified (no
+-- message lands in their own mailbox from the assignment).
+CREATE TEMP TABLE _tc2 AS SELECT COUNT(*) AS n FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_mo);
+SELECT jmap_task_set_create((SELECT mb FROM _tc_mo),
+  ('{"tb":{"title":"Self task","assigneeEmail":"' || :'mo_email' || '"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_mo)) - (SELECT n FROM _tc2),
+  0::BIGINT,
+  'create: self-assignment (owner assigns to self) does not notify');
+
+-- C3: update — assigning a previously-unassigned task to someone other than the
+-- owner also notifies.
+SELECT (jmap_task_set_create((SELECT mb FROM _tc_mo), '{"tc":{"title":"Unassigned"}}'::JSONB)
+  ->'created'->'tc'->>'id') AS tcid \gset
+CREATE TEMP TABLE _tc3 AS SELECT COUNT(*) AS n FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me);
+SELECT jmap_task_set_update((SELECT mb FROM _tc_mo),
+  ('{"' || :tcid || '":{"assigneeEmail":"' || :'me_email' || '"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me)) - (SELECT n FROM _tc3),
+  1::BIGINT,
+  'update: assigning an existing task to someone other than the owner notifies');
+
+-- C4: update — re-saving the SAME assignee (an unrelated edit) does NOT re-notify;
+-- this is a one-time notification, not a repeat on every subsequent save.
+CREATE TEMP TABLE _tc4 AS SELECT COUNT(*) AS n FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me);
+SELECT jmap_task_set_update((SELECT mb FROM _tc_mo),
+  ('{"' || :tcid || '":{"assigneeEmail":"' || :'me_email' || '","title":"Unassigned (renamed)"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = (SELECT mb FROM _tc_me)) - (SELECT n FROM _tc4),
+  0::BIGINT,
+  'update: re-saving the same assignee on an unrelated edit does not re-notify');
+
+-- ── FEATURE B: recurring tasks — regenerate on completion (bounded) ─────────────
+
+-- B1: completing a recurring (DAILY) task spawns EXACTLY ONE needs-action successor
+-- whose due_at is the next occurrence (strictly after the current due_at).
+SELECT (jmap_task_set_create(5101,
+  '{"r1":{"title":"Daily","dueAt":"2026-07-01T09:00:00Z","recurrenceRule":"FREQ=DAILY"}}'::JSONB)
+  ->'created'->'r1'->>'id') AS r1id \gset
+CREATE TEMP TABLE _rc AS SELECT COUNT(*) AS n FROM tasks WHERE mailbox_id = 5101;
+SELECT jmap_task_set_update(5101, ('{"' || :r1id || '":{"status":"completed"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM tasks WHERE mailbox_id = 5101) - (SELECT n FROM _rc),
+  1::BIGINT,
+  'completing a recurring task spawns exactly one successor');
+SELECT is(
+  (SELECT due_at FROM tasks WHERE mailbox_id = 5101 AND title = 'Daily'
+     AND status = 'needs-action' AND id <> :r1id::BIGINT ORDER BY id DESC LIMIT 1),
+  '2026-07-02T09:00:00Z'::TIMESTAMPTZ,
+  'the spawned task due_at is the next occurrence (DAILY +1 day)');
+
+-- B2: completing a NON-recurring task spawns nothing.
+SELECT (jmap_task_set_create(5101, '{"nr":{"title":"NoRec","dueAt":"2026-07-01T09:00:00Z"}}'::JSONB)
+  ->'created'->'nr'->>'id') AS nrid \gset
+CREATE TEMP TABLE _rc2 AS SELECT COUNT(*) AS n FROM tasks WHERE mailbox_id = 5101;
+SELECT jmap_task_set_update(5101, ('{"' || :nrid || '":{"status":"completed"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM tasks WHERE mailbox_id = 5101) - (SELECT n FROM _rc2),
+  0::BIGINT,
+  'completing a non-recurring task spawns nothing');
+
+-- B3: completing the LAST occurrence of a COUNT-bounded series spawns nothing.
+SELECT (jmap_task_set_create(5101,
+  '{"rc1":{"title":"LastOne","dueAt":"2026-07-01T09:00:00Z","recurrenceRule":"FREQ=DAILY;COUNT=1"}}'::JSONB)
+  ->'created'->'rc1'->>'id') AS rc1id \gset
+CREATE TEMP TABLE _rc3 AS SELECT COUNT(*) AS n FROM tasks WHERE mailbox_id = 5101;
+SELECT jmap_task_set_update(5101, ('{"' || :rc1id || '":{"status":"completed"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM tasks WHERE mailbox_id = 5101) - (SELECT n FROM _rc3),
+  0::BIGINT,
+  'completing the last (COUNT=1) occurrence spawns nothing (bounded)');
+
+-- B-bound: a COUNT=2 series decrements to COUNT=1 on the spawned successor.
+SELECT (jmap_task_set_create(5101,
+  '{"rc2":{"title":"TwoLeft","dueAt":"2026-07-01T09:00:00Z","recurrenceRule":"FREQ=DAILY;COUNT=2"}}'::JSONB)
+  ->'created'->'rc2'->>'id') AS rc2id \gset
+SELECT jmap_task_set_update(5101, ('{"' || :rc2id || '":{"status":"completed"}}')::JSONB);
+SELECT is(
+  (SELECT rrule FROM tasks WHERE mailbox_id = 5101 AND title = 'TwoLeft'
+     AND status = 'needs-action' ORDER BY id DESC LIMIT 1),
+  'FREQ=DAILY;COUNT=1',
+  'the spawned task decrements COUNT (bounded regeneration chain)');
+
+-- ── FEATURE (subtasks): set_update parent_id — same cross-tenant + self guard as create ──
+SELECT (jmap_task_set_create(5101, '{"pp":{"title":"Parent"}}'::JSONB)->'created'->'pp'->>'id') AS ppid \gset
+SELECT (jmap_task_set_create(5101, '{"cc":{"title":"Child"}}'::JSONB)->'created'->'cc'->>'id') AS ccid \gset
+
+-- S1: update sets a valid same-mailbox parent → stored, get echoes it
+SELECT jmap_task_set_update(5101, ('{"' || :ccid || '":{"parentId":"' || :ppid || '"}}')::JSONB);
+SELECT is(
+  (SELECT parent_id FROM tasks WHERE id = :ccid::BIGINT),
+  :ppid::BIGINT,
+  'update: sets a same-mailbox parentId (subtask nesting)');
+SELECT is(
+  (jmap_task_get(5101, ARRAY[:ccid::BIGINT])->'list'->0->>'parentId'),
+  (:ppid)::TEXT,
+  'get: echoes the parentId set via update');
+
+-- S2: update to SELF → nulled (no self-cyclic parent), overwriting the valid parent
+SELECT jmap_task_set_update(5101, ('{"' || :ccid || '":{"parentId":"' || :ccid || '"}}')::JSONB);
+SELECT is(
+  (SELECT parent_id FROM tasks WHERE id = :ccid::BIGINT),
+  NULL::BIGINT,
+  'update: a self parentId is rejected (no cycle)');
+
+-- S3: re-establish a valid parent, then update to a FOREIGN task → nulled (cross-tenant)
+SELECT jmap_task_set_update(5101, ('{"' || :ccid || '":{"parentId":"' || :ppid || '"}}')::JSONB);
+SELECT jmap_task_set_update(5101, ('{"' || :ccid || '":{"parentId":"' || :foreign_task || '"}}')::JSONB);
+SELECT is(
+  (SELECT parent_id FROM tasks WHERE id = :ccid::BIGINT),
+  NULL::BIGINT,
+  'update: a foreign parentId is nulled on the edit path (no dangling cross-tenant ref)');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- A4: real Task/changes deltas. The trg_journal_task trigger (V095) records
+-- created/updated/destroyed into jmap_changes_journal at each bump of the 'Task'
+-- entity_state counter; jmap_task_changes delegates to the shared reader. A fresh
+-- mailbox gives a predictable state baseline.
+-- ════════════════════════════════════════════════════════════════════════
+CREATE TEMP TABLE _a4  AS SELECT mk_account('taskA4') AS mb;
+CREATE TEMP TABLE _a4s (label text PRIMARY KEY, st text);
+INSERT INTO _a4s VALUES ('s0', jmap_task_changes((SELECT mb FROM _a4), '0')->>'newState');
+
+-- fresh mailbox → baseline token 0 (was MAX(jmap_state)=0 before; now entity_state)
+SELECT is((SELECT st FROM _a4s WHERE label='s0'), '0', 'A4 Task: fresh mailbox /changes state is 0');
+
+-- two creates (raw INSERT fires trg_journal_task per row → 2 'created' journal rows)
+INSERT INTO tasks (id, mailbox_id, title) VALUES
+  (59001, (SELECT mb FROM _a4), 'A4 T1'), (59002, (SELECT mb FROM _a4), 'A4 T2');
+
+SELECT ok(
+  (jmap_task_changes((SELECT mb FROM _a4), '0')->'created') @> '[59001, 59002]'::jsonb
+  AND (jmap_task_changes((SELECT mb FROM _a4), '0')->'destroyed') = '[]'::jsonb,
+  'A4 Task: two creates return both ids in created, none destroyed');
+
+INSERT INTO _a4s VALUES ('s1', jmap_task_changes((SELECT mb FROM _a4), '0')->>'newState');
+
+-- update t1 only (AFTER UPDATE → one precise 'updated'). Under the old MAX(jmap_state)
+-- token, updating a non-max row left MAX unmoved and the change was DROPPED — this
+-- asserts the F2 fix.
+UPDATE tasks SET title = 'A4 T1x' WHERE id = 59001;
+SELECT ok(
+  (jmap_task_changes((SELECT mb FROM _a4), (SELECT st FROM _a4s WHERE label='s1'))->'updated') = '[59001]'::jsonb
+  AND (jmap_task_changes((SELECT mb FROM _a4), (SELECT st FROM _a4s WHERE label='s1'))->'created') = '[]'::jsonb,
+  'A4 Task: a non-max-row update surfaces precisely (MAX-token stuck-bug fixed)');
+
+INSERT INTO _a4s VALUES ('s2', jmap_task_changes((SELECT mb FROM _a4), '0')->>'newState');
+
+-- destroy t2 (AFTER DELETE → 'destroyed')
+DELETE FROM tasks WHERE id = 59002;
+SELECT ok(
+  (jmap_task_changes((SELECT mb FROM _a4), (SELECT st FROM _a4s WHERE label='s2'))->'destroyed') @> '[59002]'::jsonb,
+  'A4 Task: a destroy surfaces in destroyed (no ghost row)');
+
+-- from s0, t2 was created AND destroyed in-window → collapses to noop; t1 stays created
+SELECT ok(
+  (jmap_task_changes((SELECT mb FROM _a4), '0')->'created') @> '[59001]'::jsonb
+  AND NOT ((jmap_task_changes((SELECT mb FROM _a4), '0')->'created') @> '[59002]'::jsonb)
+  AND NOT ((jmap_task_changes((SELECT mb FROM _a4), '0')->'destroyed') @> '[59002]'::jsonb),
+  'A4 Task: created+destroyed in one window collapses to noop (RFC 8620 §5.2)');
+
+-- an up-to-date client (since==current) gets an empty delta, NOT BZ011
+SELECT ok(
+  (jmap_task_changes((SELECT mb FROM _a4), jmap_task_changes((SELECT mb FROM _a4), '0')->>'newState')->'created') = '[]'::jsonb,
+  'A4 Task: up-to-date client gets an empty delta');
+
+-- a coarse resync sentinel in-window → BZ011 (degrade to full resync)
+SELECT append_change((SELECT mb FROM _a4), 'Task', bump_entity_state((SELECT mb FROM _a4), 'Task'), NULL, 'resync');
+SELECT throws_ok(
+  format('SELECT jmap_task_changes(%s, %L)', (SELECT mb FROM _a4), (SELECT st FROM _a4s WHERE label='s2')),
+  'BZ011', NULL, 'A4 Task: a resync sentinel forces cannotCalculateChanges');
+
+-- sinceState past the pruned window → BZ011 (use s2>0; since=0 means from-start,
+-- which is never "pruned" — it always means full history).
+SELECT prune_changes_journal(0, 0);
+SELECT throws_ok(
+  format('SELECT jmap_task_changes(%s, %L)', (SELECT mb FROM _a4), (SELECT st FROM _a4s WHERE label='s2')),
+  'BZ011', NULL, 'A4 Task: sinceState past the pruned window → cannotCalculateChanges');
+
+-- ── QoL #20: manual sort_order (drag / reorder) ─────────────────────────────
+-- A fresh mailbox so the append order is deterministic (created o1,o2,o3 →
+-- sort_order 1,2,3 → Task/query returns them in that order; Task/get re-sorts by
+-- the same leading key so the persisted order wins on both read paths).
+CREATE TEMP TABLE _so AS SELECT mk_account('taskSort') AS mb;
+SELECT (jmap_task_set_create((SELECT mb FROM _so), '{"o1":{"title":"Ord1"}}'::JSONB)->'created'->'o1'->>'id') AS o1 \gset
+SELECT (jmap_task_set_create((SELECT mb FROM _so), '{"o2":{"title":"Ord2"}}'::JSONB)->'created'->'o2'->>'id') AS o2 \gset
+SELECT (jmap_task_set_create((SELECT mb FROM _so), '{"o3":{"title":"Ord3"}}'::JSONB)->'created'->'o3'->>'id') AS o3 \gset
+
+-- 45: new tasks append to the end → creation order under sort_order ASC.
+SELECT is(
+  jmap_task_query((SELECT mb FROM _so))->'ids',
+  jsonb_build_array(:'o1', :'o2', :'o3'),
+  'QoL#20: new tasks append (Task/query returns creation order under sort_order)');
+
+-- 46: a sortOrder patch (drag to front, below o1) reorders the list.
+SELECT jmap_task_set_update((SELECT mb FROM _so), ('{"' || :o3 || '":{"sortOrder":-1}}')::JSONB);
+SELECT is(
+  jmap_task_query((SELECT mb FROM _so))->'ids'->0,
+  to_jsonb(:'o3'::TEXT),
+  'QoL#20: a sortOrder patch reorders the task to the front');
+
+-- 47: a cross-column move (status patch, no sortOrder) keeps its position —
+-- sort_order is global, so changing status doesn't renumber the list.
+SELECT jmap_task_set_update((SELECT mb FROM _so), ('{"' || :o1 || '":{"status":"completed"}}')::JSONB);
+SELECT is(
+  jmap_task_query((SELECT mb FROM _so))->'ids'->0,
+  to_jsonb(:'o3'::TEXT),
+  'QoL#20: a status-only move keeps the manual sort position (o3 stays first)');
+
+-- ── QoL #21: in-task checklist ──────────────────────────────────────────────
+SELECT (jmap_task_set_create(5101,
+  '{"cl":{"title":"Checklist task","checklist":[{"text":"Step A","done":false},{"text":"Step B","done":true}]}}'::JSONB)
+  ->'created'->'cl'->>'id') AS clid \gset
+
+-- 48: get round-trips both items.
+SELECT is(
+  jsonb_array_length(jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'),
+  2,
+  'QoL#21: a 2-item checklist round-trips through create + get');
+
+-- 49: items get server-assigned ids and preserve the done state.
+SELECT ok(
+  (jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'->0->>'id') IS NOT NULL
+  AND (jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'->1->>'done')::BOOLEAN = TRUE,
+  'QoL#21: checklist items get server ids and preserve done');
+
+-- 50: update whole-array-replaces (toggle Step A, drop Step B).
+SELECT jmap_task_set_update(5101, ('{"' || :clid || '":{"checklist":[{"text":"Step A","done":true}]}}')::JSONB);
+SELECT is(
+  jsonb_array_length(jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'),
+  1,
+  'QoL#21: a checklist update whole-array-replaces');
+
+-- 51: the updated item reflects the toggled done state.
+SELECT is(
+  (jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'->0->>'done'),
+  'true',
+  'QoL#21: the updated checklist item reflects the toggled done state');
+
+-- 52: an unrelated edit (title only, no checklist key) must NOT wipe the checklist.
+SELECT jmap_task_set_update(5101, ('{"' || :clid || '":{"title":"Renamed"}}')::JSONB);
+SELECT is(
+  jsonb_array_length(jmap_task_get(5101, ARRAY[:clid::BIGINT])->'list'->0->'checklist'),
+  1,
+  'QoL#21: an unrelated edit preserves the checklist (no clobber)');
+
+-- 53: a checklist item with blank text fails the create (BZ040 → notCreated).
+SELECT ok(
+  (jmap_task_set_create(5101, '{"bad":{"title":"Bad","checklist":[{"text":"","done":false}]}}'::JSONB)->'notCreated') ? 'bad',
+  'QoL#21: a blank checklist item text lands the create in notCreated');
+
+-- ── C1: personal Task/set (jmap_task_set_update/destroy) on a shared-list
+--    task must still bump task_lists.state_seq — the task carries the
+--    creator's mailbox_id, so it's reachable through THIS surface too, not
+--    just task_list_task_set. Before the fix, state_seq never moved and
+--    other list members' poll (task_list_tasks) never saw the mutation.
+SELECT mk_account('c1own') AS mb_c1o \gset
+SELECT mk_account('c1mem') AS mb_c1m \gset
+SELECT user_id AS u_c1o FROM mailboxes WHERE id = :mb_c1o \gset
+SELECT user_id AS u_c1m FROM mailboxes WHERE id = :mb_c1m \gset
+
+SELECT task_list_create(:u_c1o, 'C1 board', NULL) AS c1_list_json \gset
+SELECT ((:'c1_list_json'::jsonb)->>'id')::BIGINT AS c1_lid \gset
+SELECT task_list_add_member(:u_c1o, :c1_lid, (SELECT email FROM mailboxes WHERE id = :mb_c1m)) AS _c1_ig \gset
+
+-- The owner creates the shared task via the LIST surface (so it carries
+-- list_id) — mirrors real usage: the creator's own mailbox is :mb_c1o.
+SELECT task_list_task_set(:u_c1o, :c1_lid,
+  jsonb_build_object('c1', jsonb_build_object('title', 'Shared via personal surface')),
+  NULL, NULL) AS c1_set_json \gset
+SELECT (((:'c1_set_json'::jsonb)->'created'->'c1')->>'id')::BIGINT AS c1_tid \gset
+
+SELECT state_seq AS c1_state_before FROM task_lists WHERE id = :c1_lid \gset
+
+-- 54: pre-fix repro — the owner mutates the SAME task through the PERSONAL
+-- Task/set surface (their own mailbox_id, not task_list_task_set).
+SELECT jmap_task_set_update(:mb_c1o, ('{"' || :c1_tid || '":{"title":"Renamed via personal Task/set"}}')::JSONB);
+SELECT ok(
+  (SELECT state_seq FROM task_lists WHERE id = :c1_lid) > :c1_state_before,
+  'C1: personal Task/set update on a shared-list task bumps task_lists.state_seq');
+
+-- 55: the mutation is visible to the OTHER member's list poll (the actual
+-- symptom — a frozen state token means task_list_tasks looks unchanged).
+SELECT ok(
+  (task_list_tasks(:u_c1m, :c1_lid)->'list') @> jsonb_build_array(jsonb_build_object('title', 'Renamed via personal Task/set')),
+  'C1: the member sees the personal-surface edit via task_list_tasks');
+
+-- 56: a personal (non-list) task update must NOT touch any list's state_seq.
+INSERT INTO tasks (mailbox_id, title, jmap_state) VALUES (5101, 'Purely personal', 1)
+  RETURNING id AS c1_personal_tid \gset
+SELECT c1_state_before2 FROM (SELECT state_seq AS c1_state_before2 FROM task_lists WHERE id = :c1_lid) s \gset
+SELECT jmap_task_set_update(5101, ('{"' || :c1_personal_tid || '":{"title":"Still personal"}}')::JSONB);
+SELECT is(
+  (SELECT state_seq FROM task_lists WHERE id = :c1_lid), :c1_state_before2::BIGINT,
+  'C1: updating an unrelated personal task does not bump an unrelated list''s state_seq');
+
+-- 57: destroy through the personal surface also bumps the list's state_seq.
+SELECT c1_state_before3 FROM (SELECT state_seq AS c1_state_before3 FROM task_lists WHERE id = :c1_lid) s \gset
+SELECT jmap_task_set_destroy(:mb_c1o, ARRAY[:c1_tid::BIGINT]);
+SELECT ok(
+  (SELECT state_seq FROM task_lists WHERE id = :c1_lid) > :c1_state_before3,
+  'C1: personal Task/set destroy on a shared-list task bumps task_lists.state_seq');
+
+SELECT * FROM finish();
+ROLLBACK;

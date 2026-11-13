@@ -1,0 +1,51 @@
+{
+  "exit": 0,
+  "state": {
+    "status": "failed",
+    "blob_count": 1,
+    "blobs_copied": 0,
+    "blobs_skipped": 0,
+    "config_size": null,
+    "blob_total_size": null,
+    "error_log": [
+      "backup integrity check failed for 00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2: sha-256 mismatch (got a9e83436c06fe3ae3d346c7ddf5dfdedd7ecad6974aa5c3c0c1586c434cd700a)"
+    ],
+    "manifest_timestamp": null,
+    "started": true,
+    "completed": true
+  },
+  "objects": {
+    "backup/backup-manifest-20000101T000000Z.json": "b2xkIGluZGV4",
+    "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2": "WFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY",
+    "backup/config-20000101T000000Z.json": "b2xkIGluZGV4",
+    "backup/manifests/incr-20000101T000000Z.json": "b2xkIGluZGV4",
+    "primary/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2": "WFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhY"
+  },
+  "requests": [
+    [
+      "HEAD",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "HEAD",
+      "primary/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "primary/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "PUT",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "HEAD",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ],
+    [
+      "GET",
+      "backup/blobs/00d63b4ff10430701fd95a34ad62b2a56802507616b9cb574a4bc5e12c5448b2"
+    ]
+  ],
+  "old_run_removed": false
+}

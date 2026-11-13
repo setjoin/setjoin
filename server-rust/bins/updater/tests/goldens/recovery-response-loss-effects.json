@@ -1,0 +1,14 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "notifications": [
+      {
+        "intent_id": "<intent>",
+        "state": "rolled_back",
+        "generation": 11
+      }
+    ],
+    "audit_action": "upgrade_intent_recovery_reconciled",
+    "audit_count": 1
+  }
+}

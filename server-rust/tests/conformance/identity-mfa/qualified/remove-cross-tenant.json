@@ -1,0 +1,129 @@
+{
+  "case": "remove-cross-tenant",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [
+      {
+        "row": {
+          "action": "totp_removal_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "step-up token invalid, expired, or replayed",
+          "owner": "foreign",
+          "target_type": "user"
+        },
+        "table": "admin_audit_log"
+      }
+    ],
+    "effects": {
+      "audit": [
+        {
+          "action": "totp_removal_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "step-up token invalid, expired, or replayed",
+          "owner": "foreign",
+          "target_type": "user"
+        }
+      ],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": true,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": true,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      },
+      "foreign": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"confirm\":\"REMOVE\",\"step_up_token\":\"idmfa1-removal-token\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/totp/remove"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"step-up token invalid or expired\",\"instance\":\"/auth/totp/remove\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /auth/totp/remove"
+}

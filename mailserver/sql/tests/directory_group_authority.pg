@@ -1,0 +1,168 @@
+-- V185/A0.5 normalized directory-group authority and invalidation proof.
+BEGIN;
+SELECT plan(41);
+
+SELECT has_table('public',t,'directory group table exists: '||t)
+FROM unnest(ARRAY[
+  'directory_groups','directory_group_members','directory_group_generation',
+  'directory_group_invalidations'
+]) t;
+SELECT is((SELECT count(*)::int FROM pg_class
+            WHERE oid IN ('directory_groups'::regclass,'directory_group_members'::regclass,
+                          'directory_group_generation'::regclass,
+                          'directory_group_invalidations'::regclass)
+              AND relrowsecurity AND relforcerowsecurity),4,
+  'all normalized group tables FORCE RLS');
+SELECT is((SELECT enabled FROM feature_toggles
+            WHERE key='feature.directory_group_authority'),false,
+  'normalized directory group behavior seeds OFF');
+SELECT ok(directory_group_filter_valid('{"domainId":1,"enabled":true}'::jsonb),
+  'closed dynamic filter accepts typed supported facts');
+SELECT is(directory_group_filter_valid('{"email":"x"}'::jsonb),false,
+  'dynamic filter rejects soft-identity and unknown keys');
+
+SELECT mk_account('dga-admin') AS mba \gset
+SELECT mk_account('dga-user') AS mbu \gset
+SELECT mk_account('dga-peer') AS mbp \gset
+SELECT mk_account('dga-source') AS mbs \gset
+SELECT user_id AS ua FROM mailboxes WHERE id=:mba \gset
+SELECT user_id AS uu FROM mailboxes WHERE id=:mbu \gset
+SELECT user_id AS up FROM mailboxes WHERE id=:mbp \gset
+SELECT user_id AS us FROM mailboxes WHERE id=:mbs \gset
+SELECT domain_id AS dom FROM users WHERE id=:ua \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:ua,1,:ua);
+
+SELECT throws_ok(format($sql$SELECT directory_group_static_set(
+  %s,NULL,%s,'Unauthorized group','members',ARRAY[%s]::bigint[],NULL)$sql$,
+  :up,:dom,:uu),'BZ258',NULL,
+  'actor without normalized group authority is rejected');
+
+SELECT directory_group_static_set(
+  :ua,NULL,:dom,'Finance reviewers','members',ARRAY[:uu]::bigint[],NULL
+) AS static_group \gset
+SELECT ok(:static_group::bigint>0,'authorized admin creates a static group');
+SELECT ok(directory_group_effective_member(:uu,:static_group),
+  'static user-keyed membership is effective');
+SELECT is((SELECT count(*)::int FROM directory_group_picker(:uu,NULL,50)
+            WHERE group_id=:static_group),1,
+  'member picker exposes its reachable group');
+SELECT is((SELECT count(*)::int FROM directory_group_picker(:up,NULL,50)
+            WHERE group_id=:static_group),0,
+  'non-member cannot enumerate a members-only group');
+SELECT ok((SELECT generation FROM directory_group_generation)>1,
+  'membership mutation advances global group-access generation');
+
+INSERT INTO domains(name,is_local) VALUES('dga-other.test',true)
+RETURNING id AS other_dom \gset
+SELECT mk_account('dga-cross') AS mbc \gset
+SELECT user_id AS uc FROM mailboxes WHERE id=:mbc \gset
+UPDATE users SET domain_id=:other_dom WHERE id=:uc;
+SELECT throws_ok(format($sql$SELECT directory_group_static_set(
+  %s,NULL,%s,'Cross tenant','members',ARRAY[%s]::bigint[],NULL)$sql$,
+  :ua,:dom,:uc),'BZ257',NULL,'cross-domain static membership is rejected');
+
+UPDATE users SET enabled=false WHERE id=:uu;
+SELECT is(directory_group_effective_member(:uu,:static_group),false,
+  'user disable removes group authority immediately');
+SELECT ok(EXISTS(SELECT 1 FROM directory_group_invalidations
+                  WHERE group_id=:static_group AND user_id=:uu AND reason='user_state'),
+  'user disable appends exact affected-user invalidation');
+UPDATE users SET enabled=true WHERE id=:uu;
+SELECT ok(directory_group_effective_member(:uu,:static_group),
+  'user enable restores retained static membership authority');
+
+SELECT directory_group_dynamic_set(
+  :ua,NULL,:dom,'Enabled domain users','members',
+  jsonb_build_object('domainId',:dom::bigint,'enabled',true),NULL
+) AS dynamic_group \gset
+SELECT ok(directory_group_effective_member(:up,:dynamic_group),
+  'dynamic materialization includes matching enabled domain user');
+UPDATE users SET enabled=false WHERE id=:up;
+SELECT is((SELECT count(*)::int FROM directory_group_members
+            WHERE group_id=:dynamic_group AND user_id=:up
+              AND membership_source='dynamic'),0,
+  'deep user-change trigger atomically removes a dynamic membership');
+UPDATE users SET enabled=true WHERE id=:up;
+SELECT is((SELECT count(*)::int FROM directory_group_members
+            WHERE group_id=:dynamic_group AND user_id=:up
+              AND membership_source='dynamic'),1,
+  'deep user-change trigger atomically restores a dynamic membership');
+UPDATE users SET domain_id=:other_dom WHERE id=:up;
+SELECT is(directory_group_effective_member(:up,:dynamic_group),false,
+  'domain move revokes dynamic authority without waiting for a job');
+SELECT is(directory_group_can_read(:up,:dynamic_group),false,
+  'domain move cannot retain stale cross-tenant group discovery');
+
+INSERT INTO identity_sources(
+  source_key,display_name,kind,capabilities,state,created_by
+) VALUES('dga-source','DGA source','scim','{"groups":true}'::jsonb,'active',:ua)
+RETURNING id AS source_id,generation AS source_gen \gset
+INSERT INTO user_identity_links(
+  user_id,source_id,external_subject,purposes,state,link_method
+) VALUES(:us,:source_id,'source-user-1',ARRAY['provision']::text[],'active','hard_anchor');
+SELECT directory_group_source_upsert(
+  :source_id,:source_gen,'source-group-1',:dom,'Source group'
+) AS source_group \gset
+SELECT ok(:source_group::bigint>0,'source group upsert creates stable Setjoin id');
+SELECT is(directory_group_source_upsert(
+  :source_id,:source_gen,'source-group-1',:dom,'Renamed source group'),
+  :source_group::bigint,'stable anchor rename preserves Setjoin group id');
+SELECT is(directory_group_source_reconcile_members(
+  :source_id,:source_gen,'source-group-1',ARRAY['source-user-1']),1::bigint,
+  'source reconcile resolves immutable external subject to user id');
+SELECT ok(directory_group_effective_member(:us,:source_group),
+  'active source membership is effective');
+UPDATE identity_sources SET state='paused' WHERE id=:source_id;
+SELECT is(directory_group_effective_member(:us,:source_group),false,
+  'source pause immediately suspends source-group authority');
+SELECT ok(EXISTS(SELECT 1 FROM directory_group_invalidations
+                  WHERE group_id=:source_group AND user_id=:us AND reason='source_state'),
+  'source pause emits exact member invalidation');
+UPDATE identity_sources SET state='active' WHERE id=:source_id;
+SELECT ok(directory_group_effective_member(:us,:source_group),
+  'source reconnect restores retained normalized membership');
+SELECT throws_ok(format($sql$SELECT directory_group_source_reconcile_members(
+  %s,%s,'source-group-1',ARRAY['source-user-1'])$sql$,:source_id,:source_gen-1),
+  'BZ259',NULL,'stale source generation is rejected');
+SELECT is(directory_group_source_reconcile_members(
+  :source_id,(SELECT generation FROM identity_sources WHERE id=:source_id),
+  'source-group-1',ARRAY[]::text[]),0::bigint,
+  'source reconcile removes absent membership idempotently');
+SELECT is(directory_group_effective_member(:us,:source_group),false,
+  'source membership removal revokes authority');
+
+SELECT generation AS static_gen FROM directory_groups WHERE id=:static_group \gset
+SELECT directory_group_delete(:ua,:static_group,:static_gen);
+SELECT is((SELECT state FROM directory_groups WHERE id=:static_group),'deleted',
+  'group delete is a tombstone, preserving stable id evidence');
+SELECT is(directory_group_effective_member(:uu,:static_group),false,
+  'deleted group cannot grant authority');
+SELECT throws_ok(format($sql$SELECT directory_group_dynamic_set(
+  %s,NULL,%s,'Bad filter','members','{"email":"x"}'::jsonb,NULL)$sql$,:ua,:dom),
+  'BZ257',NULL,'dynamic group rejects email-keyed authorization');
+
+SELECT count(*) AS distribution_before FROM distribution_group_members \gset
+SELECT is((SELECT count(*) FROM distribution_group_members),:distribution_before::bigint,
+  'normalized group operations do not mutate distribution-list delivery');
+
+-- RLS: self sees only its own membership rows; a stale cross-domain member
+-- cannot enumerate the group object even if an old static row remains.
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:us::text,true);
+SELECT is((SELECT count(*)::int FROM directory_group_members WHERE user_id<>:us),0,
+  'setjoin_app membership RLS reveals no other principal rows');
+SELECT set_config('app.current_user_id',:up::text,true);
+SELECT is((SELECT count(*)::int FROM directory_groups WHERE id=:dynamic_group),0,
+  'setjoin_app group RLS rejects stale cross-domain discovery');
+SELECT set_config('app.current_user_id',:uc::text,true);
+SELECT is((SELECT count(*)::int FROM directory_group_invalidations),0,
+  'setjoin_app outsider sees no other principal group invalidations');
+SELECT set_config('app.current_user_id','',true);
+SELECT is((SELECT count(*)::int FROM directory_group_generation),0,
+  'directory group generation fails closed without an authenticated user GUC');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -yes: parse error\nUsage of identity upgrade rollback:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -y\tskip local confirmation\n  -yes\n    \tskip local confirmation\nError: invalid boolean value \"not-a-bool\" for -yes: parse error\n",
+  "exit": 1
+}

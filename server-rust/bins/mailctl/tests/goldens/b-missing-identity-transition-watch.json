@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity transition watch ID [--timeout 5m]\n",
+  "exit": 1
+}

@@ -1,0 +1,121 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "devices": [],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "devices": [],
+          "policies": [
+            {
+              "attachment_prefetch_max": "never",
+              "automatic_network_max": "unmetered",
+              "background_sync_allowed": true,
+              "connectivity_sync_mode": "off",
+              "created_at": "<timestamp>",
+              "enabled": true,
+              "id": 985001,
+              "max_offline_days": 30,
+              "name": "Global <offline> & policy",
+              "opportunistic_requires_charging": true,
+              "priority": 5,
+              "require_approval": true,
+              "scope_id": null,
+              "scope_type": "global",
+              "updated_at": "<timestamp>",
+              "wipe_on_logout": "admin_default"
+            }
+          ],
+          "toggle": [
+            {
+              "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+              "enabled": false,
+              "key": "feature.offline_mail",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "offline_policies+feature_toggles+user_devices"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/offline/size-estimate",
+      "method": "GET",
+      "path": "/offline/size-estimate"
+    },
+    "response": {
+      "body": "{\"buckets\":[{\"window\":\"7d\",\"messageCount\":3,\"bodyBytes\":27},{\"window\":\"30d\",\"messageCount\":3,\"bodyBytes\":27},{\"window\":\"90d\",\"messageCount\":3,\"bodyBytes\":27},{\"window\":\"180d\",\"messageCount\":3,\"bodyBytes\":27},{\"window\":\"365d\",\"messageCount\":3,\"bodyBytes\":27},{\"window\":\"all\",\"messageCount\":3,\"bodyBytes\":27}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "309"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /offline/size-estimate"
+}

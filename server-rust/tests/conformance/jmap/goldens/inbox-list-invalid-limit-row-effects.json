@@ -1,0 +1,13 @@
+{
+  "case": "inbox-list-invalid-limit-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "ec17d50c89bc3e31d510edc93eb473e6c82d88fc",
+  "normalization": [
+    "compare every column of mailbox-scoped mailboxes, messages, tags, message_tags, and jmap_changes_journal",
+    "identify fixture mailbox, message and tag rows by stable names",
+    "journal mailbox and entity IDs: fixture IDs; created_at: timestamp",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Email/query"
+}

@@ -1,0 +1,40 @@
+-- pgTAP test for next_imap_uid_for_tag (utils_tags.sql)
+-- Monotonic IMAP UID allocation per tag: each call returns the current
+-- imap_uid_next and advances it by one, with no reuse.
+BEGIN;
+SELECT plan(3);
+
+-- Namespaced fixtures (high, divergent ids to avoid collision with other tests)
+INSERT INTO domains (id, name, is_local)
+VALUES (96331, 'uidtag.example', TRUE) ON CONFLICT DO NOTHING;
+
+INSERT INTO mailboxes (id, email, domain_id, display_name, type)
+VALUES (99331, 'uidtag@uidtag.example', 96331, 'UID Tag Test', 'personal');
+
+-- A tag with the schema default imap_uid_next = 1.
+INSERT INTO tags (id, mailbox_id, name, tag_type)
+VALUES (97331, 99331, 'UidTestTag', 'user');
+
+-- First allocation returns 1.
+SELECT is(
+    next_imap_uid_for_tag(97331),
+    1::BIGINT,
+    'next_imap_uid_for_tag returns 1 on first call'
+);
+
+-- Second allocation returns 2 (monotonic, no reuse).
+SELECT is(
+    next_imap_uid_for_tag(97331),
+    2::BIGINT,
+    'next_imap_uid_for_tag returns 2 on second call'
+);
+
+-- After two allocations the counter has advanced to 3.
+SELECT is(
+    (SELECT imap_uid_next FROM tags WHERE id = 97331),
+    3::BIGINT,
+    'tags.imap_uid_next advanced to 3 after two allocations'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

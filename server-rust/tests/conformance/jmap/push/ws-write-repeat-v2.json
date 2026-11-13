@@ -1,0 +1,324 @@
+{
+  "case": "ws-write-repeat-v2",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [
+      {
+        "action": "email_set",
+        "actor_user_id": "<user>",
+        "details": null,
+        "id": "<audit-id>",
+        "mailbox_id": "<mailbox>",
+        "message_id": null,
+        "occurred_at": "<timestamp>"
+      },
+      {
+        "action": "email_set",
+        "actor_user_id": "<user>",
+        "details": null,
+        "id": "<audit-id>",
+        "mailbox_id": "<mailbox>",
+        "message_id": null,
+        "occurred_at": "<timestamp>"
+      },
+      {
+        "action": "email_set",
+        "actor_user_id": "<user>",
+        "details": null,
+        "id": "<audit-id>",
+        "mailbox_id": "<mailbox>",
+        "message_id": null,
+        "occurred_at": "<timestamp>"
+      }
+    ],
+    "effects": {
+      "foreign": {
+        "after": {
+          "email_state": 0,
+          "journal": [],
+          "messages": [
+            {
+              "id": "<inbox-only>",
+              "is_read": false
+            },
+            {
+              "id": "<two-labels>",
+              "is_read": false
+            }
+          ],
+          "tags": {
+            "Drafts": {
+              "state": 0,
+              "unread": 0
+            },
+            "Important": {
+              "state": 0,
+              "unread": 0
+            },
+            "Inbox": {
+              "state": 2,
+              "unread": 2
+            },
+            "Muted": {
+              "state": 0,
+              "unread": 0
+            },
+            "Oracle Label": {
+              "state": 1,
+              "unread": 1
+            },
+            "Other": {
+              "state": 0,
+              "unread": 0
+            },
+            "Scheduled": {
+              "state": 0,
+              "unread": 0
+            },
+            "Sent": {
+              "state": 0,
+              "unread": 0
+            },
+            "Snoozed": {
+              "state": 0,
+              "unread": 0
+            },
+            "Spam": {
+              "state": 0,
+              "unread": 0
+            },
+            "Starred": {
+              "state": 0,
+              "unread": 0
+            },
+            "Trash": {
+              "state": 0,
+              "unread": 0
+            }
+          }
+        },
+        "audit": [],
+        "before": {
+          "email_state": 0,
+          "journal": [],
+          "messages": [
+            {
+              "id": "<inbox-only>",
+              "is_read": false
+            },
+            {
+              "id": "<two-labels>",
+              "is_read": false
+            }
+          ],
+          "tags": {
+            "Drafts": {
+              "state": 0,
+              "unread": 0
+            },
+            "Important": {
+              "state": 0,
+              "unread": 0
+            },
+            "Inbox": {
+              "state": 2,
+              "unread": 2
+            },
+            "Muted": {
+              "state": 0,
+              "unread": 0
+            },
+            "Oracle Label": {
+              "state": 1,
+              "unread": 1
+            },
+            "Other": {
+              "state": 0,
+              "unread": 0
+            },
+            "Scheduled": {
+              "state": 0,
+              "unread": 0
+            },
+            "Sent": {
+              "state": 0,
+              "unread": 0
+            },
+            "Snoozed": {
+              "state": 0,
+              "unread": 0
+            },
+            "Spam": {
+              "state": 0,
+              "unread": 0
+            },
+            "Starred": {
+              "state": 0,
+              "unread": 0
+            },
+            "Trash": {
+              "state": 0,
+              "unread": 0
+            }
+          }
+        }
+      },
+      "own": {
+        "after": {
+          "email_state": 1,
+          "journal": [
+            {
+              "datatype": "email",
+              "entity_id": "<two-labels>",
+              "op": "updated",
+              "state_seq": 1
+            }
+          ],
+          "messages": [
+            {
+              "id": "<inbox-only>",
+              "is_read": false
+            },
+            {
+              "id": "<two-labels>",
+              "is_read": true
+            }
+          ],
+          "tags": {
+            "Drafts": {
+              "state": 0,
+              "unread": 0
+            },
+            "Important": {
+              "state": 0,
+              "unread": 0
+            },
+            "Inbox": {
+              "state": 3,
+              "unread": 1
+            },
+            "Muted": {
+              "state": 0,
+              "unread": 0
+            },
+            "Oracle Label": {
+              "state": 2,
+              "unread": 0
+            },
+            "Other": {
+              "state": 0,
+              "unread": 0
+            },
+            "Scheduled": {
+              "state": 0,
+              "unread": 0
+            },
+            "Sent": {
+              "state": 0,
+              "unread": 0
+            },
+            "Snoozed": {
+              "state": 0,
+              "unread": 0
+            },
+            "Spam": {
+              "state": 0,
+              "unread": 0
+            },
+            "Starred": {
+              "state": 0,
+              "unread": 0
+            },
+            "Trash": {
+              "state": 0,
+              "unread": 0
+            }
+          }
+        },
+        "before": {
+          "email_state": 0,
+          "journal": [],
+          "messages": [
+            {
+              "id": "<inbox-only>",
+              "is_read": false
+            },
+            {
+              "id": "<two-labels>",
+              "is_read": false
+            }
+          ],
+          "tags": {
+            "Drafts": {
+              "state": 0,
+              "unread": 0
+            },
+            "Important": {
+              "state": 0,
+              "unread": 0
+            },
+            "Inbox": {
+              "state": 2,
+              "unread": 2
+            },
+            "Muted": {
+              "state": 0,
+              "unread": 0
+            },
+            "Oracle Label": {
+              "state": 1,
+              "unread": 1
+            },
+            "Other": {
+              "state": 0,
+              "unread": 0
+            },
+            "Scheduled": {
+              "state": 0,
+              "unread": 0
+            },
+            "Sent": {
+              "state": 0,
+              "unread": 0
+            },
+            "Snoozed": {
+              "state": 0,
+              "unread": 0
+            },
+            "Spam": {
+              "state": 0,
+              "unread": 0
+            },
+            "Starred": {
+              "state": 0,
+              "unread": 0
+            },
+            "Trash": {
+              "state": 0,
+              "unread": 0
+            }
+          }
+        }
+      }
+    },
+    "notify": [
+      "{\"event\" : \"state_change\", \"tag_id\" : null, \"state\" : 1}"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Email/set\",{\"accountId\":\"<mailbox>\",\"newState\":\"1\",\"notUpdated\":{},\"oldState\":\"0\",\"updated\":[\"<two-labels>\"]},\"set\"]],\"requestId\":\"write-0\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"1-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Email/set\",{\"accountId\":\"<mailbox>\",\"newState\":\"1\",\"notUpdated\":{},\"oldState\":\"1\",\"updated\":[\"<two-labels>\"]},\"set\"]],\"requestId\":\"write-1\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"1-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Email/set\",{\"accountId\":\"<mailbox>\",\"newState\":\"1\",\"notUpdated\":{},\"oldState\":\"1\",\"updated\":[\"<two-labels>\"]},\"set\"]],\"requestId\":\"write-2\"}",
+        "{\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Email\":\"1\",\"Mailbox\":\"0\",\"Thread\":\"0\"}}}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

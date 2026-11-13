@@ -1,0 +1,13 @@
+BEGIN;
+SELECT plan(2);
+SELECT ok(
+  EXISTS (SELECT 1 FROM feature_toggles WHERE key = 'feature.offline_mail'),
+  'feature.offline_mail seeded'
+);
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.offline_mail'),
+  false,
+  'feature.offline_mail default OFF'
+);
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,508 @@
+{
+  "schemaVersion": 1,
+  "program": "architecture-deepening-round-5",
+  "authority": "docs/architecture.md",
+  "collisionBaselines": {
+    "admin": {
+      "baseCommit": "23a99f0d93a378b25366f3680ac56c8090910834",
+      "releasedRef": "main",
+      "candidatePaths": [
+        "mailserver/webmail/src/lib/admin/client.ts",
+        "mailserver/webmail/src/lib/admin/client.test.ts",
+        "mailserver/webmail/src/lib/admin/transport.ts",
+        "mailserver/webmail/src/lib/admin/transport.test.ts"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "candidate": "R5-1",
+      "lane": "smtp",
+      "caseId": "R5-SMTP-INBOUND-PARITY",
+      "owner": "mailserver/cmd/mailserverd",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented"
+      ],
+      "predicate": {
+        "type": "focused-command",
+        "passDisposition": "implemented",
+        "absentDisposition": null,
+        "marker": {
+          "path": "mailserver/cmd/mailserverd/smtp_inbound_config_test.go",
+          "selector": "TestSMTPInboundConstructionSites_UseCommonConfigurationExactlyOnce"
+        },
+        "alternateMarker": null,
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd mailserver && go test ./cmd/mailserverd -run '^(TestSMTPInboundConstructionSites_UseCommonConfigurationExactlyOnce|TestConfigureSMTPInboundCommon_.*)$' -count=1",
+        "bash scripts/e2e.sh smtp"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-2",
+      "lane": "auth-json",
+      "caseId": "R5-AUTH-JSON-INGRESS",
+      "owner": "authserver/internal/handlers",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "authserver/internal/handlers/json_ingress_test.go",
+          "selector": "TestAuthJSONIngressInventory_IsCompleteAndSourceBound"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-auth-json-inventory.json",
+          "selector": "R5-AUTH-JSON-INGRESS"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd authserver && go test ./internal/handlers -run '^(TestAuthJSONIngressInventory_IsCompleteAndSourceBound|TestDecodeBoundedAuthJSON_CompatibilityContract)$' -count=1",
+        "cd authserver && go test ./... -count=1"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-3",
+      "lane": "artifacts",
+      "caseId": "R5-PRIVATE-ARTIFACT-DURABILITY",
+      "owner": "mailctl",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "mailctl/private_artifact_test.go",
+          "selector": "TestPrivateArtifactInstallFaultTable"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-private-artifact-inventory.json",
+          "selector": "R5-PRIVATE-ARTIFACT-DURABILITY"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd mailctl && go test ./... -run '^TestPrivateArtifactInstall' -count=1",
+        "cd mailctl && go test ./... -count=1"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-4",
+      "lane": "rehearsal",
+      "caseId": "R5-REHEARSAL-BOOTSTRAP-BOUNDARY",
+      "owner": "scripts/unified-deployment-*.sh",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 60,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "scripts/rehearsal-totp.test.sh",
+          "selector": "R5_REHEARSAL_BOOTSTRAP_BOUNDARY"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-rehearsal-inventory.json",
+          "selector": "R5-REHEARSAL-BOOTSTRAP-BOUNDARY"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "bash scripts/rehearsal-totp.test.sh",
+        "node scripts/check-architecture-r5-boundaries.mjs rehearsal",
+        "node scripts/check-architecture-r5-boundaries.mjs self-test",
+        "bash scripts/check-unified-deployment-contracts-selftest.sh"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-5",
+      "lane": "ca",
+      "caseId": "R5-CA-ACTION-DISCRIMINATOR",
+      "owner": "mailserver/sql/reducers/ca_lockout_guard.sql",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented"
+      ],
+      "predicate": {
+        "type": "focused-command",
+        "passDisposition": "implemented",
+        "absentDisposition": null,
+        "marker": {
+          "path": "mailserver/sql/tests/ca_lockout_guard.pg",
+          "selector": "canonical type:block with no excluded admin raises BZ080"
+        },
+        "alternateMarker": null,
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "bash scripts/load-test-schema.sh",
+        "pg_prove -h 127.0.0.1 -p 5432 -U mail -d mailserver_test mailserver/sql/tests/ca_lockout_guard.pg mailserver/sql/tests/ca_policy_import.pg mailserver/sql/tests/ca_reachability_serialization.pg mailserver/sql/tests/ca_policy_promote.pg mailserver/sql/tests/ca_policy_restore.pg mailserver/sql/tests/ca_policy_restore_from_audit.pg mailserver/sql/tests/set_session_control.pg mailserver/sql/tests/admin_protection_check.pg mailserver/sql/tests/guest_set_status.pg mailserver/sql/tests/guest_provision.pg",
+        "cd shared && go test ./threat -run '^(TestValidatePolicyDocumentGrantDiscriminatorParity|TestDispatchInvalidGrantDiscriminatorsFailClosed|TestDispatchEmptyGrantsFailClosed|TestParseGrantsConflictingDiscriminatorsFailClosed|TestParseGrantsToleratesActionKey)$' -count=1",
+        "cd mailserver && DB_DSN='postgres://mail@127.0.0.1:5432/mailserver_test?sslmode=disable' REQUIRE_DB=1 go test ./internal/admin -run '^(TestCAReachabilitySerialization|TestAdminAuthority)' -count=1"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-6",
+      "lane": "admin",
+      "caseId": "R5-ADMIN-CLIENT-OWNERSHIP",
+      "owner": "mailserver/webmail/src/lib/admin",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "collision-held"
+      ],
+      "predicate": {
+        "type": "admin-collision",
+        "passDisposition": "implemented",
+        "absentDisposition": "collision-held",
+        "marker": {
+          "path": "mailserver/webmail/src/lib/admin/transport.test.ts",
+          "selector": "admin transport kernel"
+        },
+        "alternateMarker": {
+          "path": "docs/architecture.md",
+          "selector": "touched-path collision hold released"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "bash scripts/check-architecture-r5-collisions.sh admin",
+        "cd mailserver/webmail && npm exec vitest run src/lib/admin/client.test.ts src/lib/admin/transport.test.ts",
+        "cd mailserver/webmail && npm run check",
+        "cd mailserver/webmail && npm run build"
+      ],
+      "alternateCommands": [
+        "bash scripts/check-architecture-r5-collisions.sh admin"
+      ]
+    },
+    {
+      "candidate": "R5-7",
+      "lane": "jmap-account",
+      "caseId": "R5-JMAP-ACCOUNT-CONTEXT",
+      "owner": "mailserver/webmail/src/lib/jmap",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "mailserver/webmail/src/lib/jmap/client.test.ts",
+          "selector": "auth generation"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-jmap-account-inventory.json",
+          "selector": "R5-JMAP-ACCOUNT-CONTEXT"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd mailserver/webmail && npm exec vitest run src/lib/jmap/client.test.ts src/lib/stores/inboxStore.svelte.test.ts src/lib/stores/emailActionStore.svelte.test.ts",
+        "cd mailserver/webmail && npm run check"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-8",
+      "lane": "evidence-boundary",
+      "caseId": "R5-EVIDENCE-PUBLICATION-BOUNDARY",
+      "owner": "scripts/verify-architecture-r2-r4",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "source-bound-constant",
+        "passDisposition": "no-change",
+        "absentDisposition": null,
+        "marker": {
+          "path": "docs/verification/architecture-r5-evidence-boundary-inventory.json",
+          "selector": "R5-EVIDENCE-PUBLICATION-BOUNDARY"
+        },
+        "alternateMarker": null,
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "node scripts/check-architecture-r5-boundaries.mjs evidence",
+        "node scripts/check-architecture-r5-boundaries.mjs self-test",
+        "bash scripts/check-architecture-r2-evidence.sh --self-test",
+        "bash scripts/check-architecture-r3-evidence.sh --self-test",
+        "bash scripts/verify-architecture-r4.test.sh",
+        "node scripts/check-connectivity-aware-sync-cases.test.mjs",
+        "bash scripts/verify-office-foundation.sh --self-test"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-9",
+      "lane": "auth-cookie",
+      "caseId": "R5-AUTH-COOKIE-TUPLE",
+      "owner": "authserver/internal/handlers",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 300,
+      "allowedDispositions": [
+        "implemented",
+        "no-change"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "authserver/internal/handlers/identity_links_test.go",
+          "selector": "TestIdentityLinkCookieClear_DeletesRootPathCookieInCookieJar"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-auth-cookie-inventory.json",
+          "selector": "R5-AUTH-COOKIE-TUPLE"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd authserver && go test ./internal/handlers -run '^(TestIdentityLinkCookieClear_DeletesRootPathCookieInCookieJar|TestClearAuthCookie_PreservesForwardedHTTPSSecureAuthorityAndExplicitPath)$' -count=1",
+        "cd authserver && go test ./... -count=1"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-10",
+      "lane": "chat",
+      "caseId": "R5-CHAT-OWNER-RECONCILIATION",
+      "owner": "mailserver/webmail/src/lib/chat",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 120,
+      "allowedDispositions": [
+        "no-change",
+        "implemented"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "mailserver/webmail/src/lib/chat/store.svelte.test.ts",
+          "selector": "R5_POST_R3_RED_CASE"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-disposition-inventory.json",
+          "selector": "R5-CHAT-OWNER-RECONCILIATION"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "bash scripts/verify-architecture-r3.sh chat-reconcile"
+      ],
+      "alternateCommands": [
+        "node scripts/check-architecture-r5-dispositions.mjs chat",
+        "bash scripts/verify-architecture-r3.sh chat-reconcile"
+      ]
+    },
+    {
+      "candidate": "R5-11",
+      "lane": "exchange-fold",
+      "caseId": "R5-EXCHANGE-LIFECYCLE-FOLD",
+      "owner": "docs/superpowers/plans/2026-08-23-exchange-replacement-contract.md",
+      "gateClass": "disposition",
+      "warmEstimateSeconds": 10,
+      "allowedDispositions": [
+        "folded"
+      ],
+      "predicate": {
+        "type": "source-bound-constant",
+        "passDisposition": "folded",
+        "absentDisposition": null,
+        "marker": {
+          "path": "docs/verification/architecture-r5-disposition-inventory.json",
+          "selector": "R5-EXCHANGE-LIFECYCLE-FOLD"
+        },
+        "alternateMarker": null,
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "node scripts/check-architecture-r5-dispositions.mjs exchange"
+      ],
+      "alternateCommands": []
+    },
+    {
+      "candidate": "R5-12",
+      "lane": "compose",
+      "caseId": "R5-COMPOSE-OWNER-RECONCILIATION",
+      "owner": "mailserver/webmail/src/lib/stores/composeStore.svelte.ts",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 120,
+      "allowedDispositions": [
+        "no-change",
+        "implemented"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "mailserver/webmail/src/lib/stores/composeStore.svelte.test.ts",
+          "selector": "R5_POST_R3_RED_CASE"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-disposition-inventory.json",
+          "selector": "R5-COMPOSE-OWNER-RECONCILIATION"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "bash scripts/verify-architecture-r3.sh compose-state"
+      ],
+      "alternateCommands": [
+        "node scripts/check-architecture-r5-dispositions.mjs compose",
+        "bash scripts/verify-architecture-r3.sh compose-state"
+      ]
+    },
+    {
+      "candidate": "R5-13",
+      "lane": "calendar",
+      "caseId": "R5-CALENDAR-OWNER-RECONCILIATION",
+      "owner": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts",
+      "gateClass": "merge",
+      "warmEstimateSeconds": 120,
+      "allowedDispositions": [
+        "no-change",
+        "implemented"
+      ],
+      "predicate": {
+        "type": "marker-selects-command-or-no-change",
+        "passDisposition": "implemented",
+        "absentDisposition": "no-change",
+        "marker": {
+          "path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.test.ts",
+          "selector": "R5_CALENDAR_TWO_TRANSITIONS"
+        },
+        "alternateMarker": {
+          "path": "docs/verification/architecture-r5-disposition-inventory.json",
+          "selector": "R5-CALENDAR-OWNER-RECONCILIATION"
+        },
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/routes/calendar.test.ts"
+      ],
+      "alternateCommands": [
+        "node scripts/check-architecture-r5-dispositions.mjs calendar",
+        "cd mailserver/webmail && npm exec vitest run src/lib/stores/calendarActionStore.svelte.test.ts src/lib/components/CalendarApp.test.ts"
+      ]
+    },
+    {
+      "candidate": "R5-14",
+      "lane": "offline-defer",
+      "caseId": "R5-OFFLINE-CAPABILITY-DEFER",
+      "owner": "docs/superpowers/plans/2026-08-11-connectivity-aware-sync-resource-qos.md",
+      "gateClass": "disposition",
+      "warmEstimateSeconds": 10,
+      "allowedDispositions": [
+        "deferred"
+      ],
+      "predicate": {
+        "type": "source-bound-constant",
+        "passDisposition": "deferred",
+        "absentDisposition": null,
+        "marker": {
+          "path": "docs/verification/architecture-r5-disposition-inventory.json",
+          "selector": "R5-OFFLINE-CAPABILITY-DEFER"
+        },
+        "alternateMarker": null,
+        "holdOn": [
+          "malformed",
+          "stale",
+          "unknown"
+        ]
+      },
+      "commands": [
+        "node scripts/check-architecture-r5-dispositions.mjs offline",
+        "cd mailserver/webmail && npm exec vitest run src/lib/offline/storeFacade.test.ts src/routes/settings/storage/page.test.ts"
+      ],
+      "alternateCommands": []
+    }
+  ]
+}

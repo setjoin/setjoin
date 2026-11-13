@@ -1,0 +1,72 @@
+{
+  "case": "worker-ingest-exhausted",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": "<timestamp>",
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {},
+          "state": "ended",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [],
+      "recordings": [
+        {
+          "duration_ms": null,
+          "egress_id": "EG_in",
+          "error": "<error-text>",
+          "ingest_attempts": 5,
+          "size_bytes": null,
+          "staging_key": "meet-egress/5-ingest.mp4",
+          "started_at": "<timestamp>",
+          "state": "failed",
+          "stopped_at": null
+        }
+      ],
+      "requests": [],
+      "semantic": []
+    },
+    "notify": [],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        }
+      ],
+      "objects": [],
+      "stored": [
+        {
+          "key": "meet-egress/5-ingest.mp4",
+          "size": 5000
+        }
+      ]
+    }
+  },
+  "worker": "meet-reconcile"
+}

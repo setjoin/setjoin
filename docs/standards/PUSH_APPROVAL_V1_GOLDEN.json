@@ -1,0 +1,5 @@
+{
+  "canonical": "{\"code\":\"42\",\"decision\":\"approve\",\"device_id\":7,\"expires_at\":1780000060,\"issued_at\":1780000000,\"nonce\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\",\"protocol\":\"setjoin.push-approval.v1\",\"session_id\":\"session-abc\",\"user_id\":99}",
+  "public_key_hex": "046ff03b949241ce1dadd43519e6960e0a85b41a69a05c328103aa2bce1594ca163c4f753a55bf01dc53f6c0b0c7eee78b40c6ff7d25a96e2282b989cef71c144a",
+  "signature_base64url": "HrAtuzu85TPBH3umYysuHAdESidk_IIchhxdoVrwQzTqBv1cM3OO7vkbHiQ4YN2JyLkloJwa5otgF0jHnqK6Jg"
+}

@@ -1,0 +1,29 @@
+-- #525 credential-keyed lookup reducers (no RLS needed; see staged/ for the RLS cases).
+BEGIN;
+SELECT plan(9);
+INSERT INTO domains(name,is_local) VALUES('oidc-rls-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash) VALUES('a@oidc-rls-pgtap.test','a@oidc-rls-pgtap.test','a',:dom,'x') RETURNING id AS ua \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash) VALUES('b@oidc-rls-pgtap.test','b@oidc-rls-pgtap.test','b',:dom,'x') RETURNING id AS ub \gset
+INSERT INTO oidc_clients(id,name,secret,redirect_uris) VALUES('oidc-rls-pgtap','t','x',ARRAY['https://rp.test/cb']),('oidc-rls-other','t','x',ARRAY['https://rp.test/cb']);
+INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at,refresh_token_hash,refresh_expires_at)
+VALUES('tok-a','oidc-rls-pgtap',:ua,:'ua',ARRAY['openid','offline_access'],now()+interval '5 minutes','hash-a',now()+interval '30 days'),
+      ('tok-b','oidc-rls-pgtap',:ub,:'ub',ARRAY['openid','email'],now()+interval '5 minutes','hash-b',now()+interval '30 days');
+INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at,refresh_token_hash,refresh_expires_at,revoked_at)
+VALUES('tok-b-spent','oidc-rls-pgtap',:ub,:'ub',ARRAY['openid'],now()+interval '5 minutes','hash-b-spent',now()+interval '30 days',now());
+SET LOCAL ROLE setjoin_app;
+RESET ROLE;
+SELECT set_config('app.current_user_id',:'ua',true);
+SET LOCAL ROLE setjoin_app;
+-- credential reducers derive the user from the credential
+SELECT is((SELECT user_id FROM rust_identity_oidc_refresh_anchor('hash-b')),:ub::bigint,'anchor derives B from B''s hash, not the caller');
+SELECT is((SELECT spent FROM rust_identity_oidc_refresh_anchor('hash-b-spent')),true,'anchor reports a spent token');
+SELECT is((SELECT live FROM rust_identity_oidc_refresh_anchor('hash-b')),true,'anchor reports a live token');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_refresh_anchor('no-such-hash')),0::bigint,'anchor of an unknown hash is empty');
+SELECT is((SELECT user_id FROM rust_identity_oidc_token_owner('tok-b')),:ub::bigint,'token owner derives from the stored row');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_token_owner('no-such-id')),0::bigint,'unknown token id has no owner');
+SELECT is((SELECT user_id FROM rust_identity_oidc_revoke_target('hash-b','nope','oidc-rls-pgtap')),:ub::bigint,'revoke target by hash');
+SELECT is((SELECT user_id FROM rust_identity_oidc_revoke_target('nope','tok-b','oidc-rls-pgtap')),:ub::bigint,'revoke target by id');
+SELECT is((SELECT count(*) FROM rust_identity_oidc_revoke_target('hash-b','tok-b','oidc-rls-other')),0::bigint,'another client cannot target the token');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

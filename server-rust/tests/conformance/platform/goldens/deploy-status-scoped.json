@@ -1,0 +1,95 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "completed_at": null,
+            "error": "legacy secret",
+            "output": "legacy private output",
+            "started_at": null,
+            "status": "running",
+            "step_name": "gofree_plat2b_a"
+          },
+          {
+            "completed_at": null,
+            "error": "",
+            "output": "legacy successful output",
+            "started_at": null,
+            "status": "done",
+            "step_name": "gofree_plat2b_b"
+          }
+        ],
+        "before": [
+          {
+            "completed_at": null,
+            "error": "legacy secret",
+            "output": "legacy private output",
+            "started_at": null,
+            "status": "running",
+            "step_name": "gofree_plat2b_a"
+          },
+          {
+            "completed_at": null,
+            "error": "",
+            "output": "legacy successful output",
+            "started_at": null,
+            "status": "done",
+            "step_name": "gofree_plat2b_b"
+          }
+        ],
+        "table": "deployment_steps"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/deploy/status",
+      "method": "GET",
+      "path": "/admin/deploy/status"
+    },
+    "response": {
+      "body": "{\"profile\":0,\"nodes\":[],\"steps\":[{\"name\":\"gofree_plat2b_a\",\"status\":\"failed\",\"output\":\"[withheld: persisted step detail removed at restore — pre-redaction rows cannot be verified secret-free; reconcile on the target host]\",\"error\":\"[withheld: persisted step detail removed at restore — pre-redaction rows cannot be verified secret-free; reconcile on the target host]\"},{\"name\":\"gofree_plat2b_b\",\"status\":\"done\",\"output\":\"[withheld: persisted step detail removed at restore — pre-redaction rows cannot be verified secret-free; reconcile on the target host]\"}],\"status\":\"resumed\",\"log\":null,\"started_at\":\"<zero-time>\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "623"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/deploy/status"
+}

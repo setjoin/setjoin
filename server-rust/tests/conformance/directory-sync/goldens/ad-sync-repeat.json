@@ -1,0 +1,713 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "account_provision",
+        "after_state": {
+          "domain_id": "<id>",
+          "email": "alice@host-a.test",
+          "guest": false,
+          "mailbox_id": "<id>",
+          "sync_source": "ad"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": "ad",
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "account_provision",
+        "after_state": {
+          "domain_id": "<id>",
+          "email": "carol@host-a.test",
+          "guest": false,
+          "mailbox_id": "<id>",
+          "sync_source": "ad"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": "ad",
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "revoke_user_sessions",
+        "after_state": {
+          "expires_at": "<timestamp>",
+          "family_id": null,
+          "jti": null,
+          "not_before": "<timestamp>",
+          "scope": "all",
+          "user_id": "<id>"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "revoke_user_sessions",
+        "after_state": {
+          "expires_at": "<timestamp>",
+          "family_id": null,
+          "jti": null,
+          "not_before": "<timestamp>",
+          "scope": "all",
+          "user_id": "<id>"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "account_provision",
+        "after_state": {
+          "domain_id": "<id>",
+          "email": "judy@host-a.test",
+          "guest": false,
+          "mailbox_id": "<id>",
+          "sync_source": "ad"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": "ad",
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ad_sync_bind_dn",
+              "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ad_sync_domain",
+              "value": "\"ad.example.test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ad_sync_ldap_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ad_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            }
+          ],
+          "conflicts": [],
+          "departments": [
+            {
+              "ldap_ou": "Engineering",
+              "path": "Engineering"
+            }
+          ],
+          "inbox": [
+            {
+              "object_key": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302012-6050-8070-90a0-b0c0d0e0f002",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302014-6050-8070-90a0-b0c0d0e0f004",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302018-6050-8070-90a0-b0c0d0e0f008",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "state": "applied"
+            }
+          ],
+          "links": [
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "user": "alice@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302012-6050-8070-90a0-b0c0d0e0f002",
+              "user": "bob@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "user": "carol@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302014-6050-8070-90a0-b0c0d0e0f004",
+              "user": "dave@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302018-6050-8070-90a0-b0c0d0e0f008",
+              "user": "hank@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "user": "judy@host-a.test"
+            }
+          ],
+          "quarantine": [
+            {
+              "object_key": "cn=ivan,ou=people,dc=ad,dc=example,dc=test",
+              "occurrences": 1,
+              "reason": "MISSING_IMMUTABLE_SUBJECT"
+            },
+            {
+              "object_key": "40302015-6050-8070-90a0-b0c0d0e0f005",
+              "occurrences": 1,
+              "reason": "NO_USABLE_MAIL_ATTRIBUTE"
+            }
+          ],
+          "source": [
+            {
+              "cursor": {
+                "usn": "1010"
+              },
+              "generation": 1,
+              "state": "active"
+            }
+          ],
+          "sync_log": [
+            {
+              "checked": 6,
+              "created": 6,
+              "details": {
+                "batchId": "<uuid>",
+                "cursorDigest": "b2bc16f5e9dea5eb5185e3c38dc273df3b6484a21aa221243a1437d9506462fb",
+                "quarantined": 0
+              },
+              "disabled": 0,
+              "error": null,
+              "skipped": 0,
+              "source": "ad",
+              "updated": 0
+            },
+            {
+              "checked": 1,
+              "created": 1,
+              "details": {
+                "batchId": "<uuid>",
+                "cursorDigest": "b2bc16f5e9dea5eb5185e3c38dc273df3b6484a21aa221243a1437d9506462fb",
+                "quarantined": 0
+              },
+              "disabled": 0,
+              "error": null,
+              "skipped": 0,
+              "source": "ad",
+              "updated": 0
+            }
+          ],
+          "users": [
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ad6-admin",
+              "email": "ad6-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ad6-admin@host-a.test"
+            },
+            {
+              "ad_object_guid": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "ad_upn": "alice@host-a.test",
+              "department": "Engineering",
+              "display_name": "Alice A",
+              "email": "alice@host-a.test",
+              "enabled": true,
+              "first_name": "Alice",
+              "job_title": "Engineer",
+              "krb5_principal": "alice@host-a.test",
+              "last_name": "A",
+              "local_overrides": {},
+              "manager": "bob@host-a.test",
+              "phone": "+1 555 0001",
+              "sync_source": "ad",
+              "username": "alice"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Bob Renamed",
+              "email": "bob@host-a.test",
+              "enabled": true,
+              "first_name": "Bob",
+              "job_title": "Director",
+              "krb5_principal": "bob@CORP.EXAMPLE",
+              "last_name": "B",
+              "local_overrides": {
+                "job_title": "Local Title"
+              },
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "bob"
+            },
+            {
+              "ad_object_guid": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Carol Directory",
+              "email": "carol@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "carol"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Dave",
+              "email": "dave@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "dave"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Hank Disabled",
+              "email": "hank@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "hank"
+            },
+            {
+              "ad_object_guid": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Judy",
+              "email": "judy@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "judy"
+            }
+          ]
+        },
+        "before": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ad_sync_bind_dn",
+              "value": "\"CN=svc,DC=ad,DC=example,DC=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ad_sync_domain",
+              "value": "\"ad.example.test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ad_sync_ldap_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ad_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            }
+          ],
+          "conflicts": [],
+          "departments": [
+            {
+              "ldap_ou": "Engineering",
+              "path": "Engineering"
+            }
+          ],
+          "inbox": [
+            {
+              "object_key": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302012-6050-8070-90a0-b0c0d0e0f002",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302014-6050-8070-90a0-b0c0d0e0f004",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302018-6050-8070-90a0-b0c0d0e0f008",
+              "state": "applied"
+            },
+            {
+              "object_key": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "state": "applied"
+            }
+          ],
+          "links": [
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "user": "alice@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302012-6050-8070-90a0-b0c0d0e0f002",
+              "user": "bob@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "user": "carol@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302014-6050-8070-90a0-b0c0d0e0f004",
+              "user": "dave@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302018-6050-8070-90a0-b0c0d0e0f008",
+              "user": "hank@host-a.test"
+            },
+            {
+              "purposes": [
+                "provision"
+              ],
+              "state": "active",
+              "subject": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "user": "judy@host-a.test"
+            }
+          ],
+          "quarantine": [
+            {
+              "object_key": "cn=ivan,ou=people,dc=ad,dc=example,dc=test",
+              "occurrences": 1,
+              "reason": "MISSING_IMMUTABLE_SUBJECT"
+            },
+            {
+              "object_key": "40302015-6050-8070-90a0-b0c0d0e0f005",
+              "occurrences": 1,
+              "reason": "NO_USABLE_MAIL_ATTRIBUTE"
+            }
+          ],
+          "source": [
+            {
+              "cursor": {
+                "usn": "1010"
+              },
+              "generation": 1,
+              "state": "active"
+            }
+          ],
+          "sync_log": [
+            {
+              "checked": 6,
+              "created": 6,
+              "details": {
+                "batchId": "<uuid>",
+                "cursorDigest": "b2bc16f5e9dea5eb5185e3c38dc273df3b6484a21aa221243a1437d9506462fb",
+                "quarantined": 0
+              },
+              "disabled": 0,
+              "error": null,
+              "skipped": 0,
+              "source": "ad",
+              "updated": 0
+            }
+          ],
+          "users": [
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ad6-admin",
+              "email": "ad6-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ad6-admin@host-a.test"
+            },
+            {
+              "ad_object_guid": "40302011-6050-8070-90a0-b0c0d0e0f001",
+              "ad_upn": "alice@host-a.test",
+              "department": "Engineering",
+              "display_name": "Alice A",
+              "email": "alice@host-a.test",
+              "enabled": true,
+              "first_name": "Alice",
+              "job_title": "Engineer",
+              "krb5_principal": "alice@host-a.test",
+              "last_name": "A",
+              "local_overrides": {},
+              "manager": "bob@host-a.test",
+              "phone": "+1 555 0001",
+              "sync_source": "ad",
+              "username": "alice"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Bob Renamed",
+              "email": "bob@host-a.test",
+              "enabled": true,
+              "first_name": "Bob",
+              "job_title": "Director",
+              "krb5_principal": "bob@CORP.EXAMPLE",
+              "last_name": "B",
+              "local_overrides": {
+                "job_title": "Local Title"
+              },
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "bob"
+            },
+            {
+              "ad_object_guid": "40302013-6050-8070-90a0-b0c0d0e0f003",
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Carol Directory",
+              "email": "carol@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "carol"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Dave",
+              "email": "dave@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "dave"
+            },
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Hank Disabled",
+              "email": "hank@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "hank"
+            },
+            {
+              "ad_object_guid": "40302019-6050-8070-90a0-b0c0d0e0f009",
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Judy",
+              "email": "judy@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ad",
+              "username": "judy"
+            }
+          ]
+        },
+        "directory": [
+          "bind dn=CN=svc,DC=ad,DC=example,DC=test password=ok",
+          "search base=DC=ad,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(&(objectClass=user)(objectCategory=person))(uSNChanged>=1010)) attrs=objectGUID,mail,displayName,givenName,sn,sAMAccountName,userPrincipalName,userAccountControl,department,title,manager,telephoneNumber,proxyAddresses,uSNChanged page=500"
+        ],
+        "table": "ad"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/ad/sync",
+      "method": "POST",
+      "path": "/admin/ad/sync"
+    },
+    "response": {
+      "body": "{\"checked\":1,\"created\":0,\"disabled\":0,\"duration\":\"<duration>\",\"errors\":0,\"skipped\":0,\"updated\":1}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "97"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync6-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/ad/sync"
+}

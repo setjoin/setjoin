@@ -1,0 +1,347 @@
+// Recording/interchange-only helper. Its TLS config expression is lifted unchanged
+// from frozen mailserverd/main.go by build-peer.py; production Go is never edited.
+package acme_test
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/crypto/acme/autocert"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+	acme "setjoin.com/mailserver/internal/acme"
+	"setjoin.com/mailserver/internal/middleware"
+	"setjoin.com/mailserver/internal/tlsutil"
+)
+
+type goFreePool struct{}
+
+func (goFreePool) ClientCertPool() *x509.CertPool { return nil }
+func goFreeConfig(legoMgr *acme.LegoManager, autocertMgr *autocert.Manager, staticCert *tls.Certificate) *tls.Config {
+	chain := goFreePool{}
+	// FROZEN_TLS_CONFIG
+	return tlsCfg
+}
+
+type goFreePeer struct {
+ DNS goFreeDNS
+	Mode, Listen, Ready, Out, Cert, Key, Cache, SNI, ALPN, Session, Dump string
+	Roots, Directory, CA, Challenge                                      string
+	Domains                                                              []string
+	Version                                                              uint16
+	Raw                                                                  bool
+	Plain                                                                bool
+	Keys                                                                 []string
+}
+type goFreeSession struct{ Ticket, State []byte }
+type goFreeClientCache struct {
+	tls.ClientSessionCache
+	puts int
+}
+
+func (c *goFreeClientCache) Put(key string, state *tls.ClientSessionState) {
+	if state != nil {
+		c.puts++
+	}
+	c.ClientSessionCache.Put(key, state)
+}
+
+func TestGoFreeTLSFrontPeer(t *testing.T) {
+	var p goFreePeer
+	if err := json.Unmarshal([]byte(os.Getenv("GOFREE_TLS_PEER")), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Mode == "dns-api" {goFreeDNSServer(t,p.DNS);return}
+	if p.Mode == "probe" {
+		goFreeProbe(t, p)
+		return
+	}
+	if p.Mode == "inspect" {
+		goFreeInspect(t, p)
+		return
+	}
+	var static *tls.Certificate
+	if p.Cert != "" {
+		pair, err := tls.LoadX509KeyPair(p.Cert, p.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		static = &pair
+	}
+	var manager *acme.LegoManager
+	var auto *autocert.Manager
+	if len(p.Domains) > 0 {
+		var err error
+		if p.Directory == "" || p.CA == "" {
+			t.Fatal("managed SNI recording requires a test ACME directory/root")
+		}
+		ca, err := os.ReadFile(p.CA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(ca) {
+			t.Fatal("no test ACME root")
+		}
+		challenge := p.Challenge
+		if challenge == "" {
+			challenge = acme.ChallengeTLSALPN01
+		}
+		manager, err = acme.NewLegoManager(acme.LegoConfig{Domains: p.Domains, Email: "ops@example.test", CacheDir: p.Cache, Challenge: challenge, ProviderCfg: acme.ProviderConfig{Provider: "cloudflare", Config: `{"CF_API_TOKEN":"public-test-token"}`}, CADirURL: p.Directory, HTTPClient: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		auto = &autocert.Manager{Cache: autocert.DirCache(p.Cache), HostPolicy: autocert.HostWhitelist(p.Domains...)}
+	}
+	config := goFreeConfig(manager, auto, static)
+	config.NextProtos = []string{"h2", "http/1.1"}
+	var keys [][32]byte
+	for _, raw := range p.Keys {
+		key, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(key) != 32 {
+			t.Fatal("invalid fixture key")
+		}
+		keys = append(keys, [32]byte(key))
+	}
+	if len(keys) > 0 {
+		config.SetSessionTicketKeys(keys)
+	}
+	if p.Dump != "" {
+		config.WrapSession = func(cs tls.ConnectionState, ss *tls.SessionState) ([]byte, error) {
+			plain, err := ss.Bytes()
+			if err != nil {
+				return nil, err
+			}
+			ticket, err := config.EncryptTicket(cs, ss)
+			if err != nil {
+				return nil, err
+			}
+			data, _ := json.Marshal(map[string]any{"plain": plain, "ticket": ticket, "version": cs.Version})
+			return ticket, os.WriteFile(p.Dump, data, 0600)
+		}
+	}
+	listener, err := net.Listen("tcp", p.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err = os.WriteFile(p.Ready, []byte(listener.Addr().String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if p.Raw {
+		listener = tls.NewListener(listener, config)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() { defer conn.Close(); _, _ = conn.Write([]byte("ok\n")) }()
+		}
+	}
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	if !p.Plain {
+		handler = middleware.HSTS(handler)
+	}
+	server := &http.Server{Handler: handler, TLSConfig: config, ReadHeaderTimeout: 30 * time.Second}
+	if p.Plain {
+		server.Handler = h2c.NewHandler(handler, &http2.Server{})
+		err = server.Serve(listener)
+	} else {
+		err = server.Serve(tls.NewListener(listener, config))
+	}
+	if err != nil && err != http.ErrServerClosed {
+		t.Fatal(err)
+	}
+}
+func goFreeProbe(t *testing.T, p goFreePeer) {
+	if p.Plain {
+		goFreePlainProbe(t, p)
+		return
+	}
+	if p.Roots != "" {
+		p.Cert = p.Roots
+	}
+	roots := x509.NewCertPool()
+	cert, err := os.ReadFile(p.Cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !roots.AppendCertsFromPEM(cert) {
+		t.Fatal("no fixture root")
+	}
+	cache := &goFreeClientCache{ClientSessionCache: tls.NewLRUClientSessionCache(8)}
+	if p.Session != "" {
+		if raw, err := os.ReadFile(p.Session); err == nil {
+			var saved goFreeSession
+			if err = json.Unmarshal(raw, &saved); err != nil {
+				t.Fatal(err)
+			}
+			state, err := tls.ParseSessionState(saved.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := tls.NewResumptionState(saved.Ticket, state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cache.Put(p.SNI, session)
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	cfg := &tls.Config{RootCAs: roots, ServerName: p.SNI, ClientSessionCache: cache, MinVersion: p.Version, MaxVersion: p.Version}
+	if p.ALPN != "" {
+		cfg.NextProtos = strings.Split(p.ALPN, ",")
+	}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", p.Listen, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	state := conn.ConnectionState()
+	var body []byte
+	var status int
+	var version string
+	var contentType, hsts string
+	if p.Raw {
+		body, err = io.ReadAll(conn)
+	} else {
+		request, _ := http.NewRequestWithContext(context.Background(), "GET", "https://"+p.SNI+"/_gateway/healthz", nil)
+		var response *http.Response
+		if state.NegotiatedProtocol == "h2" {
+			transport := &http2.Transport{}
+			client, ce := transport.NewClientConn(conn)
+			if ce != nil {
+				t.Fatal(ce)
+			}
+			response, err = client.RoundTrip(request)
+		} else {
+			transport := &http.Transport{DialTLSContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }}
+			response, err = transport.RoundTrip(request)
+		}
+		if err == nil {
+			status = response.StatusCode
+			version = response.Proto
+			contentType = response.Header.Get("Content-Type")
+			hsts = response.Header.Get("Strict-Transport-Security")
+			body, err = io.ReadAll(response.Body)
+			_ = response.Body.Close()
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Session != "" {
+		if session, ok := cache.Get(p.SNI); ok {
+			ticket, state, err := session.ResumptionState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := state.Bytes()
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(goFreeSession{ticket, data})
+			if err = os.WriteFile(p.Session, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			t.Fatal("server issued no session ticket")
+		}
+	}
+	out := map[string]any{"resumed": state.DidResume, "version": state.Version, "cipher": state.CipherSuite, "alpn": state.NegotiatedProtocol, "subject": state.PeerCertificates[0].Subject.CommonName, "chain": len(state.PeerCertificates), "body": string(body)}
+	if !p.Raw {
+		out["status"] = status
+		out["http_version"] = version
+		out["content_type"] = contentType
+		out["hsts"] = hsts
+		out["tickets_issued"] = cache.puts
+	}
+	raw, _ := json.Marshal(out)
+	if err = os.WriteFile(p.Out, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("TLSFRONT-OBSERVED", string(raw))
+}
+
+// A standard-library format consumer, not a running Go server. Normal replays
+// use this to verify Rust-issued encrypted session state is accepted by Go.
+func goFreeInspect(t *testing.T, p goFreePeer) {
+	var session goFreeSession
+	raw, err := os.ReadFile(p.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &session); err != nil {
+		t.Fatal(err)
+	}
+	var keys [][32]byte
+	for _, v := range p.Keys {
+		b, err := base64.StdEncoding.DecodeString(v)
+		if err != nil || len(b) != 32 {
+			t.Fatal("bad fixture key")
+		}
+		keys = append(keys, [32]byte(b))
+	}
+	config := &tls.Config{}
+	config.SetSessionTicketKeys(keys)
+	state, err := config.DecryptTicket(session.Ticket, tls.ConnectionState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]any{"accepted": state != nil}
+	if state != nil {
+		plain, err := state.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out["prefix"] = base64.StdEncoding.EncodeToString(plain[:5])
+		out["secret_bytes"] = int(plain[13])
+	}
+	result, _ := json.Marshal(out)
+	if err = os.WriteFile(p.Out, result, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func goFreePlainProbe(t *testing.T, p goFreePeer) {
+	conn, err := net.DialTimeout("tcp", p.Listen, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	request, _ := http.NewRequest("GET", "http://"+p.SNI+"/_gateway/healthz", nil)
+	client, err := (&http2.Transport{AllowHTTP: true}).NewClientConn(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	result, _ := json.Marshal(map[string]any{"resumed": false, "version": 0, "cipher": 0, "alpn": "", "subject": "", "chain": 0, "body": string(body), "status": response.StatusCode, "http_version": response.Proto, "content_type": response.Header.Get("Content-Type"), "hsts": response.Header.Get("Strict-Transport-Security"), "tickets_issued": 0})
+	if err = os.WriteFile(p.Out, result, 0600); err != nil {
+		t.Fatal(err)
+	}
+}

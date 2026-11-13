@@ -1,0 +1,86 @@
+-- pgTAP: send() applies OUTBOUND admin transport rules end to end (the
+-- send() -> apply_rules('outbound') -> apply_action seam, plus send.sql's
+-- step 5.2 re-read that threads a rule mutation back into the real recipient/
+-- content resolution). Queue B item 8: bcc/redirect must reach the real
+-- outbound recipient set (outbound_queue_hot.rcpt_addrs / local deliver()
+-- fan-out), not just the `messages` row apply_action mutates directly.
+--
+-- NOTE: apply_rules() only fires NON-transport (per-mailbox) rules for
+-- p_side='server' (inbound) — see rule_engine_or.sql's WHERE clause. On the
+-- outbound side (send()), only org-wide admin transport rules
+-- (is_transport_rule=TRUE, mailbox_id IS NULL) ever apply. So every rule
+-- fixture below is a transport rule, matching how an admin would actually
+-- configure a BCC-archive / redirect mail-flow rule.
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (name, is_local) VALUES ('sro.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('extsro.test', FALSE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7201, 'alice', (SELECT id FROM domains WHERE name = 'sro.test'), 'alice@sro.test', 'Alice');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9201, 7201, (SELECT id FROM domains WHERE name = 'sro.test'), 'alice@sro.test', 'Alice', 'personal', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7202, 'bob', (SELECT id FROM domains WHERE name = 'sro.test'), 'bob@sro.test', 'Bob');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9202, 7202, (SELECT id FROM domains WHERE name = 'sro.test'), 'bob@sro.test', 'Bob', 'personal', TRUE);
+
+-- ── Fixture 1: an org-wide transport rule that BCCs an (external) compliance
+-- archive address on any outbound message whose subject contains "Archive". ──
+INSERT INTO rules (mailbox_id, user_id, name, enabled, priority, run_on, is_transport_rule, conditions, actions)
+VALUES (
+  NULL, NULL, 'bcc archive', TRUE, 0, 'server', TRUE,
+  '[{"field":"subject", "op":"contains", "value":"Archive"}]'::JSONB,
+  '[{"type":"bcc","params":{"address":"archive@extsro.test"}}]'::JSONB);
+
+SELECT send(
+  7201, 9201, 'refarchive', '<msg-archive>', 'alice@sro.test',
+  '[{"email":"bob@sro.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'Archive test', NULL, NULL, 'body', NULL, 100, FALSE, NULL);
+
+-- (1) The bcc'd (external) address reaches the REAL outbound queue envelope
+-- recipient list, alongside no other external recipient (bob is local).
+SELECT is(
+  (SELECT rcpt_addrs FROM outbound_queue_hot WHERE message_id = '<msg-archive>'),
+  ARRAY['archive@extsro.test'],
+  'send(): a bcc transport-rule action reaches the real outbound_queue_hot.rcpt_addrs envelope list');
+
+-- (2) bob (the real, non-bcc'd recipient) still received his own local copy —
+-- bcc adds, it does not replace.
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = 9202 AND message_id = '<msg-archive>'),
+  1::BIGINT,
+  'send(): the original local recipient still receives their copy (bcc is additive)');
+
+-- ── Fixture 2: an org-wide transport rule that REDIRECTS (Exchange parity —
+-- replaces, does not notify the original addressee) any outbound message
+-- whose subject contains "RedirectMe" to an external address. ──
+INSERT INTO rules (mailbox_id, user_id, name, enabled, priority, run_on, is_transport_rule, conditions, actions)
+VALUES (
+  NULL, NULL, 'redirect to compliance', TRUE, 1, 'server', TRUE,
+  '[{"field":"subject", "op":"contains", "value":"RedirectMe"}]'::JSONB,
+  '[{"type":"redirect","params":{"address":"redirect-target@extsro.test"}}]'::JSONB);
+
+SELECT send(
+  7201, 9201, 'refredirect', '<msg-redirect>', 'alice@sro.test',
+  '[{"email":"bob@sro.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'RedirectMe test', NULL, NULL, 'body', NULL, 100, FALSE, NULL);
+
+-- (3) bob (the ORIGINAL addressee) never receives a copy — redirect replaces
+-- the recipient set, it does not deliver to both.
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = 9202 AND message_id = '<msg-redirect>'),
+  0::BIGINT,
+  'send(): redirect drops the original local addressee entirely (replaces, does not notify)');
+
+-- (4) The redirect target — and ONLY the redirect target — reaches the real
+-- outbound queue.
+SELECT is(
+  (SELECT rcpt_addrs FROM outbound_queue_hot WHERE message_id = '<msg-redirect>'),
+  ARRAY['redirect-target@extsro.test'],
+  'send(): redirect reaches the real outbound_queue_hot.rcpt_addrs — the sole recipient');
+
+SELECT * FROM finish();
+ROLLBACK;

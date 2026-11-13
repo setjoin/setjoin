@@ -1,0 +1,98 @@
+[Unit]
+Description=setjoin Meet Captions ASR runtime (FunASR, pinned container — B3 Task 16)
+Documentation=https://github.com/setjoin/setjoin
+# Ordering only (Wants, not Requires) — the setjoin-egress rationale: a dead
+# FunASR runtime degrades ONE optional feature (live captions), never
+# meetings, never mail.
+After=network.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+# Loopback-only PUBLISHED port (B3 Task 18 pipeline-review finding 2 — this
+# unit used to run the container in host-networking mode with no explicit
+# --port/bind arg, which put an unauthenticated plaintext-WS ASR server on
+# EVERY interface the host has, at the run_server_2pass.sh default port
+# (10095) — not the 10096 asrbot.env/install.sh's probe actually expect, a
+# real port mismatch the old "published by convention" comment here
+# asserted but never enforced.
+# --port 10095 pins the container's own listen port explicitly (no separate
+# bind-IP flag exists; the -p 127.0.0.1:10096:10095 host-side publish is
+# what actually restricts reachability to loopback, regardless of what the
+# container binds internally). Unlike setjoin-egress (which reaches OUT to
+# Valkey/SFU/S3 and needs host networking for that), FunASR only ever
+# accepts INBOUND connections from asrbot, so it never needs host
+# networking — dropping it removes the whole network-wide-exposure class
+# outright, not just narrows it.
+#
+# Direct-exec of funasr-wss-server-2pass, NOT `bash run_server_2pass.sh`
+# (B3 live gate, 2026-07-16, run against the real pinned image): the
+# upstream wrapper script BACKGROUNDS the server (`... &`), writes a config
+# file, and exits — so a container whose PID1 is `bash -c "... bash
+# run_server_2pass.sh ..."` exits the moment the script returns, killing
+# the just-started server; under Restart=always + StartLimitBurst=5 the old
+# ExecStart crash-looped into a failed unit at every real boot (caught by
+# the live gate's empirical container run; the wrapper is only usable from
+# an interactive `docker exec` session, upstream's own documented flow).
+# `exec` makes the server PID1 directly: signals flow, a server crash exits
+# the container, Restart=always actually heals.
+#
+# Every model the server loads is named EXPLICITLY (the same five defaults
+# baked into the pinned image's own run_server_2pass.sh, read out of the
+# image at gate time) and pre-placed sha256-pinned by install.sh's
+# install_funasr_models (lib-livekit.sh) under the :ro mount — an upstream
+# default bump inside a future image can no longer silently change which
+# models transcribe. --lm-dir '' is the ONE deliberate deviation from the
+# wrapper's defaults: it DISABLES the optional ~960MB WFST language-model
+# rescoring leg (damo/speech_ngram_lm_zh-cn-ai-wesp-fst) — loading it would
+# crowd the 4G MemoryMax budget below, and the B3 live gate proved full
+# partials+finals round-trip quality without it. Pin + enable it here AND
+# in install_funasr_models together if a real deploy demands LM rescoring.
+# $$(nproc) is container-side bash substitution ($$ escapes the $ from
+# systemd's own specifier expansion), replicating the wrapper's
+# decoder-thread-num=nproc default.
+ExecStartPre=-{{CONTAINER_BIN}} rm -f setjoin-funasr
+ExecStart={{CONTAINER_BIN}} run --rm --name setjoin-funasr \
+  -p 127.0.0.1:10096:10095 \
+  -v /var/lib/setjoin/funasr-models:/workspace/models:ro {{FUNASR_GPU_ARGS|}} \
+  -e GLOG_minloglevel=2 \
+  {{FUNASR_IMAGE}} \
+  bash -c "exec /workspace/FunASR/runtime/websocket/build/bin/funasr-wss-server-2pass \
+    --download-model-dir /workspace/models \
+    --model-dir damo/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx \
+    --online-model-dir damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online-onnx \
+    --vad-dir damo/speech_fsmn_vad_zh-cn-16k-common-onnx \
+    --punc-dir damo/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727-onnx \
+    --itn-dir thuduj12/fst_itn_zh \
+    --lm-dir '' \
+    --decoder-thread-num $$(nproc) --io-thread-num 1 --model-thread-num 1 \
+    --port 10095 --certfile '' --keyfile '' \
+    --hotword /workspace/FunASR/runtime/websocket/hotwords.txt"
+ExecStop={{CONTAINER_BIN}} stop -t 30 setjoin-funasr
+Restart=always
+RestartSec=10
+# ONNX model load (cold start) is slower than Egress's own container boot —
+# install.sh's post-start probe budgets accordingly (a TCP probe with a
+# longer timeout, not a shorter one).
+MemoryMax=4G
+# StandardOutput=null (finding 3): funasr-wss-server-2pass prints
+# recognition results to stdout — CONFIRMED against the real pinned image
+# by the B3 live gate (2026-07-16: the container's stdout carried the
+# spoken test sentence 14 times over one round-trip) — journald-persisting
+# that would retain spoken caption transcripts on disk, defeating D4
+# ephemerality outside the bot process.
+# GLOG_minloglevel=2 (ExecStart env, above) is the OTHER HALF of D4: the
+# 2026-07-16 fresh-VM journald leg proved glog ALSO writes transcript text
+# to STDERR at INFO ("online_res :…" / "offline results : …" from
+# websocket-server-2pass.cpp), so StandardOutput=null alone still leaked
+# spoken text into journald via StandardError=journal. minloglevel=2 keeps
+# ERROR/FATAL diagnostics journal-routed while suppressing the INFO/WARNING
+# lines that carry transcripts — verified live: post-fix journald grep for
+# the spoken sample is zero across a full captions round-trip.
+StandardOutput=null
+StandardError=journal
+SyslogIdentifier=setjoin-funasr
+
+[Install]
+WantedBy=multi-user.target

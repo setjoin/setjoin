@@ -1,0 +1,161 @@
+{
+  "case": "callback-groups-remove",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "claims": {
+      "access": {
+        "acr": "aal1",
+        "amr": [
+          "pwd"
+        ],
+        "aud": [
+          "mailserver-gateway"
+        ],
+        "email": "_email",
+        "exp": 3600,
+        "fam": "_family",
+        "iat": "_now",
+        "iss": "mailserver",
+        "jti": "_access_jti",
+        "nbf": "_now",
+        "sub": "_actor",
+        "typ": "access",
+        "uid": "_actor"
+      },
+      "refresh": {
+        "aud": [
+          "mailserver-gateway"
+        ],
+        "email": "_email",
+        "exp": 2592000,
+        "fam": "_family",
+        "iat": "_now",
+        "iss": "mailserver",
+        "jti": "_refresh_jti",
+        "nbf": "_now",
+        "sub": "_actor",
+        "typ": "refresh",
+        "uid": "_actor"
+      }
+    },
+    "effects": {
+      "after": {
+        "actor": {
+          "anchors": 1,
+          "auth_events": [
+            {
+              "event": "login",
+              "provider": "jwt"
+            }
+          ],
+          "department": null,
+          "enabled": true,
+          "issuer": "https://idp.idfed2.test:19440",
+          "sessions": 1,
+          "signins": [
+            {
+              "client": "web",
+              "method": "password",
+              "protocol": "http",
+              "success": true
+            }
+          ],
+          "subject": "actor-subject"
+        },
+        "foreign": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        }
+      },
+      "before": {
+        "actor": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": "https://idp.idfed2.test:19440",
+          "sessions": 0,
+          "signins": [],
+          "subject": "actor-subject"
+        },
+        "foreign": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        }
+      }
+    },
+    "mapping": {
+      "after": {
+        "membership": false,
+        "original_email": true,
+        "provenance": false,
+        "role_provenance": 0,
+        "roles": []
+      },
+      "before": {
+        "membership": true,
+        "original_email": true,
+        "provenance": true,
+        "role_provenance": 0,
+        "roles": []
+      }
+    },
+    "notify": [],
+    "outbound": [
+      {
+        "authorization": "Basic c2V0am9pbi1jbGllbnQtMzQwOg==",
+        "form": {
+          "code": "_code",
+          "code_verifier": "_verifier",
+          "grant_type": "authorization_code",
+          "redirect_uri": "https://auth.idfed2.test/auth/oidc/callback"
+        },
+        "method": "POST",
+        "path": "/token"
+      },
+      {
+        "authorization": "",
+        "form": {},
+        "method": "GET",
+        "path": "/keys"
+      }
+    ],
+    "request": {
+      "cookie": "_bound-flow",
+      "method": "GET",
+      "path": "/auth/oidc/callback",
+      "query": "code=_code&state=_state",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/callback"
+    },
+    "response": {
+      "body": "{\"access_token\":\"_access\",\"expires_in\":3600,\"refresh_token\":\"_refresh\"}\n",
+      "headers": {
+        "content-type": "application/json",
+        "set-cookie": [
+          "oidc_state=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_verifier=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_nonce=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "oidc_provider=; Max-Age=0; HttpOnly; SameSite=Strict",
+          "access_token=_access; Path=/; Max-Age=3600; HttpOnly; SameSite=Strict"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/oidc/callback"
+}

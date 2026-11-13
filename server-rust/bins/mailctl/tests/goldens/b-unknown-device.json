@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown device action: unsupported. Try: list, show, events, policy, lock, unlock, wipe\n",
+  "exit": 1
+}

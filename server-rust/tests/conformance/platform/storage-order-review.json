@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "route": "GET /admin/storage/status",
+  "case": "multi",
+  "reviewed": true,
+  "reviewer": "owner, issue #459 and PLAT3B implementation instructions",
+  "reason": "Frozen Go iterates topology and rack maps. Issue #459 explicitly authorizes order-insensitive comparison of this projection.",
+  "unordered_arrays": ["topology", "topology[].racks", "volumes"],
+  "preserved": "Raw immutable Go response, every entry and value, JSON encoding, headers, all other body fields, effects and authorization."
+}

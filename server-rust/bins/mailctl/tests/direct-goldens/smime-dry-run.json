@@ -1,0 +1,10 @@
+{
+  "stdout": "  [1] alice@gofree-mctl3.test: OK (dry-run) cert={ROOT}/cert.pem label=\"signing\"\nsmime import: 1 validated, 0 skipped (of 1 rows)\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

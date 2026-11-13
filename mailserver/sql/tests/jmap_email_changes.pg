@@ -1,0 +1,83 @@
+-- pgTAP: jmap_email_changes — real incremental delta (offline #3 Task 5)
+-- Tests: collapse (created+updated→created, created+destroyed→omit), updated,
+--        future state→BZ011, missing mailbox→BZ006, resync sentinel→BZ011,
+--        soft maxChanges cap never splits a state_seq group.
+BEGIN;
+SELECT plan(10);
+
+-- Test domain for isolated mailbox ids that don't collide with mk_account() seq
+INSERT INTO domains (name, is_local) VALUES ('ectest.local', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+
+-- Mailbox 900: collapse + sentinel tests. user_id=NULL, is_primary=FALSE (default).
+INSERT INTO mailboxes (id, domain_id, email, display_name, jmap_email_state)
+  VALUES (900, (SELECT id FROM domains WHERE name='ectest.local'), 'ec@ectest.local', 'ECTest', 0)
+  ON CONFLICT (id) DO NOTHING;
+
+-- created@1, updated@2 of same id → collapse to created
+SELECT notify_state_change(900, NULL, 10, 'created');
+SELECT notify_state_change(900, NULL, 10, 'updated');
+-- created@3, destroyed@4 → collapse to omit (RFC 8620 §5.2)
+SELECT notify_state_change(900, NULL, 11, 'created');
+SELECT notify_state_change(900, NULL, 11, 'destroyed');
+-- updated@5 of id not seen before sinceState=0 → updated
+SELECT notify_state_change(900, NULL, 12, 'updated');
+
+-- 1: id 10 collapses created+updated → one entry in created
+SELECT is(
+  (SELECT jsonb_array_length(jmap_email_changes(900,'0')->'created')), 1,
+  'id 10 collapses created+updated → created (1 created)');
+
+-- 2: that entry is id 10
+SELECT is(
+  (SELECT (jmap_email_changes(900,'0')->'created')->>0), '10', 'created id is 10');
+
+-- 3: id 11 created+destroyed since oldState → omitted (destroyed array empty)
+SELECT is(
+  (SELECT jmap_email_changes(900,'0')->'destroyed'), '[]'::jsonb,
+  'id 11 created+destroyed since oldState → omitted (no destroyed)');
+
+-- 4: id 12 → updated
+SELECT is(
+  (SELECT (jmap_email_changes(900,'0')->'updated')->>0), '12', 'id 12 → updated');
+
+-- 5: hasMoreChanges false when all fit
+SELECT is(
+  (jmap_email_changes(900,'0')->'hasMoreChanges')::text, 'false',
+  'no more changes');
+
+-- 6: future sinceState → BZ011
+SELECT throws_ok(
+  $$SELECT jmap_email_changes(900,'9999')$$,
+  'BZ011', NULL, 'future state → BZ011');
+
+-- 7: missing mailbox → BZ006
+SELECT throws_ok(
+  $$SELECT jmap_email_changes(424242,'0')$$,
+  'BZ006', NULL, 'missing mailbox → BZ006');
+
+-- 8: resync sentinel in window → BZ011
+INSERT INTO jmap_changes_journal(mailbox_id,state_seq,entity_id,op) VALUES (900,99,0,'resync');
+UPDATE mailboxes SET jmap_email_state=99 WHERE id=900;
+SELECT throws_ok(
+  $$SELECT jmap_email_changes(900,'5')$$,
+  'BZ011', NULL, 'resync sentinel → BZ011');
+
+-- 9 + 10: soft maxChanges never splits a state_seq group.
+-- Two ids at state_seq=1, one at state_seq=2; cap=1 must return both seq-1 ids.
+INSERT INTO mailboxes (id, domain_id, email, display_name, jmap_email_state)
+  VALUES (901, (SELECT id FROM domains WHERE name='ectest.local'), 'ec2@ectest.local', 'ECTest2', 0)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO jmap_changes_journal(mailbox_id,state_seq,entity_id,op)
+  VALUES (901,1,20,'updated'),(901,1,21,'updated'),(901,2,22,'updated');
+UPDATE mailboxes SET jmap_email_state=2 WHERE id=901;
+
+SELECT is(
+  (SELECT jsonb_array_length(jmap_email_changes(901,'0',1)->'updated')), 2,
+  'maxChanges=1 returns the whole state_seq=1 group (2 ids), never split');
+SELECT is(
+  (jmap_email_changes(901,'0',1)->'hasMoreChanges')::text, 'true',
+  'hasMoreChanges true when state_seq=2 deferred');
+
+SELECT finish();
+ROLLBACK;

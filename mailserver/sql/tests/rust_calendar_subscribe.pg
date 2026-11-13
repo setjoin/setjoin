@@ -1,0 +1,15 @@
+BEGIN;
+SELECT plan(4);
+INSERT INTO domains(name,is_local) VALUES('cal1-sub.test',true);
+INSERT INTO users(username,email,domain_id,display_name)
+ SELECT 'cal1-sub@cal1-sub.test','cal1-sub@cal1-sub.test',id,'Sub' FROM domains WHERE name='cal1-sub.test';
+INSERT INTO mailboxes(user_id,domain_id,email,display_name,is_primary)
+ SELECT u.id,u.domain_id,u.email,'Sub',true FROM users u WHERE u.email='cal1-sub@cal1-sub.test';
+CREATE TEMP TABLE cal1_r AS SELECT r.* FROM users u JOIN mailboxes m ON m.user_id=u.id,
+ LATERAL rust_calendar_subscribe(m.id,u.id,'Team','https://feeds.example.org/t.ics') r WHERE u.email='cal1-sub@cal1-sub.test';
+SELECT is((SELECT count(*) FROM cal1_r),1::bigint,'one subscription created');
+SELECT is((SELECT c.name||'|'||c.color FROM calendars c JOIN cal1_r r ON r.calendar_id=c.id),'Team|#6366f1','mirrored calendar');
+SELECT is((SELECT s.last_status FROM calendar_subscriptions s JOIN cal1_r r ON r.sub_id=s.id),'pending','pending status');
+SELECT ok((SELECT s.last_fetch_at IS NOT NULL FROM calendar_subscriptions s JOIN cal1_r r ON r.sub_id=s.id),'last_fetch_at set so the tick skips it');
+SELECT * FROM finish();
+ROLLBACK;

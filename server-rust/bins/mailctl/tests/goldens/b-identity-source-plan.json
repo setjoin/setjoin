@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/sources/plan",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"apiVersion\":\"setjoin.io/v1\",\"kind\":\"IdentitySource\",\"metadata\":{\"sourceKey\":\"directory\",\"displayName\":\"Directory\"},\"spec\":{\"type\":\"ldap\",\"baseDN\":\"dc=example,dc=test\",\"subjectAttribute\":\"entryUUID\",\"endpoint\":{\"host\":\"directory.example.test\",\"port\":636,\"tls\":\"ldaps\"}}}"
+    }
+  ],
+  "stdout": "Identity source directory has changes: update_draft_config, increment_generation\n",
+  "stderr": "Error: identity source plan contains changes\n",
+  "exit": 2
+}

@@ -1,0 +1,207 @@
+-- pgTAP: rls_policies.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE CORRECTNESS PROOF for the V003 inert RLS policies (native-rls-backstop W2;
+-- plan retired-docs:superpowers/plans/archive/2026-06-18-native-rls-backstop.md). V003 CREATEs
+-- the messages + message_tags policies + the covering index but does NOT enable
+-- RLS (CREATE POLICY is dormant until ENABLE — that is the W6 flip). This test
+-- proves those dormant policies are CORRECT by enabling+forcing RLS on the REAL
+-- tables INSIDE a BEGIN…ROLLBACK: transactional DDL, rolled back at the end, so
+-- production stays RLS-disabled. The ENABLE/FORCE here is the ONLY place RLS is
+-- turned on, and it is strictly test-local.
+--
+-- WHY SET LOCAL ROLE setjoin_app: the test connection (`mail`) is a SUPERUSER and
+-- ALSO the table owner — both bypass RLS even under FORCE. setjoin_app is the REAL
+-- runtime role (provision-roles.sql: NOSUPERUSER + NOBYPASSRLS, with the
+-- SELECT/INSERT/UPDATE/DELETE GRANTs), so the policies actually constrain it —
+-- exactly the role the W6 flip targets.
+--
+-- Fork 2: message_tags has NO mailbox_id column → its policy is an EXISTS against
+-- messages (the SOURCE OF TRUTH). A tag-row's visibility follows the underlying
+-- MESSAGE's owner, so the two policies compose.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(15);
+
+-- ── Two mailboxes with divergent ids (ADR-003; mk_account → user 70000+ !=
+-- mailbox 90000+). A is the subject; B is the foreign tenant. ───────────────
+SELECT mk_account('rlsA') AS mba \gset
+SELECT mk_account('rlsB') AS mbb \gset
+
+-- ── Messages (as the superuser, BEFORE SET ROLE): A ×2, B ×1. received_at =
+-- now() (2026-06) hits the seeded messages_2026_06 partition. ───────────────
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES
+  (771001, :mba, get_tag_id('Inbox', :mba), '<a1@rls.test>', 'A one', 'x@ext.com', 10, 'thr-a1', 'raw-a1', now(), FALSE),
+  (771002, :mba, get_tag_id('Inbox', :mba), '<a2@rls.test>', 'A two', 'x@ext.com', 10, 'thr-a2', 'raw-a2', now(), FALSE),
+  (772001, :mbb, get_tag_id('Inbox', :mbb), '<b1@rls.test>', 'B one', 'x@ext.com', 10, 'thr-b1', 'raw-b1', now(), FALSE);
+
+-- ── message_tags: link each message to a tag owned by the SAME mailbox
+-- (Inbox is a per-mailbox system tag created by mk_account's trigger). ───────
+SELECT tag_message(771001, (SELECT received_at FROM messages WHERE id=771001), 'Inbox', :mba, 'deliver', TRUE);
+SELECT tag_message(771002, (SELECT received_at FROM messages WHERE id=771002), 'Inbox', :mba, 'deliver', TRUE);
+SELECT tag_message(772001, (SELECT received_at FROM messages WHERE id=772001), 'Inbox', :mbb, 'deliver', TRUE);
+
+-- ── Enable + FORCE RLS on the REAL tables — TEST-LOCAL, rolled back at the end.
+-- This is the ONLY place RLS is turned on in the whole suite/repo's real-table
+-- path; the surrounding ROLLBACK leaves production RLS-disabled. ─────────────
+ALTER TABLE public.messages      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages      FORCE  ROW LEVEL SECURITY;
+ALTER TABLE public.message_tags  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.message_tags  FORCE  ROW LEVEL SECURITY;
+
+-- The GRANTs are provisioned by provision-roles.sql at load; the table-owner
+-- (`mail`) re-grants here defensively so the role can reach the rows under FORCE
+-- (BYPASSRLS bypasses policies, not GRANTs — but setjoin_app has neither).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.messages, public.message_tags TO setjoin_app;
+
+-- Switch to the REAL constrained runtime role for every assertion below.
+SET LOCAL ROLE setjoin_app;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- READ ISOLATION — GUC = A
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM messages)::INT, 2,
+  'messages / GUC=A: sees exactly A''s 2 rows');
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :mbb)::INT, 0,
+  'messages / GUC=A: sees 0 of B''s rows even when asking for them — runtime deny');
+
+SELECT is(
+  (SELECT count(*) FROM message_tags)::INT, 2,
+  'message_tags / GUC=A: sees only A''s tags (EXISTS resolves to A''s messages)');
+
+SELECT is(
+  (SELECT count(*) FROM message_tags WHERE message_id = 772001)::INT, 0,
+  'message_tags / GUC=A: B''s tag row is invisible (its message belongs to B)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- READ ISOLATION — GUC = B (mirror)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', :mbb::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM messages)::INT, 1,
+  'messages / GUC=B: sees exactly B''s 1 row');
+
+SELECT is(
+  (SELECT count(*) FROM messages WHERE mailbox_id = :mba)::INT, 0,
+  'messages / GUC=B: sees 0 of A''s rows — mirror deny');
+
+SELECT is(
+  (SELECT count(*) FROM message_tags)::INT, 1,
+  'message_tags / GUC=B: sees only B''s tag');
+
+SELECT is(
+  (SELECT count(*) FROM message_tags WHERE message_id IN (771001,771002))::INT, 0,
+  'message_tags / GUC=B: A''s tag rows are invisible');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- FAIL-CLOSED — unset / empty GUC → zero rows (the un-wrapped-connection case)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM messages)::INT, 0,
+  'messages / empty GUC: fail-closed — ZERO rows visible');
+
+SELECT is(
+  (SELECT count(*) FROM message_tags)::INT, 0,
+  'message_tags / empty GUC: fail-closed — ZERO rows visible');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- WRITE PATH (WITH CHECK) — GUC = A
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+
+-- INSERT a messages row owned by A → passes WITH CHECK.
+SELECT lives_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (771003, %s, %s, '<a3@rls.test>', 'A three', 'x@ext.com', 10, 'thr-a3', 'raw-a3', now(), FALSE) $$,
+         :mba, get_tag_id('Inbox', :mba)),
+  'messages WITH CHECK / GUC=A: INSERT owned by A SUCCEEDS');
+
+-- INSERT a messages row owned by B → WITH CHECK violation (row-level security
+-- error). throws_ok matches the RLS policy-violation SQLSTATE 42501.
+SELECT throws_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (771004, %s, %s, '<a4@rls.test>', 'forge B', 'x@ext.com', 10, 'thr-a4', 'raw-a4', now(), FALSE) $$,
+         :mbb, get_tag_id('Inbox', :mbb)),
+  '42501',
+  NULL,
+  'messages WITH CHECK / GUC=A: INSERT owned by B is REJECTED (WITH CHECK)');
+
+-- Tag A's own new message (771003) → EXISTS passes (its message is A's).
+SELECT lives_ok(
+  format($$ INSERT INTO message_tags (message_id, received_at, tag_id, added_by)
+            VALUES (771003, now(), %s, 'user') $$,
+         get_tag_id('Inbox', :mba)),
+  'message_tags WITH CHECK / GUC=A: tagging A''s message SUCCEEDS (EXISTS passes)');
+
+-- Tag B's message (772001) while scoped to A → the EXISTS-against-messages
+-- WITH CHECK fails (772001 is not visible/owned under GUC=A) → rejected.
+SELECT throws_ok(
+  format($$ INSERT INTO message_tags (message_id, received_at, tag_id, added_by)
+            VALUES (772001, now(), %s, 'user') $$,
+         get_tag_id('Inbox', :mba)),
+  '42501',
+  NULL,
+  'message_tags WITH CHECK / GUC=A: tagging B''s message is REJECTED (EXISTS fails)');
+
+RESET ROLE;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- PERF-SHAPE — the InitPlan GUC (the one ROBUST, security-relevant plan fact)
+-- ════════════════════════════════════════════════════════════════════════════
+-- We capture the EXPLAIN plan text into a temp table and assert the LOAD-BEARING
+-- shape fact: the GUC scalar-subquery `(SELECT NULLIF(current_setting(…),'')::bigint)`
+-- is hoisted into an InitPlan → evaluated ONCE per query, NOT a per-row volatile
+-- current_setting() (the seq-scan trap the plan doc / fork 2 warns of). If the
+-- policy were reverted to a bare current_setting() the `(SELECT …)` wrapper would
+-- be gone and no InitPlan would appear — so this assertion is contingent on the
+-- correct single-eval form.
+--
+-- We DELIBERATELY do NOT assert "no Seq Scan on messages" or "uses the covering
+-- index": on the tiny test fixture the planner legitimately seq-scans the 3-row
+-- message partitions (and does so deterministically once ANALYZE/autovacuum runs),
+-- and `ILIKE '%Seq Scan on messages%'` also matches benign partition names
+-- (`messages_2026_06`) — that made the old assertion a stats-dependent FLAKE and a
+-- WRONG proxy (a non-volatile InitPlan filter still rides a seq scan on small
+-- tables). Whether the covering index (messages_mailbox_covering_idx) actually
+-- wins at scale is a plan-quality / pooled-prepared BENCH question (fork 2's
+-- "measure on a realistic bench"), NOT a unit-test invariant — the index's
+-- existence is asserted; its use is measured elsewhere.
+--
+-- The EXPLAIN must run UNDER the constrained role + a set GUC (so the policy is in
+-- the plan), hence a second SET LOCAL ROLE block. The temp table is created as the
+-- superuser FIRST (setjoin_app need not hold CREATE on the temp schema); only the
+-- EXPLAIN itself runs under the role.
+CREATE TEMP TABLE rls_plan (line TEXT) ON COMMIT DROP;
+GRANT INSERT ON rls_plan TO setjoin_app;  -- the role does the EXPLAIN-capture write
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', :mba::text, true);
+
+-- EXPLAIN cannot be a sub-SELECT, so capture its rows via dynamic SQL in a DO
+-- block. The EXPLAIN runs while the role + GUC are still set, so the policy is in
+-- the plan.
+DO $$
+DECLARE r TEXT;
+BEGIN
+  FOR r IN EXPLAIN (FORMAT TEXT) SELECT count(*) FROM message_tags LOOP
+    INSERT INTO rls_plan (line) VALUES (r);
+  END LOOP;
+END $$;
+
+RESET ROLE;
+
+-- InitPlan present → GUC evaluated once (not a per-row volatile current_setting).
+SELECT ok(
+  EXISTS (SELECT 1 FROM rls_plan WHERE line ILIKE '%InitPlan%'),
+  'perf-shape: the GUC scalar-subquery is an InitPlan (evaluated once per query, not per-row)');
+
+SELECT * FROM finish();
+ROLLBACK;

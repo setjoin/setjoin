@@ -1,0 +1,26 @@
+BEGIN;
+SELECT plan(7);
+DO $$ BEGIN PERFORM set_config('app.encryption_key',repeat('22',32),true); END $$;
+INSERT INTO domains(name,is_local) VALUES('guests1-status-a.test',true),('guests1-status-b.test',true);
+INSERT INTO users(username,email,domain_id,display_name,enabled)
+ SELECT 'guests1-status@guests1-status-a.test','guests1-status@guests1-status-a.test',id,'Status actor',true FROM domains WHERE name='guests1-status-a.test';
+INSERT INTO users(username,email,domain_id,display_name,enabled)
+ SELECT v.email,v.email,d.id,'Guest',true FROM (VALUES('guests1-status-a@outside.test'),('guests1-status-b@outside.test'))v(email) CROSS JOIN domains d WHERE d.name='guest.invalid';
+INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status,expires_at)
+ SELECT u.id,u.email,'guests1-status@guests1-status-a.test',d.id,'active','2099-11-01T12:00:00Z' FROM users u JOIN domains d ON d.name=CASE u.email WHEN 'guests1-status-a@outside.test' THEN 'guests1-status-a.test' ELSE 'guests1-status-b.test' END WHERE u.email IN('guests1-status-a@outside.test','guests1-status-b@outside.test');
+INSERT INTO admin_role_groups(name,permissions,domain_scope) SELECT 'guests1-status',ARRAY['guests.manage','guests.view'],id FROM domains WHERE name='guests1-status-a.test';
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+ SELECT u.id,r.id,u.id FROM users u CROSS JOIN admin_role_groups r WHERE u.email='guests1-status@guests1-status-a.test' AND r.name='guests1-status';
+CREATE TEMP TABLE guests1_status_fixture AS SELECT
+ (SELECT id FROM users WHERE email='guests1-status@guests1-status-a.test') actor,
+ (SELECT id FROM users WHERE email='guests1-status-a@outside.test') target,
+ (SELECT id FROM users WHERE email='guests1-status-b@outside.test') foreign_target;
+SELECT is(rust_guest_status(actor,target,'disable',NULL),true,'authorized disable commits through the canonical lifecycle') FROM guests1_status_fixture;
+SELECT is((SELECT status FROM guest_account_status(target)),'disabled','canonical status is disabled') FROM guests1_status_fixture;
+SELECT is((SELECT enabled FROM users WHERE id=target),false,'user sign-in closes in the same transaction') FROM guests1_status_fixture;
+SELECT is(rust_guest_status(actor,foreign_target,'disable',NULL),false,'a foreign host domain fails the scoped prelock') FROM guests1_status_fixture;
+SELECT is((SELECT enabled FROM users WHERE id=foreign_target),true,'foreign sign-in remains unchanged') FROM guests1_status_fixture;
+SELECT is((SELECT count(*)::int FROM session_revocations WHERE user_id=target AND scope='all'),1,'disable leaves one all-session revocation') FROM guests1_status_fixture;
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE user_id=actor AND target_id=target AND action IN('guest.disable','revoke_user_sessions')),2,'lifecycle and session audits commit together') FROM guests1_status_fixture;
+SELECT * FROM finish();
+ROLLBACK;

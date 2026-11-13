@@ -1,0 +1,77 @@
+-- mailserver/sql/tests/drive_notify_revocation.pg — D-MAILSERVER-INTERNAL-DRIVE-R-001:
+-- the human fan-out (drive_event_recipients) must re-derive each observer's
+-- CURRENT read capability on the event node. On legacy-mode spaces
+-- drive_member_revoke prunes bound artifacts only via the acl-mode
+-- drive_acl_bump path (the cutover path), so a removed member's
+-- drive_watches rows survive indefinitely; without the per-event
+-- re-derivation the watcher email channel stays a near-real-time activity
+-- oracle for anyone revoked off a non-cutover path. Active observers'
+-- fan-out is unchanged (watcher + folder-admin arms, deduped), and the
+-- durable watch (re)arm gate (drive_watch_set) still enforces read_metadata.
+--
+-- Fixture: R is a PLAIN watcher (event node + ancestor) — no other live
+-- grant, so removal strips read_metadata. W stays a member and holds the
+-- watcher + folder-admin pair (the unchanged control, dedupe included).
+BEGIN;
+SELECT plan(10);
+
+-- M=manager, R=removed plain watcher, W=active watcher + folder-admin.
+SELECT mk_account('dnrm') AS mbm \gset
+SELECT mk_account('dnrr') AS mbr \gset
+SELECT mk_account('dnra') AS mbw \gset
+
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS r FROM mailboxes WHERE id = :mbr \gset
+SELECT user_id AS w FROM mailboxes WHERE id = :mbw \gset
+
+SELECT drive_space_create(:m, 'DNR', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :r, 'editor');
+SELECT drive_member_grant(:m, :sid, :w, 'editor');
+
+SELECT drive_node_create(:m, :sid, NULL, 'folder', 'P') AS p \gset
+SELECT drive_node_create(:m, :sid, :p, 'file', 'f1.docx') AS f \gset
+
+SELECT drive_folder_admin_grant(:m, :p, :w);
+SELECT drive_watch_set(:r, :f, NULL);
+SELECT drive_watch_set(:r, :p, NULL);
+SELECT drive_watch_set(:w, :f, NULL);
+
+SELECT is((SELECT count(*) FROM drive_watches WHERE user_id = :r)::int, 2,
+  'premise: R holds watch rows on the event file AND its ancestor folder');
+SELECT is((SELECT count(*) FROM drive_folder_admins WHERE user_id = :w)::int, 1,
+  'premise: W holds a folder-admin row on the ancestor');
+
+-- While R is still a member the watch arm resolves them (the fan-out works);
+-- the post-revoke exclusion below is therefore attributable to the capability
+-- re-derivation, not a broken arm.
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.review', :m) rec WHERE rec = :r)::int, 1,
+  'while still a member, watcher R resolves as a recipient');
+
+SELECT drive_member_revoke(:m, :sid, :r);
+SELECT is((SELECT count(*) FROM drive_watches WHERE user_id = :r)::int, 2,
+  'legacy member_revoke leaves R''s watch rows in place (pruning rides the acl-mode cutover path only)');
+
+-- Recipient re-derivation: R is excluded through EVERY surviving subscription
+-- row (watch on event node, watch on ancestor).
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.review', :m) rec WHERE rec = :r)::int, 0,
+  'after removal R resolves as NO recipient despite the surviving watch rows');
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.review', :m) rec)::int, 1,
+  'exactly one observer resolves (the active watcher, deduped across arms)');
+SELECT is((SELECT count(*) FROM drive_event_recipients(:f, 'branch.review', :m) rec WHERE rec = :w)::int, 1,
+  'active watcher/folder-admin W still resolves unchanged');
+
+-- The durable route keeps its own capability gate: a removed member cannot
+-- (re)arm a watch (drive_watch_set requires read_metadata, unchanged).
+SELECT throws_ok(format('SELECT drive_watch_set(%s, %s, NULL)', :r, :f), 'BZ139', 'space not found',
+  'removed member cannot (re)arm a watch — durable gate unchanged');
+
+-- End-to-end email fan-out: the removed member's inbox stays silent while the
+-- active observer receives exactly the one deduped observer message.
+SELECT drive_notify_event('branch.review', :m, :sid, :f);
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id = :mbr)::int, 0,
+  'removed member receives NO watcher email');
+SELECT is((SELECT count(*) FROM messages WHERE mailbox_id = :mbw)::int, 1,
+  'active watcher/folder-admin receives exactly one observer email (unchanged)');
+
+SELECT * FROM finish();
+ROLLBACK;

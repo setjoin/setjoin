@@ -1,0 +1,10 @@
+{
+  "stdout": "  [1] alice: SKIP \u2014 invalid certificate: not PEM-encoded\nsmime import: 0 validated, 1 skipped (of 1 rows)\n",
+  "stderr": "Error: no rows validated \u2014 see SKIP lines above\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

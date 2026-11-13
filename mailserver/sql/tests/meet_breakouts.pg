@@ -1,0 +1,469 @@
+-- meet_breakouts.pg — Meet B3 Task 2: meeting_breakout_open/_assign/_close/
+-- _join, the F1 kick-in-breakout + D13 chat-membership-clear arms on
+-- meeting_kick, the D10 join-redirect arm on meeting_join, and the §4.1
+-- webhook resolution (parent/child UNION, the participant_left assigned-room
+-- rule, the D12 accept-as-close arm) on meeting_participant_event.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-15-meet-B3-qol.md Task 2.
+--
+-- Concurrency note (eng E5, pinned per the plan — do not "simplify" this
+-- away): meeting_breakout_open/_assign/_close each take the meetings-row
+-- SELECT ... FOR UPDATE FIRST, serializing the three per meeting. pgTAP is
+-- single-session, so this file cannot fire two REAL concurrent openers; the
+-- assert at the bottom instead proves the lock is real (pg_locks-visible
+-- inside this still-open transaction) — a Postgres row lock taken by
+-- SELECT ... FOR UPDATE is held until COMMIT/ROLLBACK, not released when the
+-- statement returns, so it stays visible for the rest of this file once any
+-- breakout reducer has run.
+BEGIN;
+SELECT plan(78);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- captures a raised exception's MESSAGE_TEXT (NULL if the statement did not
+-- raise) — the F13 belt: an explicit is() that two different BZ201 arms
+-- raise byte-identical text, on top of throws_ok's own message-match arg
+-- (used on every BZ201 case below).
+CREATE OR REPLACE FUNCTION _capture_err_msg(p_sql text) RETURNS text AS $$
+DECLARE v_msg text;
+BEGIN
+    EXECUTE p_sql;
+    RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT;
+    RETURN v_msg;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ── fixture: meeting 1 (host/cohost/two members, live, bridged to chat) ──
+SELECT mk_auth_user('host@meet-breakouts.test') AS host_id \gset
+SELECT mk_auth_user('cohost@meet-breakouts.test') AS cohost_id \gset
+SELECT mk_auth_user('member1@meet-breakouts.test') AS member1_id \gset
+SELECT mk_auth_user('member2@meet-breakouts.test') AS member2_id \gset
+SELECT mk_auth_user('member3@meet-breakouts.test') AS member3_id \gset
+SELECT mk_auth_user('banned@meet-breakouts.test') AS member_banned_id \gset
+SELECT mk_auth_user('departed@meet-breakouts.test') AS member_departed_id \gset
+SELECT mk_auth_user('stranger@meet-breakouts.test') AS member_stranger_id \gset
+
+SELECT (meeting_create(:host_id, 'B3 breakouts test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'slug') AS meeting_slug \gset
+SELECT (:'m'::jsonb ->> 'chatChannelId')::bigint AS chat_channel_id \gset
+SELECT room_name::text FROM meetings WHERE id = :meeting_id \gset
+SELECT meeting_participant_event(:'room_name', 'room_started'); -- fixture: 'live', not 'scheduled'
+
+SELECT (meeting_join(:cohost_id, :meeting_id)) AS j1 \gset
+SELECT meeting_set_role(:host_id, :meeting_id, 'u:' || :cohost_id, 'cohost');
+SELECT (meeting_join(:member1_id, :meeting_id)) AS j2 \gset
+SELECT (meeting_join(:member2_id, :meeting_id)) AS j3 \gset
+
+-- a first (throwaway-after-use) guest, admitted — proves auto_assign skips
+-- guests (below), then kicked out of the way (guests are sealed, never
+-- reused after a kick) so it never blocks the recording⇄guest composite
+-- test near the bottom.
+SELECT meeting_set_guest_allowed(:host_id, :meeting_id, true);
+SELECT (meeting_join_request_create(:'meeting_slug', 'Gwen Guest')) AS greq1 \gset
+SELECT (:'greq1'::jsonb ->> 'requestId')::bigint AS guest1_req_id \gset
+SELECT meeting_admit(:host_id, :guest1_req_id);
+
+-- second tenant (meeting 2) — the cross-tenant foreign-breakout fixture.
+SELECT mk_auth_user('host2@meet-breakouts.test') AS host2_id \gset
+SELECT (meeting_create(:host2_id, 'B3 second tenant meeting')) AS m2 \gset
+SELECT (:'m2'::jsonb ->> 'meetingId')::bigint AS meeting2_id \gset
+
+-- an already-ended meeting — the BZ190 fixture for open/join. A raw state
+-- flip (not the meeting_end reducer) on purpose: meeting_end mass-stamps
+-- EVERY participant's left_at, including the host's own row — and every
+-- breakout reducer checks host/cohost authority (BZ186) BEFORE the ended
+-- check (BZ190, the plan's own skeleton ordering), so a host who has lost
+-- their live row via a real meeting_end can never reach the ended branch at
+-- all (they 403 first). Flipping just meetings.state isolates the BZ190
+-- branch on its own, with the host's participant row still live.
+SELECT (meeting_create(:host_id, 'B3 already-ended meeting')) AS m3 \gset
+SELECT (:'m3'::jsonb ->> 'meetingId')::bigint AS ended_id \gset
+UPDATE meetings SET state = 'ended', ended_at = now() WHERE id = :ended_id;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 open: failure arms
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 3) $$, :member1_id, :meeting_id),
+  'BZ186', NULL, 'a plain member cannot open breakouts'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 3) $$, :host_id, :ended_id),
+  'BZ190', NULL, 'open on an ended meeting is BZ190'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 0) $$, :host_id, :meeting_id),
+  'BZ188', NULL, 'count 0 is BZ188'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 21) $$, :host_id, :meeting_id),
+  'BZ188', NULL, 'count 21 is BZ188'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 open: success + auto_assign round-robin (D5, D7)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_breakout_open(:host_id, :meeting_id, 3, NULL, true)) AS openres \gset
+SELECT (:'openres'::jsonb -> 0 ->> 'breakoutId')::bigint AS b1_id \gset
+SELECT (:'openres'::jsonb -> 1 ->> 'breakoutId')::bigint AS b2_id \gset
+SELECT (:'openres'::jsonb -> 2 ->> 'breakoutId')::bigint AS b3_id \gset
+
+SELECT is((SELECT count(*)::int FROM meeting_breakouts WHERE meeting_id = :meeting_id AND state = 'open'),
+  3, 'open(3) inserts 3 open rows');
+SELECT is((SELECT bool_and(title IS NULL) FROM meeting_breakouts WHERE id IN (:b1_id, :b2_id, :b3_id)),
+  true, 'D5: title is NULL for all three (client-rendered i18n default)');
+SELECT is((SELECT count(DISTINCT room_name)::int FROM meeting_breakouts WHERE id IN (:b1_id, :b2_id, :b3_id)),
+  3, 'each breakout gets a distinct uuid room_name');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :host_id),
+  NULL, 'D7: host stays unassigned (roams) after auto_assign');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :cohost_id),
+  NULL, 'D7: cohost stays unassigned (roams) after auto_assign');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id) IS NOT NULL,
+  true, 'auto_assign assigned member1 to a breakout');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member2_id) IS NOT NULL,
+  true, 'auto_assign assigned member2 to a breakout');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'g:' || :guest1_req_id),
+  NULL, 'D7: the guest stays unassigned (unassignable) after auto_assign');
+
+-- open with a set already open → BZ201 (the F3/E5 collision guard).
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 2) $$, :host_id, :meeting_id),
+  'BZ201', 'breakout invalid', 'opening again while a set is already open is BZ201'
+);
+
+-- guest1 is no longer needed; kick it out of the way (sealed, no re-admit)
+-- so it can never block the recording⇄guest composite test below.
+SELECT meeting_kick(:host_id, :meeting_id, 'g:' || :guest1_req_id);
+
+-- titled open on meeting 2 (D5: host-supplied names ARE stored, trimmed).
+SELECT (meeting_breakout_open(:host2_id, :meeting2_id, 2, ARRAY['Room A', '  Room B  '], false)) AS openres2 \gset
+SELECT (:'openres2'::jsonb -> 0 ->> 'breakoutId')::bigint AS c1_id \gset
+SELECT (:'openres2'::jsonb -> 1 ->> 'breakoutId')::bigint AS c2_id \gset
+SELECT is((SELECT array_agg(title ORDER BY idx) FROM meeting_breakouts WHERE id IN (:c1_id, :c2_id)),
+  ARRAY['Room A', 'Room B'], 'D5: host-supplied titles are stored, trimmed');
+
+-- close meeting 1's set now (reset for the manual-choreography tests below;
+-- also the first half of the F3 partial-unique-reuse proof).
+SELECT (meeting_breakout_close(:host_id, :meeting_id)) AS closeres1 \gset
+SELECT is(jsonb_array_length(:'closeres1'::jsonb), 3, 'close-all returns the 3 closed room names');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'close-all cleared member1''s breakout_id');
+
+-- ── §3 fixture: member3 (unassigned), a banned target, a departed target,
+-- a non-participant "stranger" — all for the assign anti-oracle below.
+SELECT (meeting_join(:member3_id, :meeting_id)) AS j4 \gset
+SELECT (meeting_join(:member_banned_id, :meeting_id)) AS j5 \gset
+SELECT meeting_kick(:host_id, :meeting_id, 'u:' || :member_banned_id);
+SELECT (meeting_join(:member_departed_id, :meeting_id)) AS j6 \gset
+SELECT meeting_participant_event(:'room_name', 'participant_left', 'u:' || :member_departed_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_departed_id) IS NOT NULL,
+  true, 'fixture: member_departed has left_at stamped');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 (F3) reopen after close-all — the partial unique index lets the same
+-- idx values (1, 2) be reused without conflict.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 2) $$, :host_id, :meeting_id),
+  'F3: open(2) again after close-all succeeds (idx reused, partial unique index)'
+);
+SELECT (SELECT jsonb_agg(jsonb_build_object('breakoutId', id, 'idx', idx) ORDER BY idx)
+          FROM meeting_breakouts WHERE meeting_id = :meeting_id AND state = 'open') AS reopenres \gset
+SELECT (:'reopenres'::jsonb -> 0 ->> 'breakoutId')::bigint AS d1_id \gset
+SELECT (:'reopenres'::jsonb -> 1 ->> 'breakoutId')::bigint AS d2_id \gset
+SELECT room_name::text AS d1_room_name FROM meeting_breakouts WHERE id = :d1_id \gset
+SELECT room_name::text AS d2_room_name FROM meeting_breakouts WHERE id = :d2_id \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5/§6 assign: the anti-oracle failure arms (F13 — byte-identical
+-- message+HINT on every case, via throws_ok's message arg on each).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, NULL) $$, :member1_id, :meeting_id, :member2_id),
+  'BZ186', NULL, 'a plain member cannot assign'
+);
+SELECT throws_ok(
+  -- a guest's participant row has user_id = NULL (meeting_admit); the
+  -- assign target lookup is by user_id, so a guest can never be addressed
+  -- by this function at all — passing NULL demonstrates that by construction.
+  format($$ SELECT meeting_breakout_assign(%s, %s, NULL, %s) $$, :host_id, :meeting_id, :d1_id),
+  'BZ201', 'breakout invalid', 'a guest (unaddressable by user_id) cannot be assigned'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member_banned_id, :d1_id),
+  'BZ201', 'breakout invalid', 'a banned target cannot be assigned'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member_stranger_id, :d1_id),
+  'BZ201', 'breakout invalid', 'a non-participant target cannot be assigned'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member_departed_id, :d1_id),
+  'BZ201', 'breakout invalid', 'E6a: a departed (left_at) target cannot be assigned'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member3_id, :c1_id),
+  'BZ201', 'breakout invalid', 'a breakout foreign to the meeting cannot be assigned to'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member3_id, :b1_id),
+  'BZ201', 'breakout invalid', 'a closed breakout cannot be assigned to'
+);
+
+-- F13 belt: the guest-arm and foreign-arm messages captured directly are
+-- byte-identical (on top of throws_ok's own exact-message check above).
+SELECT _capture_err_msg(
+  format($$ SELECT meeting_breakout_assign(%s, %s, NULL, %s) $$, :host_id, :meeting_id, :d1_id)
+) AS msg_guest_arm \gset
+SELECT _capture_err_msg(
+  format($$ SELECT meeting_breakout_assign(%s, %s, %s, %s) $$, :host_id, :meeting_id, :member3_id, :c1_id)
+) AS msg_foreign_arm \gset
+SELECT is(:'msg_guest_arm'::text, :'msg_foreign_arm'::text,
+  'F13: the guest-arm and foreign-arm BZ201 raises are byte-identical (anti-oracle)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 assign: the current-room contract (member3: main → d1 → d2 → main)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_breakout_assign(:host_id, :meeting_id, :member3_id, :d1_id)) AS move1 \gset
+SELECT is(:'move1'::text, :'room_name', 'assign main→d1 returns the PARENT room name (their current room)');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member3_id),
+  :'d1_id'::bigint, 'member3 is now assigned to d1');
+
+SELECT (meeting_breakout_assign(:host_id, :meeting_id, :member3_id, :d2_id)) AS move2 \gset
+SELECT is(:'move2'::text, :'d1_room_name', 'assign d1→d2 returns d1''s room name (current, not parent)');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member3_id),
+  :'d2_id'::bigint, 'member3 is now assigned to d2');
+
+-- D2: banned_at stays NULL through every move above (a move is NOT a kick).
+SELECT is((SELECT banned_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member3_id),
+  NULL, 'D2: banned_at is untouched by breakout moves');
+
+-- push contract: breakout_assigned is targeted-by-payload (plan delta 1).
+SELECT is(last_notify_event(format('meet:%s', :member3_id)), 'breakout_assigned',
+  'assign fires a breakout_assigned push');
+SELECT is((last_notify_payload(format('meet:%s', :member3_id))::jsonb -> 'payload' ->> 'identity'),
+  'u:' || :member3_id, 'the push payload identity is the moved participant''s');
+SELECT is(((last_notify_payload(format('meet:%s', :member3_id))::jsonb -> 'payload' ->> 'breakoutId')::bigint),
+  :d2_id::bigint, 'the push payload breakoutId is the NEW assignment');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 join: the grant composer (member3 assigned to d2; host roams)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_breakout_join(:member3_id, :meeting_id, :d2_id)) AS joinres \gset
+SELECT is((:'joinres'::jsonb ->> 'room'), :'d2_room_name',
+  'joining one''s own assigned breakout returns its room name');
+SELECT is(((:'joinres'::jsonb ->> 'recordingActive')::boolean), false,
+  'DN4: a child-room grant never carries a live recording');
+
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_join(%s, %s, %s) $$, :member3_id, :meeting_id, :d1_id),
+  'BZ201', 'breakout invalid', 'naming a breakout that is NOT one''s own assignment is BZ201'
+);
+
+SELECT lives_ok(
+  format($$ SELECT meeting_breakout_join(%s, %s, %s) $$, :host_id, :meeting_id, :d1_id),
+  'host/cohost roam: naming any open breakout succeeds'
+);
+
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_join(%s, %s, NULL) $$, :member_banned_id, :meeting_id),
+  'BZ186', NULL, 'a banned caller cannot join a breakout'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_join(%s, %s, NULL) $$, :host_id, :ended_id),
+  'BZ190', NULL, 'joining a breakout of an ended meeting is BZ190'
+);
+
+-- member1: NULL assignment + NULL arg → the main-room grant, carrying the
+-- REAL recording fact (F9) — no recording is active yet at this point.
+SELECT (meeting_breakout_join(:member1_id, :meeting_id, NULL)) AS mainjoin \gset
+SELECT is((:'mainjoin'::jsonb ->> 'room'), :'room_name', 'an unassigned member''s NULL join lands on the main room');
+SELECT is(((:'mainjoin'::jsonb ->> 'recordingActive')::boolean), false,
+  'F9: the main-room grant carries the real (currently false) recording fact');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9a D10: meeting_join redirects an assigned member into their child room
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_join(:member3_id, :meeting_id)) AS d10join \gset
+SELECT is((:'d10join'::jsonb ->> 'room'), :'d2_room_name',
+  'D10: meeting_join redirects an assigned member into their OPEN breakout');
+SELECT is((:'d10join'::jsonb ->> 'identity'), 'u:' || :member3_id, 'D10: identity key is unchanged');
+SELECT is((:'d10join'::jsonb ->> 'role'), 'member', 'D10: role key is unchanged');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §10 F1: kick evicts from the room the target is ACTUALLY in
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_kick(:host_id, :meeting_id, 'u:' || :member3_id)) AS kick1 \gset
+SELECT is(:'kick1'::text, :'d2_room_name', 'F1: kicking a mid-breakout target returns their CHILD room name');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member3_id),
+  NULL, 'kick clears breakout_id');
+SELECT is((SELECT banned_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member3_id) IS NOT NULL,
+  true, 'kick still bans (kick = ban-until-re-admit, unchanged)');
+
+SELECT (meeting_kick(:host_id, :meeting_id, 'u:' || :member2_id)) AS kick2 \gset
+SELECT is(:'kick2'::text, :'room_name', 'kicking a main-room target returns the PARENT room name');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §11 D13: a kick clears bridged chat membership; re-admit + rejoin restores it
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :chat_channel_id AND user_id = :member3_id),
+  0, 'D13: the kick deleted member3''s bridged chat_channel_members row');
+SELECT meeting_set_role(:host_id, :meeting_id, 'u:' || :member3_id, 'member'); -- re-admit clears the ban
+SELECT (meeting_join(:member3_id, :meeting_id)) AS rejoin \gset
+SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :chat_channel_id AND user_id = :member3_id),
+  1, 'D13: re-admit + rejoin re-inserts the bridged chat membership');
+
+-- assign member1 into d1 (fresh) so §9b below has a real subject to prove
+-- close-all's redirect-clearing on.
+SELECT meeting_breakout_assign(:host_id, :meeting_id, :member1_id, :d1_id);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §12 close: host/cohost only; idempotent; clears every assignee
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_close(%s, %s) $$, :member1_id, :meeting_id),
+  'BZ186', NULL, 'a plain member cannot close-all'
+);
+SELECT (meeting_breakout_close(:host_id, :meeting_id)) AS closeres2 \gset
+SELECT is(jsonb_array_length(:'closeres2'::jsonb), 2, 'close-all returns both open child room names');
+SELECT is((SELECT count(*)::int FROM meeting_breakouts WHERE id IN (:d1_id, :d2_id) AND state = 'closed' AND closed_at IS NOT NULL),
+  2, 'close-all stamps every open row closed + closed_at');
+SELECT is((SELECT breakout_id FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'close-all cleared member1''s breakout_id');
+SELECT is((meeting_breakout_close(:host_id, :meeting_id))::text, '[]', 'a second close-all is idempotent ([])');
+
+-- F3 (again, post close-all): a fresh open reuses the idx values cleanly.
+SELECT lives_ok(
+  format($$ SELECT meeting_breakout_open(%s, %s, 2) $$, :host_id, :meeting_id),
+  'F3: open(2) after close-all succeeds a second time'
+);
+SELECT (SELECT jsonb_agg(jsonb_build_object('breakoutId', id) ORDER BY idx) FROM meeting_breakouts
+          WHERE meeting_id = :meeting_id AND state = 'open') AS reopenres2 \gset
+SELECT (:'reopenres2'::jsonb -> 0 ->> 'breakoutId')::bigint AS e1_id \gset
+SELECT (:'reopenres2'::jsonb -> 1 ->> 'breakoutId')::bigint AS e2_id \gset
+SELECT room_name::text AS e1_room_name FROM meeting_breakouts WHERE id = :e1_id \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9b D10: after close-all, a rejoin lands back on the PARENT room
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_join(:member1_id, :meeting_id)) AS d10join2 \gset
+SELECT is((:'d10join2'::jsonb ->> 'room'), :'room_name',
+  'D10: after close-all, meeting_join returns the parent room again');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §13 webhook ordering (§4.1) — both orderings of a move leave left_at
+-- alone; only a leave from the ASSIGNED room stamps it; any join clears it.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_breakout_assign(:host_id, :meeting_id, :member1_id, :e1_id);
+SELECT meeting_participant_event(:'room_name', 'participant_left', 'u:' || :member1_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'a parent-room leave while assigned to a child is a no-op (not their current room)');
+SELECT meeting_participant_event(:'e1_room_name', 'participant_joined', 'u:' || :member1_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'a child-room join clears left_at (stays NULL here)');
+SELECT meeting_participant_event(:'room_name', 'participant_left', 'u:' || :member1_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'REVERSE ordering (joined child, then a stray parent leave) also leaves left_at NULL');
+SELECT meeting_participant_event(:'e1_room_name', 'participant_left', 'u:' || :member1_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id) IS NOT NULL,
+  true, 'a leave from the ASSIGNED room (e1) DOES stamp left_at');
+SELECT meeting_participant_event(:'room_name', 'participant_joined', 'u:' || :member1_id);
+SELECT is((SELECT left_at FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'u:' || :member1_id),
+  NULL, 'a join in ANY of the meeting''s rooms clears left_at');
+
+-- also seat member2... wait member2 is banned (kicked in §10); use member3
+-- (re-admitted in §11) as the second occupant for the D12 close-fact below.
+SELECT meeting_breakout_assign(:host_id, :meeting_id, :member3_id, :e1_id);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §14 D12 accept-as-close: a child room_finished closes ONLY that row
+-- ══════════════════════════════════════════════════════════════════════
+SELECT notify_count(format('meet:%s', :host_id)) AS notify_before_finish \gset
+SELECT meeting_participant_event(:'e1_room_name', 'room_finished');
+SELECT is((SELECT state FROM meeting_breakouts WHERE id = :e1_id), 'closed',
+  'D12: a child room_finished closes THAT row');
+SELECT is((SELECT count(*)::int FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND breakout_id = :e1_id),
+  0, 'D12: e1''s assignees are cleared to main');
+SELECT is((SELECT state FROM meetings WHERE id = :meeting_id), 'live',
+  'D12: the meeting itself is NEVER ended by a child room_finished');
+SELECT is((SELECT ended_at FROM meetings WHERE id = :meeting_id), NULL,
+  'D12: ended_at stays untouched by a child close');
+SELECT lives_ok(
+  format($$ SELECT meeting_participant_event('%s', 'room_finished') $$, :'e1_room_name'),
+  'D12: a replayed child room_finished on an already-closed row is a silent no-op'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §16 cc: webhook tolerance (F8 corollary) — a load-bearing unknown-
+-- namespace no-op, now that clients render cc:{meetingId} data messages.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT meeting_participant_event('%s', 'participant_joined', 'cc:%s') $$, :'room_name', :meeting_id),
+  'a participant_joined for a cc: (captions-bot) identity is a silent no-op'
+);
+SELECT is((SELECT count(*)::int FROM meeting_participants WHERE meeting_id = :meeting_id AND identity = 'cc:' || :meeting_id),
+  0, 'the cc: event creates zero participant rows');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §17 composite (§9): recording ⇄ breakouts ⇄ guest admission interplay.
+-- e2 is still open (untouched by every arm above) and the meeting is live.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT (meeting_join_request_create(:'meeting_slug', 'Second Guest')) AS greq2 \gset
+SELECT (:'greq2'::jsonb ->> 'requestId')::bigint AS guest2_req_id \gset
+
+SELECT (meeting_recording_start(:host_id, :meeting_id)) AS rec_id \gset
+SELECT is(:'rec_id'::bigint IS NOT NULL, true,
+  'DN4: recording starts fine while breakouts (e2) are open — they coexist');
+SELECT throws_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :guest2_req_id),
+  'BZ199', NULL, 'BZ199 unchanged by any B3 arm: guest admission is blocked while recording'
+);
+-- no Egress/Go exists in this reducer-only test, so there is no bound egress
+-- to run meeting_recording_stop's 'active'-only path against (this recording
+-- never left 'requested'); bind_egress(p_ok=false) is the reducer-level way
+-- to take it out of meeting_recording_active's set (requested/active/
+-- stopping) — the guest-unblock effect the plan calls "recording stopped".
+SELECT meeting_recording_bind_egress(:'rec_id'::bigint, 'test-egress-id', 'test-staging-key', false, 'test: recording aborted');
+SELECT is(meeting_recording_active(:meeting_id), false, 'the recording is no longer active');
+SELECT lives_ok(
+  format($$ SELECT meeting_admit(%s, %s) $$, :host_id, :guest2_req_id),
+  'admitting the guest succeeds once the recording is no longer active'
+);
+SELECT throws_ok(
+  format($$ SELECT meeting_breakout_assign(%s, %s, NULL, %s) $$, :host_id, :meeting_id, :e2_id),
+  'BZ201', 'breakout invalid', 'the now-admitted guest still cannot be targeted by meeting_breakout_assign'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §15 meeting_end with open breakouts: every remaining open row closes
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_end(:host_id, :meeting_id);
+SELECT is((SELECT state FROM meeting_breakouts WHERE id = :e2_id), 'closed',
+  'meeting_end closes every still-open breakout in the same txn');
+SELECT is((SELECT count(*)::int FROM meeting_participants WHERE meeting_id = :meeting_id AND breakout_id IS NOT NULL),
+  0, 'meeting_end leaves zero live breakout assignments');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §18 E5 concurrency: the meetings-row FOR UPDATE lock taken by every
+-- open/assign/close call above is STILL HELD (row locks live until
+-- COMMIT/ROLLBACK) — pg_locks-visible proof the serialization is real, not
+-- narrated. (See the file header for why this is a single-session proxy for
+-- the real cross-session guarantee.) Empirically verified (plain psql):
+-- FOR UPDATE registers as a RELATION-level RowShareLock in pg_locks (an
+-- intent lock every FOR UPDATE/FOR SHARE query takes), NOT a 'tuple'-locktype
+-- entry — the lock manager only materializes a per-tuple entry when a SECOND
+-- session actually contends for the same row, which a single pgTAP session
+-- can never produce.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  (SELECT count(*)::int FROM pg_locks
+    WHERE locktype = 'relation' AND mode = 'RowShareLock'
+      AND relation = 'meetings'::regclass AND pid = pg_backend_pid()) > 0,
+  true,
+  'E5: a meetings-row FOR UPDATE from a breakout reducer still holds its RowShareLock (serialization is real)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

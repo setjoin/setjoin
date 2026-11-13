@@ -1,0 +1,141 @@
+{
+  "case": "put-disabled",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ad_sync_domain",
+              "value": "\"ad.example.test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ad_sync_ldap_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ad_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            }
+          ],
+          "conflicts": [],
+          "departments": [],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [],
+          "users": [
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ad6-admin",
+              "email": "ad6-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ad6-admin@host-a.test"
+            }
+          ]
+        },
+        "before": {
+          "config": [],
+          "conflicts": [],
+          "departments": [],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [],
+          "users": [
+            {
+              "ad_object_guid": null,
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ad6-admin",
+              "email": "ad6-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ad6-admin@host-a.test"
+            }
+          ]
+        },
+        "directory": [],
+        "table": "ad"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"ad_sync_domain\":\"ad.example.test\",\"ad_sync_ldap_host\":\"127.0.0.1\",\"ad_sync_password_enc\":\"pw\"}",
+      "external_path": "/api/admin/ad/config",
+      "method": "PUT",
+      "path": "/admin/ad/config"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync6-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/ad/config"
+}

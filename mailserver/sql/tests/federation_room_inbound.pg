@@ -1,0 +1,556 @@
+-- federation_room_inbound.pg — Pillar C2 Task 4: federation_apply_room, the
+-- security crux — the inbound room<->federation bridge and its relay trust
+-- contract (Q2). federation_apply_chat's sibling: SAME exactly-once/poison
+-- contract, a DIFFERENT trust shape (hub asserts origin for roster members).
+-- Requires: V140 (room binding, roster promotion, the dedup fix),
+-- federation_room_create.sql/federation_room_invite.sql (Task 2),
+-- federation_room_fanout.sql (Task 3, promoted), federation_apply_room.sql
+-- (this task). Genre: federation_chat_inbound.pg (poison-edge shape),
+-- federation_room_outbound.pg (room fixture shape).
+--
+-- No mailboxes/users fixtures needed here (unlike federation_apply_chat):
+-- federation_apply_room never resolves a toAddr — a room message always
+-- lands with author_id NULL, addressed to the CHANNEL, not a person.
+BEGIN;
+SELECT plan(69);
+
+INSERT INTO domains (name, is_local) VALUES ('alpha-in.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_in FROM domains WHERE name = 'alpha-in.test' \gset
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.federation';
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §0 fixtures: this DB plays BOTH roles across this file — a HUB (for the
+--    spoke-inbound-to-hub cases) and a SPOKE (for the hub-inbound-to-spoke
+--    cases), each on its own room/domain namespace so state never leaks.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ── HUB-side fixture: this DB is alpha-in.test, the hub; bravo-in.test and
+--    charlie-in.test are allow-listed room-scoped members with an active
+--    roster row (via the real Task 2 reducers — invite IS how a roster row
+--    is born).
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('bravo-in.test', 'test fixture anchor', 'room', true),
+  ('charlie-in.test', 'test fixture anchor', 'room', true),
+  ('delta-in.test', 'test fixture anchor', 'dm', true)   -- dm-only scope, for the Q12 authorize-poison case
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT chat_channel_create(97101, 'hub-inbound-room') AS ch_hub \gset
+SELECT federation_room_create(97101, :ch_hub, 'alpha-in.test') AS room_hub \gset
+SELECT federation_room_invite(97101, :ch_hub, 'bravo-in.test', 'bob@bravo-in.test');
+SELECT federation_room_invite(97101, :ch_hub, 'charlie-in.test', 'carol@charlie-in.test');
+
+-- baseline message-op outbox counts (each member already got invite/roster
+-- control ops from the invites above — never counted as 'message').
+SELECT count(*)::int AS bravo_msg_baseline FROM federation_outbox
+  WHERE peer_domain = 'bravo-in.test' AND payload ->> 'op' = 'message' \gset
+SELECT count(*)::int AS charlie_msg_baseline FROM federation_outbox
+  WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message' \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 HUB side, valid spoke→hub apply: lands with origin = stream peer,
+--    relays to exactly the OTHER members (origin excluded — no-re-relay).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('bravo-in.test', 1, 'h-s1', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'hi from bravo', 'sentAt', now(), 'clientMsgId', 'bravo-msg-1')),
+  'applied', 'a valid spoke->hub message applies'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_hub
+            AND federated_origin_domain = 'bravo-in.test'), 1,
+  'exactly one message landed in the hub channel, origin-stamped bravo-in.test');
+SELECT id AS msg_bravo1 FROM chat_messages
+  WHERE channel_id = :ch_hub AND federated_stanza_id = 'bravo-msg-1' \gset
+SELECT is((SELECT author_id FROM chat_messages WHERE id = :msg_bravo1), NULL::bigint,
+  'the landed row has no local author (author_id NULL) — addressed to the channel, not a person');
+SELECT is((SELECT federated_sender_addr FROM chat_messages WHERE id = :msg_bravo1), 'bob@bravo-in.test',
+  'federated_sender_addr carries the remote fromAddr');
+SELECT is((SELECT federated_origin_domain FROM chat_messages WHERE id = :msg_bravo1), 'bravo-in.test',
+  'federated_origin_domain is the STREAM-authenticated peer, never trusted from a (absent) payload originDomain');
+
+-- relay: charlie got exactly one NEW message-op outbox row, origin-stamped
+-- bravo-in.test; bravo (the origin) got NONE — the no-re-relay exclusion.
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message')
+          - :charlie_msg_baseline, 1,
+  'charlie received exactly one relayed message-op outbox row');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-in.test' AND payload ->> 'op' = 'message')
+          - :bravo_msg_baseline, 0,
+  'bravo (the origin) received ZERO relayed copies of its own message — the no-re-relay exclusion');
+SELECT is((SELECT payload ->> 'originDomain' FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message'
+            ORDER BY peer_seq DESC LIMIT 1), 'bravo-in.test',
+  'the relayed payload is origin-stamped bravo-in.test (rebuilt, not forwarded verbatim)');
+SELECT is((SELECT payload ->> 'fromAddr' FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message'
+            ORDER BY peer_seq DESC LIMIT 1), 'bob@bravo-in.test',
+  'the relayed payload carries the original fromAddr');
+SELECT is((SELECT payload ->> 'clientMsgId' FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message'
+            ORDER BY peer_seq DESC LIMIT 1), 'bravo-msg-1',
+  'the relayed payload carries the original clientMsgId');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 HUB side: a clientMsgId dup under a brand-new peer_seq — still
+--    'applied' (never a raise/livelock), consumes the seq, creates NO
+--    second chat_messages row, and does NOT double-relay.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('bravo-in.test', 2, 'h-s2', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'hi from bravo (resend)', 'sentAt', now(), 'clientMsgId', 'bravo-msg-1')),
+  'applied', 'a clientMsgId dup under a brand-new peer_seq still returns applied'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo-in.test'),
+  2::bigint, 'the clientMsgId-dup call still advanced the cursor');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_hub
+            AND federated_origin_domain = 'bravo-in.test'), 1,
+  'the clientMsgId dup created NO second chat_messages row');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message')
+          - :charlie_msg_baseline, 1,
+  'the clientMsgId dup did NOT double-relay — charlie still holds exactly one relayed copy');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 the wire-level (peer,seq) dup: re-delivering the EXACT same frame
+--    returns 'dup', never touches the cursor/rows/relay again.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('bravo-in.test', 2, 'h-s2', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'hi from bravo (resend)', 'sentAt', now(), 'clientMsgId', 'bravo-msg-1')),
+  'dup', 're-delivering the SAME (peer,seq) returns dup'
+);
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'charlie-in.test' AND payload ->> 'op' = 'message')
+          - :charlie_msg_baseline, 1,
+  'a wire-level dup does not relay again either');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 a sequence gap: BZ202, never poison, never silently skipped.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  $$ SELECT federation_apply_room('bravo-in.test', 9, 'h-s9', '{}'::jsonb) $$,
+  'BZ202', NULL, 'a sequence gap raises BZ202'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo-in.test'),
+  2::bigint, 'the gap-rejected call left the cursor untouched');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 THE COLLISION PROOF (V139/V140's original silent-loss scenario, now
+--    green): bravo's clientMsgId=42 and charlie's clientMsgId=42 BOTH land
+--    in the SAME spoke mirror without colliding — proven below in the
+--    SPOKE section (§8), where two distinct origins relay the same
+--    client-chosen id into one mirror channel.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 HUB-side poison edges: each consumes the seq, acks, creates no row,
+--    relays nothing, and the stream survives (next in-order seq applies).
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) non-member stream peer: echo-in.test was never invited to this room.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('echo-in.test', 'test fixture anchor', 'room', true) ON CONFLICT (peer_domain) DO NOTHING;
+SELECT is(
+  federation_apply_room('echo-in.test', 1, 'h-p1', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'eve@echo-in.test',
+    'body', 'not invited', 'sentAt', now(), 'clientMsgId', 'echo-1')),
+  'poison', 'a stream peer that is not a non-left roster member is poisoned (hub side)'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'echo-in.test'),
+  1::bigint, 'poison still consumes the seq');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'eve@echo-in.test'), 0,
+  'poison creates no chat_messages row');
+
+-- (b) spoofed fromAddr: bravo-in.test asserting a fromAddr on another domain.
+SELECT is(
+  federation_apply_room('bravo-in.test', 3, 'h-s3', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'mallory@othersystem.test',
+    'body', 'spoofed', 'sentAt', now(), 'clientMsgId', 'spoof-1')),
+  'poison', 'a spoofed fromAddr domain is poisoned (C1 anti-spoof verbatim, hub side)'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo-in.test'),
+  3::bigint, 'poison still consumes the seq (cursor advances)');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'mallory@othersystem.test'), 0,
+  'poison creates no chat_messages row');
+
+-- (c) unknown room.
+SELECT is(
+  federation_apply_room('bravo-in.test', 4, 'h-s4', jsonb_build_object(
+    'op', 'message', 'roomId', 'nope@nowhere.test', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'unknown room', 'sentAt', now(), 'clientMsgId', 'unk-room-1')),
+  'poison', 'an unknown/unbound roomId is poisoned — never a blind mirror-ensure'
+);
+
+-- (d) oversized body.
+SELECT is(
+  federation_apply_room('bravo-in.test', 5, 'h-s5', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', repeat('x', 65537), 'sentAt', now(), 'clientMsgId', 'oversized-1')),
+  'poison', 'a body over 64KiB is poisoned'
+);
+
+-- (e) malformed payload — missing roomId/body/clientMsgId.
+SELECT is(
+  federation_apply_room('bravo-in.test', 6, 'h-s6', jsonb_build_object(
+    'op', 'message', 'fromAddr', 'bob@bravo-in.test')),
+  'poison', 'a payload missing required keys is poisoned'
+);
+
+-- (f) unknown op — the Task 5 control-op stub.
+SELECT is(
+  federation_apply_room('bravo-in.test', 7, 'h-s7', jsonb_build_object(
+    'op', 'invite', 'roomId', :'room_hub')),
+  'poison', 'an unimplemented op (Task 5''s control ops) is poisoned by this task''s stub'
+);
+
+-- (g) dm-scoped peer via the Q12 authorize block: delta-in.test is
+--     allow-listed at scope 'dm' only, never 'room'.
+SELECT is(
+  federation_apply_room('delta-in.test', 1, 'h-p2', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'dave@delta-in.test',
+    'body', 'wrong scope', 'sentAt', now(), 'clientMsgId', 'delta-1')),
+  'poison', 'a peer allow-listed at scope dm only is poisoned at the room-scope authorize check (Q12)'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'delta-in.test'),
+  1::bigint, 'the scope-poisoned frame still consumed its seq');
+
+-- stream survives: bravo's next in-order message (seq 8, after the h-s3..h-s6
+-- poison edges consumed seqs 3-6) still applies cleanly.
+SELECT is(
+  federation_apply_room('bravo-in.test', 8, 'h-s8', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'still alive', 'sentAt', now(), 'clientMsgId', 'bravo-msg-2')),
+  'applied', 'the stream survives every poison edge — the next in-order message still applies'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6.5 review-fold mutant-killers (F1/Q2-origin): hub side.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (h) F1: an oversized clientMsgId (over the btree index ceiling) on an
+--     otherwise fully valid frame must poison BEFORE it ever reaches the
+--     chat_messages INSERT — unguarded, this would blow past
+--     chat_messages_fed_stanza_uk's partial-index row-size ceiling
+--     (SQLSTATE 54000, not a poison-shaped failure) AFTER the seq/cursor
+--     already advanced: a permanent stream livelock.
+SELECT is(
+  federation_apply_room('bravo-in.test', 9, 'h-s9-oversized', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'oversized clientMsgId', 'sentAt', now(), 'clientMsgId', repeat('x', 2800))),
+  'poison', 'an oversized clientMsgId (over the btree index ceiling) is poisoned, never a raise'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'bravo-in.test'),
+  9::bigint, 'the oversized-clientMsgId frame still consumed its seq');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_hub
+            AND body = 'oversized clientMsgId'), 0,
+  'the oversized-clientMsgId frame landed no row');
+
+-- the stream survives: the very next in-order frame still lands cleanly.
+SELECT is(
+  federation_apply_room('bravo-in.test', 10, 'h-s10', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'body', 'alive after oversized cmid', 'sentAt', now(), 'clientMsgId', 'bravo-msg-3')),
+  'applied', 'the stream survives the oversized-clientMsgId poison edge'
+);
+
+-- (i) hub side: a payload-asserted originDomain is IGNORED, never trusted —
+--     origin is DERIVED from the stream peer (bravo), not the lying payload
+--     (charlie-in.test). Kills the COALESCE(payload origin, stream peer)
+--     mutant that only the absent-origin case previously covered.
+SELECT is(
+  federation_apply_room('bravo-in.test', 11, 'h-s11', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'bob@bravo-in.test',
+    'originDomain', 'charlie-in.test', 'body', 'lying about origin',
+    'sentAt', now(), 'clientMsgId', 'bravo-lie-1')),
+  'applied', 'a hub-side message with a payload-asserted originDomain still applies'
+);
+SELECT is((SELECT federated_origin_domain FROM chat_messages
+            WHERE channel_id = :ch_hub AND federated_stanza_id = 'bravo-lie-1'),
+  'bravo-in.test',
+  'the landed origin is the STREAM peer (bravo-in.test) — the lying payload originDomain (charlie-in.test) is ignored'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 SPOKE-side fixture: this DB is now bravo-in.test, a SPOKE. Manually
+--    constructed (Task 5's op:'invite' applier does not exist yet in this
+--    task) — the exact shape Task 5's invite arm will produce: a mirror
+--    channel (kind='channel', federated_room_id set, federated_peer_domain
+--    = the bound hub), federation_rooms row, and a roster MIRROR (this
+--    org's own copy of who else is in the room) via federation_room_members.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO chat_channels (id, kind, name, visibility, federated_room_id, federated_peer_domain, created_by)
+  OVERRIDING SYSTEM VALUE VALUES (971001, 'channel', 'spoke-mirror', 'private', 'room-spk@alpha-spk.test', 'alpha-spk.test', 97102)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id)
+  VALUES ('room-spk@alpha-spk.test', 'alpha-spk.test', 971001)
+  ON CONFLICT (room_id) DO NOTHING;
+-- this spoke's own roster mirror: bravo-spk.test (itself, irrelevant to
+-- trust here) and charlie-spk.test (the other member whose relayed
+-- messages this spoke must trust when the hub asserts origin = charlie).
+INSERT INTO federation_room_members (room_id, member_domain) VALUES
+  ('room-spk@alpha-spk.test', 'charlie-spk.test')
+  ON CONFLICT (room_id, member_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('alpha-spk.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 SPOKE side, valid hub→spoke relay: origin trusted from the payload
+--    ONLY because the stream peer IS the bound hub AND the origin names a
+--    roster-mirror member (or the hub itself).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('alpha-spk.test', 1, 's-h1', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'carol@charlie-spk.test',
+    'originDomain', 'charlie-spk.test', 'body', 'hi from charlie via hub',
+    'sentAt', now(), 'clientMsgId', '42')),
+  'applied', 'a valid hub-relayed message applies on the spoke, origin trusted from the hub'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = 971001
+            AND federated_origin_domain = 'charlie-spk.test' AND federated_stanza_id = '42'), 1,
+  'the relayed message landed with origin = charlie-spk.test (hub-asserted, trusted)');
+
+-- THE COLLISION PROOF: a DIFFERENT origin (bravo-spk.test, relayed via the
+-- SAME hub) using the SAME clientMsgId ('42') lands as a SECOND, distinct
+-- row in the SAME mirror channel — the V140 dedup fix (re-scoped 3-column
+-- arbiter) means two origins' colliding stanza ids never silently drop one.
+INSERT INTO federation_room_members (room_id, member_domain) VALUES
+  ('room-spk@alpha-spk.test', 'bravo-spk.test') ON CONFLICT (room_id, member_domain) DO NOTHING;
+SELECT is(
+  federation_apply_room('alpha-spk.test', 2, 's-h2', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'bob@bravo-spk.test',
+    'originDomain', 'bravo-spk.test', 'body', 'hi from bravo via hub, same clientMsgId',
+    'sentAt', now(), 'clientMsgId', '42')),
+  'applied', 'a second origin colliding on the SAME clientMsgId (42) still applies'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = 971001
+            AND federated_stanza_id = '42'), 2,
+  'THE COLLISION PROOF: both origins'' clientMsgId=42 land as TWO distinct rows in the one mirror channel'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = 971001
+            AND federated_origin_domain = 'bravo-spk.test' AND federated_stanza_id = '42'), 1,
+  'bravo-spk.test''s clientMsgId=42 landed under its OWN origin, distinct from charlie-spk.test''s');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9 SPOKE-side poison edges.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) a frame from a non-hub stream peer — foxtrot-spk.test is allow-listed
+--     but is NOT this mirror's bound hub.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('foxtrot-spk.test', 'test fixture anchor', 'room', true) ON CONFLICT (peer_domain) DO NOTHING;
+SELECT is(
+  federation_apply_room('foxtrot-spk.test', 1, 's-p1', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'x@foxtrot-spk.test',
+    'originDomain', 'foxtrot-spk.test', 'body', 'not the hub', 'sentAt', now(), 'clientMsgId', 'ft-1')),
+  'poison', 'a room frame from a peer that is not this mirror''s bound hub is poisoned'
+);
+
+-- (b) origin not in the roster mirror (nor the hub) — golf-spk.test was
+--     never invited per this spoke's OWN roster mirror, even though the
+--     hub-stream check passes.
+SELECT is(
+  federation_apply_room('alpha-spk.test', 3, 's-h3', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'g@golf-spk.test',
+    'originDomain', 'golf-spk.test', 'body', 'unknown origin', 'sentAt', now(), 'clientMsgId', 'golf-1')),
+  'poison', 'an originDomain not present (non-left) in this spoke''s own roster mirror is poisoned'
+);
+
+-- (c) origin/fromAddr mismatch — asserted origin is a real roster member,
+--     but fromAddr's domain disagrees (a hub bug or tamper attempt).
+SELECT is(
+  federation_apply_room('alpha-spk.test', 4, 's-h4', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'carol@othersystem.test',
+    'originDomain', 'charlie-spk.test', 'body', 'mismatch', 'sentAt', now(), 'clientMsgId', 'mismatch-1')),
+  'poison', 'an originDomain/fromAddr domain mismatch is poisoned'
+);
+
+-- (d) removed/kicked mirror — stragglers drop.
+UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = 971001;
+SELECT is(
+  federation_apply_room('alpha-spk.test', 5, 's-h5', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'carol@charlie-spk.test',
+    'originDomain', 'charlie-spk.test', 'body', 'straggler', 'sentAt', now(), 'clientMsgId', 'straggler-1')),
+  'poison', 'a straggler frame for a removed/closed mirror is poisoned'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = 971001
+            AND federated_stanza_id = 'straggler-1'), 0,
+  'the straggler frame landed no row');
+UPDATE chat_channels SET federated_room_removed_at = NULL WHERE id = 971001;
+
+-- stream survives: the spoke's next in-order frame from the real hub still
+-- applies after every poison edge above.
+SELECT is(
+  federation_apply_room('alpha-spk.test', 6, 's-h6', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'carol@charlie-spk.test',
+    'originDomain', 'charlie-spk.test', 'body', 'still alive on the spoke', 'sentAt', now(), 'clientMsgId', '43')),
+  'applied', 'the spoke stream survives every poison edge — the next in-order relayed message still applies'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'alpha-spk.test'),
+  6::bigint, 'the spoke cursor advanced through every poison edge plus the two valid applies (1..6)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §10 quarantine-on-apply lands verbatim (Task 4B genre, extended to rooms).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  federation_apply_room('alpha-spk.test', 7, 's-h7', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'carol@charlie-spk.test',
+    'originDomain', 'charlie-spk.test', 'body', 'urgent click now', 'sentAt', now(), 'clientMsgId', 'quarantine-1'),
+    TRUE, 'mixed-charset'),
+  'applied', 'a spam-flagged room message still returns applied — quarantine is orthogonal'
+);
+SELECT is((SELECT spam_quarantined FROM chat_messages WHERE channel_id = 971001
+            AND federated_stanza_id = 'quarantine-1'), TRUE,
+  'the quarantined room row lands with spam_quarantined=true');
+SELECT is((SELECT spam_reason FROM chat_messages WHERE channel_id = 971001
+            AND federated_stanza_id = 'quarantine-1'), 'mixed-charset',
+  'the quarantined room row carries the reason verbatim');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §11 F2 fix: reflected-self origin poison. A malicious/compromised hub
+--    plants THIS org's own local domain (alpha-in.test, is_local from §0)
+--    in the spoke's roster mirror and asserts it as originDomain — legit
+--    traffic can NEVER carry origin == self (federation_room_fanout's own
+--    origin-skip guarantees it), so this must poison, never land a message
+--    that reads as a local user speaking from inside the org.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_room_members (room_id, member_domain) VALUES
+  ('room-spk@alpha-spk.test', 'alpha-in.test') ON CONFLICT (room_id, member_domain) DO NOTHING;
+SELECT is(
+  federation_apply_room('alpha-spk.test', 8, 's-h8', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'ceo@alpha-in.test',
+    'originDomain', 'alpha-in.test', 'body', 'reflected self', 'sentAt', now(), 'clientMsgId', 'reflect-1')),
+  'poison', 'a hub asserting this org''s own local domain as originDomain is poisoned (F2, reflected-self impersonation)'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'ceo@alpha-in.test'), 0,
+  'the reflected-self frame landed no row — no internal impersonation');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §12 Task 4 review mutant-killers (required alongside Task 5's own
+--    op-arm coverage — federation_room_control.pg).
+-- ══════════════════════════════════════════════════════════════════════
+
+-- (a) a kicked/left member as hub-side stream peer: a roster row EXISTS
+--     with left_at set (via the real Task 2 federation_room_remove, not a
+--     hand-poked fixture), and that peer's straggler message frame is
+--     poisoned — the existing §6a case above only proves a NEVER-invited
+--     peer poisons; deleting "AND left_at IS NULL" from the hub membership
+--     check kills no test without this one.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('hotel-in.test', 'test fixture anchor', 'room', true) ON CONFLICT (peer_domain) DO NOTHING;
+SELECT federation_room_invite(97101, :ch_hub, 'hotel-in.test', 'harry@hotel-in.test');
+SELECT federation_room_remove(97101, :ch_hub, 'hotel-in.test');
+SELECT is(
+  federation_apply_room('hotel-in.test', 1, 'h-kicked1', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'harry@hotel-in.test',
+    'body', 'straggler after kick', 'sentAt', now(), 'clientMsgId', 'hotel-straggler-1')),
+  'poison', 'a message from a KICKED (left_at set) roster member is poisoned — not merely a never-invited peer'
+);
+SELECT is((SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'hotel-in.test'), 1::bigint,
+  'the kicked-member straggler still consumed its seq');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_sender_addr = 'harry@hotel-in.test'), 0,
+  'the kicked-member straggler landed no row');
+
+-- (b) origin == hub itself, positive path on the spoke: deleting the
+--     "v_origin <> lower(v_room_hub_domain)" disjunct from the spoke trust
+--     check currently kills no test — only the roster-mirror branch was
+--     exercised before.
+SELECT count(*)::int AS spoke_outbox_baseline FROM federation_outbox \gset
+SELECT is(
+  federation_apply_room('alpha-spk.test', 9, 's-hub-origin', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'admin@alpha-spk.test',
+    'originDomain', 'alpha-spk.test', 'body', 'the hub speaking directly',
+    'sentAt', now(), 'clientMsgId', 'hub-direct-1')),
+  'applied', 'a hub-side message asserting originDomain == the hub itself applies (not just roster members)'
+);
+SELECT is((SELECT federated_origin_domain FROM chat_messages
+            WHERE channel_id = 971001 AND federated_stanza_id = 'hub-direct-1'), 'alpha-spk.test',
+  'the landed origin is the hub domain itself');
+
+-- (c) missing/empty originDomain on the spoke arm — pinned with an assert
+--     (the default branch was previously untested).
+SELECT is(
+  federation_apply_room('alpha-spk.test', 10, 's-noorigin', jsonb_build_object(
+    'op', 'message', 'roomId', 'room-spk@alpha-spk.test', 'fromAddr', 'nobody@nowhere-spk.test',
+    'body', 'missing originDomain', 'sentAt', now(), 'clientMsgId', 'noorigin-1')),
+  'poison', 'a spoke-side message with NO originDomain key at all is poisoned'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE federated_stanza_id = 'noorigin-1'), 0,
+  'the missing-originDomain frame landed no row');
+
+-- (d) a spoke apply NEVER relays — the accidental downstream cascade that
+--     "covered" this before is replaced with an explicit global count.
+SELECT is((SELECT count(*)::int FROM federation_outbox) - :spoke_outbox_baseline, 0,
+  'every spoke-side apply above emitted ZERO federation_outbox rows — spokes never relay');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §13 (Task 8 Step 2) the cursor-regression guard — the federation_apply_room
+--    sibling of federation_chat_inbound.pg's own §8: once federation_reap
+--    deletes an old, applied federation_inbox row, a replay of that reaped
+--    seq must STILL dup (the cursor is the arbiter, not row presence) —
+--    never fall through as fresh, never move the cursor backward. A fresh
+--    non-left roster member (india-in.test) on the existing hub fixture
+--    proves this on the message-op path end-to-end (real apply/relay, not
+--    just bookkeeping in isolation).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('india-in.test', 'test fixture anchor', 'room', true) ON CONFLICT (peer_domain) DO NOTHING;
+SELECT federation_room_invite(97101, :ch_hub, 'india-in.test', 'iris@india-in.test');
+
+SELECT federation_apply_room('india-in.test', 1, 'h-i1', jsonb_build_object(
+  'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'iris@india-in.test',
+  'body', 'first', 'sentAt', now(), 'clientMsgId', 'india-1'));
+SELECT federation_apply_room('india-in.test', 2, 'h-i2', jsonb_build_object(
+  'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'iris@india-in.test',
+  'body', 'second', 'sentAt', now(), 'clientMsgId', 'india-2'));
+
+-- simulate federation_reap having already deleted seq 1's inbox row.
+DELETE FROM federation_inbox WHERE peer_domain = 'india-in.test' AND peer_seq = 1;
+
+SELECT is(
+  federation_apply_room('india-in.test', 1, 'h-i1', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'iris@india-in.test',
+    'body', 'first (replayed post-reap)', 'sentAt', now(), 'clientMsgId', 'india-1')),
+  'dup', 'a reaped-then-replayed seq returns dup even though its federation_inbox row no longer exists'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india-in.test'),
+  2::bigint, 'the post-reap replay does not move the cursor backward'
+);
+SELECT is((SELECT count(*)::int FROM chat_messages
+            WHERE channel_id = :ch_hub AND body = 'first (replayed post-reap)'), 0,
+  'the post-reap replay creates no chat_messages row (real content never re-applies)');
+
+-- the EXISTING dup path (seq 2, whose inbox row is still present) is
+-- unchanged by the new guard.
+SELECT is(
+  federation_apply_room('india-in.test', 2, 'h-i2', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'iris@india-in.test',
+    'body', 'second (replayed, row present)', 'sentAt', now(), 'clientMsgId', 'india-2')),
+  'dup', 'a replay of a seq whose inbox row STILL EXISTS still returns dup (the pre-existing path, untouched)'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india-in.test'),
+  2::bigint, 'the ordinary dup path still leaves the cursor untouched'
+);
+
+-- a genuinely fresh seq after both replays still lands normally — the guard
+-- only rejects at-or-below-cursor seqs, never a legitimate next seq.
+SELECT is(
+  federation_apply_room('india-in.test', 3, 'h-i3', jsonb_build_object(
+    'op', 'message', 'roomId', :'room_hub', 'fromAddr', 'iris@india-in.test',
+    'body', 'third', 'sentAt', now(), 'clientMsgId', 'india-3')),
+  'applied', 'a genuinely fresh seq after the replay attempts still applies normally'
+);
+SELECT is(
+  (SELECT last_applied_seq FROM federation_inbox_cursor WHERE peer_domain = 'india-in.test'),
+  3::bigint, 'the fresh seq advances the cursor'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

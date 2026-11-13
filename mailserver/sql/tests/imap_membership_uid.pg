@@ -1,0 +1,66 @@
+BEGIN;
+SELECT plan(20);
+SELECT mk_account('imap-membership') AS mailbox_id \gset
+SELECT id AS inbox_tag_id FROM tags WHERE mailbox_id=:mailbox_id AND name='Inbox' \gset
+INSERT INTO tags(mailbox_id,name,tag_type) VALUES(:mailbox_id,'Archive','user')
+RETURNING id AS archive_tag_id \gset
+
+-- New membership rows allocate independently per folder.
+INSERT INTO messages(mailbox_id,folder_id,message_id,subject,from_addr,to_addrs,thread_id,raw_ref,
+  size_bytes,imap_uid,received_at) VALUES
+  (:mailbox_id,:inbox_tag_id,'<uid-1@test>','one','a@test','[]','t1','r1',1,50,now())
+RETURNING id AS message_id,received_at \gset
+INSERT INTO message_tags(message_id,received_at,tag_id,is_primary)
+VALUES(:message_id,:'received_at',:inbox_tag_id,true);
+SELECT ok((SELECT imap_uid>0 FROM message_tags WHERE message_id=:message_id),'membership UID allocated');
+SELECT is((SELECT count(*)::int FROM imap_membership_uid_ledger WHERE tag_id=:inbox_tag_id),1,'ledger reserved UID');
+
+INSERT INTO message_tags(message_id,received_at,tag_id,is_primary)
+VALUES(:message_id,:'received_at',:archive_tag_id,true);
+SELECT ok((SELECT imap_uid>0 FROM message_tags WHERE message_id=:message_id AND tag_id=:archive_tag_id),'copy gets destination UID');
+SELECT is((SELECT imap_uid FROM message_tags WHERE message_id=:message_id AND tag_id=:archive_tag_id),1::bigint,'destination UID sequence independent');
+SELECT is((SELECT imap_uid FROM message_tags WHERE message_id=:message_id AND tag_id=:inbox_tag_id),1::bigint,'source UID unchanged');
+
+DELETE FROM message_tags WHERE message_id=:message_id AND received_at=:'received_at' AND tag_id=:archive_tag_id;
+SELECT is((SELECT active FROM imap_membership_uid_ledger WHERE tag_id=:archive_tag_id AND imap_uid=1),false,'deleted UID retired');
+INSERT INTO message_tags(message_id,received_at,tag_id,is_primary)
+VALUES(:message_id,:'received_at',:archive_tag_id,true);
+SELECT is((SELECT imap_uid FROM message_tags WHERE message_id=:message_id AND tag_id=:archive_tag_id),2::bigint,'retired UID never reused');
+
+SELECT throws_ok($$SELECT imap_membership_uid_backfill_batch(10001)$$,
+  'BZ269','IMAP UID backfill limit must be 1..10000','batch bound enforced');
+SELECT is((imap_membership_uid_backfill_batch(10)->>'processed')::int,0,'new rows need no backfill');
+SELECT is((SELECT count(*)::int FROM message_tags WHERE imap_uid IS NULL),0,'no NULL membership UID');
+SELECT ok((SELECT imap_uid_next>=2 FROM tags WHERE id=:inbox_tag_id),'UIDNEXT advanced');
+SELECT ok((SELECT imap_uid_next>=3 FROM tags WHERE id=:archive_tag_id),'destination UIDNEXT advanced');
+SELECT is((SELECT count(*)::int FROM imap_membership_uid_ledger WHERE tag_id=:archive_tag_id),2,'ledger retains active and retired allocations');
+SELECT is((imap_membership_uid_readiness(:inbox_tag_id)->>'ready')::boolean,true,
+  'validator accepts complete tag namespace');
+SELECT ok((imap_membership_uid_readiness(:inbox_tag_id)->>'uidNext')::bigint >
+          (imap_membership_uid_readiness(:inbox_tag_id)->>'maxUid')::bigint,
+  'validator proves UIDNEXT above max UID');
+INSERT INTO imap_membership_uid_ledger(tag_id,imap_uid,message_id,received_at,active)
+VALUES(:inbox_tag_id,999,999999,now(),true);
+SELECT is((imap_membership_uid_readiness(:inbox_tag_id)->>'ready')::boolean,false,
+  'active orphan ledger entry fails readiness');
+SELECT is((imap_membership_uid_readiness(:inbox_tag_id)->>'orphanLedger')::int,1,
+  'validator reports exact orphan category');
+SELECT throws_ok($$SELECT imap_membership_uid_readiness(-1)$$,
+  'BZ268','IMAP tag not found','readiness rejects an unknown IMAP tag');
+
+SELECT mk_account('imap-membership-foreign') AS foreign_mailbox_id \gset
+SELECT id AS foreign_tag_id FROM tags WHERE mailbox_id=:foreign_mailbox_id AND name='Inbox' \gset
+INSERT INTO imap_membership_uid_ledger(tag_id,imap_uid,message_id,received_at,active,retired_at)
+VALUES(:foreign_tag_id,77,777777,statement_timestamp(),false,statement_timestamp());
+INSERT INTO imap_membership_uid_backfill(tag_id,processed,completed_at)
+VALUES(:foreign_tag_id,1,statement_timestamp());
+SELECT set_config('app.current_mailbox_id',:mailbox_id::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::int FROM imap_membership_uid_ledger WHERE tag_id=:foreign_tag_id),0,
+  'membership UID ledger hides another mailbox');
+SELECT is((SELECT count(*)::int FROM imap_membership_uid_backfill WHERE tag_id=:foreign_tag_id),0,
+  'membership UID backfill hides another mailbox');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

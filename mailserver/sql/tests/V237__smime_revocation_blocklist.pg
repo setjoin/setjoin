@@ -1,0 +1,53 @@
+-- pgTAP: V237__smime_revocation_blocklist.pg — the S/MIME admin revocation
+-- blocklist (med-smime-revocation-001). The explicit override in the settled
+-- revocation/freshness policy: one row per blocked certificate, keyed by the
+-- lowercase-hex SHA-256 DER fingerprint that smime.FingerprintCert computes
+-- (the repo-wide fingerprint convention), so the Go-side BlocklistCheckFunc
+-- lookup is a single-index EXISTS. No user-owned data → no RLS (the
+-- smime_trust_anchors/smime_journal_certs posture).
+BEGIN;
+SELECT plan(11);
+
+-- ── Shape ────────────────────────────────────────────────────────────────────
+SELECT has_table('smime_revocation_blocklist');
+SELECT has_column('smime_revocation_blocklist', 'id');
+SELECT has_column('smime_revocation_blocklist', 'fingerprint');
+SELECT has_column('smime_revocation_blocklist', 'reason');
+SELECT has_column('smime_revocation_blocklist', 'created_at');
+SELECT has_column('smime_revocation_blocklist', 'created_by');
+
+-- fingerprint is the dedup key: one entry per blocked certificate, ever. The
+-- migration creates a UNIQUE INDEX (not a table constraint), so assert the
+-- index itself — col_is_unique checks pg_constraint 'u' and would never match.
+SELECT has_index('smime_revocation_blocklist', 'smime_revocation_blocklist_fingerprint_key',
+  'one entry per blocked certificate: the unique fingerprint index exists');
+
+-- ── Behavior: insert + dedup-conflict + lookup the Go seam issues ────────────
+INSERT INTO smime_revocation_blocklist (fingerprint, reason) VALUES
+  ('v237tap-fp-a', 'V237 pgTAP fixture A'),
+  ('v237tap-fp-b', 'V237 pgTAP fixture B');
+
+SELECT is(
+  (SELECT EXISTS(
+     SELECT 1 FROM smime_revocation_blocklist WHERE fingerprint = 'v237tap-fp-a')),
+  true,
+  'the exact EXISTS predicate BlocklistCheckFunc issues matches a seeded row');
+
+SELECT throws_ok(
+  'INSERT INTO smime_revocation_blocklist (fingerprint) VALUES (''v237tap-fp-a'')',
+  NULL,
+  NULL,
+  'a duplicate fingerprint must conflict (one entry per certificate)');
+
+SELECT is(
+  (SELECT count(*) FROM smime_revocation_blocklist WHERE fingerprint LIKE 'v237tap-%'),
+  2::bigint,
+  'exactly the two seeded fixture rows exist (dedup held)');
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is(
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 237),
+  1, 'schema_migrations records version 237');
+
+SELECT * FROM finish();
+ROLLBACK;

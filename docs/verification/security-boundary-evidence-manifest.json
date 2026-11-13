@@ -1,0 +1,105 @@
+{
+  "schema": "setjoin.sec.security-boundary-evidence-manifest/v1",
+  "preparedOn": "2026-10-01",
+  "program": "docs/superpowers/plans/2026-08-26-security-boundary-remediation.md",
+  "registry": "docs/verification/security-boundary-cases.json",
+  "contract": "One atomic, dated, immutable pointer per named G0-G4 lane plus one aggregate over the eight; a single overwriteable latest.json is insufficient completion evidence (docs/superpowers/plans/2026-08-28-deep-security-scan-remediation.md 'Source fingerprint and evidence envelope', ER4). This manifest names retained generations; it never substitutes a mutable 'latest' indirection, and republishing a lane means naming the new dated generation here, never rewriting one.",
+  "evidenceRoot": "test-results/security-boundaries",
+  "lanes": {
+    "bootstrap": {
+      "caseId": "SEC-G0-LOCAL-BOOTSTRAP",
+      "generationId": "20261001T074915Z-736f1605-31950-bootstrap",
+      "manifestPath": "test-results/security-boundaries/20261001T074915Z-736f1605-31950-bootstrap/manifest.json",
+      "manifestSha256": "c4cfc8664d5255206c237088e3e91faaa0c994cca9eb784f85db5930c939b3b6",
+      "publishedAt": "2026-10-01T07:49:15Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "recovery": {
+      "caseId": "SEC-G0-SIGNED-RECOVERY",
+      "generationId": "20261001T074918Z-736f1605-31950-recovery",
+      "manifestPath": "test-results/security-boundaries/20261001T074918Z-736f1605-31950-recovery/manifest.json",
+      "manifestSha256": "0b956a5809e542dbdbcbaeb89c33f3354639c5f97bdcd5934373761d50b41591",
+      "publishedAt": "2026-10-01T07:49:18Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "push": {
+      "caseId": "SEC-G1-DEVICE-BOUND-PUSH",
+      "generationId": "20261001T074925Z-736f1605-31950-push",
+      "manifestPath": "test-results/security-boundaries/20261001T074925Z-736f1605-31950-push/manifest.json",
+      "manifestSha256": "11379af57e4271abfc62fe2f564c17b354266dac64e7653f7cab84a3625e30b1",
+      "publishedAt": "2026-10-01T07:49:25Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "migration": {
+      "caseId": "SEC-G2-APPROVED-EGRESS",
+      "generationId": "20261001T074931Z-736f1605-31950-migration",
+      "manifestPath": "test-results/security-boundaries/20261001T074931Z-736f1605-31950-migration/manifest.json",
+      "manifestSha256": "ce75fb9e92ac5daac1a411dc724f04371e7606eba8860165eaaa04f9c1b60606",
+      "publishedAt": "2026-10-01T07:49:31Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "ingress": {
+      "caseId": "SEC-G3-BOUNDED-INGRESS",
+      "generationId": "20261001T075000Z-736f1605-31950-ingress",
+      "manifestPath": "test-results/security-boundaries/20261001T075000Z-736f1605-31950-ingress/manifest.json",
+      "manifestSha256": "c92be891a17024104674f6a0cf1d05a4d03c820ba9f2325a1c2eb42eeccc6636",
+      "publishedAt": "2026-10-01T07:50:00Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "audit": {
+      "caseId": "SEC-G4-AUDIT-CUTOVER",
+      "generationId": "20261001T075016Z-736f1605-31950-audit",
+      "manifestPath": "test-results/security-boundaries/20261001T075016Z-736f1605-31950-audit/manifest.json",
+      "manifestSha256": "c9b1e9b90fb24bac72bca96e2e08561dc5e198c489d2b9858a2085d9bfbaf7c2",
+      "publishedAt": "2026-10-01T07:50:16Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "updates": {
+      "caseId": "SEC-G4-OFFLINE-UPDATES",
+      "generationId": "20261001T075019Z-736f1605-31950-updates",
+      "manifestPath": "test-results/security-boundaries/20261001T075019Z-736f1605-31950-updates/manifest.json",
+      "manifestSha256": "25e1c9d8359ee8cc9a1be391b767e204ef51383eebb0f0d70e3c69fd0b21f963",
+      "publishedAt": "2026-10-01T07:50:19Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    },
+    "contracts": {
+      "caseId": "SEC-ALL-CONTRACTS",
+      "generationId": "20261001T075118Z-736f1605-31950-contracts",
+      "manifestPath": "test-results/security-boundaries/20261001T075118Z-736f1605-31950-contracts/manifest.json",
+      "manifestSha256": "a0c47038cf7de3799ceb175181eb29372e93c3441035bbabb74a99760471d69f",
+      "publishedAt": "2026-10-01T07:51:18Z",
+      "verdict": "passed",
+      "exitCode": 0,
+      "evidenceSchemaVersion": 2,
+      "sourceFingerprint": "v2:736f1605609b85d98f8c86a25f104be13ad5b873:33fc94cb11e4717d12fd1ed7c1ab4464e76c5f755c5b2bbec9423c915110552b"
+    }
+  },
+  "aggregate": {
+    "lanes": 8,
+    "allPassed": true,
+    "combinedSha256": "5b945c977116048f4f89b37f54b77936e7359718755cbd76147804b51a0154f0",
+    "rule": "combinedSha256 is sha256 over the canonical JSON (recursively key-sorted) of the eight per-lane pointer objects; recomputed mechanically by scripts/check-deep-security-remediation.mjs."
+  },
+  "historicalNote": "Current-source pointers name the 2026-10-01 re-registration runs (schema v2 evidence, source v2:736f1605…, published in the v1 flat layout per the ER7 second-voice plan). The predecessor 2026-08-26/27 schema-v1 set (source b86352da…) and the ER6-era 2026-09-29 v2 set (source 7a5b5746…) are retained, isolated at test-results/security-boundaries-legacy-20261001T034146Z/ — dated historical evidence, never republished over."
+}

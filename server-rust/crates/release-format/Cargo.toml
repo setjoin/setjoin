@@ -1,0 +1,17 @@
+[package]
+name = "setjoin-release-format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "=1.0.104"
+base64 = "=0.22.1"
+chrono = "=0.4.45"
+regex = "=1.13.1"
+ring = "=0.17.14"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
+
+[dev-dependencies]

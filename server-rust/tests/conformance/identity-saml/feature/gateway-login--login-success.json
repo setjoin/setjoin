@@ -1,0 +1,45 @@
+{
+  "case": "login-success",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "method": "*",
+      "path": "/auth/saml/",
+      "wire_method": "GET",
+      "wire_path": "/auth/saml/idfed3/login"
+    },
+    "response": {
+      "authn_request": "<samlp:AuthnRequest xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ID=\"_request\" Version=\"2.0\" IssueInstant=\"_instant\" Destination=\"https://idp.idfed3.test/sso\" AssertionConsumerServiceURL=\"https://auth.idfed3.test/auth/saml/idfed3/acs\" ProtocolBinding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\"><saml:Issuer Format=\"urn:oasis:names:tc:SAML:2.0:nameid-format:entity\">https://auth.idfed3.test/saml/metadata</saml:Issuer><samlp:NameIDPolicy AllowCreate=\"true\"/></samlp:AuthnRequest>",
+      "body": "",
+      "headers": {
+        "location": "https://idp.idfed3.test/sso?SAMLRequest=_request&RelayState=_relay&SigAlg=http://www.w3.org/2001/04/xmldsig-more#rsa-sha256&Signature=_signature",
+        "set-cookie": [
+          "saml__relay=_tracked; Path=/auth/saml/idfed3/acs; Max-Age=90; HttpOnly; SameSite=None; Secure"
+        ]
+      },
+      "status": 302,
+      "tracked": {
+        "aud": [
+          "https://auth.idfed3.test"
+        ],
+        "exp": "_exp",
+        "flow": null,
+        "iat": "_iat",
+        "id": "_request",
+        "iss": "https://auth.idfed3.test",
+        "nbf": "_nbf",
+        "purpose": "login",
+        "reg": 34101,
+        "saml-authn-request": true,
+        "sub": "_relay",
+        "uri": "/auth/saml/idfed3/login"
+      }
+    }
+  },
+  "route": "* /auth/saml/ login"
+}

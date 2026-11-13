@@ -1,0 +1,59 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "{\"decision\":\"approve\",\"comment\":\"<trip>\"}",
+      "external_path": "/api/me/approvals/{id}/decide",
+      "method": "POST",
+      "path": "/me/approvals/{id}/decide"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz108\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"approval request not found or not pending\",\"instance\":\"/me/approvals/{id}/decide\",\"remediation\":\"Refresh current state, resolve the conflict, and retry.\",\"code\":\"BZ108\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "283"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 409
+    }
+  },
+  "route": "POST /me/approvals/{id}/decide"
+}

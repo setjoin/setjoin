@@ -1,0 +1,77 @@
+-- Public reducer seam: verified actor, idempotent close and committed audit.
+BEGIN;
+SELECT plan(27);
+CREATE TEMP TABLE compl1_actor(mailbox_id bigint,user_id bigint);
+INSERT INTO compl1_actor(mailbox_id) VALUES(mk_account('compl1-sql'));
+UPDATE compl1_actor a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE compl1_case AS WITH inserted AS (
+ INSERT INTO ediscovery_cases(name,description,created_by)
+ SELECT 'Close test','',(SELECT user_id FROM compl1_actor) RETURNING id
+) SELECT id FROM inserted;
+SELECT ok(rust_compliance_case_close((SELECT user_id FROM compl1_actor),
+ (SELECT id FROM compl1_case),'done','127.0.0.1'),'active case closes');
+SELECT is((SELECT status FROM ediscovery_cases WHERE id=(SELECT id FROM compl1_case)),
+ 'closed','case is closed');
+SELECT is((SELECT closed_by FROM ediscovery_cases WHERE id=(SELECT id FROM compl1_case)),
+ (SELECT user_id FROM compl1_actor),'closer is the verified actor');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='ediscovery_case_close'
+ AND target_id=(SELECT id FROM compl1_case)),1,'close records exactly one audit');
+SELECT ok(NOT rust_compliance_case_close((SELECT user_id FROM compl1_actor),
+ (SELECT id FROM compl1_case),'again','127.0.0.1'),'second close is refused');
+
+CREATE TEMP TABLE compl1_message AS WITH inserted AS (
+ INSERT INTO messages(mailbox_id,message_id,subject,from_addr,size_bytes,thread_id,received_at,folder_id,raw_ref)
+ SELECT a.mailbox_id,'<compl1-sql@test>','Hold test','sender@test',10,'compl1-sql',now(),
+  (SELECT id FROM folders WHERE mailbox_id=a.mailbox_id AND role='inbox'),''
+ FROM compl1_actor a RETURNING id
+) SELECT id FROM inserted;
+SELECT is(cardinality(rust_compliance_message_hold((SELECT user_id FROM compl1_actor),
+ ARRAY[(SELECT id FROM compl1_message)],true,'127.0.0.1')),1,'hold reports the changed message');
+SELECT ok((SELECT held FROM messages WHERE id=(SELECT id FROM compl1_message)),'message is held');
+SELECT is(cardinality(rust_compliance_message_hold((SELECT user_id FROM compl1_actor),
+ ARRAY[(SELECT id FROM compl1_message)],true,'127.0.0.1')),0,'repeated hold reports no change');
+SELECT is(cardinality(rust_compliance_message_hold((SELECT user_id FROM compl1_actor),
+ ARRAY[(SELECT id FROM compl1_message)],false,'127.0.0.1')),1,'release reports the changed message');
+SELECT ok(NOT (SELECT held FROM messages WHERE id=(SELECT id FROM compl1_message)),'message is released');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE user_id=(SELECT user_id FROM compl1_actor)
+ AND action IN ('ediscovery_hold','ediscovery_release')),3,'every hold/release attempt audits, even a repeat');
+SELECT is(cardinality(rust_compliance_message_hold(0,ARRAY[(SELECT id FROM compl1_message)],true,'127.0.0.1')),0,'an absent actor cannot hold content');
+
+CREATE TEMP TABLE compl1_search AS WITH inserted AS (
+ INSERT INTO ediscovery_searches(name,created_by,query,case_id)
+ SELECT 'Completion test',a.user_id,'{}'::jsonb,c.id FROM compl1_actor a CROSS JOIN compl1_case c RETURNING id
+) SELECT id FROM inserted;
+SELECT rust_compliance_search_complete((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_search),
+ 'm.subject_tsv @@ plainto_tsquery(''simple'',($1::text[])[1])',ARRAY['Hold']);
+SELECT is((SELECT status FROM ediscovery_searches WHERE id=(SELECT id FROM compl1_search)),'complete','completion publishes complete');
+SELECT is((SELECT result_count FROM ediscovery_searches WHERE id=(SELECT id FROM compl1_search)),1,'count is stored with completion');
+SELECT is((SELECT count(*)::int FROM ediscovery_search_results WHERE search_id=(SELECT id FROM compl1_search)),1,'completion binds the matching message');
+SELECT rust_compliance_search_complete((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_search),
+ 'm.subject_tsv @@ plainto_tsquery(''simple'',($1::text[])[1])',ARRAY['nonexistentneedle']);
+SELECT is((SELECT result_count FROM ediscovery_searches WHERE id=(SELECT id FROM compl1_search)),0,'re-execution replaces the count');
+SELECT is((SELECT count(*)::int FROM ediscovery_search_results WHERE search_id=(SELECT id FROM compl1_search)),0,'re-execution clears stale bindings');
+CREATE FUNCTION pg_temp.compl1_completion_fault() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.id=(SELECT id FROM compl1_search) THEN RAISE EXCEPTION 'completion fault' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END;
+$$;
+CREATE TRIGGER gofree_compl1_completion_fault BEFORE UPDATE ON ediscovery_searches FOR EACH ROW EXECUTE FUNCTION pg_temp.compl1_completion_fault();
+SELECT throws_ok($test$SELECT rust_compliance_search_complete((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_search),
+ 'm.subject_tsv @@ plainto_tsquery(''simple'',($1::text[])[1])',ARRAY['Hold'])$test$,'23514','completion fault','a completion error propagates');
+SELECT is((SELECT count(*)::int FROM ediscovery_search_results WHERE search_id=(SELECT id FROM compl1_search)),0,'a late completion fault rolls bindings back');
+SELECT is((SELECT result_count FROM ediscovery_searches WHERE id=(SELECT id FROM compl1_search)),0,'a late completion fault preserves the previous count');
+DROP TRIGGER gofree_compl1_completion_fault ON ediscovery_searches;
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE user_id=(SELECT user_id FROM compl1_actor)),4,'search completion adds no audit');
+
+UPDATE ediscovery_cases SET status='active' WHERE id=(SELECT id FROM compl1_case);
+SELECT is(rust_compliance_export_authorize(0,(SELECT id FROM compl1_case),'{}','[]','127.0.0.1'),'403:Forbidden','export rejects an absent verified actor');
+SELECT is(rust_compliance_export_authorize((SELECT user_id FROM compl1_actor),-1,'{}','[]','127.0.0.1'),'404:case not found','export requires a case');
+SELECT is(rust_compliance_export_authorize((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_case),ARRAY[(SELECT id FROM compl1_message)],'[]','127.0.0.1'),'403:message ids are not bound to this case''s completed search results','export refuses unbound content before audit');
+SELECT is(rust_compliance_export_authorize((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_case),'{}','["wat"]','127.0.0.1'),'','Go empty numeric ID set still audits');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE user_id=(SELECT user_id FROM compl1_actor) AND action='ediscovery_export'),1,'only admitted export audits');
+SELECT rust_compliance_search_complete((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_search),
+ 'm.subject_tsv @@ plainto_tsquery(''simple'',($1::text[])[1])',ARRAY['Hold']);
+SELECT is(rust_compliance_export_authorize((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_case),ARRAY[(SELECT id FROM compl1_message)],'["bound"]','127.0.0.1'),'','bound export commits its audit');
+SELECT * FROM finish();
+ROLLBACK;

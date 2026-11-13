@@ -1,0 +1,12 @@
+{
+  "source": "2ab18c4ef0b3ea1c2e463fcb9848aaf43867c472",
+  "command": "go test -overlay /fed2/reap-overlay.json ./internal/federation -run ^TestRecordResidueReap$ -count=1",
+  "sha256": {
+    "mailserver/internal/federation/reap.go": "a5fb9737447248c2b6ba66362066c6473c81c0ab340262919ba00ff032c0331d",
+    "mailserver/sql/reducers/federation_reap.sql": "24d3a47ed117203eefb12eb41ee2fa57efff14c7cf39fbd77b65e1cc83954118",
+    "server-rust/crates/protocols/federation/oracle/reap-seed.sql": "3094ffed99ba9d07ce1b4798374277462721dfeebcce667fa1b26902da6fbce7",
+    "server-rust/crates/protocols/federation/oracle/reap-observe.sql": "76b01a327b7ad9b502e7ad32ffcef46df15d7334b17b55f4e67caf643899ba3d",
+    "server-rust/crates/protocols/federation/oracle/reap_test.go.txt": "8dc3c53acc6f27cc525dec26ec31d6e4dbcec47388b629058859fc92a35eae45",
+    "server-rust/crates/protocols/federation/oracle/reap-go.json": "5b59bbd210461d6c652888b857e101009907d0c7ed1e21b095e60540c7230d2b"
+  }
+}

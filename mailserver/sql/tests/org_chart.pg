@@ -1,0 +1,40 @@
+-- pgTAP: org_chart.sql — manager chain + direct reports
+BEGIN;
+SELECT plan(4);
+
+INSERT INTO domains (name, is_local) VALUES ('org.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, manager_id)
+  VALUES (5701, 'ceo', (SELECT id FROM domains WHERE name = 'org.test'), 'ceo@org.test', 'CEO', NULL);
+INSERT INTO users (id, username, domain_id, email, display_name, manager_id)
+  VALUES (5702, 'cto', (SELECT id FROM domains WHERE name = 'org.test'), 'cto@org.test', 'CTO', 5701);
+INSERT INTO users (id, username, domain_id, email, display_name, manager_id)
+  VALUES (5703, 'dev', (SELECT id FROM domains WHERE name = 'org.test'), 'dev@org.test', 'Dev', 5702);
+
+-- Test 1: managers chain for Dev (Dev -> CTO -> CEO)
+-- org_chart_managers returns a plain JSONB array of managers
+SELECT ok(
+  (SELECT jsonb_array_length(org_chart_managers(5703)) = 2),
+  'Dev has 2 managers (CTO and CEO)'
+);
+
+-- Test 2: manager chain for CTO returns just CEO (1 manager)
+SELECT ok(
+  (SELECT jsonb_array_length(org_chart_managers(5702)) = 1),
+  'CTO has 1 manager (CEO)'
+);
+
+-- Test 3: direct reports for CEO (depth=0 means only immediate direct reports)
+-- org_chart_reports returns a plain JSONB array of reports
+SELECT ok(
+  (SELECT jsonb_array_length(org_chart_reports(5701, 0)) = 1),
+  'CEO has 1 direct report (CTO)'
+);
+
+-- Test 4: managers for CEO (no manager)
+SELECT ok(
+  (SELECT jsonb_array_length(org_chart_managers(5701)) = 0),
+  'CEO has no managers'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

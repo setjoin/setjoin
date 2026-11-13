@@ -1,0 +1,41 @@
+// Recording-only overlay (#457): frozen Go's real migration Orchestrator runs the steps in
+// GOFREE_MIGRATION_STEPS ("phase:jobid" through the single orchestrate seam, or "recover")
+// with its real webhook Dispatcher, then waits for the deliveries to settle.
+package migration
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+
+	"setjoin.com/mailserver/internal/webhook"
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeMigrationTerminal(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	d := webhook.GoFreeDispatcher(ctx, pool)
+	o := NewOrchestrator(pool, nil, "", "gofree-migration-root", slog.Default(), ctx, d)
+	for _, step := range strings.Split(os.Getenv("GOFREE_MIGRATION_STEPS"), ",") {
+		if step == "recover" {
+			o.RecoverStuckJobs(ctx)
+			continue
+		}
+		phase, id, _ := strings.Cut(step, ":")
+		jobID, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = o.orchestrate(ctx, jobID, phase, nil)
+	}
+	webhook.GoFreeSettle(d, cancel)
+}

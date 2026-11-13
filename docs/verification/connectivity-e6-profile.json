@@ -1,0 +1,737 @@
+{
+  "schemaVersion": 1,
+  "freezeSemantics": {
+    "statement": "Results qualify only the exact frozen profile (profileId + profileVersion + this document's digest bound in connectivity-aware-sync-cases.json) they were executed against, never every supported organization size or platform. Any change to a workload, metric, seed, or stopping rule after results exist is prohibited; a changed comparison needs a new profileVersion and a new separately identified run.",
+    "resultsQualifyOnlyThisProfile": true,
+    "postResultChangesProhibited": true
+  },
+  "protocol": {
+    "minimumPairs": 20,
+    "randomizedPairOrder": true,
+    "identicalWorkloadPairs": true,
+    "warmupSeconds": 120,
+    "measurementSeconds": 300,
+    "minimumObservationsPerCriticalClassPerRun": 1000,
+    "percentileMethod": "nearest-rank",
+    "bootstrap": {
+      "resamples": 10000,
+      "method": "paired",
+      "bound": "upper-one-sided-95"
+    },
+    "failureAccounting": "separate-attempts-retained"
+  },
+  "regressionCeilings": {
+    "criticalP95MaxPercent": 5,
+    "criticalP95MaxMilliseconds": 50,
+    "criticalP99MaxPercent": 10,
+    "criticalP99MaxMilliseconds": 100,
+    "peakCpuRssMaxPercent": 10
+  },
+  "profiles": [
+    {
+      "profileId": "e6-electron-macos-arm64-v3",
+      "profileVersion": 3,
+      "status": "frozen",
+      "frozenAtUtc": "2026-09-29T10:41:45Z",
+      "platform": "electron-macos",
+      "host": {
+        "os": "macOS 27.0.1 (26A434)",
+        "arch": "arm64",
+        "selection": "explicit"
+      },
+      "shell": {
+        "name": "electron",
+        "build": "43.4.1 (clients/desktop/electron, package spec ^43.2.0)",
+        "contractVersion": 1
+      },
+      "toolchain": {
+        "node": "v26.10.0",
+        "go": "go1.27.1",
+        "rust": "rustc 1.97.1"
+      },
+      "corpus": {
+        "accounts": 2,
+        "messagesPerAccount": 2000,
+        "attachmentsPerAccount": 40,
+        "cacheState": "cold-per-pair"
+      },
+      "clients": {
+        "pairRoles": [
+          "flag-off-comparator",
+          "execute-candidate"
+        ],
+        "buildBinding": "One identical webmail/desktop build per pair; only feature.connectivity_aware_sync and its policy mode differ between the pair members."
+      },
+      "criticalRequestClasses": [
+        {
+          "class": "queued-send",
+          "mixPercent": 20
+        },
+        {
+          "class": "draft-commit",
+          "mixPercent": 20
+        },
+        {
+          "class": "auth-revocation",
+          "mixPercent": 20
+        },
+        {
+          "class": "security-state",
+          "mixPercent": 20
+        },
+        {
+          "class": "delivery-receipt",
+          "mixPercent": 20
+        }
+      ],
+      "optionalSaturation": {
+        "admitted": true,
+        "description": "Background/opportunistic optional jobs are saturated for the whole measurement window in BOTH pair members (continuous queued work at the work-contract optional concurrency limits) while Critical classes run their declared mix; the flag-OFF comparator window receives its optional load from the harness saturation instrument at the same declared routes, mix and limits (harnessInstrument basis harness-saturation-instrument)."
+      },
+      "attemptsPerCriticalClassPerRun": 2000,
+      "harnessInstrument": {
+        "basis": "harness-saturation-instrument",
+        "executor": {
+          "launchOwner": "harness",
+          "window": "comparator",
+          "scope": "run-scoped-comparator-window",
+          "processCount": 1,
+          "measuredProcess": false,
+          "credentials": "comparator-session",
+          "deliveryPath": "window-fault-proxy",
+          "criticalPopulation": "separate-from-driver-schedule",
+          "metricMapping": {
+            "mailserver-gateway": "equal-attributed-load",
+            "setjoin-desktop-electron-main": "production-execute-engine-residual",
+            "setjoin-desktop-electron-renderer": "production-execute-engine-residual"
+          }
+        },
+        "workload": {
+          "routes": [
+            {
+              "method": "POST",
+              "path": "/jmap",
+              "weight": 1,
+              "body": "[[\"Core/echo\",{},\"e6-instrument-v3-${seq}\"]]"
+            }
+          ],
+          "classMix": {
+            "interactive": 0,
+            "background": 1,
+            "opportunistic": 1
+          },
+          "accounts": 2,
+          "globalConcurrency": 2,
+          "perAccountConcurrency": 1,
+          "equivalenceRule": "same-declared-routes-mix-and-limits"
+        },
+        "engagement": {
+          "limit": 2,
+          "pollIntervalMs": 1000,
+          "freshnessPollIntervals": 2,
+          "observedBases": {
+            "candidate": "engine-queue-observed",
+            "comparator": "harness-saturation-instrument"
+          },
+          "observationFields": [
+            "basis",
+            "optionalRunning",
+            "optionalQueued",
+            "limit",
+            "holdReason",
+            "holdSinceUtc",
+            "observedAtUtc",
+            "saturating"
+          ],
+          "reasonShape": "single-effective-hold-or-null",
+          "reasonSource": "current-consistent-production-admission-observation",
+          "reasonTimestamp": "same-observation",
+          "pendingSet": "queued-and-unexpired-backoff",
+          "atLimitPredicate": "optionalRunning>=limit",
+          "admissionHoldCodes": [
+            "backoff",
+            "criticalActivity",
+            "criticalQuiet",
+            "accountSaturation",
+            "deficit"
+          ],
+          "heldRequiresPendingWork": true,
+          "refutingClasses": [
+            "empty",
+            "below-limit-no-reason",
+            "unknown-hold",
+            "fallback-basis",
+            "stale-observation",
+            "missing-observation",
+            "unreachable-observation",
+            "malformed-observation",
+            "reason-counter-contradiction"
+          ],
+          "admissionImplementation": "production-module-imports",
+          "productionModules": [
+            "mailserver/webmail/src/lib/offline/scheduler.ts",
+            "mailserver/webmail/src/lib/offline/work-contract.ts"
+          ],
+          "backoffRules": [
+            "retryableFailure-arms-backoff",
+            "networkFlap-observation-only",
+            "committed-progress-or-newer-authenticated-trigger-resets",
+            "run-seeded-randomness"
+          ]
+        },
+        "quiescence": {
+          "drainSettleDeadlineMs": 2000,
+          "settledIntervalMs": 5000
+        },
+        "phaseBarrier": {
+          "rosters": {
+            "candidate": [
+              "proxy",
+              "driver",
+              "sampler",
+              "coordinator"
+            ],
+            "comparator": [
+              "proxy",
+              "driver",
+              "sampler",
+              "instrument"
+            ]
+          },
+          "transports": {
+            "proxy": "in-process",
+            "sampler": "in-process",
+            "driver": "stdio-control-fd-through-wrapper",
+            "instrument": "stdio-control-fd-direct",
+            "coordinator": "pair-state-loopback-main-renderer"
+          },
+          "acknowledgedPhases": [
+            "warmup",
+            "measurement"
+          ],
+          "candidateRouteRules": [
+            "candidate-only",
+            "loopback-endpoint",
+            "run-scoped-nonce-handshake",
+            "main-renderer-push-and-ack",
+            "boot-dispatch-queued-until-common-start",
+            "trigger-ingestion-remains-active",
+            "absent-without-harness-seam",
+            "absent-in-off-comparator"
+          ],
+          "preActivationAttempts": 0,
+          "preActivationRules": [
+            "warmup-starts-at-window-start",
+            "later-phase-starts-at-observed-pause-ack-after-closure",
+            "ends-at-common-start-minus-participant-rtt-half",
+            "dedicated-counter-outside-workload-and-control-ledgers",
+            "fail-fast-without-upstream-draw-or-bandwidth"
+          ],
+          "pauseDrainRules": [
+            "pause-before-measurement-handshake",
+            "warmup-pause-vacuous",
+            "per-request-admission",
+            "synchronous-generation-read-at-dispatch-and-await-resumption",
+            "settle-existing-work",
+            "await-launched-executions-in-finally",
+            "defensive-zero-ack-guard",
+            "ack-gated-rearm-after-ledger-closure",
+            "reopen-at-common-executable-start"
+          ],
+          "requestHeaders": [
+            "x-e6-dispatch-phase-epoch",
+            "x-e6-attempt-id",
+            "x-e6-request-seq"
+          ],
+          "attemptIdentityFields": [
+            "dispatchPhaseEpoch",
+            "attemptId",
+            "requestSeq"
+          ],
+          "attemptIdentityRules": [
+            "stamps-read-in-authorizing-synchronous-segment",
+            "request-sequence-starts-at-one",
+            "closed-epoch-terminal-identity-is-duplicate",
+            "unseen-closed-epoch-identity-is-halting-drain-breach",
+            "unstamped-forbidden-arrival-is-preactivation-failure"
+          ],
+          "corsAllowedHeaders": [
+            "content-type",
+            "x-e6-proxy-source",
+            "x-e6-dispatch-phase-epoch",
+            "x-e6-attempt-id",
+            "x-e6-request-seq"
+          ],
+          "corsRules": [
+            "declared-loopback-origin-only",
+            "credentials-enabled",
+            "preflight-and-actual-responses",
+            "config-digest-bound",
+            "options-only-control-exclusion",
+            "post-fully-accounted-and-body-readable"
+          ],
+          "phaseTime": {
+            "steps": [
+              "delivery-acknowledgment",
+              "epoch-establishment-and-alignment",
+              "work-release"
+            ],
+            "clock": "harness-local-monotonic",
+            "alignmentExchangesPerParticipantPerPhase": 1,
+            "phaseAnchorRoundTripDeadlineMs": 250,
+            "workReleaseDeliveryDeadlineMs": 250,
+            "rules": [
+              "delivery-ack-clock-free",
+              "epoch-after-all-delivery-acks",
+              "release-after-all-alignment-acks",
+              "start-equals-broadcast-plus-delivery-lead",
+              "local-start-equals-local-origin-plus-carried-start",
+              "permission-delivered-strictly-before-start",
+              "early-recipients-hold-until-start",
+              "all-grids-stages-and-timers-share-start",
+              "participant-tolerance-rtt-half",
+              "broadcast-bound-independent-of-delivery-bound",
+              "alignment-bound-independent-of-drain-bound",
+              "alignment-reply-precedes-broadcast",
+              "slot-stage-mapping-and-equal-stage-exposure"
+            ]
+          },
+          "pairState": {
+            "schemaVersion": 2,
+            "states": [
+              "declared",
+              "launching",
+              "ready",
+              "complete",
+              "released"
+            ],
+            "stagedStateDeadlineMs": 30000,
+            "armedAckDeadlineMs": 10000,
+            "haltReferenceFields": [
+              "failureClass",
+              "haltedAtUtc",
+              "haltRecordRef"
+            ],
+            "rules": [
+              "both-shells-at-creation",
+              "listeners-bound-before-launch",
+              "declared-null-readiness",
+              "launching-valid-main-pid-other-readiness-pending",
+              "ready-complete-distinct-identity",
+              "complete-preserves-ready-identity",
+              "halted-handshake-requires-window-halt-reference",
+              "complete-handshake-halt-reference-only-for-own-transition-failed-result",
+              "halt-reference-binds-sealed-window-record-never-pair-aggregate",
+              "released-preserves-halt-reference",
+              "released-attachment-variants-require-teardown-outcome-reference",
+              "released-transition-failed-forbids-teardown-outcome-reference-uses-inline-receipt",
+              "complete-after-measurement-or-sealed-window-halt",
+              "released-preserves-identity-adds-absence-evidence",
+              "next-launch-after-prior-release",
+              "comparator-has-no-candidate-seam"
+            ]
+          },
+          "reservationRules": [
+            "reference-identity-ownership",
+            "selection-install-same-synchronous-segment",
+            "expired-writes-after-install-inside-wrapper",
+            "single-transfer-at-execution-push",
+            "every-exit-releases-only-owned-untransferred",
+            "all-releases-by-reference",
+            "preserve-other-cycles-and-global-per-account-limits",
+            "backoff-pre-await-reference-release",
+            "post-await-backoff-queue-only",
+            "live-readmission-suppresses-mirror",
+            "fresh-same-segment-terminal-read-suppresses-enqueue",
+            "preserve-backoff-envelope-and-queue-age"
+          ],
+          "handshakeStatuses": [
+            "complete",
+            "halted"
+          ],
+          "handshakeRules": [
+            "complete-has-all-phase-acks-and-clock-evidence",
+            "halted-has-failure-observation-and-completed-prefix",
+            "unexecuted-steps-marked-halted-before-step",
+            "prefix-and-remainder-crosschecked-with-ledger-and-acks",
+            "missing-or-contradicting-evidence-refuses-publication",
+            "well-formed-operational-failure-publishes-fail"
+          ],
+          "operationalFailures": [
+            "late-broadcast",
+            "late-delivery",
+            "alignment-overrun",
+            "drain-breach",
+            "slot-stage-mismatch"
+          ],
+          "accountingRules": [
+            "scheduled-from-built-plan",
+            "attempted-from-terminal-ledger",
+            "unexecuted-enumerated-schedule-complement",
+            "complete-attempted-equals-scheduled-and-unexecuted-zero",
+            "halted-attempted-plus-unexecuted-equals-scheduled",
+            "sampler-lifecycle-independent-counts",
+            "never-admitted-participant-zero",
+            "post-admission-legitimate-attempts-retained",
+            "closure-zero-scoped-to-closedAdmissionEpoch",
+            "current-epoch-before-halt-remains-legitimate",
+            "nonclosing-partition-refuses-publication"
+          ],
+          "haltRecord": {
+            "kind": "e6-window-halt",
+            "schemaVersion": 1,
+            "variants": [
+              "before-start",
+              "after-partial-start",
+              "transition-failed"
+            ],
+            "haltPhases": [
+              "warmup",
+              "measurement",
+              "teardown"
+            ],
+            "measurementPhases": [
+              "entered",
+              "unentered"
+            ],
+            "rules": [
+              "phase-draining-entry-before-step-zero",
+              "phase-aware-machinery-and-halt-latch",
+              "unentered-measurement-unarmed-no-measurement-evidence",
+              "entered-unarmed-has-breach-entry-no-armed-evidence",
+              "armed-before-start-honest-zero-sample-lifecycle",
+              "partial-start-retains-timestamped-samples-and-recomputed-peaks",
+              "warmup-halt-preserves-own-lifecycle-measurement-unentered",
+              "transition-failed-binds-valid-completed-result",
+              "transition-failed-teardown-entered-and-armed",
+              "h2-seals-window-record-before-teardown-ack",
+              "parent-record-immutable",
+              "capture-inadequacy-recorded-false-when-honest",
+              "observation-floor-computed-never-waived",
+              "seals-bindings-ledger-and-statistics-still-validated",
+              "fabricated-evidence-refuses-publication"
+            ]
+          },
+          "teardownOutcome": {
+            "kind": "e6-teardown-outcome",
+            "schemaVersion": 1,
+            "attachmentVariants": [
+              "before-start",
+              "after-partial-start"
+            ],
+            "inlineOnlyVariants": [
+              "transition-failed"
+            ],
+            "outcomeClasses": [
+              "passed",
+              "failed"
+            ],
+            "parentBindingFields": [
+              "haltRecordRef",
+              "haltRecordDigest"
+            ],
+            "releaseReferenceFields": [
+              "outcomeClass",
+              "teardownOutcomeRef",
+              "teardownOutcomeDigest"
+            ],
+            "rules": [
+              "same-generation-window-binding-as-parent",
+              "exactly-one-attachment-for-attachment-variant",
+              "inline-complete-receipt-for-transition-failed",
+              "transition-failed-attachment-is-double-binding-refusal",
+              "complete-receipt-all-applicable-assertions",
+              "passed-all-assertions-ok",
+              "failed-at-least-one-evidence-consistent-not-ok",
+              "no-measurement-evidence-in-attachment",
+              "parent-seal-before-outcome-seal-before-release",
+              "parent-never-rewritten-or-resealed",
+              "pair-binds-parent-and-outcome-digests",
+              "failed-outcome-adds-quiescence-false-other-parent-evidence-preserved"
+            ]
+          },
+          "pairTerminalCombinations": [
+            "full/full",
+            "halt/full",
+            "full/halt",
+            "halt/halt",
+            "failed-transition-terminal/unentered",
+            "unentered/failed-transition-terminal",
+            "full/failed-transition-terminal",
+            "failed-transition-terminal/full",
+            "halt/failed-transition-terminal",
+            "failed-transition-terminal/halt"
+          ],
+          "pairTerminalRules": [
+            "first-boundary-failure-preempts-next-launch",
+            "final-boundary-failure-preserves-existing-peer",
+            "failed-slot-accepts-inline-transition-failure-or-halt-with-failed-outcome",
+            "unentered-only-with-failed-transition-terminal",
+            "never-two-failed-transition-terminals",
+            "unentered-declared-only-null-pids-zero-traffic-attempts-samples",
+            "aggregate-after-both-member-terminals-and-teardowns",
+            "eligibility-conjoins-own-member-evidence-both-gates-fail-on-ineligible-pair"
+          ],
+          "unenteredMember": {
+            "kind": "e6-member-unentered",
+            "schemaVersion": 1,
+            "bindingFields": [
+              "runId",
+              "pairIndex",
+              "windowId",
+              "member",
+              "profileDigest",
+              "scheduleDigest"
+            ],
+            "requiredMarkerFields": [
+              "declaredEntryRef",
+              "launchingFlipAtUtc",
+              "neverLaunched"
+            ],
+            "declaredEntryState": "declared",
+            "forbiddenStateFlips": [
+              "launching",
+              "ready",
+              "complete",
+              "released"
+            ],
+            "launchingFlipAtUtc": null,
+            "neverLaunched": true,
+            "nullIdentityFields": [
+              "mainPid",
+              "rendererPid",
+              "saturationUrl"
+            ],
+            "attemptedPerClass": 0,
+            "scheduleEnumeration": "all-built-schedule-identities",
+            "samplerEvidence": "explicit-absence-no-machinery-ever-registered",
+            "issueOrdering": "failed-window-halt-seal-before-unentered-issue",
+            "rules": [
+              "only-never-launched-successor-of-failed-transition-terminal",
+              "same-generation-member-profile-and-schedule-binding",
+              "declared-entry-reference-resolves",
+              "no-forbidden-flip-anywhere-in-pair-document",
+              "null-pids-and-saturation-url",
+              "no-spawn-launch-or-consumed-ready-record",
+              "zero-attributed-requests-bytes-and-attempts",
+              "attempted-zero-plus-exact-schedule-complement-closes",
+              "sampler-absence-record-never-fabricated-zeros",
+              "no-fault-clock-handshake-evidence",
+              "own-content-digest-and-seal-required",
+              "projection-preserves-evidence-and-empty-retained-sets",
+              "engagement-and-saturation-unavailable-never-passing",
+              "any-machine-check-failure-refuses-publication"
+            ]
+          },
+          "statistics": {
+            "functions": [
+              "pooledQuantilePair",
+              "peakBootstrapBound"
+            ],
+            "nullDifferenceAndBoundFields": [
+              "pointAbsMs",
+              "pointRelPercent",
+              "upper95AbsMs",
+              "upper95RelPercent"
+            ],
+            "availabilityField": "statisticAvailable",
+            "unavailableReasonField": "statisticUnavailableReason",
+            "emptyPopulationReason": "emptyPopulation",
+            "rules": [
+              "either-empty-side-short-circuits-before-arithmetic-and-resampling",
+              "empty-differences-and-bounds-null",
+              "empty-side-percentiles-remain-null",
+              "unavailable-marker-false-and-empty-side-disclosed",
+              "singleton-recomputes-exactly",
+              "unavailable-never-passes-ceiling",
+              "validator-recomputes-null-aware-shape",
+              "aggregate-and-both-receipts-propagate-verbatim",
+              "retained-generations-unchanged"
+            ]
+          }
+        },
+        "comparability": {
+          "optionalRequestTolerancePercent": 5,
+          "optionalByteTolerancePercent": 10,
+          "disclosure": [
+            "pair-documents-per-window-per-population",
+            "paired-regression-gate",
+            "crossprocess-critical-saturation-gate"
+          ]
+        }
+      },
+      "networkFaults": {
+        "stages": [
+          {
+            "name": "broadband-unmetered",
+            "bandwidthKbit": 50000,
+            "latencyMs": 20,
+            "lossPercent": 0
+          },
+          {
+            "name": "metered-lte",
+            "bandwidthKbit": 10000,
+            "latencyMs": 60,
+            "lossPercent": 1
+          },
+          {
+            "name": "weak-constrained",
+            "bandwidthKbit": 1000,
+            "latencyMs": 200,
+            "lossPercent": 2
+          }
+        ],
+        "outage": {
+          "countPerMeasurement": 1,
+          "durationSeconds": 30,
+          "reconnectWithinSeconds": 5,
+          "schedule": "fixed-mid-measurement"
+        }
+      },
+      "processMetricBoundaries": {
+        "measuredProcesses": [
+          "mailserver-gateway",
+          "setjoin-desktop-electron-main",
+          "setjoin-desktop-electron-renderer"
+        ],
+        "sampleIntervalMs": 1000
+      },
+      "clockAndSeeds": {
+        "clock": "Monotonic in-run deadlines plus canonical UTC wall time for expiry; a pair member never mixes clocks.",
+        "runSeed": "e6-pair-runbook-v3",
+        "orderSeed": "e6-order-v3",
+        "bootstrapSeed": "e6-bootstrap-v3"
+      }
+    },
+    {
+      "profileId": "e6-electron-macos-arm64-v1",
+      "profileVersion": 1,
+      "status": "frozen",
+      "frozenAtUtc": "2026-09-18T00:00:00Z",
+      "platform": "electron-macos",
+      "host": {
+        "os": "macOS 26.6.2 (25G83)",
+        "arch": "arm64",
+        "selection": "explicit"
+      },
+      "shell": {
+        "name": "electron",
+        "build": "43.4.1 (clients/desktop/electron, package spec ^43.2.0)",
+        "contractVersion": 1
+      },
+      "toolchain": {
+        "node": "v26.8.1",
+        "go": "go1.27.1",
+        "rust": "rustc 1.97.1"
+      },
+      "corpus": {
+        "accounts": 2,
+        "messagesPerAccount": 2000,
+        "attachmentsPerAccount": 40,
+        "cacheState": "cold-per-pair"
+      },
+      "clients": {
+        "pairRoles": [
+          "flag-off-comparator",
+          "execute-candidate"
+        ],
+        "buildBinding": "One identical webmail/desktop build per pair; only feature.connectivity_aware_sync and its policy mode differ between the pair members."
+      },
+      "criticalRequestClasses": [
+        {
+          "class": "queued-send",
+          "mixPercent": 20
+        },
+        {
+          "class": "draft-commit",
+          "mixPercent": 20
+        },
+        {
+          "class": "auth-revocation",
+          "mixPercent": 20
+        },
+        {
+          "class": "security-state",
+          "mixPercent": 20
+        },
+        {
+          "class": "delivery-receipt",
+          "mixPercent": 20
+        }
+      ],
+      "optionalSaturation": {
+        "admitted": true,
+        "description": "Background/opportunistic optional jobs are saturated for the whole measurement window (continuous queued work at the work-contract optional concurrency limits) while Critical classes run their declared mix."
+      },
+      "networkFaults": {
+        "stages": [
+          {
+            "name": "broadband-unmetered",
+            "bandwidthKbit": 50000,
+            "latencyMs": 20,
+            "lossPercent": 0
+          },
+          {
+            "name": "metered-lte",
+            "bandwidthKbit": 10000,
+            "latencyMs": 60,
+            "lossPercent": 1
+          },
+          {
+            "name": "weak-constrained",
+            "bandwidthKbit": 1000,
+            "latencyMs": 200,
+            "lossPercent": 2
+          }
+        ],
+        "outage": {
+          "countPerMeasurement": 1,
+          "durationSeconds": 30,
+          "reconnectWithinSeconds": 5,
+          "schedule": "fixed-mid-measurement"
+        }
+      },
+      "processMetricBoundaries": {
+        "measuredProcesses": [
+          "mailserver-gateway",
+          "setjoin-desktop-electron-main",
+          "setjoin-desktop-electron-renderer"
+        ],
+        "sampleIntervalMs": 1000
+      },
+      "clockAndSeeds": {
+        "clock": "Monotonic in-run deadlines plus canonical UTC wall time for expiry; a pair member never mixes clocks.",
+        "runSeed": "e6-pair-runbook-v1",
+        "orderSeed": "e6-order-v1",
+        "bootstrapSeed": "e6-bootstrap-v1"
+      }
+    }
+  ],
+  "unselectedPlatforms": [
+    {
+      "platform": "electron-windows",
+      "status": "unselected",
+      "rule": "freeze-before-any-results-qualify"
+    },
+    {
+      "platform": "electron-linux",
+      "status": "unselected",
+      "rule": "freeze-before-any-results-qualify"
+    },
+    {
+      "platform": "ios",
+      "status": "unselected",
+      "rule": "freeze-before-any-results-qualify"
+    },
+    {
+      "platform": "android",
+      "status": "unselected",
+      "rule": "freeze-before-any-results-qualify"
+    },
+    {
+      "platform": "harmonyos",
+      "status": "unselected",
+      "rule": "freeze-before-any-results-qualify"
+    }
+  ]
+}

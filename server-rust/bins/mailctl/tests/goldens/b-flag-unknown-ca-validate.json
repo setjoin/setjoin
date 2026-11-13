@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of ca validate:\n  -strict\n    \ttreat warnings as errors\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

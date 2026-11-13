@@ -1,0 +1,25 @@
+{
+  "case": "empty-queue",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "artifacts": [],
+      "audit": [],
+      "rows": {
+        "jobs": [],
+        "results": []
+      }
+    },
+    "before": {
+      "artifacts": [],
+      "audit": [],
+      "rows": {
+        "jobs": [],
+        "results": []
+      }
+    },
+    "notifies": []
+  },
+  "worker": "identity-operations"
+}

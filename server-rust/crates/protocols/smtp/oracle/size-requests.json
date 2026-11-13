@@ -1,0 +1,76 @@
+[
+  {
+    "name": "spilled-truncation",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<missing@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "repeat": "x",
+        "count": 1048576,
+        "timeout_ms": 30000,
+        "half_close": true,
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "maximum-plus-one",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO remote.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<missing@remote.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "",
+        "repeat": "x",
+        "count": 157286401,
+        "timeout_ms": 30000,
+        "half_close": true,
+        "lines": 1
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

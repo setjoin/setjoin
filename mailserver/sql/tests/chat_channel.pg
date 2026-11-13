@@ -1,0 +1,202 @@
+-- chat_channel.pg: channel/DM/membership reducers (Pillar A1 Task 4).
+-- chat_channel_members has no FK to users (V119), so bare bigint ids suffice
+-- as fixtures throughout — no mk_account() needed. chat_dm_open is the ONE
+-- exception (BZ170 target-user validation): every id it is called with as an
+-- OTHER/target member must resolve to a real `users` row, so those specific
+-- ids (603/604/605 below) get real fixture rows; every other reducer in this
+-- file still takes bare ids.
+-- Requires: chat_channel.sql, notify_chat_state.sql.
+BEGIN;
+SELECT plan(59);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture users (all bare ids, no users-table dependency).
+-- 601 = channel creator/owner. 602 = joins the public channel. 603 = never
+-- joins (browse 'joined=false' + DM third party). 604/605 = DM/group_dm
+-- partners. 610 = owner, 611 = admin, 612 = member (owner-succession fixture).
+
+-- 603/604/605 are also used as chat_dm_open TARGET ids below, so they need
+-- real `users` rows (BZ170 validation). 999 = a disabled user (never a
+-- target unless the disabled-target test below says so). 88888888 stays
+-- nonexistent on purpose (the nonexistent-target test).
+INSERT INTO domains (id, name, is_local) VALUES (96003, 'chat-channel.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (603, 'cc603', 96003, 'cc603@chat-channel.test', 'CC 603', TRUE),
+  (604, 'cc604', 96003, 'cc604@chat-channel.test', 'CC 604', TRUE),
+  (605, 'cc605', 96003, 'cc605@chat-channel.test', 'CC 605', TRUE),
+  (606, 'cc606', 96003, 'cc606@chat-channel.test', 'CC 606 (disabled)', FALSE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- ── chat_channel_create ──────────────────────────────────────────────────
+SELECT ok(chat_channel_create(601, 'eng') > 0, 'channel_create returns an id');
+SELECT currval(pg_get_serial_sequence('chat_channels', 'id')) AS eng_id \gset
+SELECT is((SELECT role FROM chat_channel_members WHERE channel_id = :eng_id AND user_id = 601),
+  'owner', 'creator seeded as owner');
+SELECT is((SELECT visibility FROM chat_channels WHERE id = :eng_id),
+  'public', 'default visibility is public');
+SELECT throws_ok($$ SELECT chat_channel_create(601, '') $$,
+  'BZ162', NULL, 'empty name raises BZ162');
+SELECT throws_ok($$ SELECT chat_channel_create(601, 'x', NULL, 'bogus') $$,
+  'BZ162', NULL, 'bad visibility raises BZ162');
+SELECT chat_channel_create(601, 'secret', NULL, 'private') AS priv_id \gset
+SELECT is((SELECT visibility FROM chat_channels WHERE id = :priv_id),
+  'private', 'private channel created with visibility private');
+
+-- ── chat_channel_join ────────────────────────────────────────────────────
+SELECT lives_ok(format($$ SELECT chat_channel_join(602, %s) $$, :eng_id),
+  'join a public channel succeeds');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 602), 1, 'join inserted one member row');
+SELECT is(notify_count('chat:601'), 1, 'join notifies the existing owner (member_added)');
+
+SELECT notify_count('chat:601') AS n_before_rejoin \gset
+SELECT lives_ok(format($$ SELECT chat_channel_join(602, %s) $$, :eng_id),
+  'rejoining the same public channel is idempotent (no error)');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 602), 1, 'still exactly one member row after rejoin');
+SELECT is(notify_count('chat:601'), :n_before_rejoin, 'rejoin fires no duplicate notify');
+
+SELECT throws_ok(format($$ SELECT chat_channel_join(603, %s) $$, :priv_id),
+  'BZ170', NULL, 'joining a private channel raises BZ170');
+SELECT throws_ok($$ SELECT chat_channel_join(603, 999999999) $$,
+  'BZ170', NULL, 'joining a nonexistent channel raises the SAME BZ170 (anti-oracle pin)');
+
+-- archived public channel is equally unjoinable (same anti-oracle code)
+SELECT chat_channel_create(601, 'stale') AS arch_id \gset
+SELECT chat_channel_update(601, :arch_id, NULL, NULL, true);
+SELECT throws_ok(format($$ SELECT chat_channel_join(603, %s) $$, :arch_id),
+  'BZ170', NULL, 'joining an archived channel raises BZ170');
+
+-- ── chat_browse_channels ─────────────────────────────────────────────────
+SELECT ok((SELECT jsonb_path_exists(chat_browse_channels(603),
+             format('$[*] ? (@.channelId == %s)', :eng_id)::jsonpath)),
+  'browse includes the public non-archived channel');
+SELECT is((SELECT (elem->>'joined')::boolean FROM jsonb_array_elements(chat_browse_channels(602)) elem
+            WHERE (elem->>'channelId')::bigint = :eng_id),
+  true, 'browse reports joined=true for a member');
+SELECT is((SELECT (elem->>'joined')::boolean FROM jsonb_array_elements(chat_browse_channels(603)) elem
+            WHERE (elem->>'channelId')::bigint = :eng_id),
+  false, 'browse reports joined=false for a non-member');
+SELECT is((SELECT (elem->>'memberCount')::int FROM jsonb_array_elements(chat_browse_channels(603)) elem
+            WHERE (elem->>'channelId')::bigint = :eng_id),
+  2, 'browse memberCount reflects owner + joined member');
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_browse_channels(603),
+             format('$[*] ? (@.channelId == %s)', :priv_id)::jsonpath)),
+  'browse never includes a private channel');
+SELECT ok(NOT (SELECT jsonb_path_exists(chat_browse_channels(603),
+             format('$[*] ? (@.channelId == %s)', :arch_id)::jsonpath)),
+  'browse never includes an archived channel');
+
+-- ── chat_channel_update ──────────────────────────────────────────────────
+SELECT lives_ok(format($$ SELECT chat_channel_update(601, %s, 'eng-team', 'roadmap') $$, :eng_id),
+  'owner renames + retopics the channel');
+SELECT is((SELECT name FROM chat_channels WHERE id = :eng_id), 'eng-team', 'rename applied');
+SELECT is((SELECT topic FROM chat_channels WHERE id = :eng_id), 'roadmap', 'topic applied');
+SELECT throws_ok(format($$ SELECT chat_channel_update(602, %s, 'nope') $$, :eng_id),
+  'BZ161', NULL, 'a plain member cannot update the channel (BZ161)');
+
+-- ── chat_channel_update: post/broadcast permission (Pillar A3 QoL Task 8) ──
+SELECT lives_ok(format(
+    $$ SELECT chat_channel_update(601, %s, NULL, NULL, NULL, 'admins', 'all') $$, :eng_id),
+  'owner flips post_permission and broadcast_permission');
+SELECT is((SELECT post_permission FROM chat_channels WHERE id = :eng_id),
+  'admins', 'post_permission applied');
+SELECT is((SELECT broadcast_permission FROM chat_channels WHERE id = :eng_id),
+  'all', 'broadcast_permission applied');
+SELECT throws_ok(format(
+    $$ SELECT chat_channel_update(602, %s, NULL, NULL, NULL, 'all', NULL) $$, :eng_id),
+  'BZ161', NULL, 'a plain member cannot update post/broadcast permission (BZ161)');
+SELECT throws_ok(format(
+    $$ SELECT chat_channel_update(601, %s, NULL, NULL, NULL, 'bogus', NULL) $$, :eng_id),
+  'BZ162', NULL, 'invalid post_permission value raises BZ162');
+SELECT throws_ok(format(
+    $$ SELECT chat_channel_update(601, %s, NULL, NULL, NULL, NULL, 'bogus') $$, :eng_id),
+  'BZ162', NULL, 'invalid broadcast_permission value raises BZ162');
+-- restore defaults so nothing downstream in this file inherits the flip.
+SELECT chat_channel_update(601, :eng_id, NULL, NULL, NULL, 'all', 'admins');
+
+-- ── chat_dm_open ─────────────────────────────────────────────────────────
+SELECT chat_dm_open(604, ARRAY[605]::bigint[]) AS dm_a \gset
+SELECT chat_dm_open(605, ARRAY[604]::bigint[]) AS dm_b \gset
+SELECT is(:dm_a::bigint, :dm_b::bigint, 'chat_dm_open dedups: both calls return the same id');
+SELECT is((SELECT count(*)::int FROM chat_channels WHERE member_key = '604:605'), 1,
+  'only one channel row exists for that member_key');
+SELECT is((SELECT kind FROM chat_channels WHERE id = :dm_a), 'dm', 'two distinct members → kind=dm');
+SELECT chat_dm_open(604, ARRAY[605, 603]::bigint[]) AS gdm_id \gset
+SELECT is((SELECT kind FROM chat_channels WHERE id = :gdm_id), 'group_dm', 'three distinct members → kind=group_dm');
+SELECT throws_ok($$ SELECT chat_dm_open(604, '{}'::bigint[]) $$,
+  'BZ162', NULL, 'a DM with <2 distinct members raises BZ162');
+
+-- BZ170 anti-oracle target validation: a nonexistent id and a disabled id
+-- both raise the SAME code, and neither creates a channel/member row.
+SELECT throws_ok($$ SELECT chat_dm_open(604, ARRAY[88888888]::bigint[]) $$,
+  'BZ170', NULL, 'opening a DM against a nonexistent target id raises BZ170');
+SELECT ok(NOT EXISTS (SELECT 1 FROM chat_channels WHERE member_key = '604:88888888'),
+  'the rejected nonexistent-target DM created no channel row');
+SELECT throws_ok($$ SELECT chat_dm_open(604, ARRAY[606]::bigint[]) $$,
+  'BZ170', NULL, 'opening a DM against a disabled target id raises the SAME BZ170 (anti-oracle pin)');
+
+-- ── chat_member_add ──────────────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_member_add(601, %s, 603) $$, :dm_a),
+  'BZ162', NULL, 'adding a member to a dm raises BZ162 (member sets are immutable)');
+SELECT throws_ok(format($$ SELECT chat_member_add(602, %s, 603) $$, :eng_id),
+  'BZ161', NULL, 'a plain member cannot add members (BZ161)');
+SELECT lives_ok(format($$ SELECT chat_member_add(601, %s, 603) $$, :eng_id),
+  'owner adds a new member');
+SELECT notify_count('chat:601') AS n_before_readd \gset
+SELECT lives_ok(format($$ SELECT chat_member_add(601, %s, 603) $$, :eng_id),
+  're-adding an existing member is a silent no-op');
+SELECT is(notify_count('chat:601'), :n_before_readd, 're-add fires no duplicate notify');
+
+-- ── chat_member_remove + owner succession ────────────────────────────────
+SELECT chat_channel_create(610, 'succ') AS succ_id \gset
+SELECT chat_member_add(610, :succ_id, 611);
+UPDATE chat_channel_members SET role = 'admin' WHERE channel_id = :succ_id AND user_id = 611;
+SELECT chat_member_add(610, :succ_id, 612);
+
+SELECT throws_ok(format($$ SELECT chat_member_remove(612, %s, 611) $$, :succ_id),
+  'BZ161', NULL, 'a plain member cannot remove another member (BZ161)');
+SELECT lives_ok(format($$ SELECT chat_member_remove(612, %s, 612) $$, :succ_id),
+  'self-leave is always allowed');
+
+-- restore the third member so the owner-succession fixture has an admin AND
+-- a plain member to choose between (longest-tenured admin wins).
+SELECT chat_member_add(610, :succ_id, 612);
+SELECT lives_ok(format($$ SELECT chat_member_remove(610, %s, 610) $$, :succ_id),
+  'last owner leaves the channel');
+SELECT is((SELECT count(*)::int FROM chat_channel_members
+            WHERE channel_id = :succ_id AND role = 'owner'), 1,
+  'the channel is never left ownerless');
+SELECT is((SELECT role FROM chat_channel_members WHERE channel_id = :succ_id AND user_id = 611),
+  'owner', 'the longest-tenured admin is auto-promoted to owner');
+SELECT is(last_notify_event('chat:611'), 'owner_changed', 'owner succession fires owner_changed');
+
+SELECT throws_ok(format($$ SELECT chat_member_remove(604, %s, 605) $$, :dm_a),
+  'BZ162', NULL, 'removing members from a dm is blocked (member sets are immutable)');
+
+-- ── chat_member_set_notif (Pillar A3 QoL Task 7) ─────────────────────────
+SELECT throws_ok(format($$ SELECT chat_member_set_notif(690, %s, 'mentions') $$, :eng_id),
+  'BZ163', NULL, 'a non-member cannot set their notif_level (BZ163)');
+SELECT throws_ok(format($$ SELECT chat_member_set_notif(602, %s, 'bogus') $$, :eng_id),
+  'BZ162', NULL, 'an invalid notif_level value raises BZ162');
+SELECT is((SELECT notif_level FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 602), 'all',
+  'notif_level defaults to all before any set call');
+SELECT lives_ok(format($$ SELECT chat_member_set_notif(602, %s, 'mentions') $$, :eng_id),
+  'a member sets their own notif_level to mentions');
+SELECT is((SELECT notif_level FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 602), 'mentions',
+  'notif_level updated to mentions');
+SELECT lives_ok(format($$ SELECT chat_member_set_notif(602, %s, 'none') $$, :eng_id),
+  'a member mutes the channel (notif_level=none)');
+SELECT is((SELECT notif_level FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 602), 'none',
+  'notif_level updated to none');
+-- setting one member's notif_level never touches another member's row.
+SELECT is((SELECT notif_level FROM chat_channel_members
+            WHERE channel_id = :eng_id AND user_id = 601), 'all',
+  'a different member''s notif_level is untouched by 602''s change');
+
+SELECT * FROM finish();
+ROLLBACK;

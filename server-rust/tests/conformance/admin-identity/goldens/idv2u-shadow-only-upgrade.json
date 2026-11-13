@@ -1,0 +1,342 @@
+{
+  "case": "only-upgrade",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "identity.write",
+          "target": "/admin/identity/v2/upgrade/shadow"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/identity/v2/upgrade/shadow",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "cohort": [],
+          "events": [],
+          "jobs": [
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000006",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000001",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000002",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "actor_user_id": "<other>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000003",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000004",
+              "kind": "upgrade_backfill",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": null,
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000005",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "expired",
+              "terminal": true
+            }
+          ],
+          "sources": [
+            {
+              "generation": 3,
+              "key": "admin9-alpha",
+              "read_mode": "shadow",
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "generation": 2,
+              "key": "admin9-oidc",
+              "read_mode": "canary",
+              "state": "active",
+              "updated_by": null
+            }
+          ],
+          "toggles": [
+            {
+              "enabled": true,
+              "key": "feature.identity_model_v2"
+            },
+            {
+              "enabled": true,
+              "key": "feature.identity_normalized_reads"
+            },
+            {
+              "enabled": false,
+              "key": "feature.identity_transitions"
+            }
+          ]
+        },
+        "before": {
+          "cohort": [],
+          "events": [],
+          "jobs": [
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000006",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000001",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000002",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "queued",
+              "terminal": false
+            },
+            {
+              "actor_user_id": "<other>",
+              "cancel_requested": false,
+              "has_artifact": true,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000003",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000004",
+              "kind": "upgrade_backfill",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": null,
+              "state": "completed",
+              "terminal": true
+            },
+            {
+              "actor_user_id": "<admin>",
+              "cancel_requested": false,
+              "has_artifact": false,
+              "has_transition": false,
+              "id": "96100000-0000-4000-8000-000000000005",
+              "kind": "diagnostics",
+              "next_action": "wait",
+              "reason": "seeded",
+              "request": {
+                "sinceSeconds": 60
+              },
+              "source": "admin9-alpha",
+              "state": "expired",
+              "terminal": true
+            }
+          ],
+          "sources": [
+            {
+              "generation": 3,
+              "key": "admin9-alpha",
+              "read_mode": "shadow",
+              "state": "active",
+              "updated_by": null
+            },
+            {
+              "generation": 2,
+              "key": "admin9-oidc",
+              "read_mode": "canary",
+              "state": "active",
+              "updated_by": null
+            }
+          ],
+          "toggles": [
+            {
+              "enabled": true,
+              "key": "feature.identity_model_v2"
+            },
+            {
+              "enabled": true,
+              "key": "feature.identity_normalized_reads"
+            },
+            {
+              "enabled": false,
+              "key": "feature.identity_transitions"
+            }
+          ]
+        },
+        "table": "identity"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/identity/v2/upgrade/shadow",
+      "method": "GET",
+      "path": "/admin/identity/v2/upgrade/shadow",
+      "query": "?sourceKey=admin9-alpha"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin9-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "GET /admin/identity/v2/upgrade/shadow"
+}

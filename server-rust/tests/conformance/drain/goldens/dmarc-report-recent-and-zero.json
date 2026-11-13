@@ -1,0 +1,32 @@
+{
+  "case": "dmarc-report-recent-and-zero",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "queued": [],
+    "remaining": [
+      [
+        "fresh.dmarc5-oracle.test",
+        "mailto:rua@reports.test",
+        3,
+        0,
+        3,
+        0,
+        0,
+        0,
+        null
+      ],
+      [
+        "zero.dmarc5-oracle.test",
+        "mailto:rua@reports.test",
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        null
+      ]
+    ]
+  }
+}

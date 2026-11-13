@@ -1,0 +1,201 @@
+{
+  "case": "denied",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "exchange.assessment.read",
+          "target": "/admin/exchange-replacement/projects/<project-a>/runs"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/exchange-replacement/projects/<project-a>/runs",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "before": {
+          "projects": [
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<admin>",
+              "domain_id": "<domain-a>",
+              "id": "<project-a>",
+              "name": "Project A",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "domain_id": "<domain-b>",
+              "id": "<project-b>",
+              "name": "Project B",
+              "retention_until": null,
+              "state": "active",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "runs": [
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-a>",
+              "project_id": "<project-a>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            },
+            {
+              "catalog_version": 1,
+              "checkpoint": {},
+              "collector_version": "1",
+              "completed_at": null,
+              "created_at": "<timestamp>",
+              "created_by": "<other>",
+              "error_code": null,
+              "generation": 1,
+              "id": "<run-b>",
+              "project_id": "<project-b>",
+              "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "registry_version": 1,
+              "state": "created",
+              "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "support_cell_id": "EX2019-ONPREM-INITIAL",
+              "updated_at": "<timestamp>"
+            }
+          ]
+        },
+        "table": "exchange_assessment"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/exchange-replacement/projects/{projectId}/runs",
+      "method": "GET",
+      "path": "/admin/exchange-replacement/projects/{projectId}/runs"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mbox3"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "GET /admin/exchange-replacement/projects/{projectId}/runs"
+}

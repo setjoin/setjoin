@@ -1,0 +1,51 @@
+-- pgTAP: ca_auth_strength_set.pg — CRUD + built-in guard + notify.
+BEGIN;
+SELECT plan(3);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (95401, 'as.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (84002, 'as_actor', 95401, 'actor@as.test', 'AS Actor', TRUE)
+  ON CONFLICT DO NOTHING;
+
+-- 1. Custom strength upsert: returns a valid id.
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  SELECT ca_auth_strength_set(
+    NULL,
+    'fido2-only',
+    'FIDO2 Only',
+    '[["webauthn"]]'::jsonb,
+    'aal2',
+    false,
+    84002,
+    '192.0.2.2'::inet
+  ) INTO v_id;
+  IF v_id IS NULL OR v_id <= 0 THEN
+    RAISE EXCEPTION 'insert returned unexpected id: %', v_id;
+  END IF;
+END $$;
+SELECT ok(true, 'custom auth_strength upsert (insert) returns a positive id');
+
+-- 2. Built-in soft-delete is rejected.
+SELECT throws_ok(
+  $$ SELECT ca_auth_strength_set(
+       (SELECT id FROM auth_strengths WHERE builtin = true LIMIT 1),
+       'phishing-resistant', 'Phishing-resistant MFA',
+       '[["webauthn"]]'::jsonb,
+       'aal2',
+       true,
+       84002,
+       '192.0.2.2'::inet
+     ) $$,
+  NULL, NULL,
+  'soft-deleting a built-in auth strength is rejected');
+
+-- 3. ca_notify_policy_change fires on conditional_access channel.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'ca_auth_strength_set fires ca_notify_policy_change → conditional_access channel');
+
+SELECT finish();
+ROLLBACK;

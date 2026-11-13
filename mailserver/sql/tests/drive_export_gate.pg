@@ -1,0 +1,122 @@
+-- mailserver/sql/tests/drive_export_gate.pg — decide-time grant mint (G2) +
+-- single-use consume (invariant I-7), including the AUTOPLAN batch-2 #1
+-- SET LOCAL ROLE setjoin_app leg (a non-member approver deciding must land
+-- under REAL RLS, not just superuser pgTAP — that's what proves the
+-- drive_export_approval_decide DEFINER/setjoin_worker footer is load-bearing).
+BEGIN;
+SELECT plan(20);
+
+UPDATE feature_toggles SET enabled = true WHERE key IN ('feature.drive','feature.drive_compliance');
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (94100, 'dxg.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, manager_id) OVERRIDING SYSTEM VALUE VALUES
+  (94101, 'dxg_owner', 94100, 'own@dxg.test', 'Owner',   TRUE, 94102),
+  (94102, 'dxg_mgr',   94100, 'mgr@dxg.test', 'Manager', TRUE, NULL),
+  (94103, 'dxg_out',   94100, 'out@dxg.test', 'Outsider',TRUE, NULL);
+
+SELECT drive_space_create(94101, 'Reg4', 'regular') AS id \gset reg_
+SELECT drive_space_create(94101, 'Gxp4', 'gxp', false, 30, 'compliance') AS id \gset gxp_
+INSERT INTO drive_nodes (id, space_id, kind, name, created_by) OVERRIDING SYSTEM VALUE VALUES
+  (94110, :reg_id, 'file', 'r4.pdf', 94101), (94111, :gxp_id, 'file', 'g4.pdf', 94101);
+INSERT INTO drive_files (node_id, space_id) VALUES (94110, :reg_id), (94111, :gxp_id);
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g',            repeat('a',64), 10, 'drive/g/'||repeat('a',64), NULL, NULL),
+  ('s'||:gxp_id,   repeat('b',64), 10, 'drive/s'||:gxp_id||'/'||repeat('b',64),
+   now() + interval '30 days', now() + interval '30 days');   -- gxp chunk, WORM already applied
+INSERT INTO drive_file_versions (id, file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  OVERRIDING SYSTEM VALUE VALUES
+  (94120, 94110, :reg_id, repeat('a',64), 10, 94101),
+  (94121, 94111, :gxp_id, repeat('b',64), 10, 94101);
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES
+  (94120, 0, 'g', repeat('a',64)), (94121, 0, 's'||:gxp_id, repeat('b',64));
+
+SELECT set_config('app.current_user_id', '94101', false);
+
+-- ── Step A: request -> pending -> approve, G2 decide-time TTL ───────────────
+SELECT drive_export_request(94101, 94121, 'download', repeat('7',64));
+SELECT id AS reqid FROM approval_requests WHERE payload->>'token_hash' = repeat('7',64) \gset
+
+-- G2: age the request 3 days PAST the 60-min grant TTL, then approve.
+UPDATE approval_requests SET created_at = now() - interval '3 days' WHERE id = :reqid;
+SELECT is(drive_export_approval_decide(:reqid, 94102, 'approve', 'e-sig ok'), 'applied',
+          'approve -> applied');
+SELECT ok((SELECT expires_at > now() + interval '55 minutes'
+             FROM drive_export_grants WHERE token_hash = repeat('7',64)),
+          'G2: expires_at anchored at DECIDE time -- a request aged past the TTL still yields a live grant');
+SELECT is((SELECT minted_by FROM drive_export_grants WHERE token_hash = repeat('7',64)), 94102::bigint,
+          'grant minted_by = approver');
+SELECT is((SELECT grantee FROM drive_export_grants WHERE token_hash = repeat('7',64)), 94101::bigint,
+          'grantee = original requester');
+SELECT is((SELECT approval_id FROM drive_export_grants WHERE token_hash = repeat('7',64)), :reqid::bigint,
+          'grant links to the approval row (the e-signature record)');
+
+-- ── Step B: consume -- wrong grantee / unknown / expired / double-consume ──
+SELECT throws_ok($$SELECT drive_export_consume(94103, repeat('7',64))$$, 'BZ146', NULL,
+                 'wrong grantee -> BZ146');
+SELECT throws_ok($$SELECT drive_export_consume(94101, repeat('9',64))$$, 'BZ146', NULL,
+                 'unknown token -> BZ146 (indistinguishable)');
+SELECT is(drive_export_consume(94101, repeat('7',64))->>'versionId', '94121', 'consume returns versionId');
+SELECT ok((SELECT consumed_at IS NOT NULL FROM drive_export_grants WHERE token_hash = repeat('7',64)),
+          'consumed_at flipped');
+SELECT throws_ok($$SELECT drive_export_consume(94101, repeat('7',64))$$, 'BZ146', NULL,
+                 'double-consume -> BZ146 (single-use)');
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE action = 'export.download') >= 1,
+          'consume + audit row in one txn');
+
+-- ── Step C: deny path mints NOTHING + audits export.deny ────────────────────
+SELECT drive_export_request(94101, 94121, 'print', repeat('8',64));
+SELECT id AS reqid2 FROM approval_requests WHERE payload->>'token_hash' = repeat('8',64) \gset
+SELECT is(drive_export_approval_decide(:reqid2, 94102, 'deny', 'nope'), 'denied', 'deny -> denied');
+SELECT is((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('8',64)), 0::bigint,
+          'no grant on deny');
+SELECT ok((SELECT count(*) FROM drive_audit_log WHERE action = 'export.deny') >= 1, 'export.deny audited');
+
+-- ── Step D: expired grant refuses (regular-space direct grant, force-expired) ─
+SELECT drive_export_request(94101, 94120, 'download', repeat('c',64));
+UPDATE drive_export_grants SET expires_at = now() - interval '1 minute' WHERE token_hash = repeat('c',64);
+SELECT throws_ok($$SELECT drive_export_consume(94101, repeat('c',64))$$, 'BZ146', NULL,
+                 'expired grant -> BZ146');
+
+-- ── Step E: AUTOPLAN batch-2 #1 -- non-member approver decides under REAL
+-- RLS (setjoin_app), not superuser. 94102 (the manager/approver) holds no
+-- drive_space_members row in the gxp space -- without the DEFINER/
+-- setjoin_worker footer, drive_space_members-style writes would 42501 the
+-- way drive_folder_member_grant's do; here the write is drive_export_grants
+-- (minted_by = approver, so INSERT's WITH CHECK alone would pass) plus the
+-- drive_access_audit call and the approval_requests re-read/update, so this
+-- leg is the load-bearing proof the whole wrapper -- not just one INSERT --
+-- clears RLS as a genuinely non-member caller.
+SELECT drive_export_request(94101, 94121, 'download', repeat('d',64));
+SELECT id AS reqid3 FROM approval_requests WHERE payload->>'token_hash' = repeat('d',64) \gset
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '94102', true);
+SELECT is(drive_export_approval_decide(:reqid3, 94102, 'approve', 'sig'), 'applied',
+          'non-member approver decides under setjoin_app (real RLS) -- DEFINER footer proof');
+RESET ROLE;
+SELECT ok((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('d',64)) = 1,
+          'grant landed while called as setjoin_app');
+
+-- RLS cross-tenant DENIAL backstop: under the constrained role, a NON-grantee
+-- cannot SELECT another user's grant (the grantee-read policy) — proves the
+-- FORCE'd drive_export_grants RLS binds, distinct from the reducer's own
+-- grantee check (the wrong-grantee -> BZ146 assertion above is app-logic).
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '94103', true);  -- outsider, not the grantee (94101)
+SELECT is((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('d',64))::int, 0,
+          'RLS: a non-grantee cannot see another user''s export grant (grantee-read policy)');
+RESET ROLE;
+
+-- ── Step F: I-7 rollback leg -- an aborted consume leaves the grant
+-- unconsumed AND writes no audit row (no partial effect survives abort).
+SELECT drive_export_request(94101, 94120, 'download', repeat('e',64));
+SELECT id AS gid5 FROM drive_export_grants WHERE token_hash = repeat('e',64) \gset
+SAVEPOINT rollback_leg;
+SELECT drive_export_consume(94101, repeat('e',64));
+ROLLBACK TO SAVEPOINT rollback_leg;
+SELECT ok((SELECT consumed_at IS NULL FROM drive_export_grants WHERE id = :gid5),
+          'I-7: aborted consume leaves the grant unconsumed');
+SELECT ok(NOT EXISTS (SELECT 1 FROM drive_audit_log WHERE (after_state->>'grant_id')::bigint = :gid5),
+          'I-7: aborted consume writes no audit row');
+
+SELECT * FROM finish();
+ROLLBACK;

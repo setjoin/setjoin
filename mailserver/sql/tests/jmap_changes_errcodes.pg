@@ -1,0 +1,20 @@
+BEGIN;
+SELECT plan(6);
+-- Isolated domain so IDs don't collide with mk_account() sequences
+INSERT INTO domains (name, is_local) VALUES ('erccodetest.local', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+-- Mailbox 950 with known states for error-code assertions
+INSERT INTO mailboxes (id, domain_id, email, display_name, jmap_mailbox_state, jmap_thread_state, jmap_email_state)
+  VALUES (950, (SELECT id FROM domains WHERE name='erccodetest.local'), 'erc@erccodetest.local', 'ERCTest', 5, 5, 5)
+  ON CONFLICT (id) DO NOTHING;
+-- email
+SELECT throws_ok($$SELECT jmap_email_changes(950,'9999')$$, 'BZ011', NULL, 'email future → BZ011');
+SELECT throws_ok($$SELECT jmap_email_changes(424243,'0')$$, 'BZ006', NULL, 'email missing → BZ006');
+-- mailbox (was bare-string)
+SELECT throws_ok($$SELECT jmap_mailbox_changes(950,'9999')$$, 'BZ011', NULL, 'mailbox future → BZ011');
+SELECT throws_ok($$SELECT jmap_mailbox_changes(424243,'0')$$, 'BZ006', NULL, 'mailbox missing → BZ006');
+-- thread (was bare-string)
+SELECT throws_ok($$SELECT jmap_thread_changes(950,'9999')$$, 'BZ011', NULL, 'thread future → BZ011');
+SELECT throws_ok($$SELECT jmap_thread_changes(424243,'0')$$, 'BZ006', NULL, 'thread missing → BZ006');
+SELECT finish();
+ROLLBACK;

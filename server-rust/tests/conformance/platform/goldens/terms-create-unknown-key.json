@@ -1,0 +1,90 @@
+{
+  "case": "unknown-key",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "tou.create",
+        "after_state": {
+          "name": "n",
+          "version": 1
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "",
+        "occurred_at": "<timestamp>",
+        "target_id": 9200,
+        "target_type": "terms_of_use",
+        "user_id": "<admin>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "body_md": "x",
+            "created_at": "<timestamp>",
+            "enabled": false,
+            "id": 9200,
+            "lang": "en",
+            "name": "n",
+            "require_scroll": false,
+            "version": 1
+          }
+        ],
+        "before": [],
+        "table": "terms_of_use"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"name\":\"n\",\"version\":1,\"body_md\":\"x\",\"extra\":{\"a\":[1,2]}}",
+      "external_path": "/api/admin/terms-of-use",
+      "method": "POST",
+      "path": "/admin/terms-of-use"
+    },
+    "response": {
+      "body": "{\"id\":9200}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "12"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /admin/terms-of-use"
+}

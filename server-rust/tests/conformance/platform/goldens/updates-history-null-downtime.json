@@ -1,0 +1,83 @@
+{
+  "case": "null-downtime",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "downtime": null,
+            "id": 9201,
+            "status": "success"
+          },
+          {
+            "downtime": 7,
+            "id": 9202,
+            "status": "failed"
+          }
+        ],
+        "before": [
+          {
+            "downtime": null,
+            "id": 9201,
+            "status": "success"
+          },
+          {
+            "downtime": 7,
+            "id": 9202,
+            "status": "failed"
+          }
+        ],
+        "table": "upgrade_history"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/system/upgrade/status",
+      "method": "GET",
+      "path": "/admin/system/upgrade/status"
+    },
+    "response": {
+      "body": "[{\"id\":9201,\"from_version\":\"v1\",\"to_version\":\"v2\",\"mode\":\"hot_reload\",\"ddl_classification\":\"additive_only\",\"status\":\"success\",\"started_at\":\"2026-10-03T10:00:00Z\",\"completed_at\":\"2026-10-03T10:00:09Z\",\"downtime_ms\":0}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "218"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/system/upgrade/status"
+}

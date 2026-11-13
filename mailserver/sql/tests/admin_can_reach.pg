@@ -1,0 +1,178 @@
+-- pgTAP: admin_can_reach.pg
+--
+-- admin_can_reach(p_actor, p_target) — the single OU-scope enforcement primitive.
+-- True iff the actor has an active assignment whose domain AND OU both cover the
+-- target. Union ACROSS assignments (EXISTS), intersection WITHIN one assignment.
+--
+-- 16 assertions:
+--   1. global actor reaches anyone
+--   2. /eng-scoped reaches /eng/backend (descendant)
+--   3. /eng-scoped does NOT reach /sales (sibling)
+--   4. path boundary: /eng does NOT match /engineering (prefix trap)
+--   5. /eng-scoped CANNOT reach a dept-less target
+--   6. global CAN reach a dept-less target
+--   7. UNION via X: multi-assignment actor reaches a domain-5 user via {domain 5, OU NULL}
+--   8. UNION via Y: multi-assignment actor reaches an /eng user via {global, OU /eng}
+--   9. expired assignment does not reach (expires_at filter)
+--  10. domain-scoped actor reaches a guest by immutable host_domain_id even
+--      though users.domain_id is the routing-only guest.invalid domain
+--  11. another-domain actor cannot reach that guest
+--  12. OU-scoped actor still cannot reach a department-less guest
+--  13. set-scoped actor reaches a set-covered user
+--  14. set-scoped actor does not reach an uncovered user
+--  15. literal OU descendant is reached when the path contains '_'
+--  16. LIKE-wildcard sibling is not reached
+--
+-- Seed ids: 954xx (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(16);
+
+-- ── Domains ──────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95405, 'd5.test', TRUE),   -- "domain 5"
+  (95409, 'd9.test', TRUE);   -- "domain 9"
+
+-- ── Departments — path values chosen to exercise the boundary ────────────────
+--   /eng           parent
+--   /eng/backend   descendant (must be reached by /eng scope)
+--   /sales         sibling    (must NOT be reached by /eng scope)
+--   /engineering   prefix trap (must NOT be matched by /eng — the '/%' boundary)
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95401, 'Engineering',     '/eng',         'ou=Engineering,dc=d,dc=test'),
+  (95402, 'Backend',         '/eng/backend', 'ou=Backend,ou=Engineering,dc=d,dc=test'),
+  (95403, 'Sales',           '/sales',       'ou=Sales,dc=d,dc=test'),
+  (95404, 'EngineeringFull', '/engineering', 'ou=EngineeringFull,dc=d,dc=test');
+
+-- ── Users ────────────────────────────────────────────────────────────────────
+-- Targets:
+--   95411 backend_user      domain 5, dept /eng/backend  (descendant of /eng)
+--   95412 sales_user        domain 5, dept /sales        (sibling)
+--   95413 engineering_user  domain 5, dept /engineering  (prefix trap)
+--   95414 deptless_user     domain 5, dept NULL          (no department)
+--   95415 domain5_sales_user domain 5, dept /sales       (reached by multi via X = {domain 5, OU NULL})
+--   95416 eng_domain9_user  domain 9, dept /eng          (reached by multi via Y = {global, OU /eng})
+-- Actors:
+--   95421 global_actor      (no domain, no OU)
+--   95422 domain5_actor     (domain 5, no OU)
+--   95423 eng_actor         (global domain, OU /eng)
+--   95424 multi_actor       (two assignments: X and Y)
+--   95425 expired_actor     (global assignment expired 1 day ago — must not reach)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95411, 'backend_user',       95405, 95402, 'backend@d5.test',     'BU', TRUE),
+  (95412, 'sales_user',         95405, 95403, 'sales@d5.test',       'SU', TRUE),
+  (95413, 'engineering_user',   95405, 95404, 'engfull@d5.test',     'EU', TRUE),
+  (95414, 'deptless_user',      95405, NULL,  'deptless@d5.test',    'DU', TRUE),
+  (95415, 'domain5_sales_user', 95405, 95403, 'd5sales@d5.test',     'D5', TRUE),
+  (95416, 'eng_domain9_user',   95409, 95401, 'eng@d9.test',         'E9', TRUE),
+  (95421, 'global_actor',       95405, NULL,  'global@d5.test',      'GA', TRUE),
+  (95422, 'domain5_actor',      95405, NULL,  'd5actor@d5.test',     'D5A', TRUE),
+  (95423, 'eng_actor',          95405, NULL,  'engactor@d5.test',    'EA', TRUE),
+  (95424, 'multi_actor',        95405, NULL,  'multi@d5.test',       'MA', TRUE),
+  (95425, 'expired_actor',      95405, NULL,  'expired@d5.test',     'XA', TRUE),
+  (95427, 'domain9_actor',      95409, NULL,  'actor@d9.test',       'D9A', TRUE),
+  (95419, 'guest_external', (SELECT id FROM public.domains WHERE name='guest.invalid'),
+   NULL, 'external@outside.test', 'Guest', TRUE);
+
+INSERT INTO public.guest_accounts
+  (user_id, invited_email, invited_by, invited_by_email, host_domain_id, status)
+VALUES
+  (95419, 'external@outside.test', 95421, 'global@d5.test', 95405, 'active');
+
+-- ── Role groups ──────────────────────────────────────────────────────────────
+-- rg_global  : domain_scope NULL  (all domains)
+-- rg_dom5    : domain_scope 95405 (domain 5 only)
+-- rg_global2 : domain_scope NULL  (all domains) — second global group so the
+--              multi_actor can hold TWO assignments (unique (user_id, role_group_id))
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95401, 'acr-global',  ARRAY['users.read'], NULL),
+  (95402, 'acr-dom5',    ARRAY['users.read'], 95405),
+  (95403, 'acr-global2', ARRAY['users.read'], NULL);
+
+-- ── Assignments ──────────────────────────────────────────────────────────────
+-- global_actor  : rg_global, no domain override, no OU  → reaches everyone
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95421, 95401, 95421);
+-- domain5_actor : rg_dom5 (domain 5), no OU
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95422, 95402, 95421);
+-- eng_actor     : rg_global (global domain) + OU /eng
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95423, 95401, 'ou', 95401, 95421);
+
+-- multi_actor — TWO SEPARATE assignment rows (this is the union test):
+--   X = {domain 5 (via domain_override), OU NULL}  → reaches any domain-5 user
+--   Y = {global domain (rg_global), OU /eng}       → reaches any /eng user in any domain
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, domain_override, granted_by)
+  VALUES (95424, 95401, 95405, 95421);                              -- X (rg_global + domain override 5)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95424, 95403, 'ou', 95401, 95421);                        -- Y (rg_global2 + OU /eng)
+-- expired_actor : rg_global (would reach all) but expired 1 day ago → filtered out
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by, expires_at)
+  VALUES (95425, 95401, 95421, now() - interval '1 day');
+-- domain9_actor: domain 9, no OU
+INSERT INTO public.admin_role_assignments
+  (user_id, role_group_id, domain_override, granted_by)
+  VALUES (95427, 95403, 95409, 95421);
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+SELECT ok(admin_can_reach(95421, 95411), 'global reaches all');
+SELECT ok(admin_can_reach(95423, 95411), 'descendant reached (/eng -> /eng/backend)');
+SELECT ok(NOT admin_can_reach(95423, 95412), 'sibling not reached (/eng -/> /sales)');
+SELECT ok(NOT admin_can_reach(95423, 95413), '/eng != /engineering (path boundary)');
+SELECT ok(NOT admin_can_reach(95423, 95414), 'OU-scoped misses dept-less');
+SELECT ok(admin_can_reach(95421, 95414), 'global reaches dept-less');
+SELECT ok(admin_can_reach(95424, 95415), 'union: domain-5 reached via X');
+SELECT ok(admin_can_reach(95424, 95416), 'union: /eng reached via Y');
+SELECT ok(NOT admin_can_reach(95425, 95411), 'expired assignment does not reach');
+SELECT ok(admin_can_reach(95422, 95419),
+  'domain-5 actor reaches guest by host domain, not guest.invalid routing domain');
+SELECT ok(NOT admin_can_reach(95427, 95419),
+  'domain-9 actor cannot reach guest owned by domain 5');
+SELECT ok(NOT admin_can_reach(95423, 95419),
+  'OU-scoped actor still misses department-less guest');
+
+-- ── 'set'-scoped grant ───────────────────────────────────────────────────────
+-- A set containing dept /s covers users in that dept, not others.
+-- Uses existing domain 95405 for user FKs; role_group_id=1 (Super Admin) is seeded.
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE
+  VALUES (98000, 'S', '/s', 'ou=S,dc=d,dc=test');
+INSERT INTO public.users (id, username, domain_id, email, display_name, department_id)
+  OVERRIDING SYSTEM VALUE VALUES
+  (98100, 'covered',   95405, 'covered@d5.test',   'Covered',   98000),
+  (98101, 'uncovered', 95405, 'uncovered@d5.test', 'Uncovered', NULL),
+  (98300, 'setactor',  95405, 'setactor@d5.test',  'SetActor',  NULL);
+INSERT INTO public.admin_scope_sets (id, name) VALUES (98200, 'reach-set');
+INSERT INTO public.admin_scope_set_members (set_id, member_type, member_id)
+  VALUES (98200, 'ou', 98000);
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id)
+  VALUES (98300, 1, 'set', 98200);
+
+SELECT ok(admin_can_reach(98300, 98100), 'set-scoped actor reaches a set-covered user');
+SELECT ok(NOT admin_can_reach(98300, 98101), 'set-scoped actor does not reach an uncovered user');
+
+-- ── Wildcard-leak regression (OU path with LIKE-special chars) ────────────────
+-- A department path may legally contain '_' or '%' (ValidateResourceName allows
+-- them). The old `LIKE scoped || '/%'` treated '_' as a single-char wildcard, so
+-- an actor scoped to '/it_ops' wrongly reached '/itxops/...'. starts_with (a
+-- literal prefix test) closes the leak while still covering true descendants.
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95406, 'ITOps',     '/it_ops',     'ou=ITOps,dc=d,dc=test'),
+  (95407, 'ITxOpsWin', '/itxops/win', 'ou=ITxOpsWin,dc=d,dc=test'),
+  (95408, 'ITOpsWin',  '/it_ops/win', 'ou=ITOpsWin,dc=d,dc=test');
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95417, 'itops_win_user', 95405, 95408, 'itopswin@d5.test',   'IOW', TRUE),  -- literal descendant of /it_ops
+  (95418, 'itxops_user',    95405, 95407, 'itxops@d5.test',     'IXO', TRUE),  -- wildcard-trap sibling
+  (95426, 'itops_actor',    95405, NULL,  'itopsactor@d5.test', 'IOA', TRUE);
+-- actor scoped to OU /it_ops on the global-domain group (only the OU bound matters)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95426, 95401, 'ou', 95406, 95421);
+
+SELECT ok(admin_can_reach(95426, 95417), 'OU /it_ops reaches literal descendant /it_ops/win');
+SELECT ok(NOT admin_can_reach(95426, 95418), 'OU /it_ops does NOT reach /itxops/win (LIKE _ wildcard leak closed)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/upgrade/status",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"schemaVersion\": 167,\n  \"masterEnabled\": true,\n  \"normalizedReadsEnabled\": false,\n  \"transitionsEnabled\": false,\n  \"sources\": {\n    \"total\": 1,\n    \"shadow\": 1,\n    \"canary\": 0,\n    \"normalized\": 0,\n    \"cohortMembers\": 0\n  },\n  \"blockers\": {\n    \"criticalDivergences\": 0,\n    \"pendingCandidates\": 0,\n    \"pendingEffects\": 0\n  }\n}\n",
+  "stderr": "",
+  "exit": 0
+}

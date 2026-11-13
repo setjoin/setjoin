@@ -1,0 +1,23 @@
+{
+  "case": "keys-cors-denied",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/keys"
+    },
+    "response": {
+      "body": "{\"keys\":[{\"use\":\"sig\",\"kty\":\"RSA\",\"kid\":\"K1J7kz73PeVSzguZuSJUvo4U84pun6ozieYbBELisfI\",\"alg\":\"RS256\",\"n\":\"uk09zlE9UhJC0GGdQNntK1-OHedXBjE8WW5h2a_KpVuIV9PqOYqKwq-1j6SDXUyFWKISHtLcIlf91DCsNj5cu1F_5Jyk7M-QTJbkaioKkm27Vd8EQVueC1a2tJKREY7zE7VuWANobT72jF0Tj9UWyq9_le7T1Yx4lXWwTJAub2WP3NRhWlgpavJY4xuykDInaZuZhe9r-ygYIgHSCRKyxljykEZ-Z03QYJwSfwnsO_H3egE73QmSs66vn97-eIx0Oo3_pBkzjSPgzqT1GgSspTVmDfyAdoOIF4lDcy0t4S2cyB9vJQ8ISWJmCOPh4tBa2dz0ZD5bsjS3052zxHDYiw\",\"e\":\"AQAB\"}]}\n",
+      "headers": {
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /keys"
+}

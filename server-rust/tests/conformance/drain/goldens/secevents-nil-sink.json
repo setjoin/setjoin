@@ -1,0 +1,46 @@
+{
+  "case": "secevents-nil-sink",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "rows": [
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "due",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "5",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "exhausted",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "pending"
+      },
+      {
+        "attempts": "5",
+        "claim_generation": "0",
+        "delivered": "false",
+        "label": "failed",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "failed"
+      },
+      {
+        "attempts": "0",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "old-done",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "done"
+      }
+    ]
+  }
+}

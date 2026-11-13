@@ -1,0 +1,166 @@
+{
+  "case": "confirm-proof-session",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [
+      {
+        "row": {
+          "action": "mfa_reauth_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "totp confirm binding without a valid possession proof",
+          "owner": "actor",
+          "target_type": "user"
+        },
+        "table": "admin_audit_log"
+      }
+    ],
+    "effects": {
+      "active_secrets": [
+        {
+          "owner": "actor",
+          "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        },
+        {
+          "owner": "foreign",
+          "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        }
+      ],
+      "audit": [
+        {
+          "action": "mfa_reauth_refused",
+          "ip": "127.0.0.1/32",
+          "notes": "totp confirm binding without a valid possession proof",
+          "owner": "actor",
+          "target_type": "user"
+        }
+      ],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "mfa_reauth_step_ups": [
+        {
+          "bound_factor_generation": 2,
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "operation": "totp.replace",
+          "proof_method": "totp",
+          "proving_factor_id": null,
+          "refresh_family_id": null,
+          "session_jti": "another-session",
+          "target_ref": "<enrollment>",
+          "token_hash": "0c12120cd0e8e0a52c2bf27969e0214a772b9fe47666cec5d359d309e2dcfde0",
+          "token_scope": "session",
+          "user_id": "actor"
+        }
+      ],
+      "totp_pending_enrollments": [
+        {
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "id": "<enrollment>",
+          "secret_enc": "<encrypted pending secret>",
+          "staged_by_jti": "idmfa1-actor",
+          "staged_via": "totp_setup",
+          "user_id": "actor"
+        }
+      ],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": true,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": true,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      },
+      "foreign": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"code\":\"<TOTP code>\",\"enrollment_id\":\"<enrollment>\",\"reauth_token\":\"idmfa1-reauth\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/totp/confirm"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/reauth-required\",\"title\":\"Re-authentication required\",\"status\":403,\"detail\":\"prove possession at /auth/mfa/reauth (or the possession endpoints for C1 accounts) and retry with the issued reauth_token\",\"instance\":\"/auth/totp/confirm\",\"remediation\":\"reauth\",\"code\":\"reauth_required\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /auth/totp/confirm"
+}

@@ -1,0 +1,106 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "approval_created",
+        "after_state": {
+          "consumer_type": "guest.invite",
+          "subject": "Invite guest new.guest@outside.test"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<request>",
+        "target_type": "approval_request",
+        "user_id": "<member>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "approver_kind": "user",
+            "approver_ref": "<approver>",
+            "consumer_type": "guest.invite",
+            "created_at": "<timestamp>",
+            "decided_at": null,
+            "decided_by_user_id": null,
+            "decision_comment": null,
+            "domain_id": "<domain>",
+            "expires_at": "<timestamp>",
+            "id": "<request>",
+            "payload": {
+              "invited_email": "new.guest@outside.test",
+              "message": "Please review <guest>",
+              "requester_name": "guests1-member"
+            },
+            "policy_id": "<policy>",
+            "requester_user_id": "<member>",
+            "status": "pending",
+            "subject": "Invite guest new.guest@outside.test"
+          }
+        ],
+        "before": [],
+        "table": "approval_requests"
+      }
+    ],
+    "notify": [
+      {
+        "consumer_type": "guest.invite",
+        "request_id": "<request>"
+      }
+    ],
+    "request": {
+      "body": "{\"invitedEmail\":\"  New.Guest@Outside.Test  \",\"message\":\"  Please review <guest>  \"}",
+      "external_path": "/api/me/guest-invites",
+      "method": "POST",
+      "path": "/me/guest-invites"
+    },
+    "response": {
+      "body": "{\"requestId\":\"<request>\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "26"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-guests1-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /me/guest-invites"
+}

@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "go_source": "28d8e6392f759e5aecb77e1acf6dc53061739925",
+  "observation": [
+    {
+      "case": "current",
+      "observation": {
+        "alpn": "http/1.1",
+        "body": "ok\n",
+        "chain": 1,
+        "cipher": 4865,
+        "resumed": true,
+        "subject": "localhost",
+        "version": 772
+      }
+    },
+    {
+      "case": "previous",
+      "observation": {
+        "alpn": "http/1.1",
+        "body": "ok\n",
+        "chain": 1,
+        "cipher": 4865,
+        "resumed": true,
+        "subject": "localhost",
+        "version": 772
+      }
+    },
+    {
+      "case": "older-rejected",
+      "observation": {
+        "alpn": "http/1.1",
+        "body": "ok\n",
+        "chain": 1,
+        "cipher": 4865,
+        "resumed": false,
+        "subject": "localhost",
+        "version": 772
+      }
+    },
+    {
+      "case": "bad-mac",
+      "observation": {
+        "alpn": "http/1.1",
+        "body": "ok\n",
+        "chain": 1,
+        "cipher": 4865,
+        "resumed": false,
+        "subject": "localhost",
+        "version": 772
+      }
+    },
+    {
+      "case": "expired",
+      "observation": {
+        "alpn": "http/1.1",
+        "body": "ok\n",
+        "chain": 1,
+        "cipher": 4865,
+        "resumed": false,
+        "subject": "localhost",
+        "version": 772
+      }
+    }
+  ]
+}

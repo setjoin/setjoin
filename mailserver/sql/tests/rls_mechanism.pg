@@ -1,0 +1,127 @@
+-- pgTAP: rls_mechanism.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The ISOLATED native-RLS MECHANISM proof for the deferred runtime backstop
+-- (ARCH-006; plan retired-docs:superpowers/plans/archive/2026-06-18-native-rls-backstop.md
+-- Phase 1). This is the ONLY place ENABLE/FORCE ROW LEVEL SECURITY appears in the
+-- whole repo, and it is strictly TEST-LOCAL: a throwaway table created, forced,
+-- and rolled back inside this transaction. It NEVER touches a production table.
+--
+-- 🔒 wrap ≠ enforce. The proof slice wraps JMAP and sets the GUC; it does NOT
+-- enable RLS in production (that would break every un-wrapped tenant protocol —
+-- IMAP/CalDAV/SMTP-submission connect on the app role with no GUC → empty
+-- app.current_mailbox_id → zero rows). This test proves the MECHANISM the eventual
+-- all-or-nothing enforcement flip will use: a policy keyed on
+-- current_setting('app.current_mailbox_id') denies a foreign-mailbox row at the
+-- database under FORCE, regardless of what the gateway filtered.
+--
+-- WHY A DEDICATED ROLE: the test connection (`mail`) is a SUPERUSER, and
+-- superusers BYPASS RLS unconditionally (FORCE only subjects the table OWNER, not
+-- a superuser). So the proof switches to a throwaway NON-superuser role via
+-- SET LOCAL ROLE before the deny assertions — exactly mirroring the production
+-- app role the eventual enforcement targets. Everything is inside one
+-- BEGIN…ROLLBACK (pgTAP rolls back), so no role, object, or policy survives.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(6);
+
+-- A throwaway unprivileged role standing in for the production app role. It is
+-- NOT a superuser and does NOT own the table, so FORCE'd RLS applies to it.
+-- A role is a CLUSTER-GLOBAL object: the surrounding ROLLBACK undoes this CREATE
+-- on a clean run, but an interrupted/aborted run could leak it, and
+-- load-test-schema.sh rebuilds only the DATABASE, never cluster roles — a leaked
+-- role would then make every later run abort with a duplicate-role error.
+-- DROP IF EXISTS first makes the test idempotent against a prior leak (the role
+-- owns nothing — NOLOGIN, used only for SET LOCAL ROLE on rolled-back objects).
+DROP ROLE IF EXISTS rls_proof_app;
+CREATE ROLE rls_proof_app NOLOGIN;
+
+-- A throwaway tenant-keyed table shaped like the eventual messages slice
+-- (mailbox_id is the R4 currency — ADR-003 — not user_id).
+CREATE TABLE rls_proof_messages (
+  id          BIGINT PRIMARY KEY,
+  mailbox_id  BIGINT NOT NULL,
+  subject     TEXT
+);
+GRANT SELECT ON rls_proof_messages TO rls_proof_app;
+-- Runtime roles intentionally have no blanket EXECUTE on public functions.
+-- pgTAP assertions call several unexposed helper functions internally, so this
+-- throwaway role needs the schema's function set while assertions run. The role
+-- and grant are both removed by the surrounding transaction rollback.
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO rls_proof_app;
+
+INSERT INTO rls_proof_messages (id, mailbox_id, subject) VALUES
+  (1, 1001, 'belongs to mailbox 1001'),
+  (2, 1001, 'also mailbox 1001'),
+  (3, 2002, 'belongs to mailbox 2002 — FOREIGN');
+
+-- The policy the eventual enforcement will use: a row is visible only when its
+-- mailbox_id equals the per-request GUC. The `true` second arg to current_setting
+-- makes an unset GUC return NULL (→ no rows match) instead of erroring — the
+-- correct fail-closed default for an un-wrapped connection.
+ALTER TABLE rls_proof_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rls_proof_messages FORCE  ROW LEVEL SECURITY;
+
+-- NULLIF(...,'') so an unset/empty GUC casts to NULL (→ no row qualifies, the
+-- fail-closed default), rather than raising on the ''::BIGINT cast.
+CREATE POLICY rls_proof_tenant_isolation ON rls_proof_messages
+  FOR SELECT TO rls_proof_app
+  USING (mailbox_id = NULLIF(current_setting('app.current_mailbox_id', true), '')::BIGINT);
+
+-- Switch to the unprivileged role for every assertion below — superuser would
+-- bypass RLS. SET LOCAL keeps the switch transaction-scoped.
+SET LOCAL ROLE rls_proof_app;
+
+-- ── 1) The matching mailbox sees ONLY its own rows ──────────────────────────
+SELECT set_config('app.current_mailbox_id', '1001', true);
+
+SELECT is(
+  (SELECT count(*) FROM rls_proof_messages)::INT,
+  2,
+  'FORCE RLS: mailbox 1001 sees exactly its 2 rows'
+);
+
+SELECT is(
+  (SELECT count(*) FROM rls_proof_messages WHERE mailbox_id = 2002)::INT,
+  0,
+  'FORCE RLS: mailbox 1001 cannot see the foreign mailbox 2002 row even when it asks for it'
+);
+
+-- ── 2) The foreign mailbox sees ZERO of 1001''s rows (the core deny) ─────────
+SELECT set_config('app.current_mailbox_id', '2002', true);
+
+SELECT is(
+  (SELECT count(*) FROM rls_proof_messages WHERE mailbox_id = 1001)::INT,
+  0,
+  'FORCE RLS: a request scoped to mailbox 2002 gets ZERO rows for mailbox 1001 — runtime deny'
+);
+
+SELECT is(
+  (SELECT count(*) FROM rls_proof_messages)::INT,
+  1,
+  'FORCE RLS: mailbox 2002 sees exactly its own 1 row'
+);
+
+-- ── 3) An UNSET/empty GUC (the un-wrapped-protocol case) is fail-closed ──────
+-- Empty string ::BIGINT would error, but RLS evaluates the USING expression per
+-- row; an empty GUC makes the comparison NULL → no row qualifies. We assert zero
+-- visible rows — exactly WHY production enforcement is deferred until every
+-- tenant protocol is wrapped.
+SELECT set_config('app.current_mailbox_id', '', true);
+
+SELECT is(
+  (SELECT count(*) FROM rls_proof_messages)::INT,
+  0,
+  'FORCE RLS: an un-wrapped connection (empty GUC) sees ZERO rows — the deferral rationale'
+);
+
+-- ── 4) The wrong GUC value denies a known-present row ───────────────────────
+SELECT set_config('app.current_mailbox_id', '9999', true);
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM rls_proof_messages WHERE id = 1),
+  'FORCE RLS: row id=1 (mailbox 1001) is invisible when the GUC is the wrong mailbox 9999'
+);
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/jobs/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/jobs/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Identity job 00000000-0000-4000-8000-000000000001: kind=upgrade_backfill state=completed terminal=true\nSnapshot: 00000000-0000-4000-8000-000000000002  Expires: 2026-01-01T00:00:00Z\nNext: review\n",
+  "stderr": "Identity job 00000000-0000-4000-8000-000000000001: running; next=review\n",
+  "exit": 0
+}

@@ -1,0 +1,86 @@
+{
+  "case": "preference-off",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "mailbox_delegates": [],
+          "preferences": [
+            {
+              "external_sender_warning": false,
+              "user_id": "<a>"
+            },
+            {
+              "external_sender_warning": true,
+              "user_id": "<b>"
+            }
+          ],
+          "vacation_settings": []
+        },
+        "before": {
+          "app_passwords": [],
+          "mailbox_delegates": [],
+          "preferences": [
+            {
+              "external_sender_warning": false,
+              "user_id": "<a>"
+            },
+            {
+              "external_sender_warning": true,
+              "user_id": "<b>"
+            }
+          ],
+          "vacation_settings": []
+        }
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/me/mailtips",
+      "wire_path": "/auth/me/mailtips?recipients=outside@EXAMPLE.NET"
+    },
+    "response": {
+      "body": "{\"warnings\":[]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "16"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/me/mailtips"
+}

@@ -1,0 +1,259 @@
+-- pgTAP: legacy LDAP sync reducer authority fences (med-ldapsync-identity-001,
+-- Astra waves12 HOLD items 1/3/5). ldap_sync_anchor_resolve resolves an
+-- immutable subject only when the source, link purpose, and lifecycle
+-- authority all hold — returning DISTINCT outcome classes (missing vs denied
+-- vs stale) instead of a bare user id. ldap_sync_anchor_link establishes links
+-- reducer-owned (never stealing an anchor, generation-fenced, audited).
+-- ldap_sync_disable_user re-fences authority transactionally and commits the
+-- disable plus the COMPLETE revocation boundary in ONE transaction.
+BEGIN;
+SELECT plan(30);
+-- ─────────────────────────────── fixtures ───────────────────────────────
+INSERT INTO identity_sources (source_key, display_name, kind, capabilities, state)
+VALUES ('ldap:fence-other', 'Other ldap source (pgtap)', 'ldap',
+        '{"stable_immutable_subject":true}'::jsonb, 'active');
+
+INSERT INTO domains (name, is_local) VALUES ('ldap-fence-pgtap.local', TRUE);
+
+-- legacy-provisioned account WITH a primary mailbox and an anchored subject.
+INSERT INTO users (username, email, display_name, domain_id, password_hash, sync_source)
+VALUES ('pgtap-ldap-owned', 'pgtap-ldap-owned@ldap-fence-pgtap.local', 'LDAP Owned',
+        (SELECT id FROM domains WHERE name = 'ldap-fence-pgtap.local'),
+        '$2a$10$placeholder', 'ldap');
+INSERT INTO mailboxes (user_id, domain_id, display_name, email, is_primary, type)
+SELECT u.id, u.domain_id, u.display_name, u.email, TRUE, 'personal'
+  FROM users u WHERE u.username = 'pgtap-ldap-owned';
+UPDATE identity_sources SET state = 'active' WHERE source_key = 'legacy:ldap';
+DO $fix$
+BEGIN
+    PERFORM ldap_sync_anchor_link(
+        (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+        'pgtap-subject-anchored', NULL);
+END
+$fix$;
+
+-- native account with an AUTHENTICATE-ONLY legacy link (the SSO shape).
+INSERT INTO users (username, email, display_name, domain_id, password_hash, sync_source)
+VALUES ('pgtap-native', 'pgtap-native@ldap-fence-pgtap.local', 'Native',
+        (SELECT id FROM domains WHERE name = 'ldap-fence-pgtap.local'),
+        '$2a$10$placeholder', 'local');
+INSERT INTO mailboxes (user_id, domain_id, display_name, email, is_primary, type)
+SELECT u.id, u.domain_id, u.display_name, u.email, TRUE, 'personal'
+  FROM users u WHERE u.username = 'pgtap-native';
+INSERT INTO user_identity_links (user_id, source_id, external_subject, purposes, state, link_method)
+SELECT u.id, s.id, 'pgtap-subject-authonly', ARRAY['authenticate']::text[], 'active', 'operator'
+  FROM users u, identity_sources s
+ WHERE u.username = 'pgtap-native' AND s.source_key = 'legacy:ldap';
+
+-- ldap-provisioned account whose lifecycle authority ANOTHER ldap source holds
+-- (the normalized ldap:* shape on a shared domain).
+INSERT INTO users (username, email, display_name, domain_id, password_hash, sync_source)
+VALUES ('pgtap-foreign', 'pgtap-foreign@ldap-fence-pgtap.local', 'Foreign Owned',
+        (SELECT id FROM domains WHERE name = 'ldap-fence-pgtap.local'),
+        '$2a$10$placeholder', 'ldap');
+INSERT INTO mailboxes (user_id, domain_id, display_name, email, is_primary, type)
+SELECT u.id, u.domain_id, u.display_name, u.email, TRUE, 'personal'
+  FROM users u WHERE u.username = 'pgtap-foreign';
+INSERT INTO user_identity_links (user_id, source_id, external_subject, purposes, state, link_method)
+VALUES ((SELECT id FROM users WHERE username = 'pgtap-foreign'),
+        (SELECT id FROM identity_sources WHERE source_key = 'ldap:fence-other'),
+        'pgtap-subject-foreign', ARRAY['provision']::text[], 'active', 'operator');
+INSERT INTO user_lifecycle_authorities (user_id, authority_kind, link_id)
+VALUES ((SELECT id FROM users WHERE username = 'pgtap-foreign'), 'source',
+        (SELECT l.id FROM user_identity_links l
+          JOIN identity_sources s ON s.id = l.source_id
+         WHERE s.source_key = 'ldap:fence-other'
+           AND l.user_id = (SELECT id FROM users WHERE username = 'pgtap-foreign')))
+ON CONFLICT (user_id) DO UPDATE SET
+    authority_kind = 'source', link_id = EXCLUDED.link_id,
+    generation = user_lifecycle_authorities.generation + 1,
+    updated_at = statement_timestamp();
+
+INSERT INTO sessions (user_id, expires_at)
+SELECT id, now() + interval '1 day' FROM users WHERE username LIKE 'pgtap-%';
+INSERT INTO oauth_tokens (user_id, token_hash, token_type)
+SELECT id, ('pgtap-hash-' || username)::bytea, 'refresh' FROM users WHERE username LIKE 'pgtap-%';
+
+-- ─────────────────── ldap_sync_anchor_resolve outcomes ───────────────────
+-- A subject the substrate does not know is MISSING (subject-existence is
+-- decided before any authority input), not denied and not an error.
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-unknown', NULL)->>'resolution', 'missing',
+    'unknown subject resolves as missing (email-gated path may proceed)');
+
+-- Authentication-only link: DENIED with the reason and the linked user —
+-- never a resolution that could drive lifecycle mutation of a native account.
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-authonly', NULL)->>'resolution', 'denied',
+    'authentication-only link is denied, not anchored');
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-authonly', NULL)->>'reason', 'link_purposes',
+    'authentication-only denial names link_purposes');
+SELECT is(
+    (ldap_sync_anchor_resolve('pgtap-subject-authonly', NULL)->>'userId')::bigint,
+    (SELECT id FROM users WHERE username = 'pgtap-native'),
+    'denial carries the linked user id for the audit trail');
+
+-- Provisioning link on an ACTIVE source with lifecycle authority: ANCHORED.
+SELECT is(
+    (ldap_sync_anchor_resolve('pgtap-subject-anchored', NULL)->>'resolution'), 'anchored',
+    'provision-purposed active link on an active source resolves anchored');
+SELECT is(
+    (ldap_sync_anchor_resolve('pgtap-subject-anchored', NULL)->>'userId')::bigint,
+    (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+    'anchored resolution names exactly the linked account');
+
+-- Generation pinning: a pinned generation behind the live catalog is STALE.
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-anchored',
+        (SELECT generation + 1 FROM identity_sources WHERE source_key = 'legacy:ldap')
+    )->>'resolution', 'stale',
+    'stale pinned generation resolves as stale, not missing/denied');
+
+-- A suspended anchor is DENIED (link_state) — an operator suspension must not
+-- degrade into the email-gated path.
+UPDATE user_identity_links SET state = 'suspended'
+ WHERE external_subject = 'pgtap-subject-anchored';
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-anchored', NULL)->>'resolution', 'denied',
+    'suspended link is denied');
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-anchored', NULL)->>'reason', 'link_state',
+    'suspension denial names link_state');
+UPDATE user_identity_links SET state = 'active'
+ WHERE external_subject = 'pgtap-subject-anchored';
+
+-- A paused source denies anchors it KNOWS (with the user id), but a subject
+-- it does not know stays 'missing'.
+UPDATE identity_sources SET state = 'paused' WHERE source_key = 'legacy:ldap';
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-anchored', NULL)->>'reason', 'source_state',
+    'paused source denies with source_state');
+SELECT is(
+    ldap_sync_anchor_resolve('pgtap-subject-unknown', NULL)->>'resolution', 'missing',
+    'unknown subject stays missing under a paused source');
+UPDATE identity_sources SET state = 'active' WHERE source_key = 'legacy:ldap';
+
+-- ─────────────────── ldap_sync_anchor_link behavior ───────────────────
+-- Conflict: the subject already anchors a DIFFERENT account — never stolen.
+SELECT is(
+    ldap_sync_anchor_link(
+        (SELECT id FROM users WHERE username = 'pgtap-native'),
+        'pgtap-subject-anchored', NULL)->>'linked', 'false',
+    'anchor establishment never steals an anchored subject');
+SELECT is(
+    ldap_sync_anchor_link(
+        (SELECT id FROM users WHERE username = 'pgtap-native'),
+        'pgtap-subject-anchored', NULL)->>'reason', 'conflict',
+    'anchor theft attempt reports conflict');
+
+-- Idempotent re-anchor of the SAME account refreshes without duplicating.
+SELECT is(
+    ldap_sync_anchor_link(
+        (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+        'pgtap-subject-anchored', NULL)->>'linked', 'true',
+    'same-account re-anchor succeeds');
+SELECT is(
+    (SELECT count(*) FROM user_identity_links
+      WHERE source_id = (SELECT id FROM identity_sources WHERE source_key = 'legacy:ldap')
+        AND external_subject = 'pgtap-subject-anchored')::text, '1',
+    're-anchor does not duplicate the link');
+
+-- The audited establishment event exists exactly once for the link.
+SELECT is(
+    (SELECT count(*) FROM identity_link_events
+      WHERE action = 'legacy_backfilled'
+        AND link_id = (SELECT l.id FROM user_identity_links l
+                        JOIN identity_sources s ON s.id = l.source_id
+                       WHERE s.source_key = 'legacy:ldap'
+                         AND l.external_subject = 'pgtap-subject-anchored'))::text, '1',
+    'establishment appends exactly one audit event');
+
+-- Lifecycle authority was established for the provisioned account.
+SELECT is(
+    (SELECT authority_kind FROM user_lifecycle_authorities
+      WHERE user_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'))::text, 'source',
+    'establishment upgrades lifecycle authority to the source link');
+
+-- Generation fence: a stale pinned generation raises BZ229.
+SELECT throws_ok(
+    $$SELECT ldap_sync_anchor_link(
+          (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+          'pgtap-subject-anchored',
+          (SELECT generation + 1 FROM identity_sources WHERE source_key = 'legacy:ldap'))$$,
+    'BZ229', 'ldap anchor link generation is stale',
+    'stale generation establishment raises BZ229');
+
+-- ─────────────────── ldap_sync_disable_user fence + atomicity ───────────────────
+-- Native account: BZ233 — the engine never holds lifecycle authority.
+SELECT throws_ok(
+    $$SELECT ldap_sync_disable_user(
+          (SELECT id FROM users WHERE username = 'pgtap-native'), 'pgtap', NULL)$$,
+    'BZ233', 'ldap sync does not hold lifecycle authority over this account',
+    'native account disable is refused with BZ233');
+
+-- Other-source-owned account: BZ233 even though sync_source = 'ldap'.
+SELECT throws_ok(
+    $$SELECT ldap_sync_disable_user(
+          (SELECT id FROM users WHERE username = 'pgtap-foreign'), 'pgtap', NULL)$$,
+    'BZ233', 'another identity source holds lifecycle authority over this account',
+    'other-source-owned disable is refused with BZ233');
+
+-- Unknown id: BZ228.
+SELECT throws_ok(
+    $$SELECT ldap_sync_disable_user(999999999, 'pgtap', NULL)$$,
+    'BZ228', 'ldap disable target 999999999 does not exist',
+    'unknown disable target raises BZ228');
+
+-- Stale generation on the anchor path: BZ229.
+SELECT throws_ok(
+    $$SELECT ldap_sync_disable_user(
+          (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'), 'pgtap',
+          (SELECT generation + 1 FROM identity_sources WHERE source_key = 'legacy:ldap'))$$,
+    'BZ229', 'ldap disable generation is stale',
+    'stale generation disable raises BZ229');
+
+-- The fenced disable is ATOMIC: one call flips the account AND asserts the
+-- full revocation set in the SAME transaction (oauth anchors, both runtime
+-- session stores, and the gateway denylist row).
+SELECT is(
+    ldap_sync_disable_user(
+        (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+        'pgtap atomic disable', NULL)->>'disabled', 'true',
+    'fenced disable succeeds for the anchored account');
+SELECT is(
+    (SELECT enabled::text FROM users WHERE username = 'pgtap-ldap-owned'), 'false',
+    'disable flipped users.enabled in the same transaction');
+SELECT is(
+    (SELECT count(*) FROM sessions
+      WHERE user_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'))::text, '0',
+    'disable revoked sessions in the same transaction');
+SELECT is(
+    (SELECT count(*) FROM ws_subscriptions
+      WHERE user_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'))::text, '0',
+    'disable revoked websocket subscriptions in the same transaction');
+SELECT is(
+    (SELECT count(*) FROM oauth_tokens
+      WHERE user_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned')
+        AND revoked_at IS NULL)::text, '0',
+    'disable revoked durable oauth anchors in the same transaction');
+SELECT is(
+    (SELECT count(*) FROM session_revocations
+      WHERE user_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned')
+        AND scope = 'all')::text, '1',
+    'disable recorded the gateway denylist row in the same transaction');
+SELECT is(
+    (SELECT count(*) FROM admin_audit_log
+     WHERE action = 'revoke_user_sessions'
+       AND target_id = (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'))::text, '1',
+    'disable audited the revocation in the same transaction');
+
+-- Idempotency: a second disable reports alreadyDisabled instead of erroring.
+SELECT is(
+    ldap_sync_disable_user(
+        (SELECT id FROM users WHERE username = 'pgtap-ldap-owned'),
+        'pgtap repeat', NULL)->>'alreadyDisabled', 'true',
+    'repeat disable reports alreadyDisabled');
+
+SELECT * FROM finish();
+ROLLBACK;

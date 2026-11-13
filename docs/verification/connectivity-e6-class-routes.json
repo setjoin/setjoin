@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "connectivity-e6-class-routes",
+  "profile": {
+    "document": "docs/verification/connectivity-e6-profile.json",
+    "profileId": "e6-electron-macos-arm64-v1",
+    "profileVersion": 1
+  },
+  "purpose": "Canonical proxy-relative request routes for the five Critical request classes fired by the external evidence-mode workload driver (scripts/e6-workload-driver.mjs) against the real loopback Setjoin gateway stack stood up by scripts/e6-gateway-fixture.sh. The driver consumes this via E6_DRIVER_CLASS_ROUTES (JSON { [class]: { method, path } }, path proxy-relative, may carry a ${seq} token; an absolute URL is refused). Consumed verbatim: scripts/e6-gateway-fixture.sh emits the E6_DRIVER_CLASS_ROUTES env assignment from this file.",
+  "methodMapping": {
+    "summary": "Each class maps to the authoritative request path its client implementation actually uses. queued-send and draft-commit are JMAP methods carried by POST /jmap (the E4-I coordinator's sync/delta/window path is the same endpoint); their distinguishing request shape is the class body pinned in E6_DRIVER_CLASS_BODIES (emitted per member by the fixture). auth-revocation is the offline coordinator's revocation-flow request (installWipeHandler ack). security-state is the security-posture read the settings/security surface loads. delivery-receipt is the RFC 3798 MDN consent POST. Every route is requireAuth (driver Bearer) and repeatable at the >=1,000-completed-observations-per-class-per-run floor: submission/receipt/wipe-ack are idempotent by reducer contract, draft-commit and security-score are non-conflicting.",
+    "repeatabilityContract": "The sustained schedule fires each class 1,000+ times per member run with ONE bearer token. POST /auth/logout and POST /user/sessions/revoke-all revoke all tokens on first fire and are therefore NOT usable as sustained routes; the pinned paths keep the Critical semantics on the same authoritative surfaces without self-destructing the run.",
+    "corpusBinding": "queued-send submits the seeded per-member draft (messages.id 5400000001 / 5400000002) with onSuccessUpdateEmail present so the draft survives every send; delivery-receipt acknowledges the seeded receipt-requested corpus message (messages.id 5000000001 / 5100000001); auth-revocation acks the seeded per-member device (user_devices.device_id 5220000001 / 5220000002); draft-commit creates into the member's Drafts tag. All ids are fixed by scripts/e6-fixture/seed-corpus.sql and restored identically by reset-pair."
+  },
+  "classes": {
+    "queued-send": {
+      "method": "POST",
+      "path": "/jmap",
+      "body": "E6_DRIVER_CLASS_BODIES[class] (fixture-emitted): JMAP EmailSubmission/set create {emailId: <seeded draft>, onSuccessUpdateEmail: {}}",
+      "authoritativeSource": [
+        "mailserver/webmail/src/lib/jmap/offline-client.ts — emailSubmissionSet queued replay (emailSubmissionSet -> onlineEmailSubmissionSet)",
+        "mailserver/webmail/src/lib/jmap/client.ts — jmapCall -> POST /jmap (API_URL)",
+        "mailserver/cmd/mailserverd/testdata/route_inventory.golden — POST /jmap (requireAuth)",
+        "mailserver/sql/reducers/jmap_email_submission.sql — jmap_email_submission_set (send -> deliver, onSuccessUpdateEmail keeps the draft)"
+      ]
+    },
+    "draft-commit": {
+      "method": "POST",
+      "path": "/jmap",
+      "body": "E6_DRIVER_CLASS_BODIES[class] (fixture-emitted): JMAP Email/set create {mailboxIds: {<drafts tag id>: true}, from/to, subject, bodyValues}",
+      "authoritativeSource": [
+        "mailserver/webmail/src/lib/jmap/offline-client.ts — emailSetCreate draft replay (emailSet -> onlineEmailSet)",
+        "mailserver/webmail/src/lib/jmap/client.ts — jmapCall -> POST /jmap",
+        "mailserver/cmd/mailserverd/testdata/route_inventory.golden — POST /jmap (requireAuth)",
+        "mailserver/sql/reducers/jmap_email.sql — jmap_email_set_create (mailboxIds required, is_draft TRUE)"
+      ]
+    },
+    "auth-revocation": {
+      "method": "POST",
+      "path": "/api/offline/wipe-ack",
+      "body": "E6_DRIVER_CLASS_BODIES[class] (fixture-emitted): {\"device_id\": <seeded user_devices.device_id>}",
+      "authoritativeSource": [
+        "mailserver/webmail/src/lib/offline/wipe.ts — installWipeHandler ack POST /api/offline/wipe-ack (keepalive, the coordinator-owned request of the auth/revocation flow)",
+        "mailserver/cmd/mailserverd/testdata/route_inventory.golden — POST /offline/wipe-ack mounted at /api (requireAuth)",
+        "mailserver/internal/user/devices.go — WipeAck: BZ101 (no pending wipe) is idempotent 200",
+        "mailserver/sql/reducers/offline_device_wipe_ack.sql — R3 ownership in the same UPDATE"
+      ]
+    },
+    "security-state": {
+      "method": "GET",
+      "path": "/api/user/security-score",
+      "body": null,
+      "authoritativeSource": [
+        "mailserver/webmail/src/routes/settings/security/+page.svelte — security surface loads /api/user/... state",
+        "mailserver/cmd/mailserverd/testdata/route_inventory.golden — GET /user/security-score mounted at /api (requireAuth)",
+        "mailserver/internal/user/security_score.go — read-only posture score (SELECT-only handler)"
+      ]
+    },
+    "delivery-receipt": {
+      "method": "POST",
+      "path": "/auth/me/read-receipt",
+      "body": "E6_DRIVER_CLASS_BODIES[class] (fixture-emitted): {\"messageId\": \"<seeded corpus message id>\", \"consent\": true}",
+      "authoritativeSource": [
+        "mailserver/webmail/src/routes/inbox/+page.svelte — recipient consent POST /auth/me/read-receipt",
+        "mailserver/cmd/mailserverd/testdata/route_inventory.golden — POST /auth/me/read-receipt (requireAuth)",
+        "mailserver/internal/jmap/mailtips.go — HandleReadReceipt (RFC 3798 MDN)",
+        "mailserver/sql/reducers/send.sql — send_read_receipt: repeat fire returns 200 {status:already_sent}"
+      ]
+    }
+  },
+  "operationalNotes": [
+    "Routes are proxy-relative gateway paths: /jmap and /auth/* are gateway top-level; /api/* is the gateway's StripPrefix('/api') mount (the golden inventory records post-strip patterns).",
+    "The class mix (20% each) and the schedule are owned by the frozen profile and the harness buildPlan; this file pins only the request shapes.",
+    "Bodies are account-scoped and therefore fixture-emitted per member, not frozen here: the corpus ids they reference are deterministic (seed-corpus.sql) and survive reset-pair identically.",
+    "Any change to a path here requires a route_inventory.golden match plus a new profileVersion for any results already qualified."
+  ]
+}

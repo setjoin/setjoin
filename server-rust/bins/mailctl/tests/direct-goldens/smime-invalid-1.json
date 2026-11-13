@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: manifest line 1: need at least email,cert_path,key_path\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

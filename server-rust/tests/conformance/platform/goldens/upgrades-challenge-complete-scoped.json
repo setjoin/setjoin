@@ -1,0 +1,65 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "upgrade_recovery_sets"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"challengeId\":\"ffffffff-0000-4000-8000-000000000006\"}",
+      "external_path": "/api/admin/system/upgrades/challenges/complete",
+      "method": "POST",
+      "path": "/admin/system/upgrades/challenges/complete"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/reducer/bz250\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"forbidden\",\"instance\":\"/admin/system/upgrades/challenges/complete\",\"remediation\":\"Complete the required authorization, approval, or recovery step before retrying.\",\"code\":\"BZ250\",\"retryable\":false}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "294"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "POST /admin/system/upgrades/challenges/complete"
+}

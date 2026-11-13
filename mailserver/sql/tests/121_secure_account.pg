@@ -1,0 +1,31 @@
+-- 121_secure_account.pg: secure_account sets must_change_password + audits + raises BZ084.
+BEGIN;
+SELECT plan(4);
+
+SELECT mk_account('sec') AS mb \gset
+-- mk_account returns mailbox_id; get the owning user_id.
+SELECT user_id AS uid FROM mailboxes WHERE id = :mb \gset
+
+-- 1: returns a jsonb result with 'secured' key.
+SELECT ok(
+  (secure_account(:uid, :uid, '203.0.113.1'::inet, 'user_self_report')) ? 'secured',
+  'secure_account returns a jsonb result with a secured key');
+
+-- 2: must_change_password is now true.
+SELECT is(
+  (SELECT must_change_password FROM users WHERE id = :uid),
+  true, 'must_change_password set true');
+
+-- 3: an admin_audit_log row attributing the actor was written.
+-- ponytail: target_id is bigint in schema; no ::text cast needed.
+SELECT ok(
+  EXISTS(SELECT 1 FROM admin_audit_log WHERE action = 'secure_account' AND target_id = :uid),
+  'admin_audit_log row written for secure_account');
+
+-- 4: a non-existent user raises BZ084.
+SELECT throws_ok(
+  $$SELECT secure_account(9999999, 1, '203.0.113.1'::inet, 'x')$$,
+  'BZ084', NULL, 'secure_account raises BZ084 on missing user');
+
+SELECT * FROM finish();
+ROLLBACK;

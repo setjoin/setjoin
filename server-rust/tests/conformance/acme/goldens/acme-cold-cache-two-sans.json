@@ -1,0 +1,53 @@
+{
+  "case": "acme-cold-cache-two-sans",
+  "format": 1,
+  "go_source": "3490f2b4fbddc34164d3ed7aa129fd446599a226",
+  "observation": {
+    "account_key": {
+      "cr_free": true,
+      "label_line": "-----BEGIN EC PRIVATE KEY-----",
+      "mode": "600",
+      "present": true
+    },
+    "certs": {
+      "alt.localhost": {
+        "chain_certificates": 2,
+        "key_first": true,
+        "key_label": null,
+        "key_reused": false,
+        "sans": [
+          "alt.localhost",
+          "localhost"
+        ],
+        "valid_days_nearest_10": 90
+      },
+      "localhost": {
+        "chain_certificates": 2,
+        "key_first": true,
+        "key_label": null,
+        "key_reused": false,
+        "sans": [
+          "alt.localhost",
+          "localhost"
+        ],
+        "valid_days_nearest_10": 90
+      }
+    },
+    "challenge_misses": 0,
+    "dir_mode": "700",
+    "files": [
+      {
+        "changed": true,
+        "domain": "localhost",
+        "mode": "600"
+      },
+      {
+        "changed": true,
+        "domain": "alt.localhost",
+        "mode": "600"
+      }
+    ],
+    "other_entries": 0,
+    "temp_files": 0
+  }
+}

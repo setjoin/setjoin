@@ -1,0 +1,132 @@
+{
+  "case": "duplicate",
+  "format": 1,
+  "go_source": "5e14793d582b8f66034b3e5d8d95b6f0ee7fff99",
+  "normalization": [
+    "fixture identifiers",
+    "checked DB consent timestamp",
+    "response date and adjusted content-length"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "mail_recovery_fork_consent",
+        "actor": "<caller>",
+        "state": {
+          "deviceId": "<device>",
+          "mailboxId": "<mailbox>",
+          "quarantineId": "<artifact>"
+        },
+        "target_type": "mail_recovery_artifact"
+      }
+    ],
+    "effects": [
+      {
+        "change": "update",
+        "columns": {
+          "fork_consented_at": {
+            "after": "<timestamp>",
+            "before": null
+          },
+          "fork_consented_by": {
+            "after": "<actor>",
+            "before": null
+          }
+        },
+        "row": 0,
+        "table": "mail_recovery_quarantine_artifacts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": {
+        "deviceId": "<device>"
+      },
+      "body_raw": "{\"deviceId\":\"invalid\",\"DEVICEID\":\"<device>\"}",
+      "case": "duplicate",
+      "method": "POST",
+      "path": "/recovery/artifacts/{id}/fork-consent"
+    },
+    "response": {
+      "body": "{\"id\": \"<artifact>\", \"replayed\": false, \"consentedAt\": \"<timestamp>\"}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "69"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-fork-oracle"
+        ]
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": "{\"id\": \"<artifact>\", \"replayed\": false, \"consentedAt\": \"<timestamp>\"}",
+        "headers": {
+          "cache-control": [
+            "no-store"
+          ],
+          "content-length": [
+            "69"
+          ],
+          "content-security-policy": [
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+          ],
+          "content-type": [
+            "application/json"
+          ],
+          "cross-origin-opener-policy": [
+            "same-origin"
+          ],
+          "date": [
+            "<timestamp>"
+          ],
+          "permissions-policy": [
+            "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+          ],
+          "referrer-policy": [
+            "strict-origin-when-cross-origin"
+          ],
+          "x-content-type-options": [
+            "nosniff"
+          ],
+          "x-frame-options": [
+            "DENY"
+          ],
+          "x-request-id": [
+            "blobs1-fork-oracle"
+          ]
+        },
+        "status": 200
+      }
+    ]
+  },
+  "route": "POST /recovery/artifacts/{id}/fork-consent"
+}

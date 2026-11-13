@@ -1,0 +1,437 @@
+{
+  "schemaVersion": "setjoin.meet.m0-corpus/1",
+  "corpusId": "meet-m0-corpus",
+  "revision": 2,
+  "frozenAt": "2026-09-19T14:31:26Z",
+  "frozenOnBranch": "codex/old5-wave5 (base 2dea65db0)",
+  "revisedAt": "2026-09-20T00:00:00Z",
+  "revisedOnBranch": "codex/meet-renderer-qualification (base 9c12fd886) — revision 2 = D3 producer acquisition: the five producer-pinned entries are frozen with the captured engine's bytes, digests and observed counts, AND the pptx synthetic seed was amended (explicit shape geometry + master-first rels) because the pinned producer rendered the pre-amendment seed as blank/slide-shifted pages (receipt: docs/verification/2026-09-20-meet-renderer-qualification.md). All other synthetic-seed rows are byte-identical to revision 1.",
+  "plan": "docs/superpowers/plans/2026-08-25-meet-document-presentation-semantic-recording.md — M0 'Freeze a producer/format corpus and bandwidth benchmark fixtures' and 'M0 freezes the 20-page reference deck and R2 measurement protocol.'",
+  "authorization": "docs/verification/2026-09-19-owner-consolidated-decisions.md §D3 (renderer/font qualification authorized; the run consumes THIS corpus, so the freeze precedes the run) + the owner-directed 2026-09-20 qualification run (dev-side darwin/arm64 capture; linux-ci-host server re-qualification is the named production-pin follow-up)",
+  "corpusDir": "mailserver/internal/meet/presentation/testdata/corpus",
+  "verification": {
+    "script": "scripts/gen-meet-m0-corpus.sh verify",
+    "goTest": "go test ./internal/meet/presentation -run M0Corpus (mailserver module)",
+    "contract": "The Go helper corpus_manifest.go re-derives digest, byte size and intrinsic count for every digest-bearing entry — synthetic-seed AND frozen producer-pinned rows — and refuses producer-pinned entries that are still acquisition-pending but have bytes on disk."
+  },
+  "generator": {
+    "script": "scripts/gen-meet-m0-corpus.sh",
+    "deterministic": true,
+    "network": "none",
+    "dependencies": "bash + python3 stdlib only",
+    "regeneration": "synthetic-seed entries are byte-deterministic: a re-run reproduces the frozen sha256 digests exactly; drift fails `verify` and the Go test",
+    "acquisition": "`scripts/gen-meet-m0-corpus.sh acquire` stages the five producer-pinned conversions through the pinned engine (SOFFICE env or PATH) into a staging dir and prints a digest/size/count fragment for the manifest update + dated receipt. This is the linux-ci-host re-qualification procedure; it never overwrites frozen corpus rows."
+  },
+  "classSemantics": {
+    "producer-pinned": "Bytes produced by the D3-pinned producer (LibreOffice headless, MPL-2.0) with the engine identity captured verbatim from `soffice --version` at generation time. Producer versions are NEVER invented; entries stay 'acquisition-pending' until that capture happens. Revision 2 captured the engine dev-side on darwin/arm64 (owner-directed 2026-09-20 qualification run); the linux-ci-host server-side capture remains the production-pin follow-up and re-runs the same recipes with a fresh dated receipt.",
+    "synthetic-seed": "Deterministic in-repo generated fixtures (scripts/gen-meet-m0-corpus.sh, no network, no third-party material). They carry structure, size and counts for bandwidth benchmarking and serve as LibreOffice conversion INPUTS. They are NEVER passable as producer-pinned evidence and are never renderer-qualification inputs."
+  },
+  "producerPinning": {
+    "decision": "D3 one-suite constraint: LibreOffice headless is the single authorized office engine for Office-format → PDF server-side conversion; one PDF paging primitive (poppler GPL or pdfium BSD-style) is chosen by measured qualification, never pre-pinned here.",
+    "engine": {
+      "id": "libreoffice-headless-soffice",
+      "name": "LibreOffice headless (soffice)",
+      "license": "MPL-2.0",
+      "version": "LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77",
+      "versionPolicy": "captured verbatim from `soffice --version` at generation time; null until then",
+      "capture": {
+        "capturedAt": "2026-09-20 (local, darwin/arm64)",
+        "install": "brew install --cask libreoffice (Homebrew cask 26.8.0, dmg sha256 8858d8058da4f862f47559486814e65efc27294da67c5e4bb56b006b1ee59f89, https://download.documentfoundation.org/libreoffice/stable/26.8.0/mac/aarch64/LibreOffice_26.8.0_MacOS_aarch64.dmg)",
+        "acquisitionScope": "dev-side corroboration capture; the server-side production pin re-qualifies on linux-ci-host (named follow-up in the receipt)"
+      }
+    },
+    "pagingPrimitive": {
+      "candidates": ["poppler (GPL-2.0)", "pdfium (BSD-style)"],
+      "selection": "by measured qualification (D3); GPL source-availability compliance cell rides along with the pinned choice",
+      "version": "pdfium chromium/8057 (bblanchon/pdfium-binaries staged build; public API MAJOR=155; dylib sha256 818c96da82396168b6dd6e79e2a28065f3ac1d97e0f72d214b41be9decb7075a)",
+      "decision": "pdfium pinned 2026-09-20 by measurement (docs/verification/2026-09-20-meet-renderer-qualification.md): both candidates byte-deterministic x3 runs and fidelity-exact on all 9 frozen corpus PDFs; pdfium selected on measured whole-doc latency (3-28x faster than poppler's subprocess shape), permissive licensing (BSD-3-Clause; no GPL source-availability surface), and signature-grade provenance (upstream-published sha256 per release asset + Sigstore keyless attestation). Poppler 26.09.0 remains fully recorded as runner-up: it wins the asset-heavy peak-RSS cell (34 vs 56 MiB) and is the GPL-compliance-cell alternative if pdfium is ever unavailable. Pin re-qualifies on linux-ci-host (darwin/arm64 is dev-side feasibility evidence)."
+    },
+    "status": "acquired-and-pinned-dev-side (engine + paging primitive captured darwin/arm64 2026-09-20; linux-ci-host server re-qualification pending)",
+    "regeneration": "producer-pinned entries pin engine identity + recipe; the bytes are a single capture whose digests are pinned at acquisition. Unlike synthetic seeds they are NOT byte-reproducible across engine versions — any regeneration re-runs the recipe and re-pins digests with a dated receipt. Measured on 26.8.0.3: even same-version re-runs differ in exactly 64 trailer metadata bytes per 17,737-byte reference PDF (CreationDate//ID); rendered page content is identical."
+  },
+  "entries": [
+    {
+      "file": "m0corpus-pdf-small-deck.pdf",
+      "format": "pdf",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 6302,
+      "sha256": "da565d844399c1298395e1731041d88c803184142732f33bd06810ce92312745",
+      "countKind": "pages",
+      "count": 10,
+      "benchmarkRole": "small-deck",
+      "budgetBindings": ["Cached-reference-deck start p95 is at most 30 seconds"],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/pdf/small-deck"
+      },
+      "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence."
+    },
+    {
+      "file": "m0corpus-pdf-medium-deck.pdf",
+      "format": "pdf",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 30018,
+      "sha256": "08a27a74c49ff6b05702ab6c992dac9cc2496e9f50badec9dfab6f41f1b8bcdb",
+      "countKind": "pages",
+      "count": 50,
+      "benchmarkRole": "medium-deck",
+      "budgetBindings": ["Default prefetch is current + next two pages, bounded by 24 MiB and reduced under constrained connectivity"],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/pdf/medium-deck"
+      },
+      "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence."
+    },
+    {
+      "file": "m0corpus-pdf-large-500p.pdf",
+      "format": "pdf",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 299405,
+      "sha256": "68a875cfbd2445b0fdd2086b922e9fc8bcda8d564cc26f1e5ae1ddaa867d8120",
+      "countKind": "pages",
+      "count": 500,
+      "benchmarkRole": "large-500p",
+      "budgetBindings": [
+        "Initial manifest target under 256 KiB for 500 pages; larger metadata paginates.",
+        "500 pages per manifest (rendition.go MaxPagesPerManifest)"
+      ],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/pdf/large-500p"
+      },
+      "provenance": "Original generated fixture; no third-party material. Synthetic seed — never producer-pinned evidence. The 256 KiB cell is measured on the meet-pages-v1 Manifest JSON built FROM this source, not on the source bytes."
+    },
+    {
+      "file": "m0corpus-pdf-asset-heavy-9x3mib.pdf",
+      "format": "pdf",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 28328266,
+      "sha256": "358726091ff927855525365a2e0d8a91594057cb66a0ccff2e39f83beec822cf",
+      "countKind": "pages",
+      "count": 9,
+      "benchmarkRole": "asset-heavy",
+      "budgetBindings": [
+        "Default prefetch is current + next two pages, bounded by 24 MiB — aggregate page assets 28,332,666 bytes CROSS the 24 MiB cap so the harness must demonstrate bounding/eviction",
+        "One encoded page asset at most 16 MiB (rendition.go MaxEncodedPageBytes) — 3 MiB per page stays inside the per-asset ceiling",
+        "Cached-reference-deck start p95 is at most 30 seconds / newly accepted rendition start p95 is at most 90 seconds — under large-asset conditions"
+      ],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/image/<page> (shake_256, 3 MiB incompressible RGB per page)"
+      },
+      "provenance": "Original generated fixture; image bytes are keyed pseudo-random (incompressible by design, modelling real photo assets). Synthetic seed — never producer-pinned evidence."
+    },
+    {
+      "file": "m0corpus-pdf-annotation-heavy-ref20.pdf",
+      "format": "pdf",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 187268,
+      "sha256": "6b64ac7edc57d25dd41766ed89a7392df889f020167ca69c7807d4631eacf1f9",
+      "countKind": "pages",
+      "count": 20,
+      "benchmarkRole": "annotation-heavy-ref20",
+      "budgetBindings": [
+        "Admitted API/stored event objects at most 16KiB; complete serialized LiveKit envelopes at most 14000 UTF-8 bytes; page-change payload target under1KiB",
+        "Semantic replay streams timeline/media indexes; it does not load all media or annotations into memory — 800 synthetic annotations exercise the streaming/non-materialization cell"
+      ],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/pdf/annotation-heavy-ref20 (40 FreeText annotations per page)"
+      },
+      "provenance": "Original generated fixture; no third-party material. 20-page reference-deck SHAPE with dense annotations. Synthetic seed — never producer-pinned evidence. Meet-native notes/annotations remain reducer-owned; nothing here changes the protected-notes boundary."
+    },
+    {
+      "file": "m0corpus-pptx-reference20.pptx",
+      "format": "pptx",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 40403,
+      "sha256": "7244cd1379093fb7dbd559ddb72d2393cf31d5e56f639538db9c93faedbd1141",
+      "countKind": "slides",
+      "count": 20,
+      "benchmarkRole": "reference20-shape",
+      "budgetBindings": [
+        "M0 freezes the 20-page reference deck and R2 measurement protocol — this is the 20-slide SHAPE seed; the producer-pinned twin below is the qualification input",
+        "Presenter notes present (synthetic, protected) — notes stay presenter-gated and never enter shared payloads"
+      ],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/pptx/reference20"
+      },
+      "provenance": "Original generated fixture; minimal well-formed OOXML written by the script, NOT Office-authored. Synthetic seed — never producer-pinned evidence. Doubles as the deterministic INPUT for the pinned LibreOffice pptx→pdf and pptx→odp recipes. Amended in revision 2 (same run, still deterministic): slide shapes gained explicit a:xfrm geometry/run color (the pinned producer DROPS empty-spPr shapes, which had produced all-blank pages) and the slideMaster relationship moved FIRST in presentation.xml.rels (a trailing master relationship made the pinned producer's pptx import drop slide 1's content, shift every slide one page early and append a blank page — measured 2026-09-20)."
+    },
+    {
+      "file": "m0corpus-docx-paged12.docx",
+      "format": "docx",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 2184,
+      "sha256": "d1c79ee3bff3dbdede30bc44795076bb81c666fe30ef5641afb8659daf9b3c35",
+      "countKind": "declared-pages",
+      "count": 12,
+      "benchmarkRole": "format-coverage-docx",
+      "budgetBindings": ["Producer/format coverage cell — docx"],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/docx/paged12"
+      },
+      "provenance": "Original generated fixture. DOCX has no intrinsic page count; the count is the generator-written docProps/app.xml <Pages> declaration (countKind declared-pages), honest about not being a rendered page count. Synthetic seed."
+    },
+    {
+      "file": "m0corpus-xlsx-sheets3.xlsx",
+      "format": "xlsx",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 5981,
+      "sha256": "9f808c84451f97156884665024f1e386c0b8cc56e4a39ddbad3e19d257c2525b",
+      "countKind": "sheets",
+      "count": 3,
+      "benchmarkRole": "format-coverage-xlsx",
+      "budgetBindings": ["Producer/format coverage cell — xlsx"],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/xlsx/sheets3"
+      },
+      "provenance": "Original generated fixture; no third-party material. Synthetic seed."
+    },
+    {
+      "file": "m0corpus-odp-slides10.odp",
+      "format": "odp",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 1594,
+      "sha256": "d74afe68d95c4bf43a9dfaecabf2ce7452d9938aeac97d61066399f8240f6fac",
+      "countKind": "slides",
+      "count": 10,
+      "benchmarkRole": "format-coverage-odp",
+      "budgetBindings": ["Producer/format coverage cell — odp (LibreOffice-native ODF path)"],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/odp/slides10"
+      },
+      "provenance": "Original generated fixture; no third-party material. Synthetic seed."
+    },
+    {
+      "file": "m0corpus-vtt-caption-dense-5000.vtt",
+      "format": "vtt",
+      "class": "synthetic-seed",
+      "status": "frozen",
+      "byteSize": 701840,
+      "sha256": "cca48e26baf9be4de1c25228d66f4c9dfc00840dfa00d4e0a4ea3fec2e99cbf8",
+      "countKind": "cues",
+      "count": 5000,
+      "benchmarkRole": "caption-dense",
+      "budgetBindings": [
+        "Semantic replay streams timeline/media indexes; it does not load all media or annotations into memory — 5000-cue caption track volume cell"
+      ],
+      "producer": {
+        "kind": "in-repo deterministic generator",
+        "script": "scripts/gen-meet-m0-corpus.sh",
+        "seed": "m0corpus/vtt/caption-dense (2.5 s cadence, arithmetic timestamps)"
+      },
+      "provenance": "Original generated fixture; no third-party material. Caption-track seeds exercise semantic-replay/caption transfer, not ASR quality. Synthetic seed."
+    },
+    {
+      "file": "m0corpus-pdf-lo-ref20.pdf",
+      "format": "pdf",
+      "class": "producer-pinned",
+      "status": "frozen",
+      "byteSize": 47797,
+      "sha256": "a0db64fb6d604acdc728c581c65ee9ddaa21900aa400124a852f93a9cbb70675",
+      "countKind": "pages",
+      "count": 20,
+      "expectedCount": 20,
+      "sourceEntry": "m0corpus-pptx-reference20.pptx",
+      "recipe": "soffice --headless --norestore --convert-to pdf --outdir <corpusDir> <corpusDir>/m0corpus-pptx-reference20.pptx  (executed verbatim 2026-09-20 dev-side on darwin/arm64 by LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77; soffice derives the output name from the input stem, so the bytes were renamed to this pinned name — rename only, no byte change; record `soffice --version` verbatim into producerPinning.engine.version and pin output digests with a dated receipt)",
+      "qualificationCell": "LibreOffice pptx→PDF conversion + PDF paging primitive (poppler/pdfium) + renderer/font digest pinning — the 20-page reference deck.",
+      "provenance": "Produced 2026-09-20 by the pinned LibreOffice engine 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77 (headless, filter impress_pdf_Export) from the committed synthetic seed; digests pinned at acquisition with receipt docs/verification/2026-09-20-meet-renderer-qualification.md. Rendered page count 20 observed via pdfinfo AND re-derived by the corpus token measurer (both agree)."
+    },
+    {
+      "file": "m0corpus-pdf-lo-odp10.pdf",
+      "format": "pdf",
+      "class": "producer-pinned",
+      "status": "frozen",
+      "byteSize": 36392,
+      "sha256": "49121c2693c0aaeacf99d248eb0f5cf728681e38fa74c1cbea7fe9f4a1609294",
+      "countKind": "pages",
+      "count": 10,
+      "expectedCount": 10,
+      "sourceEntry": "m0corpus-odp-slides10.odp",
+      "recipe": "soffice --headless --norestore --convert-to pdf --outdir <corpusDir> <corpusDir>/m0corpus-odp-slides10.odp",
+      "qualificationCell": "LibreOffice ODF (native) →PDF conversion cell.",
+      "provenance": "Produced 2026-09-20 by LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77 (filter impress_pdf_Export); output renamed from the input stem to this pinned name (no byte change); digests pinned at acquisition."
+    },
+    {
+      "file": "m0corpus-pdf-lo-docx12.pdf",
+      "format": "pdf",
+      "class": "producer-pinned",
+      "status": "frozen",
+      "byteSize": 26589,
+      "sha256": "9b5f8548dcd709d7f0b8eddff95540934d3fa2ea55b591f54ca0e89499c9a469",
+      "countKind": "pages",
+      "count": 12,
+      "expectedCount": null,
+      "sourceEntry": "m0corpus-docx-paged12.docx",
+      "recipe": "soffice --headless --norestore --convert-to pdf --outdir <corpusDir> <corpusDir>/m0corpus-docx-paged12.docx",
+      "qualificationCell": "LibreOffice docx→PDF conversion cell (document mode). Rendered page count is an output observation, never assumed from the declared 12.",
+      "provenance": "Produced 2026-09-20 by LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77 (filter writer_pdf_Export); output renamed from the input stem to this pinned name (no byte change); digests pinned at acquisition. Observed rendered pages 12 — happens to equal the seed's declared-pages value, recorded as an observation, never an assumption."
+    },
+    {
+      "file": "m0corpus-pdf-lo-xlsx3.pdf",
+      "format": "pdf",
+      "class": "producer-pinned",
+      "status": "frozen",
+      "byteSize": 60394,
+      "sha256": "a175162664cbdc8430c5e8083c2da5356b6eb013e3314dc50dd4457afa76dc78",
+      "countKind": "pages",
+      "count": 3,
+      "expectedCount": null,
+      "sourceEntry": "m0corpus-xlsx-sheets3.xlsx",
+      "recipe": "soffice --headless --norestore --convert-to pdf --outdir <corpusDir> <corpusDir>/m0corpus-xlsx-sheets3.xlsx",
+      "qualificationCell": "LibreOffice xlsx→PDF conversion cell (spreadsheet mode).",
+      "provenance": "Produced 2026-09-20 by LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77 (filter calc_pdf_Export); output renamed from the input stem to this pinned name (no byte change); digests pinned at acquisition. Observed rendered pages 3 (one per sheet)."
+    },
+    {
+      "file": "m0corpus-odp-lo-ref20.odp",
+      "format": "odp",
+      "class": "producer-pinned",
+      "status": "frozen",
+      "byteSize": 17078,
+      "sha256": "b0aa1e982f5d90980f24aabce92f82cda49d42d3bce9dfe2f6cdabb8d86e0807",
+      "countKind": "slides",
+      "count": 20,
+      "expectedCount": 20,
+      "sourceEntry": "m0corpus-pptx-reference20.pptx",
+      "recipe": "soffice --headless --norestore --convert-to odp --outdir <corpusDir> <corpusDir>/m0corpus-pptx-reference20.pptx",
+      "qualificationCell": "LibreOffice as ODF PRODUCER (pptx→odp save-as): pins the engine's ODF writing path, not just its reading/conversion path.",
+      "provenance": "Produced 2026-09-20 by LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77 (filter impress8); output renamed from the input stem to this pinned name (no byte change); digests pinned at acquisition. Slide count 20 re-derived from content.xml draw:page elements by the corpus measurer."
+    }
+  ],
+  "r2MeasurementProtocol": {
+    "frozenBy": "M0: 'M0 freezes the 20-page reference deck and R2 measurement protocol. Five exploratory 30-minute runs inform feasibility only.'",
+    "scope": "Document/presentation lane only (corpus bytes, manifests, page events, prefetch, captions/timeline). Media-quality non-inferiority and total endpoint traffic are separate named lanes measured on the media path, not with these fixtures.",
+    "methodInvariants": [
+      "Every claimed cache/network cell needs the specified 20 randomized pairs.",
+      "Attributed transfer accounting: bytes are attributed to document / media / control classes; document claims use document-attributed bytes only.",
+      "One-sided confidence bounds on every claim; point estimates alone never admit a cell.",
+      "Five exploratory 30-minute runs inform feasibility only and never count as pass evidence.",
+      "Missing, skipped, or flaky-after-retry runs never count as passes (repo verification discipline)."
+    ],
+    "benchmarks": [
+      {
+        "id": "attributed-document-transfer-reduction",
+        "planBudget": "Presentation GA requires at least 80% less attributed document transfer",
+        "metric": "percent reduction of document-attributed transfer bytes, cached vs uncached",
+        "fixtures": ["m0corpus-pdf-small-deck.pdf", "m0corpus-pdf-medium-deck.pdf", "m0corpus-pdf-large-500p.pdf", "m0corpus-pdf-asset-heavy-9x3mib.pdf", "m0corpus-pptx-reference20.pptx"],
+        "passRule": "one-sided lower bound of the reduction >= 80% for the GA claim; 10x stretch claimed only if measured"
+      },
+      {
+        "id": "crossover-time",
+        "planBudget": "reported crossover time",
+        "metric": "meeting elapsed time where cumulative attributed cost of cached mode drops below uncached mode",
+        "fixtures": ["m0corpus-pdf-medium-deck.pdf", "m0corpus-pdf-large-500p.pdf"],
+        "passRule": "reported with confidence interval; no threshold"
+      },
+      {
+        "id": "initial-manifest-bytes-500p",
+        "planBudget": "Initial manifest target under 256 KiB for 500 pages; larger metadata paginates",
+        "metric": "serialized meet-pages-v1 Manifest bytes for all 500 pages of m0corpus-pdf-large-500p.pdf",
+        "fixtures": ["m0corpus-pdf-large-500p.pdf"],
+        "passRule": "bytes < 262144 (rendition.go MaxManifestBytes); above it, pagination MUST engage"
+      },
+      {
+        "id": "prefetch-window-bytes",
+        "planBudget": "Default prefetch is current + next two pages, bounded by 24 MiB and reduced under constrained connectivity. Audio/video health has priority over page prefetch.",
+        "metric": "sum of encoded page-asset bytes in the current+2 prefetch window; aggregate resident bytes under eviction pressure",
+        "fixtures": ["m0corpus-pdf-asset-heavy-9x3mib.pdf", "m0corpus-pdf-medium-deck.pdf"],
+        "passRule": "window sum <= 25165824 (rendition.go MaxEncodedClientAssetsBytes); the asset-heavy fixture's 28.3 MiB aggregate forces the bounding path to be observable, not assumed"
+      },
+      {
+        "id": "page-change-payload-bytes",
+        "planBudget": "Admitted API/stored event objects at most 16KiB; complete serialized LiveKit envelopes at most 14000 UTF-8 bytes; page-change payload target under1KiB",
+        "metric": "serialized page-change payload, stored event object, and full envelope bytes under the densest page content",
+        "fixtures": ["m0corpus-pdf-annotation-heavy-ref20.pdf", "m0corpus-pdf-large-500p.pdf"],
+        "passRule": "payload < 1024 target; stored <= 16384; envelope <= 14000 UTF-8 bytes (envelope.go NewEnvelope refuses over-budget frames)"
+      },
+      {
+        "id": "cached-reference-deck-start-p95",
+        "planBudget": "Cached-reference-deck start p95 is at most 30 seconds",
+        "metric": "start-to-first-page-visible latency, warm cache, p95 over randomized pairs",
+        "fixtures": ["m0corpus-pdf-small-deck.pdf", "m0corpus-pdf-lo-ref20.pdf (once acquired)"],
+        "passRule": "p95 <= 30 s"
+      },
+      {
+        "id": "new-rendition-start-p95",
+        "planBudget": "newly accepted rendition start p95 is at most 90 seconds on the reference stack. Fallback is reachable in at most two interactions and does not end the meeting or accepted recording.",
+        "metric": "accept-to-start latency on a cold rendition, p95",
+        "fixtures": ["m0corpus-pdf-medium-deck.pdf", "m0corpus-pdf-asset-heavy-9x3mib.pdf"],
+        "passRule": "p95 <= 90 s; fallback reachability asserted behaviourally (two interactions, session/recording preserved)"
+      },
+      {
+        "id": "reducer-page-change-latency",
+        "planBudget": "Reducer page-change p95 under 150 ms and data-channel visible convergence p95 under 300 ms on the reference LAN, excluding page asset download",
+        "metric": "reducer commit latency p95; convergence latency p95 (asset download excluded by protocol)",
+        "fixtures": ["m0corpus-pdf-annotation-heavy-ref20.pdf"],
+        "passRule": "reducer p95 < 150 ms; convergence p95 < 300 ms"
+      },
+      {
+        "id": "semantic-replay-streaming",
+        "planBudget": "Semantic replay streams timeline/media indexes; it does not load all media or annotations into memory",
+        "metric": "peak resident memory while streaming a replay whose timeline references all 5000 caption cues and 800 annotations",
+        "fixtures": ["m0corpus-vtt-caption-dense-5000.vtt", "m0corpus-pdf-annotation-heavy-ref20.pdf"],
+        "passRule": "streaming asserted (no full materialization); absolute memory bound named in the M4 slice owning replay"
+      }
+    ]
+  },
+  "qualificationReadiness": {
+    "authorizedBy": "D3 (renderer/font qualification run, one-suite constraint)",
+    "consumesFromThisFreeze": {
+      "pdf": "synthetic-seed PDFs are structural/transfer fixtures only; the paging-primitive cell (poppler vs pdfium) consumes producer-pinned PDFs once acquired",
+      "pptx": "m0corpus-pptx-reference20.pptx is the deterministic recipe INPUT for the pinned pptx→pdf conversion; its producer-pinned output m0corpus-pdf-lo-ref20.pdf is the qualification artifact",
+      "docx/xlsx/odp": "same pattern: synthetic seed input → pinned LibreOffice→PDF output per recipe",
+      "bandwidthFixtures": "the R2 protocol above binds each benchmark to named fixtures; the qualification run itself does not need them"
+    },
+    "acquisitionPending": [
+      {
+        "item": "LibreOffice headless install + engine version capture",
+        "where": "DONE 2026-09-20 dev-side on darwin/arm64 (owner-directed qualification run; revision 2 above pins version + digests). The linux-ci-host (Linux server = deployment target) capture remains the production-pin follow-up and re-runs the same recipes with a fresh dated receipt.",
+        "unlocks": "all five producer-pinned entries (unlocked at revision 2)"
+      },
+      {
+        "item": "poppler-vs-pdfium paging primitive decision",
+        "where": "measured by the 2026-09-20 qualification run (D3); GPL source-availability compliance cell included in evidence for whichever primitive is pinned",
+        "unlocks": "renderer identity pinning into the deployment-unit catalog (still without enabling behavior)"
+      },
+      {
+        "item": "malicious-document corpus",
+        "where": "M1 serve-path gate evidence (plan: 'make malicious-document corpus, decompression-bomb, timeout/OOM, cache-poisoning, font-digest, and cross-tenant oracle tests a serve-path gate'). This is a SEPARATE corpus, owned by M1, explicitly NOT part of this M0 freeze."
+      }
+    ],
+    "notRequiredByD3": [
+      {
+        "item": "MSOffice-produced reference files (real Word/PowerPoint/Excel outputs)",
+        "rationale": "D3's one-suite constraint pins LibreOffice as the ONLY producer for the authorized run: 'producer-pinned' binds to LibreOffice-engine identity, not Microsoft engine identity. The plan also states Office production qualification is not a prerequisite. Real-Office inputs would only matter for optional future fidelity corroboration of Office-format parsing and are recorded here as a possible external acquisition IF a future owner decision demands Office-produced fidelity cells."
+      }
+    ],
+    "honestyRules": [
+      "synthetic-seed entries are never passable as producer-pinned evidence",
+      "producer versions are captured verbatim from `soffice --version` at generation time; none are invented (revision 2 captures LibreOffice 26.8.0.3 bce0998afefdbc355585ca324285661a2170ba77)",
+      "corpus_manifest.go refuses producer-pinned names that still carry acquisition-pending status while bytes sit on disk (fabrication guard); frozen producer-pinned rows are digest/size/count-verified like every other entry",
+      "this freeze passes no substantive gate by itself; D3's own text says the qualification run, not the corpus, produces the identities"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "baseline": "goldens/audit_set-audit-failure.json",
+    "sha256": "597af1e8d8da2780d7fed2ee35551c6e3333357762a575b007822e7df89e006c",
+    "expectation": "security/audit_set-audit-failure.json",
+    "reason": "owner-approved security fix 2026-11-05 (#437: an audit-policy change and its audit row commit together; an audit failure aborts the change)",
+    "issue": "#437",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/retention_audit_recorded.rs::audit_set_audit_failure",
+    "mutant": "sql:audit-policy-swallows-failure"
+  }
+]

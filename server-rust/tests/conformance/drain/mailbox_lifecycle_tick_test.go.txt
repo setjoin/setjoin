@@ -1,0 +1,30 @@
+// Recording-only overlay: one full iteration of frozen Go's real worker.
+package mailboxlifecycle
+import (
+ "context"
+ "log/slog"
+ "os"
+ "testing"
+ lksdk "github.com/livekit/server-sdk-go/v2"
+ "github.com/livekit/protocol/livekit"
+ "setjoin.com/mailserver/internal/mediaevict"
+ "setjoin.com/shared/pgxutil"
+ "setjoin.com/mailserver/internal/webhook"
+)
+type oracleRooms struct { client *lksdk.RoomServiceClient }
+func (r oracleRooms) RemoveParticipant(ctx context.Context,room,identity string) error {
+ _,err:=r.client.RemoveParticipant(ctx,&livekit.RoomParticipantIdentity{Room:room,Identity:identity});return err
+}
+func TestGoFreeMailboxLifecycleTick(t *testing.T) {
+ ctx,cancel:=context.WithCancel(context.Background());defer cancel()
+ pool,err:=pgxutil.OpenPool(ctx,os.Getenv("GOFREE_DRAIN_DSN"),4,"","gofree-mbox4-audit-hmac");if err!=nil {t.Fatal(err)};defer pool.Close()
+ var rooms mediaevict.ParticipantRemover
+ if url:=os.Getenv("GOFREE_MAIL_LK_URL");url!="" {rooms=oracleRooms{lksdk.NewRoomServiceClient(url,"meet2-key","meet2-secret-meet2-secret-meet2-secret")}}
+ w:=NewWorker(pgxutil.WorkerPool{Pool:pool},rooms,nil,slog.Default())
+ if os.Getenv("GOFREE_MAIL_WEBHOOKS")=="empty" {dispatcher:=webhook.NewDispatcher(pool,slog.Default());dispatcher.StartRetryWorker(ctx);w=NewWorker(pgxutil.WorkerPool{Pool:pool},rooms,dispatcher,slog.Default())}
+ var settle func()
+ if os.Getenv("GOFREE_MAIL_WEBHOOKS")=="deliver" {dispatcher:=webhook.GoFreeDispatcher(ctx,pool);w=NewWorker(pgxutil.WorkerPool{Pool:pool},rooms,dispatcher,slog.Default());settle=func(){webhook.GoFreeSettle(dispatcher,cancel)}}
+ if os.Getenv("GOFREE_MAIL_HORIZON")=="1" {if _,err:=pool.Exec(ctx,`UPDATE mailbox_lifecycle_effect_targets SET evict_until=now()+interval '2 seconds' WHERE operation_id='29530000-0000-4000-8000-000000000001' AND room_name='a-room'`);err!=nil {t.Fatal(err)}}
+ w.drain(ctx);w.drainPurges(ctx)
+ if settle!=nil {settle()}
+}

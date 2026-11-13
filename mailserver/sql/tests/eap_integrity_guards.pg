@@ -1,0 +1,45 @@
+-- pgTAP: Email Address Policy data-integrity guards.
+--   BZ076 eap_empty_local_part  (email_address_policy_render)
+--   BZ078 eap_nonlocal_domain   (email_address_policy_apply)
+-- (BZ077 eap_alias_conflict lives in eap_alias_conflict.pg — it needs its own
+--  transaction for deterministic policy selection.)
+-- Fixtures namespaced to 96xxx domains / 79xxx users / 96xxx mailboxes / 56xxx depts.
+BEGIN;
+SELECT plan(2);
+
+-- ── BZ076: a policy whose primary template renders an EMPTY local-part is
+--    rejected by the renderer. Template '{given_name}@{domain}' on a user whose
+--    given name is empty renders '@corp076.test' -> empty local-part. The policy
+--    is disabled (render reads it by id regardless of enabled), keeping it out of
+--    the apply matcher below.
+INSERT INTO domains (id, name, is_local) VALUES (96076, 'corp076.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name)
+  VALUES (79076, 'empty076', 96076, 'empty076@corp076.test', 'E', '', '');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (96076, 79076, 96076, 'empty076@corp076.test', 'E', 'personal', TRUE);
+INSERT INTO email_address_policies (id, priority, name, primary_template, enabled)
+  VALUES (960076, 96076, 'Empty076', '{given_name}@{domain}', FALSE);
+SELECT throws_ok(
+  $$ SELECT email_address_policy_render(960076, 79076, 96076) $$,
+  'BZ076', NULL,
+  'render: empty local-part is rejected (BZ076)');
+
+-- ── BZ078: apply must refuse to assign an address in a NON-LOCAL domain. The
+--    renderer pins the rendered address to the mailbox's own domain; here that
+--    domain has is_local=FALSE, so apply's local-domain assertion fires.
+INSERT INTO domains (id, name, is_local) VALUES (96078, 'external078.test', FALSE);
+INSERT INTO departments (id, name, path, ldap_ou)
+  VALUES (56078, 'EapExt078', '/EapExt078', 'OU=EapExt078');
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name, department_id)
+  VALUES (79078, 'ext078', 96078, 'ext078@external078.test', 'X', '伟', '单', 56078);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (96079, 79078, 96078, 'ext078@external078.test', 'X', 'personal', TRUE);
+INSERT INTO email_address_policies (priority, name, primary_template, cond_department)
+  VALUES (96078, 'Ext078', '{first_initial}{surname}078@{domain}', ARRAY['EapExt078']);
+SELECT throws_ok(
+  $$ SELECT email_address_policy_apply(96079, 79078) $$,
+  'BZ078', NULL,
+  'apply: a non-local rendered domain is rejected (BZ078)');
+
+SELECT * FROM finish();
+ROLLBACK;

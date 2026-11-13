@@ -1,0 +1,822 @@
+[
+ {
+  "case": "bad-signature",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "body-relaxation",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "dns-nxdomain",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "dns-temporary",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "duplicate-domain-last-wins",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "duplicate-from",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "ed-algorithm-rsa-key",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "ed25519-go-direct-data",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "expired-signature-still-passes",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "dkim-ignore-expiry"
+ },
+ {
+  "case": "header-whitespace",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "missing-selector",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "rsa-pass",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "signed-prefix-with-untrusted-tail",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "tampered-body",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "tampered-header",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "unknown-canonicalization",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "unsigned-query-identity-tags",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "zero-length-empty-body",
+  "corpus": [
+   "dkim-go.json",
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "dkim-aligned-pass",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "The recorded message carries a Go-nonstandard, expired DKIM signature; a standards verifier rejects it, so DMARC no longer aligns through DKIM.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "dkim-ignore-expiry"
+ },
+ {
+  "case": "a-budget-becomes-fail",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "An exhausted DNS-term budget is permerror (RFC 7208 4.6.4), not a non-match.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-errors-are-non-matches"
+ },
+ {
+  "case": "error-is-nonmatch-a",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "A DNS failure on an a: lookup is temperror, not a non-match.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-errors-are-non-matches"
+ },
+ {
+  "case": "error-is-nonmatch-exists-bad.test",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "A DNS failure on exists: is temperror, not a non-match.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-errors-are-non-matches"
+ },
+ {
+  "case": "error-is-nonmatch-mx",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "A DNS failure on an MX host lookup is temperror, not a non-match.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-errors-are-non-matches"
+ },
+ {
+  "case": "include-none",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "include: of a domain without an SPF record is permerror (RFC 7208 5.2).",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "malformed-ip-skipped",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "A malformed ip4: operand is permerror, not silently skipped.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "match-exists-exists.test",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "exists: matches only when the lookup returns an address (an empty answer is no match).",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "match-mx-mail.test",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "A temporary failure resolving an MX host is temperror, not a skipped host.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-errors-are-non-matches"
+ },
+ {
+  "case": "match-redirect=include.test",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "redirect= applies only after every mechanism failed to match; -all decides first (RFC 7208 6.1).",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "redirect-eager",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "redirect= applies only after every mechanism failed to match (RFC 7208 6.1).",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "unknown-mechanism-ignored",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "An unknown mechanism is permerror (RFC 7208 4.6), not ignored.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "spf-unknown-mechanism-ignored"
+ },
+ {
+  "case": "prefix-version",
+  "corpus": [
+   "spf-mechanisms-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "v=spf1strange is not an SPF record; the version tag must be followed by a space (RFC 7208 4.5).",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::spf_errors_and_syntax_are_not_silent_non_matches",
+  "mutant": "none: RFC syntax fix covered by the same table"
+ },
+ {
+  "case": "concatenated-multiple-records",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Several DMARC records at one name are not concatenated (RFC 7489 6.6.3): discovery ends without a policy.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dmarc_uses_the_public_suffix_list_relaxed_default_subdomain_policy_and_one_record",
+  "mutant": "dmarc-concatenate-records"
+ },
+ {
+  "case": "strict-default-unaligned",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "An omitted adkim/aspf is relaxed (RFC 7489 6.3), so the organizational-domain match aligns.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dmarc_uses_the_public_suffix_list_relaxed_default_subdomain_policy_and_one_record",
+  "mutant": "dmarc-default-strict"
+ },
+ {
+  "case": "subdomain-policy-ignored",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "sp= governs a subdomain whose policy was found at the organizational domain.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dmarc_uses_the_public_suffix_list_relaxed_default_subdomain_policy_and_one_record",
+  "mutant": "dmarc-ignore-subdomain-policy"
+ },
+ {
+  "case": "pct-over-100",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "pct is clamped to 100 (RFC 7489 6.3), so the report records 100.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dmarc_uses_the_public_suffix_list_relaxed_default_subdomain_policy_and_one_record",
+  "mutant": "none: parsing by mail-auth"
+ },
+ {
+  "case": "unknown-policy",
+  "corpus": [
+   "dmarc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "A record with an invalid p= is ignored (RFC 7489 6.6.3) instead of counting a fail.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dmarc_uses_the_public_suffix_list_relaxed_default_subdomain_policy_and_one_record",
+  "mutant": "none: parsing by mail-auth"
+ },
+ {
+  "case": "body-can-increase-instance",
+  "corpus": [
+   "arc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's ARC sealing signed with columns the active schema lacks, never authenticated the incoming chain (any ARC-Seal gave cv=pass), scanned bodies for instances and let the counter wrap. Rust seals through mail-auth with the active key and verifies the chain. The seal now uses the RECEIVING (recipient's hosted) domain's key, never the attacker-controlled From-header domain; with no key for the receiving domain nothing is sealed.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "none: sealing replaced by mail-auth"
+ },
+ {
+  "case": "case-sensitive-prefix",
+  "corpus": [
+   "arc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's ARC sealing signed with columns the active schema lacks, never authenticated the incoming chain (any ARC-Seal gave cv=pass), scanned bodies for instances and let the counter wrap. Rust seals through mail-auth with the active key and verifies the chain. The seal now uses the RECEIVING (recipient's hosted) domain's key, never the attacker-controlled From-header domain; with no key for the receiving domain nothing is sealed.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "none: sealing replaced by mail-auth"
+ },
+ {
+  "case": "forged-chain-gets-pass",
+  "corpus": [
+   "arc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's ARC sealing signed with columns the active schema lacks, never authenticated the incoming chain (any ARC-Seal gave cv=pass), scanned bodies for instances and let the counter wrap. Rust seals through mail-auth with the active key and verifies the chain. The seal now uses the RECEIVING (recipient's hosted) domain's key, never the attacker-controlled From-header domain; with no key for the receiving domain nothing is sealed.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "arc-trust-presence"
+ },
+ {
+  "case": "legacy-key-signs",
+  "corpus": [
+   "arc-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's ARC sealing signed with columns the active schema lacks, never authenticated the incoming chain (any ARC-Seal gave cv=pass), scanned bodies for instances and let the counter wrap. Rust seals through mail-auth with the active key and verifies the chain. The seal now uses the RECEIVING (recipient's hosted) domain's key, never the attacker-controlled From-header domain; with no key for the receiving domain nothing is sealed.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "arc-seal-with-from-domain"
+ },
+ {
+  "case": "counter-wraps-negative",
+  "corpus": [
+   "arc-bounds-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "The ARC instance comes from the parsed chain (no scanf prefix/wrap quirks); an unparsable chain is not extended.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "none: sealing replaced by mail-auth"
+ },
+ {
+  "case": "numeric-prefix-scanned",
+  "corpus": [
+   "arc-bounds-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "The ARC instance comes from the parsed chain (no scanf prefix/wrap quirks); an unparsable chain is not extended.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "none: sealing replaced by mail-auth"
+ },
+ {
+  "case": "out-of-range-counter-ignored",
+  "corpus": [
+   "arc-bounds-go.json"
+  ],
+  "issue": "#493",
+  "go_replay": "skipped",
+  "reason": "The ARC instance comes from the parsed chain (no scanf prefix/wrap quirks); an unparsable chain is not extended.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::arc_seal_authenticates_the_incoming_chain",
+  "mutant": "none: sealing replaced by mail-auth"
+ },
+ {
+  "case": "data-with-no-accepted-recipient",
+  "corpus": [
+   "data-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "data-long-line",
+  "corpus": [
+   "data-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "bare-lf-terminator",
+  "corpus": [
+   "data-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "bare-lf-empty-body-is-not-a-terminator",
+  "corpus": [
+   "data-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-accept-short-eof"
+ },
+ {
+  "case": "data-half-close",
+  "corpus": [
+   "data-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json. A DATA body cut before its terminator is tempfailed 451, never acknowledged.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-accept-short-eof"
+ },
+ {
+  "case": "spilled-truncation",
+  "corpus": [
+   "size-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "maximum-plus-one",
+  "corpus": [
+   "size-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "invalid-recipient",
+  "corpus": [
+   "bytes-go.json"
+  ],
+  "issue": "#488",
+  "go_replay": "skipped",
+  "reason": "Recorded with every RCPT refused: DATA after zero accepted recipients is now 554 (frozen Go answered 250 for a dropped message). The framing behaviour is replayed with an accepted recipient in secfix-data.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::mail_is_never_acknowledged_without_a_delivered_recipient + secfix_data",
+  "mutant": "smtp-data-without-recipients"
+ },
+ {
+  "case": "simple-signature",
+  "corpus": [
+   "dkim-vectors-go.json"
+  ],
+  "issue": "#492 #493",
+  "go_replay": "skipped",
+  "reason": "Frozen Go's hand-written DKIM verifier ignored x= expiry, checked Ed25519 over unhashed data, rebuilt the signature header in a fixed layout and treated l= differently from signing; its recorded signatures are Go-nonstandard and expired. Rust verifies with mail-auth (RFC 6376/8463), so this recorded verdict no longer holds.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "secfix_inbound::dkim_honours_signature_expiry + outbound_signing_emits_a_complete_verifiable_dkim_signature",
+  "mutant": "none: verifier replaced by mail-auth, round-trip tests reject any broken verifier"
+ },
+ {
+  "case": "usage-0",
+  "corpus": [
+   "transport-dane-go.json"
+  ],
+  "issue": "#500",
+  "go_replay": "skipped",
+  "reason": "Frozen Go matched PKIX-TA (usage 0) against any certificate in the peer chain, including the leaf, with no check that the matched CA is in the validated chain. Rust requires a CA certificate (presented or trusted) that the leaf verifies against, in addition to ordinary PKIX; a leaf-only association no longer matches.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "transport::dane_certificate_decisions_require_chain_linkage_and_never_label_unmatched_sessions (dane-pkix-ta-leaf-hash-rejected, dane-pkix-ta-linked-chain-accepted)",
+  "mutant": "dane-ca-without-linkage"
+ },
+ {
+  "case": "second-lookup-failure",
+  "corpus": [
+   "transport-dane-go.json"
+  ],
+  "issue": "#500",
+  "go_replay": "skipped",
+  "reason": "Frozen Go looked the TLSA RRset up twice (before connecting and again after the handshake) and decided on the second answer; a failed second lookup rejected a session the first answer validated. Rust decides once, from the answer used for the pool decision and the handshake verifier, so a record that changes between two lookups cannot split the decision.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "transport::dane_certificate_decisions_require_chain_linkage_and_never_label_unmatched_sessions",
+  "mutant": "none: single-answer decision, covered by the linkage cases"
+ },
+ {
+  "case": "pool-tls-labelled-dane-despite-absence",
+  "corpus": [
+   "transport-dane-go.json"
+  ],
+  "issue": "#500",
+  "go_replay": "retained",
+  "reason": "Go reused a pooled TLS session as DANE-validated although no TLSA record had matched it. Rust marks a session DANE-validated only after a record matched its chain and re-checks the current records on reuse. The recorded case still replays (Rust performs one TLSA lookup per delivery, so its third recorded answer is never consumed); the bug itself is asserted by pool-session-without-a-matching-record-is-not-reused in secfix-transport.json.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "transport::dane_certificate_decisions_require_chain_linkage_and_never_label_unmatched_sessions",
+  "mutant": "dane-pool-trusts-label"
+ },
+ {
+  "case": "request-body-attendee-different-envelope",
+  "corpus": [
+   "security-imip-requests-go.json"
+  ],
+  "baseline": "security-imip-requests-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/request-body-attendee-different-envelope.json",
+  "sha256": "a72a8dc63d354f0b9b5453ddd4a98fc6fb88ef57d4fbb2bcccc30e9407472aa1",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go picked the first enabled local attendee named in the iMIP body and wrote a tentative event into that tenant's calendar although the envelope recipient was another tenant (unauthenticated cross-tenant calendar write). Rust accepts only an attendee that owns the mailbox the delivered envelope recipient resolves to; the recorded delivery now imports no event.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_imip_request_binds_attendee_to_envelope_recipient + mailserver/sql/tests/rust_smtp_imip.pg",
+  "mutant": "SETJOIN_SMTP_MUTANT=inbound-imip-body-attendee"
+ },
+ {
+  "case": "smime-cancel-revoked-badge",
+  "corpus": [
+   "security-imip-smime-go.json"
+  ],
+  "baseline": "security-imip-smime-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/smime-cancel-revoked-badge.json",
+  "sha256": "8043559ff1fd8ed08a392f8f30dd32c5608a608fd682579c33ec1870a2e244cc",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go's iMIP verified the signed body without the revocation blocklist, so a revoked or blocklisted signer's CANCEL still removed events while the message badge said untrusted. Rust passes the revocation option: the revoked signer is graded untrusted and iMIP stops.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_imip_stops_for_a_revoked_signer",
+  "mutant": "SETJOIN_SMTP_MUTANT=inbound-imip-ignore-revocation"
+ },
+ {
+  "case": "smime-cancel-trailing-unsigned-request",
+  "corpus": [
+   "security-imip-smime-go.json"
+  ],
+  "baseline": "security-imip-smime-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/smime-cancel-trailing-unsigned-request.json",
+  "sha256": "8043559ff1fd8ed08a392f8f30dd32c5608a608fd682579c33ec1870a2e244cc",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go verified a multipart/signed message whose extra unsigned part followed the closing boundary and kept the valid verdict (badge, iMIP, no link rewriting or phish warning for that part). Rust refuses to grade a message with parts outside the signed pair as signed: no verdict, the message is processed like unsigned mail and iMIP does not trust the signed CANCEL.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_trailing_unsigned_part_is_not_fully_signed + smime::tests",
+  "mutant": "SETJOIN_SMTP_MUTANT=smime-trailing-parts-ignored"
+ },
+ {
+  "case": "phish-exact-rejected",
+  "corpus": [
+   "security-phish-go.json"
+  ],
+  "baseline": "security-phish-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/phish-exact-rejected.json",
+  "sha256": "f79ef4dc4661c92632711922809fbe3b3c5cc4e91a94d5b222f29b38baabe2b8",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go answered an anti-phishing-only rejection with 250 OK and silently dropped the mail (sender and recipient never learn it was lost). Rust replies 550 Message rejected per anti-phishing policy.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_anti_phish_rejection_is_refused_not_silently_dropped",
+  "mutant": "SETJOIN_SMTP_MUTANT=smtp-phish-silent-drop"
+ },
+ {
+  "case": "phish-homoglyph-reject",
+  "corpus": [
+   "security-phish-go.json"
+  ],
+  "baseline": "security-phish-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/phish-homoglyph-reject.json",
+  "sha256": "f79ef4dc4661c92632711922809fbe3b3c5cc4e91a94d5b222f29b38baabe2b8",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go answered an anti-phishing-only rejection with 250 OK and silently dropped the mail. Rust replies 550 Message rejected per anti-phishing policy.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_anti_phish_rejection_is_refused_not_silently_dropped",
+  "mutant": "SETJOIN_SMTP_MUTANT=smtp-phish-silent-drop"
+ },
+ {
+  "case": "smime-valid-policy-reject-harvests",
+  "corpus": [
+   "security-smime-go.json"
+  ],
+  "baseline": "security-smime-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/smime-valid-policy-reject-harvests.json",
+  "sha256": "264faafd52612c15113c64a6cccf42e71b14973585f7baf07796d50911486abb",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go answered an anti-phishing-only rejection of a validly signed message with 250 OK and silently dropped it (the harvest still ran). Rust replies 550 Message rejected per anti-phishing policy.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_anti_phish_rejection_is_refused_not_silently_dropped",
+  "mutant": "SETJOIN_SMTP_MUTANT=smtp-phish-silent-drop"
+ },
+ {
+  "case": "phish-strict-upgrades-warn",
+  "corpus": [
+   "security-phish-go.json"
+  ],
+  "baseline": "security-phish-go.json",
+  "issue": "#544",
+  "go_replay": "pinned",
+  "expectation": "security/phish-strict-upgrades-warn.json",
+  "sha256": "f79ef4dc4661c92632711922809fbe3b3c5cc4e91a94d5b222f29b38baabe2b8",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: Frozen Go answered an anti-phishing-only rejection (strict mode upgrading a warning) with 250 OK and silently dropped the mail. Rust replies 550 Message rejected per anti-phishing policy.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_anti_phish_rejection_is_refused_not_silently_dropped",
+  "mutant": "SETJOIN_SMTP_MUTANT=smtp-phish-silent-drop"
+ },
+ {
+  "case": "secfix12-trailing-part-links",
+  "corpus": [
+   "security/secfix12-trailing-part-links.json"
+  ],
+  "baseline": "security/secfix12-trailing-part-links.json",
+  "issue": "#544",
+  "go_replay": "secure-only",
+  "sha256": "dacf9db4bb8eea79b786d16758abfe36306a7f6834044cd2f3ed9aa821df56f8",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: A validly signed multipart/signed message with an unsigned part after the closing boundary. Frozen Go (and the first port) kept the valid badge and skipped link protection for the message; Rust returns no verdict, so it is processed like unsigned mail (the signed text part is link-rewritten, badge NULL). Derived from recorded link-valid-signature-exempts by oracle/derive-secfix12.py.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_trailing_unsigned_part_is_not_fully_signed / secfix12_preamble_part_cannot_hide_behind_a_signed_message + smime::tests",
+  "mutant": "SETJOIN_SMTP_MUTANT=smime-trailing-parts-ignored / smime-line-boundary"
+ },
+ {
+  "case": "secfix12-preamble-part-links",
+  "corpus": [
+   "security/secfix12-preamble-part-links.json"
+  ],
+  "baseline": "security/secfix12-preamble-part-links.json",
+  "issue": "#544",
+  "go_replay": "secure-only",
+  "sha256": "5cb5afbf647f6617bf3dfa1055a740e0d8b728a4a134c5ca9bbc0c43dc3d3be7",
+  "reviewed": true,
+  "reason": "owner-approved security fix 2026-11-05: A second lowercase Content-Type frames an unsigned multipart/mixed part in the signed message's preamble (a parser differential between the S/MIME extractor and the body walkers). Rust picks the boundary like the walkers, refuses a second Content-Type and any preamble text, so the message is unsigned mail and the part's link is rewritten. Derived from recorded link-valid-signature-exempts by oracle/derive-secfix12.py.",
+  "review": "owner-approved security fix 2026-11-05",
+  "secure_test": "session::secfix12_trailing_unsigned_part_is_not_fully_signed / secfix12_preamble_part_cannot_hide_behind_a_signed_message + smime::tests",
+  "mutant": "SETJOIN_SMTP_MUTANT=smime-trailing-parts-ignored / smime-line-boundary"
+ }
+]

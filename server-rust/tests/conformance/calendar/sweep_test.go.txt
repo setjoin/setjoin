@@ -1,0 +1,40 @@
+// Recording-only overlay (#296): runs frozen Go's real booking `Sweeper.Run` loop
+// until it has swept once. Only the interval constant is lowered, through the
+// patched copy of sweeper.go named in the overlay; the statement, pool and loop
+// are the production ones.
+package booking
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeBookingSweepTick(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_SWEEP_DSN"), 1, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	sweepInterval = 100 * time.Millisecond
+	go NewSweeper(pgxutil.WorkerPool{Pool: pool}, slog.Default()).Run(ctx)
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		var due int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM booking_requests WHERE status='pending' AND verify_expires_at <= now() AND booker_email LIKE 'gofree-sweep-%'`).Scan(&due); err != nil {
+			t.Fatal(err)
+		}
+		if due == 0 {
+			time.Sleep(300 * time.Millisecond)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the sweeper never expired the due requests")
+}

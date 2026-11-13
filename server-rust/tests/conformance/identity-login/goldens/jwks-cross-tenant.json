@@ -1,0 +1,29 @@
+{
+  "case": "jwks-cross-tenant",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/.well-known/jwks.json"
+    },
+    "response": {
+      "body": "{\"keys\":[{\"use\":\"sig\",\"kty\":\"EC\",\"kid\":\"es256-e8caf769a177f0c3\",\"crv\":\"P-256\",\"alg\":\"ES256\",\"x\":\"72ZJwzScIqZcvenz225qslm6aSoxxBrEju7J_lZgDp0\",\"y\":\"JgYPkaK8ET4sX8e0pl5iS_5zNqVXvPpORaMLf6J9ghg\"}]}",
+      "headers": {
+        "cache-control": "public, max-age=300",
+        "content-type": "application/json"
+      },
+      "status": 200,
+      "tokens": []
+    }
+  },
+  "route": "GET /.well-known/jwks.json"
+}

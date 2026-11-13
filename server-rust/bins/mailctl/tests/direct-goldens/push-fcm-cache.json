@@ -1,0 +1,72 @@
+{
+  "stdout": "  SKIP device 9900301 (hms): provider not configured here\n  SENT device 9900302 (fcm)\n  SENT device 9900307 (fcm)\nDone: 2 sent, 0 failed\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "outbound": [
+      {
+        "method": "POST",
+        "path": "/oauth/fcm",
+        "content_type": "application/x-www-form-urlencoded",
+        "authorization": "",
+        "body": {
+          "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          "assertion": {
+            "header": {
+              "alg": "RS256",
+              "typ": "JWT",
+              "kid": "fixture-key"
+            },
+            "claims": {
+              "iss": "synthetic@fixture.invalid",
+              "scope": "https://www.googleapis.com/auth/firebase.messaging",
+              "aud": "{HTTP}/oauth/fcm",
+              "exp": "{EXPIRY}",
+              "iat": "{IAT}",
+              "lifetime": 3600
+            },
+            "signature_verified": true
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "content_type": "application/json",
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b22626f6479223a225365744a6f696e206d61696c63746c20707573682074657374222c2274797065223a2274657374227d"
+            },
+            "token": "fixture-device-alice-fcm"
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/projects/fixture-project/messages:send",
+        "content_type": "application/json",
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "priority": "high"
+            },
+            "data": {
+              "data": "7b22626f6479223a225365744a6f696e206d61696c63746c20707573682074657374222c2274797065223a2274657374227d"
+            },
+            "token": "fixture-device-alice-fcm2"
+          }
+        }
+      }
+    ],
+    "host_unchanged": true,
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

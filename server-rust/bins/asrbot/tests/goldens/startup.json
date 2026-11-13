@@ -1,0 +1,91 @@
+{
+  "scenario": "startup",
+  "steps": [
+    {
+      "name": "refuse-non-loopback",
+      "request": {
+        "env": "refuse-non-loopback"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"listen address \\\"0.0.0.0:7890\\\" refused — must bind loopback only (127.0.0.1/::1/localhost), got host \\\"0.0.0.0\\\"\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "refuse-wildcard-host",
+      "request": {
+        "env": "refuse-wildcard-host"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"listen address \\\":7890\\\" has no host — binds all interfaces, refused (loopback-only)\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "refuse-hostname",
+      "request": {
+        "env": "refuse-hostname"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"listen address \\\"example.com:7890\\\": host \\\"example.com\\\" is not an IP or \\\"localhost\\\"\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "refuse-missing-port",
+      "request": {
+        "env": "refuse-missing-port"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"invalid listen address \\\"127.0.0.1\\\": address 127.0.0.1: missing port in address\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "refuse-too-many-colons",
+      "request": {
+        "env": "refuse-too-many-colons"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"invalid listen address \\\"::1:7890\\\": address ::1:7890: too many colons in address\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "refuse-empty-token",
+      "request": {
+        "env": "refuse-empty-token"
+      },
+      "response": {
+        "exit_code": 1,
+        "stdout": [
+          "{\"err\":\"ASR_TOKEN is required — loopback TCP carries no peer identity, refusing to serve an unauthenticated captions control API\",\"level\":\"ERROR\",\"msg\":\"refusing to start\"}"
+        ]
+      }
+    },
+    {
+      "name": "listen-conflict",
+      "request": {
+        "env": "listen-conflict"
+      },
+      "response": {
+        "exit_code": 0,
+        "stdout": [
+          "{\"addr\":\"127.0.0.1:<busy-port>\",\"funasr_url\":\"ws://127.0.0.1:10096\",\"level\":\"INFO\",\"livekit_url\":\"ws://127.0.0.1:1\",\"max_active_tracks\":4,\"max_meetings\":2,\"msg\":\"asrbotd listening\"}",
+          "{\"err\":\"listen tcp 127.0.0.1:<busy-port>: bind: address already in use\",\"level\":\"ERROR\",\"msg\":\"control server failed\"}",
+          "{\"level\":\"INFO\",\"msg\":\"shutting down\"}"
+        ]
+      }
+    }
+  ]
+}

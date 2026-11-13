@@ -1,0 +1,80 @@
+{
+  "contract": "cryptokey",
+  "cases": [
+    {
+      "name": "aes_column_envelope",
+      "input": {
+        "aad_hex": "757365723a3432",
+        "master_secret_hex": "666978747572652d6d61737465722d736563726574",
+        "nonce_hex": "66697865642d6e6f6e636521",
+        "plaintext_hex": "73746f726564207369676e696e67206b6579",
+        "profile": "standard"
+      },
+      "output": {
+        "envelope_hex": "454b303100000000200000000c66697865642d6e6f6e6365218905694f10715fd161d5da417fb7c13b64e10dcc33b324d0680c5f7282b0260d5146",
+        "error": "",
+        "key_hex": "ad0e49edfc6f7377ef343d9a831473fd9a649721e73edcd8eb0b18bc00250ba2",
+        "opened_hex": "73746f726564207369676e696e67206b6579"
+      }
+    },
+    {
+      "name": "aes_column_envelope_wrong_aad",
+      "input": {
+        "aad_hex": "6f74686572",
+        "envelope_hex": "454b303100000000200000000c66697865642d6e6f6e6365218905694f10715fd161d5da417fb7c13b64e10dcc33b324d0680c5f7282b0260d5146",
+        "master_secret_hex": "666978747572652d6d61737465722d736563726574"
+      },
+      "output": {
+        "error": "envelope: decryption failed: cipher: message authentication failed"
+      }
+    },
+    {
+      "name": "sm4_column_envelope",
+      "input": {
+        "aad_hex": "757365723a3432",
+        "master_secret_hex": "666978747572652d6d61737465722d736563726574",
+        "nonce_hex": "66697865642d6e6f6e636521",
+        "plaintext_hex": "73746f726564207369676e696e67206b6579",
+        "profile": "smx"
+      },
+      "output": {
+        "envelope_hex": "454b303101000000100000000c66697865642d6e6f6e636521378fbb47fcc4a22fdf17c3b85e012b60903c9552bfb54a15c72940eec556cce6902a",
+        "error": "",
+        "key_hex": "ad0e49edfc6f7377ef343d9a831473fd",
+        "opened_hex": "73746f726564207369676e696e67206b6579"
+      }
+    },
+    {
+      "name": "sm4_column_envelope_wrong_aad",
+      "input": {
+        "aad_hex": "6f74686572",
+        "envelope_hex": "454b303101000000100000000c66697865642d6e6f6e636521378fbb47fcc4a22fdf17c3b85e012b60903c9552bfb54a15c72940eec556cce6902a",
+        "master_secret_hex": "666978747572652d6d61737465722d736563726574"
+      },
+      "output": {
+        "error": "envelope: decryption failed: cipher: message authentication failed"
+      }
+    },
+    {
+      "name": "truncated_column",
+      "input": {
+        "envelope_hex": "626164",
+        "master_secret_hex": "666978747572652d6d61737465722d736563726574"
+      },
+      "output": {
+        "error": "cryptokey: column ciphertext too short (3 bytes)"
+      }
+    },
+    {
+      "name": "domain_keys",
+      "input": {
+        "secret_hex": "666978747572652d6d61737465722d736563726574"
+      },
+      "output": {
+        "attachment_hex": "40dd39e4d53b6baee1fe51a61e7b7a909041a05ebcfd4d76766831c4b96aae53",
+        "cookie_hex": "d3591251cda159fafd507324933a6eb03907bd8933b21ae5511ab0ca9aa6baa8",
+        "oidc_hex": "49996778a13d1cca8164f298171b4bfef794d4ba668a96e6bf72a7e6b15b437f"
+      }
+    }
+  ]
+}

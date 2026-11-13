@@ -1,0 +1,52 @@
+{
+  "case": "audit-foreign-row-effects",
+  "effects": [
+    {
+      "acts": [
+        {
+          "action": "hold.set",
+          "after": {
+            "legalHold": true
+          },
+          "before": {
+            "legalHold": false
+          },
+          "id": 1,
+          "notes": "chat1-matter",
+          "targetId": "channel",
+          "targetType": "channel",
+          "userId": "admin"
+        }
+      ],
+      "chainValid": true,
+      "channel": {
+        "changeSeq": 0,
+        "classification": "regular",
+        "lastPurgedSeq": 0,
+        "legalHold": true,
+        "legalHoldReason": "chat1-matter",
+        "retentionDays": null,
+        "wormMode": null
+      }
+    },
+    [
+      {
+        "action": "console.denied",
+        "after": null,
+        "before": {
+          "actor": "chat-oracle@test",
+          "missingPermission": "chat.compliance_view|chat.compliance_manage",
+          "target": "/admin/chat-channels/{id}/audit"
+        },
+        "ip": null,
+        "notes": "/admin/chat-channels/51/audit",
+        "targetId": null,
+        "targetType": "console"
+      }
+    ],
+    []
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "GET /admin/chat-channels/{id}/audit"
+}

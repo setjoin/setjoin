@@ -1,0 +1,186 @@
+# mailserver/config.yaml — SetJoin Mail Server configuration.
+# All values shown are defaults. Omit any key to use the default.
+# Secrets (JWT_SECRET, keys, passwords) MUST come from env vars — do not put them here.
+
+# Network
+listen:
+  addr: ":80"
+hostname: "localhost"
+
+# TLS — Let's Encrypt autocert (optional)
+# Uses TLS-ALPN-01 on :443 or HTTP-01 on :80.
+tls:
+  cert: ""                     # TLS_CERT env var — PEM certificate path
+  key: ""                      # TLS_KEY env var — PEM key path
+  autocert_domains: ""         # comma-separated: "mail.corp.com,imap.corp.com"
+  autocert_challenge: "tls-alpn-01"
+  autocert_email: ""           # admin@corp.com
+  autocert_cache_dir: "/var/cache/mailserver/autocert"
+  autocert_key_file: ""        # pre-generated ECDSA P-256 PEM (stable TLSA hash)
+  autocert_rollout: false
+  session_ticket_key_rotate_secs: 86400
+
+dnssec:
+  enabled: true
+
+# Database
+db:
+  dsn: ""                      # DB_DSN env var — PgBouncer pool DSN (required)
+  direct_dsn: ""               # DB_DIRECT_DSN env var — direct PG connection for LISTEN/NOTIFY
+  max_conns: 50
+  encryption_key: ""           # DB_ENCRYPTION_KEY env var — 32-char AES key for pgcrypto
+
+# Logging
+log:
+  level: "info"                # debug | info | warn | error
+  format: "text"               # text | json
+
+# JWT
+jwt:
+  secret: ""                   # JWT_SECRET env var — HMAC-SHA256 key (>= 32 chars, required)
+  expiry: "1h"                 # access token TTL
+  # Optional independent master for five-minute attachment tokens; empty derives
+  # from JWT_SECRET. Previous is verification-only during a bounded rotation.
+  mail_attachment_secret: ""
+  mail_attachment_previous_secret: ""
+
+# Crypto
+crypto:
+  algorithm_profile: "standard" # standard | smx | hybrid
+sm2:
+  private_key_file: ""         # SM2_PRIVATE_KEY_FILE env var
+
+# Auth server — gateway proxies all /auth/* requests here
+authserver:
+  url: "http://localhost:8443"
+  # First-party JWKS endpoint (ADR-005). When set, the gateway verifies ES256
+  # access tokens against these public keys (dual-verify alongside HS256). Empty
+  # = HS256-only (ES256 tokens rejected). Env: AUTHSERVER_JWKS_URL.
+  jwks_url: ""                 # e.g. http://localhost:8443/.well-known/jwks.json
+
+# Kerberos / SPNEGO (on-prem AD)
+kerberos:
+  enabled: false
+  keytab: "/etc/mail/mail.keytab"
+  realm: ""                    # e.g. COMPANY.COM
+
+# S3-compatible object storage (MinIO, SeaweedFS, AWS S3)
+s3:
+  endpoint: "127.0.0.1:9000"
+  access_key: ""               # from env: S3_ACCESS_KEY or MINIO_ACCESS_KEY
+  secret_key: ""               # from env: S3_SECRET_KEY or MINIO_SECRET_KEY
+  bucket: "mailblobs"
+  secure: false
+
+# Backup (disaster recovery to S3/OSS/B2)
+backup:
+  provider: ""                 # "s3" or "oss". Empty = disabled.
+  endpoint: ""
+  region: "us-east-1"
+  bucket: ""
+  access_key: ""
+  secret_key: ""
+  object_lock: ""              # governance | compliance
+  object_lock_days: 30
+  replica_provider: ""         # "s3" or "oss". Empty = disabled.
+  replica_endpoint: ""
+  replica_region: "us-east-1"
+  replica_bucket: ""
+  replica_access_key: ""
+  replica_secret_key: ""
+
+# SMTP / IMAP servers
+smtp:
+  inbound_addr: ":25"          # MTA on port 25
+  submission_addr: ":587"      # MSA on port 587
+  inbound_tls_enforce: false   # require STARTTLS before MAIL FROM
+  inbound_tls_addr: ""         # implicit TLS on port 465 (e.g. ":465")
+  inbound_max_conns: 200
+  submission_max_conns: 200
+  per_user_max_conns: 5
+
+imap:
+  addr: ":143"                 # IMAP4 on port 143
+  tls_addr: ""                 # implicit TLS on port 993 (e.g. ":993")
+  max_conns: 500
+  per_user_max_conns: 10
+
+# LDAP — GAL and identity sync share the "ldap" namespace
+ldap:
+  addr: ""                     # GAL — ":389" or empty to disable
+  max_conns: 100               # GAL — max connections
+  domain: "localhost"          # GAL — base domain for DN construction
+  # Identity sync
+  sync_enabled: false
+  sync_host: ""
+  sync_port: 636
+  sync_tls: true               # true = implicit TLS, false = STARTTLS on 389
+  sync_bind_dn: ""
+  sync_password_enc: ""
+  sync_base_dn: ""
+  sync_interval_min: 15
+  sync_auto_depts: false
+
+# LDAPS GAL (separate from LDAP)
+ldaps:
+  addr: ""
+
+# ClamAV antivirus
+clamav:
+  addr: ""                     # clamd TCP address, e.g. "127.0.0.1:3310"
+
+# Attachment sandbox (CAPE behavioral analysis)
+sandbox:
+  enabled: false
+  cape_url: ""
+  cape_api_key: ""
+  timeout: "120s"
+  fail_mode: "open"
+
+# Webmail static files
+website:
+  dir: ""                      # path to webmail build/ directory (empty = API-only)
+
+# Upload limits
+max:
+  upload_size: 52428800        # 50 MB
+
+# AD Sync
+ad:
+  sync_enabled: false
+  sync_domain: ""
+  sync_bind_dn: ""
+  sync_password_enc: ""        # AES-256-GCM encrypted
+  sync_interval_min: 15
+  sync_ldap_host: ""           # override auto-discovered DC
+
+# Safe Browsing API (link protection)
+safebrowsing:
+  api_key: ""
+
+# Internal domains (skipped by link-protect URL rewriter)
+internal:
+  domains: "localhost"
+
+# Anti-phishing
+protected:
+  domains: ""
+antiphish:
+  name_threshold: 0.85
+  user_cache_ttl: "5m"
+
+# Default admin auto-creation on fresh deployment
+default:
+  admin_email: "admin@mail.local"
+  admin_password: ""
+
+# WORM immutability (S3 Object Lock)
+worm:
+  mode: ""                     # "governance" | "compliance". Empty = disabled.
+  retention_days: 2557         # 7 years (SEC/FINRA/CFTC)
+  legal_hold_enabled: false    # defaults to true when mode is set
+
+# SCIM Provisioning (RFC 7644)
+scim:
+  enabled: false
+  authserver_url: "http://localhost:8443"

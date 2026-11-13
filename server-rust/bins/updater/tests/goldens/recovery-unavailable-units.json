@@ -1,0 +1,28 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "status": {
+      "current": "old",
+      "recovery_required": false,
+      "database_reconciliation_required": false
+    },
+    "text": "current=old previous= intent= state= recovery_required=false database_reconciliation_required=false\n",
+    "evidence": {
+      "schema_version": 1,
+      "recorded_at": "<time>",
+      "phase": "operator_snapshot",
+      "reason": "operator inspection",
+      "forced": false,
+      "status": {
+        "current": "old",
+        "recovery_required": false,
+        "database_reconciliation_required": false
+      },
+      "units": {
+        "setjoin": "unknown",
+        "setjoin-auth": "unknown",
+        "setjoin-updater": "unknown"
+      }
+    }
+  }
+}

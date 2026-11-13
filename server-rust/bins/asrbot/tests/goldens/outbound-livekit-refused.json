@@ -1,0 +1,42 @@
+{
+  "failure_logs": [
+    "{\"err\":\"unauthorized: invalid token\",\"level\":\"ERROR\",\"msg\":\"livekit connect failed\",\"room\":\"meeting-1\"}"
+  ],
+  "requests": [
+    {
+      "authorization": [
+        "Bearer room-token-for-the-oracle"
+      ],
+      "header_names": [
+        "authorization",
+        "connection",
+        "host",
+        "sec-websocket-key",
+        "sec-websocket-version",
+        "upgrade",
+        "user-agent"
+      ],
+      "method": "GET",
+      "target": "/rtc?version=2.18.1&protocol=17&&auto_subscribe=1&sdk=go&os=linux",
+      "user_agent": [
+        "Go-http-client/1.1"
+      ]
+    },
+    {
+      "authorization": [
+        "Bearer room-token-for-the-oracle"
+      ],
+      "header_names": [
+        "accept-encoding",
+        "authorization",
+        "host",
+        "user-agent"
+      ],
+      "method": "GET",
+      "target": "/rtc/validate?version=2.18.1&protocol=17&&auto_subscribe=1&sdk=go&os=linux",
+      "user_agent": [
+        "Go-http-client/1.1"
+      ]
+    }
+  ]
+}

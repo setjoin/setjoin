@@ -1,0 +1,686 @@
+[
+  {
+    "name": "cancel-spf-both-domains",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-spf-both-domains@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-unsigned-denied",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": false
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-unsigned-denied@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-envelope-role-mismatch",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<attacker@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: attacker@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-envelope-role-mismatch@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-body-organizer-mismatch",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-body-organizer-mismatch@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:attacker@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-uid-organizer-isolation",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,jmap_state) VALUES(9348062,9348052,'smtp6-meeting','Other copy','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test',3);UPDATE calendar_events SET organizer_email='someone@external.test' WHERE id=9348062;",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-uid-organizer-isolation@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-occurrence-spf",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-occurrence-spf@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nRECURRENCE-ID:20300103T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-occurrence-direct-no-alias",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alice@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alice@smtp1.test\r\nMessage-ID: <cancel-occurrence-direct-no-alias@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nRECURRENCE-ID:20300103T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-duplicate-method-denied",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <cancel-duplicate-method-denied@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=CANCEL\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "counter-noop",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <counter-noop@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=COUNTER\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-accepted",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:smtp1.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: alice@smtp1.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-accepted@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-tentative",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:smtp1.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: alice@smtp1.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-tentative@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=TENTATIVE:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-declined",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:smtp1.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: alice@smtp1.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-declined@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=DECLINED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-bogus",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:smtp1.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: alice@smtp1.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-bogus@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=BOGUS:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-unsigned-denied",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": false
+    },
+    "dns": {
+      "txt:smtp1.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: alice@smtp1.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-unsigned-denied@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "reply-wrong-role-denied",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:smtp1-other.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<bob@smtp1-other.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: bob@smtp1-other.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <reply-wrong-role-denied@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REPLY\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "request-occurrence",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <request-occurrence@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nRECURRENCE-ID:20300103T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "request-existing-master-dedup",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <request-existing-master-dedup@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-meeting\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "request-unknown-occurrence-creates",
+    "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);INSERT INTO calendar_events(id,calendar_id,uid,title,start_at,end_at,is_meeting,organizer_email,rrule,jmap_state) VALUES(9348061,9348051,'smtp6-meeting','Existing','2030-01-02 10:00Z','2030-01-02 11:00Z',true,'organizer@external.test','FREQ=DAILY;COUNT=4',7);INSERT INTO event_attendees(event_id,email,name,role,status,rsvp) VALUES(9348061,'alice@smtp1.test','Old name','required','needs-action',true);",
+    "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');",
+    "imip_notify": true,
+    "observe_effects": true,
+    "capture_blobs": true,
+    "mail_auth": {
+      "feature.spf": true
+    },
+    "dns": {
+      "txt:external.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ]
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<organizer@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: organizer@external.test\r\nTo: alias@smtp1.test\r\nMessage-ID: <request-unknown-occurrence-creates@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-new-uid\r\nSUMMARY:Updated meeting\r\nDTSTART:20300103T120000Z\r\nDTEND:20300103T130000Z\r\nORGANIZER:mailto:organizer@external.test\r\nATTENDEE;CN=New name;PARTSTAT=ACCEPTED:mailto:alice@smtp1.test\r\nRECURRENCE-ID:20300103T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  }
+]

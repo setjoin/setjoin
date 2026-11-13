@@ -1,0 +1,16 @@
+# path	class	member_role	space_members	recursive	phase
+mailserver/internal/drive/members.go	roster_projection	0	1	0	A6
+mailserver/internal/guestgate/allowlist.go	outer_cap	2	0	0	A2
+mailserver/sql/reducers/chat_ediscovery_read.sql	outer_cap	1	0	0	A2
+mailserver/sql/reducers/chat_message.sql	outer_cap	1	1	0	A2
+mailserver/sql/reducers/chat_space_ensure.sql	bound_source	0	2	0	A2
+mailserver/sql/reducers/drive_chunk_register.sql	root_adapter	1	1	0	A6
+mailserver/sql/reducers/drive_effective_access.sql	root_adapter	6	0	0	A2
+mailserver/sql/reducers/drive_folder_member_grant.sql	compatibility_writer	1	2	0	A6
+mailserver/sql/reducers/drive_folder_member_revoke.sql	compatibility_writer	1	1	0	A6
+mailserver/sql/reducers/drive_member_grant.sql	compatibility_writer	0	4	0	A6
+mailserver/sql/reducers/drive_member_revoke.sql	compatibility_writer	0	1	0	A6
+mailserver/sql/reducers/drive_scope_helper.sql	root_adapter	9	2	0	A2
+mailserver/sql/reducers/drive_share_approval_decide.sql	compatibility_writer	0	2	0	A5
+mailserver/sql/reducers/drive_space_create.sql	root_adapter	0	2	0	A3
+mailserver/sql/reducers/meeting_space_ensure.sql	bound_source	0	1	0	A2

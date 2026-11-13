@@ -1,0 +1,9 @@
+{
+  "session-reconnect-reconcile": {
+    "reason": "Frozen Go waits for its 30-second refresh worker after a session_revoke LISTEN gap. The reviewed AUTHRT fix requires Rust to refresh immediately after subscribing, before processing queued notifications.",
+    "review": "owner-requested AUTHRT review fix 2026-11-06",
+    "go_source": "mailserver/cmd/mailserverd/main.go:698-722",
+    "test": "setjoin-gateway::workers::listener_reconnect_repairs_revocations_missed_during_disconnect",
+    "original_evidence": "Original test observed no closure within 5s; periodic refresh closed the session at 30s (AUTHRT-review-imap-reconnect-red.log)."
+  }
+}

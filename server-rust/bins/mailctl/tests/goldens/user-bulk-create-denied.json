@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"display_name\":\"Ada\",\"email\":\"ada@example.test\",\"password\":\"test\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"display_name\":\"Bob\",\"email\":\"bob@example.test\",\"password\":\"test2\"}"
+    }
+  ],
+  "stdout": "Done: 0 created, 2 failed\n",
+  "stderr": "  FAIL ada@example.test: HTTP 403 denied: outside scope (remediation: use scoped token)\n  FAIL bob@example.test: HTTP 599: unexpected request\nError: bulk-create: 2/2 failed\n",
+  "exit": 1
+}

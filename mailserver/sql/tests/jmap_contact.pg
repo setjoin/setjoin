@@ -1,0 +1,371 @@
+-- pgTAP: jmap_contact.sql — contact query + gal_search (ORG-WIDE, address-aware).
+--
+-- DIVERGENT IDS (ADR-003 regression guard): users.id != mailbox id everywhere.
+-- p_account_id is the JMAP accountId = the primary MAILBOX id. gal_search reads
+-- the org-wide directory_visible_users(p_mailbox_id) seam, which only requires the
+-- caller's MAILBOX to exist (no user_id = p_mailbox_id predicate); coincident ids
+-- would mask that, so user ids live in 74xx and mailbox ids in 94xx.
+--
+-- ORG-WIDE (ADR-004, docs/adr/ARCH-004-directory-org-scope.md): a deployment is
+-- ONE organization. The GAL spans ALL domains/forests — there is no home-domain
+-- filter. The PRIOR version of this test asserted gal_search EXCLUDES users from
+-- another domain (Test 5 below). That assertion encoded the very bug ADR-004
+-- fixes: it fragmented one org across its own AD domains. It is now INVERTED to
+-- assert the sister-domain colleague IS returned (org-wide union). The address
+-- tests prove the GAL matches/returns a person's full address set (primary ∪
+-- alias ∪ UPN) — Exchange GAL parity.
+BEGIN;
+SELECT plan(37);
+
+INSERT INTO domains (name, is_local) VALUES ('cnt.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('other-cnt.test', TRUE);
+
+-- Searcher: users.id 7401, primary mailbox id 9401 (divergent).
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (7401, 'cntuser', (SELECT id FROM domains WHERE name='cnt.test'), 'u@cnt.test', 'User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (9401, 7401, (SELECT id FROM domains WHERE name='cnt.test'), 'u@cnt.test', 'User', 'personal', TRUE);
+
+-- Two more enabled users in the SAME org domain.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (7402, 'alice-gal', (SELECT id FROM domains WHERE name='cnt.test'), 'alice@cnt.test', 'Alice Gal', TRUE),
+  (7403, 'bob-gal',   (SELECT id FROM domains WHERE name='cnt.test'), 'bob@cnt.test',   'Bob Gal',   TRUE);
+
+-- A colleague on a SISTER DOMAIN of the SAME org (one deployment = one org).
+-- carol has: primary carol@other-cnt.test, a sister-domain ALIAS carol.aka@cnt.test,
+-- and a UPN carol@corp.local. All three must be searchable + returned (GAL parity).
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, ad_upn) VALUES
+  (7501, 'carol-other', (SELECT id FROM domains WHERE name='other-cnt.test'), 'carol@other-cnt.test', 'Carol Other', TRUE, 'carol@corp.local');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (9501, 7501, (SELECT id FROM domains WHERE name='other-cnt.test'), 'carol@other-cnt.test', 'Carol Other', 'personal', TRUE);
+INSERT INTO aliases (mailbox_id, email, domain_id, is_primary) VALUES
+  (9501, 'carol.aka@cnt.test', (SELECT id FROM domains WHERE name='cnt.test'), FALSE);
+
+-- Test 1: query returns contacts (empty)
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_contact_query(9401)->'ids') = 'array'),
+  'contact query returns array'
+);
+
+-- Test 2: text filter works
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_contact_query(9401, '{"text":"alice"}'::JSONB)->'ids') = 'array'),
+  'text filter returns array'
+);
+
+-- Test 3 (ORG-WIDE union): gal_search returns ALL enabled org users across BOTH
+-- domains — searcher + alice + bob (cnt.test) + carol (other-cnt.test) = 4.
+-- Proves the home-domain filter is gone (ADR-004): a sister-domain colleague is
+-- visible because a deployment is one organization.
+SELECT is(
+  jsonb_array_length((gal_search(9401))->'list'),
+  4,
+  'gal_search unions enabled users across all org domains (no home-domain filter)'
+);
+
+-- Test 4: gal_search text filter still narrows on display name.
+SELECT is(
+  jsonb_array_length((gal_search(9401, 'alice'))->'list'),
+  1,
+  'gal_search text filter narrows to the matching org user'
+);
+
+-- Test 5 (INVERTED — was "excludes other domains", the ADR-004 bug): the
+-- sister-domain colleague IS returned. The old assertion (count == 0) encoded the
+-- home-domain fragmentation ADR-004 removes; the correct org-wide behavior is
+-- that carol@other-cnt.test appears.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements((gal_search(9401))->'list') r
+   WHERE r->>'email' = 'carol@other-cnt.test'),
+  1,
+  'gal_search INCLUDES a sister-domain colleague (org-wide, ADR-004)'
+);
+
+-- Test 6: gal_search returns a JSON list shape keyed on the account id.
+SELECT is(
+  (gal_search(9401))->>'accountId',
+  '9401',
+  'gal_search echoes the account id'
+);
+
+-- Test 7 (ADDRESS-AWARE — match by SISTER-DOMAIN ALIAS): searching carol's alias
+-- resolves the person even though it is not her primary address.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements((gal_search(9401, 'carol.aka@cnt.test'))->'list') r
+   WHERE r->>'id' = '7501'),
+  1,
+  'gal_search finds a person by a sister-domain alias'
+);
+
+-- Test 8 (ADDRESS-AWARE — match by UPN): searching carol's userPrincipalName
+-- resolves the same person.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements((gal_search(9401, 'carol@corp.local'))->'list') r
+   WHERE r->>'id' = '7501'),
+  1,
+  'gal_search finds a person by their AD UPN'
+);
+
+-- Test 9 (FULL ADDRESS SET returned): carol's card carries all three addresses —
+-- primary + sister-domain alias + UPN (Exchange GAL parity).
+SELECT is(
+  (SELECT jsonb_array_length(r->'addresses')
+   FROM jsonb_array_elements((gal_search(9401, 'carol'))->'list') r
+   WHERE r->>'id' = '7501'),
+  3,
+  'gal_search returns the full address set (primary + alias + UPN) on the card'
+);
+
+-- Test 10 (FULL ADDRESS SET contents): the alias address is present on the card
+-- with its alias type, proving the returned set is not just the primary.
+SELECT is(
+  (SELECT COUNT(*)::INT
+   FROM jsonb_array_elements((gal_search(9401, 'carol'))->'list') r,
+        jsonb_array_elements(r->'addresses') a
+   WHERE r->>'id' = '7501' AND a->>'email' = 'carol.aka@cnt.test'),
+  1,
+  'gal_search address set includes the sister-domain alias'
+);
+
+-- ── GOLDEN ENVELOPE (seam adoption — jmap_contact_get + jmap_addressbook_get) ──
+-- jmap_contact_get (already scoped) + jmap_addressbook_get (the FIX) both route
+-- through build_jmap_get_response. Seed an addressbook + contact in mailbox 9401.
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (9410, 9401, 'AB', TRUE);
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name, emails)
+  VALUES (9411, 9410, 'vu', 'Zed', '[]'::JSONB);
+
+-- Test 11 (contact_get GOLDEN, scoped/unchanged): [own_contact, missing] → notFound
+-- has only the missing id; accountId/state pinned.
+SELECT is(
+  jmap_contact_get(9401, ARRAY[9411::BIGINT, 999999999::BIGINT]),
+  jsonb_build_object(
+    'accountId', '9401',
+    'state',     entity_state(9401, 'ContactCard')::TEXT,
+    'list',      jmap_contact_get(9401, ARRAY[9411::BIGINT])->'list',
+    'notFound',  jsonb_build_array('999999999')
+  ),
+  'contact_get golden envelope (scoped, byte-identical after routing)'
+);
+
+-- Test 12 (addressbook_get GOLDEN, the FIX): [own_addressbook, missing] → notFound
+-- has only the missing id.
+SELECT is(
+  jmap_addressbook_get(9401, ARRAY[9410::BIGINT, 999999999::BIGINT])->'notFound',
+  jsonb_build_array('999999999'),
+  'addressbook_get golden notFound: missing id present, own id absent'
+);
+
+-- Test 13: addressbook_get NULL ids ⇒ notFound present + JSON null.
+SELECT ok(
+  (jmap_addressbook_get(9401, NULL) ? 'notFound')
+  AND jsonb_typeof(jmap_addressbook_get(9401, NULL)->'notFound') = 'null',
+  'addressbook_get with NULL ids ⇒ notFound present + JSON null'
+);
+
+-- ── DIVERGENT-ID notFound FIX (jmap_addressbook_get) ──────────────────────────
+-- BEFORE the seam, jmap_addressbook_get probed `addressbooks WHERE id = x`
+-- ORG-WIDE: a FOREIGN-OWNED addressbook id was neither in list nor notFound (a
+-- cross-mailbox existence oracle). mk_account gives disjoint user/mailbox ranges.
+-- (Fails on the old org-wide probe — that's the fix landing.)
+CREATE TEMP TABLE _aba AS SELECT mk_account('abA') AS mb;
+CREATE TEMP TABLE _abb AS SELECT mk_account('abB') AS mb;
+INSERT INTO addressbooks (id, mailbox_id, name) VALUES (9460, (SELECT mb FROM _aba), 'A book');
+INSERT INTO addressbooks (id, mailbox_id, name) VALUES (9461, (SELECT mb FROM _abb), 'B book (foreign)');
+
+-- Test 14: request [own_id, foreign_id] from A → foreign id IS in notFound,
+-- own id is NOT.
+SELECT ok(
+  (jmap_addressbook_get((SELECT mb FROM _aba), ARRAY[9460::BIGINT, 9461::BIGINT])->'notFound') ? '9461'
+  AND NOT ((jmap_addressbook_get((SELECT mb FROM _aba), ARRAY[9460::BIGINT, 9461::BIGINT])->'notFound') ? '9460'),
+  'addressbook_get: a foreign-owned addressbook id appears in notFound; own id absent (oracle fixed)'
+);
+
+-- ── State-token monotonicity (red-pim finding, A4-updated) ────────────────────
+-- Post-A4 the ContactCard changes token is the monotonic entity_state counter
+-- (bumped by trg_journal_contact on every create/update/destroy), decoupled from
+-- AddressBook. A create must advance it even when other contacts already sit above
+-- 0, and a destroy must never move it backward. Contacts 9410/9411 in 9401 above.
+CREATE TEMP TABLE _ccs AS SELECT entity_state(9401, 'ContactCard') AS s0;
+
+-- Test 15: a create advances the ContactCard changes token.
+SELECT jmap_contact_set_create(9401, '{"n1":{"displayName":"New Person"}}'::JSONB);
+
+-- JMAP Id[] elements are STRINGS (numeric ids 400 in ContactCard/get, Go Ids []string).
+SELECT is(
+  (SELECT jsonb_typeof(jmap_contact_query(9401)->'ids'->0)),
+  'string',
+  'contact query ids are JMAP Id strings, not numbers'
+);
+SELECT cmp_ok(
+  entity_state(9401, 'ContactCard'),
+  '>',
+  (SELECT s0 FROM _ccs),
+  'contact create advances the ContactCard changes token (entity_state counter)');
+
+-- Test 16: destroying a contact does NOT regress the token (entity_state only climbs).
+CREATE TEMP TABLE _cds AS SELECT entity_state(9401, 'ContactCard') AS s1;
+SELECT jmap_contact_set_destroy(9401, ARRAY[9411::BIGINT]);
+SELECT cmp_ok(
+  entity_state(9401, 'ContactCard'),
+  '>=',
+  (SELECT s1 FROM _cds),
+  'contact destroy never moves the changes token backward (monotonic)');
+
+-- A4: Contact/changes returns REAL deltas from the journal — up-to-date
+-- (since == current) → empty delta; sinceState 0 → the actual created list (not a
+-- blanket BZ011 resync). Mirrors the jmap_task.pg swap.
+SELECT lives_ok(
+  format($$ SELECT jmap_contact_changes(9401, entity_state(9401,'ContactCard')::TEXT) $$),
+  'Contact/changes with the current state returns an empty delta (no BZ011)');
+SELECT ok(
+  jsonb_array_length(jmap_contact_changes(9401, '0')->'created') > 0,
+  'Contact/changes with sinceState 0 returns real created deltas (not a blanket BZ011)');
+
+-- ════════════════════════════════════════════════════════════════════════
+-- A4 wave 1: real ContactCard + AddressBook /changes deltas. trg_journal_contact /
+-- trg_journal_addressbook (V096) record created/updated/destroyed into
+-- jmap_changes_journal at each bump of the per-datatype entity_state counter;
+-- jmap_{contact,addressbook}_changes delegate to the shared reader. Fresh mk_account
+-- mailboxes give a predictable state baseline. Raw INSERT/UPDATE/DELETE fire the
+-- row triggers directly (same as jmap_task.pg's A4 block).
+-- ════════════════════════════════════════════════════════════════════════
+
+-- ── ContactCard ──────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _cc  AS SELECT mk_account('ccA4') AS mb;
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (59100, (SELECT mb FROM _cc), 'A4 book', TRUE);
+CREATE TEMP TABLE _ccs4 (label text PRIMARY KEY, st text);
+
+-- fresh mailbox: creating the addressbook bumped AddressBook, NOT ContactCard → 0.
+SELECT is(jmap_contact_changes((SELECT mb FROM _cc), '0')->>'newState', '0',
+  'A4 ContactCard: fresh mailbox /changes state is 0 (decoupled from AddressBook)');
+
+-- two creates (raw INSERT fires trg_journal_contact per row → 2 'created' rows)
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name) VALUES
+  (59101, 59100, 'a4u1', 'A4 C1'), (59102, 59100, 'a4u2', 'A4 C2');
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _cc), '0')->'created') @> '[59101, 59102]'::jsonb
+  AND (jmap_contact_changes((SELECT mb FROM _cc), '0')->'destroyed') = '[]'::jsonb,
+  'A4 ContactCard: two creates return both ids in created, none destroyed');
+
+INSERT INTO _ccs4 VALUES ('s1', jmap_contact_changes((SELECT mb FROM _cc), '0')->>'newState');
+
+-- update c1 only (non-max row) — under the old MAX(addressbooks.jmap_state) token,
+-- ContactCard was polluted by/coupled to AddressBook; the separate journal surfaces
+-- this precisely.
+UPDATE contacts SET display_name = 'A4 C1x' WHERE id = 59101;
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _cc), (SELECT st FROM _ccs4 WHERE label='s1'))->'updated') = '[59101]'::jsonb
+  AND (jmap_contact_changes((SELECT mb FROM _cc), (SELECT st FROM _ccs4 WHERE label='s1'))->'created') = '[]'::jsonb,
+  'A4 ContactCard: a non-max-row update surfaces precisely');
+
+INSERT INTO _ccs4 VALUES ('s2', jmap_contact_changes((SELECT mb FROM _cc), '0')->>'newState');
+
+-- destroy c2 (AFTER DELETE → 'destroyed', addressbook still present so mailbox resolves)
+DELETE FROM contacts WHERE id = 59102;
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _cc), (SELECT st FROM _ccs4 WHERE label='s2'))->'destroyed') @> '[59102]'::jsonb,
+  'A4 ContactCard: a destroy surfaces in destroyed (no ghost row)');
+
+-- from s0: c2 created AND destroyed in-window → collapses to noop; c1 stays created
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _cc), '0')->'created') @> '[59101]'::jsonb
+  AND NOT ((jmap_contact_changes((SELECT mb FROM _cc), '0')->'created') @> '[59102]'::jsonb)
+  AND NOT ((jmap_contact_changes((SELECT mb FROM _cc), '0')->'destroyed') @> '[59102]'::jsonb),
+  'A4 ContactCard: created+destroyed in one window collapses to noop (RFC 8620 §5.2)');
+
+-- up-to-date client (since == current) → empty delta
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _cc), jmap_contact_changes((SELECT mb FROM _cc), '0')->>'newState')->'created') = '[]'::jsonb,
+  'A4 ContactCard: up-to-date client gets an empty delta');
+
+-- coarse resync sentinel in-window → BZ011
+SELECT append_change((SELECT mb FROM _cc), 'ContactCard', bump_entity_state((SELECT mb FROM _cc), 'ContactCard'), NULL, 'resync');
+SELECT throws_ok(
+  format('SELECT jmap_contact_changes(%s, %L)', (SELECT mb FROM _cc), (SELECT st FROM _ccs4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 ContactCard: a resync sentinel forces cannotCalculateChanges');
+
+-- ── AddressBook ──────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _ab4  AS SELECT mk_account('abA4') AS mb;
+CREATE TEMP TABLE _abs4 (label text PRIMARY KEY, st text);
+
+SELECT is(jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->>'newState', '0',
+  'A4 AddressBook: fresh mailbox /changes state is 0');
+
+-- two creates (raw INSERT fires trg_journal_addressbook per row)
+INSERT INTO addressbooks (id, mailbox_id, name) VALUES
+  (59201, (SELECT mb FROM _ab4), 'A4 AB1'), (59202, (SELECT mb FROM _ab4), 'A4 AB2');
+SELECT ok(
+  (jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->'created') @> '[59201, 59202]'::jsonb
+  AND (jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->'destroyed') = '[]'::jsonb,
+  'A4 AddressBook: two creates return both ids in created, none destroyed');
+
+INSERT INTO _abs4 VALUES ('s1', jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->>'newState');
+
+-- update ab1 only (non-max row)
+UPDATE addressbooks SET name = 'A4 AB1x' WHERE id = 59201;
+SELECT ok(
+  (jmap_addressbook_changes((SELECT mb FROM _ab4), (SELECT st FROM _abs4 WHERE label='s1'))->'updated') = '[59201]'::jsonb
+  AND (jmap_addressbook_changes((SELECT mb FROM _ab4), (SELECT st FROM _abs4 WHERE label='s1'))->'created') = '[]'::jsonb,
+  'A4 AddressBook: a non-max-row update surfaces precisely');
+
+INSERT INTO _abs4 VALUES ('s2', jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->>'newState');
+
+-- destroy ab2
+DELETE FROM addressbooks WHERE id = 59202;
+SELECT ok(
+  (jmap_addressbook_changes((SELECT mb FROM _ab4), (SELECT st FROM _abs4 WHERE label='s2'))->'destroyed') @> '[59202]'::jsonb,
+  'A4 AddressBook: a destroy surfaces in destroyed');
+
+-- from s0: ab2 created+destroyed collapses; ab1 stays created
+SELECT ok(
+  (jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->'created') @> '[59201]'::jsonb
+  AND NOT ((jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->'created') @> '[59202]'::jsonb)
+  AND NOT ((jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->'destroyed') @> '[59202]'::jsonb),
+  'A4 AddressBook: created+destroyed in one window collapses to noop (RFC 8620 §5.2)');
+
+-- up-to-date client → empty delta
+SELECT ok(
+  (jmap_addressbook_changes((SELECT mb FROM _ab4), jmap_addressbook_changes((SELECT mb FROM _ab4), '0')->>'newState')->'created') = '[]'::jsonb,
+  'A4 AddressBook: up-to-date client gets an empty delta');
+
+-- coarse resync sentinel in-window → BZ011
+SELECT append_change((SELECT mb FROM _ab4), 'AddressBook', bump_entity_state((SELECT mb FROM _ab4), 'AddressBook'), NULL, 'resync');
+SELECT throws_ok(
+  format('SELECT jmap_addressbook_changes(%s, %L)', (SELECT mb FROM _ab4), (SELECT st FROM _abs4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 AddressBook: a resync sentinel forces cannotCalculateChanges');
+
+-- ── F1: deleting an AddressBook cascades its contacts away; jmap_addressbook_set_destroy
+--    emits a ContactCard resync sentinel so a client syncing ContactCard across the
+--    deletion gets BZ011 (full resync) instead of ghost contacts. ─────────────────
+CREATE TEMP TABLE _f1  AS SELECT mk_account('f1A4') AS mb;
+INSERT INTO addressbooks (id, mailbox_id, name) VALUES (59300, (SELECT mb FROM _f1), 'F1 book');
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name) VALUES (59301, 59300, 'f1u', 'F1 C');
+CREATE TEMP TABLE _f1s AS SELECT jmap_contact_changes((SELECT mb FROM _f1), '0')->>'newState' AS sF;
+SELECT jmap_addressbook_set_destroy((SELECT mb FROM _f1), ARRAY[59300::BIGINT]);
+SELECT throws_ok(
+  format('SELECT jmap_contact_changes(%s, %L)', (SELECT mb FROM _f1), (SELECT sF FROM _f1s)),
+  'BZ011', NULL,
+  'A4 F1: destroying an AddressBook makes ContactCard/changes spanning it return BZ011 (resync sentinel, no ghost contacts)');
+
+-- ── contact_merge: the hard-delete of the loser fires the DELETE trigger → destroyed;
+--    the keeper UPDATE fires → updated. Both surface via the trigger, no manual append. ──
+CREATE TEMP TABLE _mg  AS SELECT mk_account('mgA4') AS mb;
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES (59400, (SELECT mb FROM _mg), 'Merge book', TRUE);
+INSERT INTO contacts (id, addressbook_id, vcard_uid, display_name) VALUES
+  (59401, 59400, 'mgk', 'Keeper'), (59402, 59400, 'mgd', 'Dropper');
+CREATE TEMP TABLE _mgs AS SELECT jmap_contact_changes((SELECT mb FROM _mg), '0')->>'newState' AS s0;
+SELECT contact_merge((SELECT mb FROM _mg), 59401, 59402);
+SELECT ok(
+  (jmap_contact_changes((SELECT mb FROM _mg), (SELECT s0 FROM _mgs))->'destroyed') @> '[59402]'::jsonb
+  AND (jmap_contact_changes((SELECT mb FROM _mg), (SELECT s0 FROM _mgs))->'updated') @> '[59401]'::jsonb,
+  'A4 merge: loser destroyed + keeper updated both surface via the row trigger');
+
+-- ── pruned window → BZ011 (global prune LAST; use s2>0, since=0 is never "pruned") ──
+SELECT prune_changes_journal(0, 0);
+SELECT throws_ok(
+  format('SELECT jmap_contact_changes(%s, %L)', (SELECT mb FROM _cc), (SELECT st FROM _ccs4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 ContactCard: sinceState past the pruned window → cannotCalculateChanges');
+SELECT throws_ok(
+  format('SELECT jmap_addressbook_changes(%s, %L)', (SELECT mb FROM _ab4), (SELECT st FROM _abs4 WHERE label='s2')),
+  'BZ011', NULL, 'A4 AddressBook: sinceState past the pruned window → cannotCalculateChanges');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,497 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "description": "Comma-separated admin emails for health alerts",
+            "encrypted": false,
+            "key": "alert_email_addresses",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": ""
+          },
+          {
+            "description": "Consecutive health check failures before alerting",
+            "encrypted": false,
+            "key": "alert_min_consecutive",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "3"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_bool",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": true
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_null",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": null
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_object",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": {
+              "a": "<x>",
+              "b": [
+                1,
+                2,
+                {
+                  "c": null
+                }
+              ]
+            }
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alertXplat5_wild",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "w"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "short"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "just-prefix"
+          },
+          {
+            "description": "Auth failure rate error threshold (failed attempts per 5-minute window)",
+            "encrypted": false,
+            "key": "hc_auth_fail_error",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "200"
+          },
+          {
+            "description": "Auth failure rate warn threshold (failed attempts per 5-minute window)",
+            "encrypted": false,
+            "key": "hc_auth_fail_warn",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "50"
+          },
+          {
+            "description": "Consecutive failure escalation window (minutes)",
+            "encrypted": false,
+            "key": "hc_consec_fail_window_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "20"
+          },
+          {
+            "description": "Crash event detection window (minutes)",
+            "encrypted": false,
+            "key": "hc_crash_window_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "10"
+          },
+          {
+            "description": "Database size error threshold (GB)",
+            "encrypted": false,
+            "key": "hc_db_size_error_gb",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "Database size warn threshold (GB)",
+            "encrypted": false,
+            "key": "hc_db_size_warn_gb",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "DKIM key expiry error threshold (days)",
+            "encrypted": false,
+            "key": "hc_dkim_expiry_error_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "7"
+          },
+          {
+            "description": "DKIM key expiry warn threshold (days)",
+            "encrypted": false,
+            "key": "hc_dkim_expiry_warn_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "30"
+          },
+          {
+            "description": "Oldest queue item age error threshold (minutes)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_age_error_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "60"
+          },
+          {
+            "description": "Oldest queue item age warn threshold (minutes)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_age_warn_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "15"
+          },
+          {
+            "description": "Outbound queue depth error threshold (messages)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_error",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "500"
+          },
+          {
+            "description": "Outbound queue depth warn threshold (messages)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_warn",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_number",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": 12.5
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_string",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "v"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_unicode",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "é "
+          },
+          {
+            "description": "Replication lag error threshold (seconds)",
+            "encrypted": false,
+            "key": "hc_replication_lag_error_sec",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "60"
+          },
+          {
+            "description": "Replication lag warn threshold (seconds)",
+            "encrypted": false,
+            "key": "hc_replication_lag_warn_sec",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "30"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hcXplat5_wild",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "w"
+          }
+        ],
+        "before": [
+          {
+            "description": "Comma-separated admin emails for health alerts",
+            "encrypted": false,
+            "key": "alert_email_addresses",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": ""
+          },
+          {
+            "description": "Consecutive health check failures before alerting",
+            "encrypted": false,
+            "key": "alert_min_consecutive",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "3"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_bool",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": true
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_null",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": null
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alert_plat5_object",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": {
+              "a": "<x>",
+              "b": [
+                1,
+                2,
+                {
+                  "c": null
+                }
+              ]
+            }
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "alertXplat5_wild",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "w"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "short"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "just-prefix"
+          },
+          {
+            "description": "Auth failure rate error threshold (failed attempts per 5-minute window)",
+            "encrypted": false,
+            "key": "hc_auth_fail_error",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "200"
+          },
+          {
+            "description": "Auth failure rate warn threshold (failed attempts per 5-minute window)",
+            "encrypted": false,
+            "key": "hc_auth_fail_warn",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "50"
+          },
+          {
+            "description": "Consecutive failure escalation window (minutes)",
+            "encrypted": false,
+            "key": "hc_consec_fail_window_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "20"
+          },
+          {
+            "description": "Crash event detection window (minutes)",
+            "encrypted": false,
+            "key": "hc_crash_window_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "10"
+          },
+          {
+            "description": "Database size error threshold (GB)",
+            "encrypted": false,
+            "key": "hc_db_size_error_gb",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "Database size warn threshold (GB)",
+            "encrypted": false,
+            "key": "hc_db_size_warn_gb",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "DKIM key expiry error threshold (days)",
+            "encrypted": false,
+            "key": "hc_dkim_expiry_error_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "7"
+          },
+          {
+            "description": "DKIM key expiry warn threshold (days)",
+            "encrypted": false,
+            "key": "hc_dkim_expiry_warn_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "30"
+          },
+          {
+            "description": "Oldest queue item age error threshold (minutes)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_age_error_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "60"
+          },
+          {
+            "description": "Oldest queue item age warn threshold (minutes)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_age_warn_min",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "15"
+          },
+          {
+            "description": "Outbound queue depth error threshold (messages)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_error",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "500"
+          },
+          {
+            "description": "Outbound queue depth warn threshold (messages)",
+            "encrypted": false,
+            "key": "hc_outbound_queue_warn",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "100"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_number",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": 12.5
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_string",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "v"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hc_plat5_unicode",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "é "
+          },
+          {
+            "description": "Replication lag error threshold (seconds)",
+            "encrypted": false,
+            "key": "hc_replication_lag_error_sec",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "60"
+          },
+          {
+            "description": "Replication lag warn threshold (seconds)",
+            "encrypted": false,
+            "key": "hc_replication_lag_warn_sec",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": "30"
+          },
+          {
+            "description": "d",
+            "encrypted": false,
+            "key": "hcXplat5_wild",
+            "updated_at": "2026-10-01T10:00:00+00:00",
+            "updated_by": null,
+            "value": "w"
+          }
+        ],
+        "table": "system_config"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/alerts/config",
+      "method": "GET",
+      "path": "/admin/alerts/config"
+    },
+    "response": {
+      "body": "{\"alertXplat5_wild\":\"\\\"w\\\"\",\"alert_email_addresses\":\"\\\"\\\"\",\"alert_min_consecutive\":\"\\\"3\\\"\",\"alert_plat5_bool\":\"true\",\"alert_plat5_null\":\"null\",\"alert_plat5_object\":\"{\\\"a\\\": \\\"\\u003cx\\u003e\\\", \\\"b\\\": [1, 2, {\\\"c\\\": null}]}\",\"hcXplat5_wild\":\"\\\"w\\\"\",\"hc_\":\"\\\"just-prefix\\\"\",\"hc_auth_fail_error\":\"\\\"200\\\"\",\"hc_auth_fail_warn\":\"\\\"50\\\"\",\"hc_consec_fail_window_min\":\"\\\"20\\\"\",\"hc_crash_window_min\":\"\\\"10\\\"\",\"hc_db_size_error_gb\":\"\\\"100\\\"\",\"hc_db_size_warn_gb\":\"\\\"100\\\"\",\"hc_dkim_expiry_error_days\":\"\\\"7\\\"\",\"hc_dkim_expiry_warn_days\":\"\\\"30\\\"\",\"hc_outbound_queue_age_error_min\":\"\\\"60\\\"\",\"hc_outbound_queue_age_warn_min\":\"\\\"15\\\"\",\"hc_outbound_queue_error\":\"\\\"500\\\"\",\"hc_outbound_queue_warn\":\"\\\"100\\\"\",\"hc_plat5_number\":\"12.50\",\"hc_plat5_string\":\"\\\"v\\\"\",\"hc_plat5_unicode\":\"\\\"é\\u2028\\\"\",\"hc_replication_lag_error_sec\":\"\\\"60\\\"\",\"hc_replication_lag_warn_sec\":\"\\\"30\\\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "856"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/alerts/config"
+}

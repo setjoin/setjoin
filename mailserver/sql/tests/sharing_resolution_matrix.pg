@@ -1,0 +1,119 @@
+-- sharing_resolution_matrix.pg — the §5 worked example of
+-- retired-docs:superpowers/specs/2026-06-27-sharing-delegation-design.md, EXACTLY,
+-- plus the D11 wiring pins: the shared-calendar + free-busy read reducers
+-- route their visibility decision through calendar_effective_acl, so the
+-- defaults layer takes effect when sharing.defaults is ON and the reducers
+-- are BYTE-IDENTICAL to explicit-only behavior when it is OFF.
+--
+-- Worked example: org baseline 闲忙-for-everyone; Eng OU narrowed to 无;
+-- Alice (Eng) opens 详细 to the Leads group; Bob holds an explicit read grant.
+BEGIN;
+SELECT plan(19);
+
+-- ── fixtures ────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES
+  (95041, 'srm-a.test', TRUE),
+  (95042, 'srm-b.test', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou) VALUES
+  (95141, 'Eng', '/eng', 'ou=eng');
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, department_id) VALUES
+  (95241, 'srm_alice',   95041, 'alice@srm-a.test',   'Alice',   TRUE, 95141),
+  (95242, 'srm_lead',    95041, 'lead@srm-a.test',    'Lead',    TRUE, NULL),
+  (95243, 'srm_engmate', 95041, 'engmate@srm-a.test', 'EngMate', TRUE, 95141),
+  (95244, 'srm_foreign', 95042, 'foreign@srm-b.test', 'Foreign', TRUE, NULL),
+  (95245, 'srm_bob',     95041, 'bob@srm-a.test',     'Bob',     TRUE, NULL),
+  (95246, 'srm_carol',   95041, 'carol@srm-a.test',   'Carol',   TRUE, NULL);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (95351, 95241, 95041, 'alice@srm-a.test', 'Alice', 'personal', TRUE),
+  (95352, 95242, 95041, 'lead@srm-a.test',  'Lead',  'personal', TRUE),
+  (95355, 95245, 95041, 'bob@srm-a.test',   'Bob',   'personal', TRUE),
+  (95356, 95246, 95041, 'carol@srm-a.test', 'Carol', 'personal', TRUE),
+  (95353, NULL,  95041, 'leads@srm-a.test', 'Leads', 'personal', FALSE);
+INSERT INTO distribution_groups (id, mailbox_id) VALUES (95451, 95353);
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES (95451, 95352);  -- lead ∈ Leads
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (95551, 95351, 'Alice primary', TRUE),
+  (95556, 95356, 'Carol primary', TRUE);
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, location) VALUES
+  (95651, 95551, 'srm-ev-alice', 'Design sync', '2026-07-06 10:00+00', '2026-07-06 11:00+00', 'Room 1'),
+  (95656, 95556, 'srm-ev-carol', 'Carol 1:1',   '2026-07-06 10:00+00', '2026-07-06 11:00+00', 'Room 2');
+
+-- the §5 policy rows
+INSERT INTO sharing_defaults (resource, owner_scope, owner_ref, audience, audience_ref, level, created_by) VALUES
+  ('calendar', 'org',  95041, 'everyone', 95041, 'freebusy', 95241),  -- org baseline 闲忙
+  ('calendar', 'ou',   95141, 'everyone', 95041, 'none',     95241),  -- Eng narrowed to 无
+  ('calendar', 'user', 95241, 'group',    95451, 'read',     95241);  -- Alice opens 详细 to Leads
+-- Bob's explicit grant (D5)
+INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES (95551, 95245, 'read');
+
+-- ═══ toggle OFF (seeded default): explicit-only, byte-identical ═════════════
+SELECT is(calendar_effective_acl(95242, 95241), 'none',
+  'OFF: Leads viewer gets none (ladder skipped, D11)');
+SELECT is(calendar_effective_acl(95245, 95241), 'read',
+  'OFF: Bob''s explicit grant resolves');
+SELECT is(
+  jsonb_array_length(jmap_calendar_get_shared(95242, 'alice@srm-a.test')->'list'),
+  0, 'OFF: get_shared shows a default-only viewer nothing');
+SELECT is(
+  jsonb_array_length(jmap_calendar_get_shared(95245, 'alice@srm-a.test')->'list'),
+  1, 'OFF: get_shared shows Bob his explicit share');
+SELECT is(
+  jsonb_array_length(jmap_calendar_event_get_shared(95242, 'alice@srm-a.test')->'list'),
+  0, 'OFF: event_get_shared shows a default-only viewer nothing');
+SELECT is(
+  jsonb_array_length(calendar_free_busy(95352, ARRAY[95351]::bigint[],
+    '2026-07-06 00:00+00', '2026-07-07 00:00+00')->0->'intervals'),
+  1, 'OFF: free/busy stays org-open (deliberate pre-toggle behavior)');
+
+-- ═══ toggle ON: the §5 worked example ═══════════════════════════════════════
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'sharing.defaults';
+
+SELECT is(calendar_effective_acl(95242, 95241), 'read',
+  'ON: Leads-group viewer → read (详细, most specific match)');
+SELECT is(calendar_effective_acl(95243, 95241), 'none',
+  'ON: non-Leads Eng viewer → none (OU narrowing restricts below the org baseline, D4)');
+SELECT is(calendar_effective_acl(95244, 95241), 'none',
+  'ON: other-domain viewer → none (everyone is domain-scoped, D7)');
+SELECT is(calendar_effective_acl(95245, 95241), 'read',
+  'ON: Bob sees read regardless of any default (explicit wins, D5)');
+SELECT is(calendar_effective_acl(95242, 95246), 'freebusy',
+  'ON: Carol (no OU/user rules) falls to the org baseline → freebusy');
+
+-- wiring pin: get_shared surfaces the primary calendar at the default level
+SELECT is(
+  jmap_calendar_get_shared(95242, 'alice@srm-a.test')->'list'->0->>'shareLevel',
+  'read', 'ON: get_shared lists Alice''s primary calendar for a Leads viewer at read');
+SELECT is(
+  jsonb_array_length(jmap_calendar_get_shared(95243, 'alice@srm-a.test')->'list'),
+  0, 'ON: get_shared still shows a none-resolved viewer nothing (fail-closed)');
+
+-- wiring pin: event details follow the level — read sees detail, freebusy is redacted
+SELECT is(
+  jmap_calendar_event_get_shared(95242, 'alice@srm-a.test')->'list'->0->>'title',
+  'Design sync', 'ON: read-default viewer sees full event detail');
+SELECT is(
+  jmap_calendar_event_get_shared(95242, 'carol@srm-a.test')->'list'->0->>'title',
+  'Busy', 'ON: freebusy-default viewer sees the redacted Busy block');
+SELECT is(
+  jmap_calendar_event_get_shared(95242, 'carol@srm-a.test')->'list'->0->>'location',
+  NULL, 'ON: freebusy redaction nulls the location');
+
+-- wiring pin: free/busy honors the resolver when ON
+SELECT is(
+  jsonb_array_length(calendar_free_busy(95352, ARRAY[95351]::bigint[],
+    '2026-07-06 00:00+00', '2026-07-07 00:00+00')->0->'intervals'),
+  1, 'ON: Leads viewer still gets Alice''s busy block');
+SELECT is(
+  jsonb_array_length(calendar_free_busy(95356, ARRAY[95351]::bigint[],
+    '2026-07-06 00:00+00', '2026-07-07 00:00+00')->0->'intervals'),
+  0, 'ON: a none-resolved viewer gets an EMPTY interval list for Alice (shape preserved)');
+
+-- and Bob's explicit grant keeps free/busy open for him
+SELECT is(
+  jsonb_array_length(calendar_free_busy(
+    (SELECT id FROM mailboxes WHERE user_id = 95245 AND is_primary),
+    ARRAY[95351]::bigint[], '2026-07-06 00:00+00', '2026-07-07 00:00+00')->0->'intervals'),
+  1, 'ON: an explicit grantee keeps free/busy visibility');
+
+SELECT * FROM finish();
+ROLLBACK;

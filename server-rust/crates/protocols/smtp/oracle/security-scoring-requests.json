@@ -1,0 +1,263 @@
+[
+  {
+    "name": "external-missing-date",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <external-missing-date@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "internal-sender",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<alice@smtp1.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <alice@smtp1.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <internal-sender@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "external-name-spoof",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <external-name-spoof@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "UPDATE users SET display_name='Visitor' WHERE id=9348012"
+  },
+  {
+    "name": "html-suspicious",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <html-suspicious@smtp6.test>\r\nSubject: WINNER ACT NOW\r\nContent-Type: text/html\r\n\r\n<p>lottery</p>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ]
+  },
+  {
+    "name": "safe-retains-min-score",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <safe-retains-min-score@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "INSERT INTO user_sender_list(user_id,sender,list_type) VALUES(9348011,'visitor@external.test','safe')"
+  },
+  {
+    "name": "blocked-retains-high-score",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <blocked-retains-high-score@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "INSERT INTO user_sender_list(user_id,sender,list_type) VALUES(9348011,'visitor@external.test','blocked')"
+  },
+  {
+    "name": "foreign-safe-isolated",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <foreign-safe-isolated@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "INSERT INTO user_sender_list(user_id,sender,list_type) VALUES(9348012,'visitor@external.test','safe')"
+  },
+  {
+    "name": "direct-mailbox-skips-lists",
+    "mail_auth": {
+      "feature.external_sender_warn": true,
+      "feature.external_sender_name_spoof": true,
+      "feature.spam_scoring": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alice@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alice@smtp1.test\r\nMessage-ID: <direct-mailbox-skips-lists@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "setup_sql": "INSERT INTO user_sender_list(user_id,sender,list_type) VALUES(9348011,'visitor@external.test','blocked')"
+  }
+]

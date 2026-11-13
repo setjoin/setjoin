@@ -1,0 +1,281 @@
+{
+  "case": "submission-set-local-row-effects",
+  "effects": [
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<new-message-1>",
+        "mailbox_id": "<mailbox>",
+        "op": "created",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<new-message-1>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 1,
+          "before": 0
+        },
+        "jmap_tag_state": {
+          "after": 1,
+          "before": 0
+        },
+        "sending_sent_today": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "before": {
+        "added_at": "<timestamp>",
+        "added_by": "system",
+        "imap_modseq": 1,
+        "imap_uid": 2,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Inbox>"
+      },
+      "change": "delete",
+      "row": "<inbox-only>:<tag:Inbox>",
+      "table": "message_tags"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "added_by": "send",
+        "imap_modseq": 1,
+        "imap_uid": 2,
+        "is_primary": true,
+        "message_id": "<new-message-1>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Sent>"
+      },
+      "change": "insert",
+      "row": "<new-message-1>:<tag:Sent>",
+      "table": "message_tags"
+    },
+    {
+      "before": {
+        "bcc_addrs": [],
+        "body_html": null,
+        "body_text": "submission body",
+        "body_tsv": "'body':2 'submission':1",
+        "categories": [],
+        "cc_addrs": [],
+        "crypto_type": null,
+        "deleted_at": null,
+        "delivery_receipt_requested": false,
+        "dkim_domain": null,
+        "dkim_result": null,
+        "dkim_selector": null,
+        "dmarc_result": null,
+        "flag_due_at": null,
+        "flag_reminder_at": null,
+        "folder_id": "<tag:Inbox>",
+        "from_addr": "jmap3-sender@oracle.test",
+        "from_name": null,
+        "from_tsv": "'jmap3-sender@oracle.test':1",
+        "has_attachments": false,
+        "held": false,
+        "id": "<inbox-only>",
+        "imap_modseq": null,
+        "imap_uid": null,
+        "in_reply_to": null,
+        "is_answered": false,
+        "is_deleted": false,
+        "is_draft": false,
+        "is_external": false,
+        "is_first_time": true,
+        "is_flagged": false,
+        "is_name_spoof": false,
+        "is_read": false,
+        "list_id": null,
+        "list_unsubscribe": null,
+        "mailbox_id": "<mailbox>",
+        "message_id": "<inbox-only@oracle.test>",
+        "pinned_at": null,
+        "priority": 0,
+        "raw_ref": "raw-inbox-only",
+        "read_receipt_requested": false,
+        "received_at": "<timestamp>",
+        "references_hdr": null,
+        "reply_to": null,
+        "scheduled_at": null,
+        "sender_display_name": null,
+        "sensitivity": null,
+        "sent_at": null,
+        "size_bytes": 10,
+        "smime_issuer_cn": null,
+        "smime_signer_cn": null,
+        "smime_signer_email": null,
+        "smime_status": null,
+        "spam_headers": null,
+        "spam_score": null,
+        "spf_result": null,
+        "subject": "oracle",
+        "subject_tsv": "'oracle':1",
+        "thread_id": "thr-inbox-only",
+        "to_addrs": [
+          {
+            "email": "recipient@jmap3-recipient.test"
+          }
+        ],
+        "vote_options": null,
+        "vote_response": null
+      },
+      "change": "delete",
+      "row": "<inbox-only>",
+      "table": "messages"
+    },
+    {
+      "after": {
+        "bcc_addrs": [],
+        "body_html": null,
+        "body_text": "submission body",
+        "body_tsv": "'body':2 'submission':1",
+        "categories": [],
+        "cc_addrs": [],
+        "crypto_type": null,
+        "deleted_at": null,
+        "delivery_receipt_requested": false,
+        "dkim_domain": null,
+        "dkim_result": null,
+        "dkim_selector": null,
+        "dmarc_result": null,
+        "flag_due_at": null,
+        "flag_reminder_at": null,
+        "folder_id": "<tag:Sent>",
+        "from_addr": "jmap3-sender@oracle.test",
+        "from_name": "recorded-email",
+        "from_tsv": "'email':4 'jmap3-sender@oracle.test':1 'recorded':3 'recorded-email':2",
+        "has_attachments": false,
+        "held": false,
+        "id": "<new-message-1>",
+        "imap_modseq": null,
+        "imap_uid": 1,
+        "in_reply_to": null,
+        "is_answered": false,
+        "is_deleted": false,
+        "is_draft": false,
+        "is_external": false,
+        "is_first_time": true,
+        "is_flagged": false,
+        "is_name_spoof": false,
+        "is_read": true,
+        "list_id": null,
+        "list_unsubscribe": null,
+        "mailbox_id": "<mailbox>",
+        "message_id": "<inbox-only@oracle.test>",
+        "pinned_at": null,
+        "priority": 0,
+        "raw_ref": "raw-inbox-only",
+        "read_receipt_requested": false,
+        "received_at": "<timestamp>",
+        "references_hdr": null,
+        "reply_to": null,
+        "scheduled_at": null,
+        "sender_display_name": null,
+        "sensitivity": null,
+        "sent_at": "<timestamp>",
+        "size_bytes": 10,
+        "smime_issuer_cn": null,
+        "smime_signer_cn": null,
+        "smime_signer_email": null,
+        "smime_status": null,
+        "spam_headers": null,
+        "spam_score": null,
+        "spf_result": null,
+        "subject": "oracle",
+        "subject_tsv": "'oracle':1",
+        "thread_id": "inbox-only@oracle.test",
+        "to_addrs": [
+          {
+            "email": "recipient@jmap3-recipient.test"
+          }
+        ],
+        "vote_options": null,
+        "vote_response": null
+      },
+      "change": "insert",
+      "row": "<new-message-1>",
+      "table": "messages"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_state": {
+          "after": 3,
+          "before": 2
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 20
+        },
+        "total_count": {
+          "after": 1,
+          "before": 2
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 2
+        }
+      },
+      "row": "Inbox",
+      "table": "tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "imap_modseq": {
+          "after": 2,
+          "before": 1
+        },
+        "imap_uid_next": {
+          "after": 3,
+          "before": 1
+        },
+        "jmap_state": {
+          "after": 1,
+          "before": 0
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 0
+        },
+        "total_count": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "Sent",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "d9babce6b734e49c46911617bbd292b270d2d24c",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap EmailSubmission/set"
+}

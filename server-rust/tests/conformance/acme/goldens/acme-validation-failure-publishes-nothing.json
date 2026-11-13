@@ -1,0 +1,19 @@
+{
+  "case": "acme-validation-failure-publishes-nothing",
+  "format": 1,
+  "go_source": "3490f2b4fbddc34164d3ed7aa129fd446599a226",
+  "observation": {
+    "account_key": {
+      "cr_free": true,
+      "label_line": "-----BEGIN EC PRIVATE KEY-----",
+      "mode": "600",
+      "present": true
+    },
+    "certs": {},
+    "challenge_misses": 18,
+    "dir_mode": "700",
+    "files": [],
+    "other_entries": 0,
+    "temp_files": 0
+  }
+}

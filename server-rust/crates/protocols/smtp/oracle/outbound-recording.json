@@ -1,0 +1,284 @@
+{
+  "format": 1,
+  "ticket": 350,
+  "go_source": "2b01b72c11ee622614ed34effff75d0041d38686",
+  "corpora": [
+    {
+      "name": "outbound",
+      "cases": 1,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-go.json": "64d23f85ba2b2c49755c98fc65fe3fac4ba7a7f48d97d523000b89745accd717",
+        "server-rust/crates/protocols/smtp/oracle/outbound-requests.json": "ccbe5b58cb589a1d27d0e7980929286e103cb4274b6f5d1ce041b21cf1163b36",
+        "server-rust/crates/protocols/smtp/oracle/outbound-observe.sql": "c362826930199906f3fd572e3b7e80a10e8d3dd8f7a2a36c4d9b64f86f40c1b4",
+        "server-rust/crates/protocols/smtp/oracle/outbound-cleanup.sql": "210522c852c4827cef8a576c7d0e9d95578f17f43f72440fdfd57f8890965ab6",
+        "mailserver/internal/smtp/outbound_oracle_record_test.go": "49b79380a762e395e2aec2066a4afa83a8a0917ec06825635223899edc107553"
+      },
+      "inputs_commit": "4e64697f7"
+    },
+    {
+      "name": "outbound-partial",
+      "cases": 1,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-partial-go.json": "6af1a0f34ee22d55b8f2d8d5069b5c66a8396300f3021d96a41c06850179a8ff",
+        "server-rust/crates/protocols/smtp/oracle/outbound-partial-requests.json": "4e8714cdf488899090bc2bdd57b4b4e465100de7cad4c6196e5ae4fec18d1d83"
+      },
+      "recorder_commit": "4e64697f7"
+    },
+    {
+      "name": "outbound-retry",
+      "cases": 7,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-retry-go.json": "7aed1ec6df6aa2bc078d8d3b3de3712f54f0dac2e29af30be2880ac9edc28740",
+        "server-rust/crates/protocols/smtp/oracle/outbound-retry-requests.json": "62b521f4db861f9a28ed8c85e0951a5a5ebf85208d68328c93af8b28e2d0b72a"
+      },
+      "recorder_commit": "4e64697f7"
+    },
+    {
+      "name": "outbound-errors",
+      "cases": 12,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-errors-go.json": "4b6ee0520821ac43fddbf6831675ba9e1026973eacf60b7b6ca24ddcd944c2f7",
+        "server-rust/crates/protocols/smtp/oracle/outbound-errors-requests.json": "f962c7aaabe81091793b01a9af5e9aa6146a592e3eb89b4700d4a46c495d2a2f"
+      },
+      "recorder_commit": "4e64697f7"
+    },
+    {
+      "name": "outbound-tls",
+      "cases": 6,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-tls-go.json": "efe455d780cda7afa8d2be376590afe6de68de7a5800041e8e1b6b3a4d2018ab",
+        "server-rust/crates/protocols/smtp/oracle/outbound-tls-requests.json": "ec27c0ad023ea84ac178aafd0c436fdcd02b698b10cbb560f1d26b9fa8c28239",
+        "server-rust/crates/protocols/smtp/oracle/outbound-cleanup.sql": "3bae9a75e111b9ae51ad6064cbee5cf1e48d1420ae896caca165f3e97caa92f3",
+        "mailserver/internal/smtp/outbound_oracle_record_test.go": "33389c929ca7fa6096bb056c1c191051def7cd963898688e0f3dcfbd6bb29bc9"
+      },
+      "inputs_commit": "38e232f63"
+    },
+    {
+      "name": "outbound-batch",
+      "cases": 1,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-batch-go.json": "8568c71d57b8c4bee1997859b7faa933099164314007263ed70b6cd228253380",
+        "server-rust/crates/protocols/smtp/oracle/outbound-batch-requests.json": "d3dabbe813f738bff376e3f3b2f71c0f7ec95cad0c4a1dd3c9e551209446a538",
+        "mailserver/internal/smtp/outbound_oracle_record_test.go": "512a5c0a9bd78fbbb671bff40a75796c1288d0ffda6f7985f55cd70652ee192d"
+      },
+      "inputs_commit": "462b69c6d"
+    },
+    {
+      "name": "outbound-envelope",
+      "cases": 3,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-envelope-go.json": "16a96761a80c29a298886316b26e0da0d599cd3ee4506674fae1265598433516",
+        "server-rust/crates/protocols/smtp/oracle/outbound-envelope-requests.json": "904e0f52f773e67c79119b6874bcd61b5a53ee5eccc5dc631e8382ddffbd0554"
+      }
+    },
+    {
+      "name": "outbound-timeout",
+      "cases": 4,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-timeout-go.json": "308ee0e39cd83083ede9accf117493569c9c864ca89773a6e9f407da189c807b",
+        "server-rust/crates/protocols/smtp/oracle/outbound-timeout-requests.json": "8597c7db48e63f04dedb4ca0193c87ae32d6aba9533beacb84308133327e1c68"
+      }
+    },
+    {
+      "name": "outbound-blobs",
+      "cases": 2,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-blobs-go.json": "41476af81b5d0729361c2497bd64684e97af77cb9f8760ec96edc69f6255715e",
+        "server-rust/crates/protocols/smtp/oracle/outbound-blobs-requests.json": "3ce01dd17adbc6956add1bfb93ec4d894aaa596d038618c8d1c6f78edeab9036"
+      }
+    },
+    {
+      "name": "outbound-blobs-valid",
+      "cases": 1,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-blobs-valid-go.json": "93f3f2d05ccd0b4a368595613c10672af21246a295fe36f107b205ea0b5cf0ae",
+        "server-rust/crates/protocols/smtp/oracle/outbound-blobs-valid-requests.json": "210f3d232c4133b4dde23bab090f0300662a899b8c073b4dd101d09436efa1a0"
+      }
+    },
+    {
+      "name": "outbound-preparation",
+      "cases": 15,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-preparation-go.json": "1301945b2671dbbcfea20266cbecd6074b01379c9b746d18ea23b3ce52b6d5e2",
+        "server-rust/crates/protocols/smtp/oracle/outbound-preparation-requests.json": "cbabde7bf756083ce2fd8a531060ee1d58983a5ea060998eea2299f485cda3a1"
+      }
+    },
+    {
+      "name": "outbound-db-fault",
+      "cases": 4,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-db-fault-go.json": "7e44ac658fb14c3ba33a1577a195714ede5969eaf21f07d1d8e717816fed63a6",
+        "server-rust/crates/protocols/smtp/oracle/outbound-db-fault-requests.json": "233f2ec4bf11a62051ca7d5de45cab0f0d882e4927196477b605c45b7b9061d5"
+      }
+    },
+    {
+      "name": "outbound-preparation-edge",
+      "cases": 6,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-preparation-edge-go.json": "de3b40c40a73821f129d5c3e5f3be26bcdd5f21e70b3a6ab24ac45b878263ff5",
+        "server-rust/crates/protocols/smtp/oracle/outbound-preparation-edge-requests.json": "7624bedd53f482bd3dce676c04802b38fcb4c4b9d58c5084c1aae9b310077ed9"
+      }
+    },
+    {
+      "name": "outbound-backlog",
+      "cases": 1,
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/outbound-backlog-go.json": "e703e86b4f5e3571333b8a2db216e669f2fcf87f3800098bafbf95390496c98c",
+        "server-rust/crates/protocols/smtp/oracle/outbound-backlog-requests.json": "26a7f3b64cab625b2f7dd1ef8edb68729e3f347608c4823b98c2969c335ca25b",
+        "server-rust/crates/protocols/smtp/oracle/outbound-backlog-observe.sql": "737790e2c5bf99fba8185a5d1509c9776ddd326c7af301b6a42e2bd7add014fd"
+      }
+    },
+    {
+      "name": "transport-dane-failure",
+      "cases": 1,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-dane-failure-requests.json": "b0bca7bcd68ee6af6f3eddc4fe636ed5ed8f25572d573c896484c5117429fda0",
+        "server-rust/crates/protocols/smtp/oracle/transport-dane-failure-go.json": "58d6485b52fb65911908b618cb74a652b720dfa5da051f3c8d19341d87546113"
+      }
+    },
+    {
+      "name": "transport-dane",
+      "cases": 30,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-dane-requests.json": "91475e241e1607c6b95723e2bda3b8f55a087c89ea631f747f10e74d2550ee2d",
+        "server-rust/crates/protocols/smtp/oracle/transport-dane-go.json": "72dd73414c4fb1a93433993350e730c0071988e8851755f33545a8f1d553c903"
+      }
+    },
+    {
+      "name": "transport-mta-cache",
+      "cases": 12,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-cache-requests.json": "b0f315cd785c6a782733b5f88223b3c3b5e982664d49ba15c5723fdb3bdbbcba",
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-cache-go.json": "c9191e828f4a9128e16e4dd2f2b1a646f8f956254ff50ef1cc3744dcbcb528fa"
+      }
+    },
+    {
+      "name": "transport-mta-fetch",
+      "cases": 1,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-fetch-go.json": "1331ddcdab6e9f9d2866c7099fbb5ae2af841c549aedd7003ab80ab257f8b9b8",
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-fetch-requests.json": "14275da486963bfcfbfa3f4947c03b89233bdc7f83ad2c70bba53b36b5fd0fdb",
+        "server-rust/crates/protocols/smtp/oracle/transport-observe.sql": "f7fd6306bde272df5818aa5aa27f089124e96fecfc75b87f2b2106fa590dc656"
+      }
+    },
+    {
+      "name": "transport-mta-errors",
+      "cases": 21,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-errors-requests.json": "8a3a535159fe27efe05c2aafa541ea0cb8e21f4c47e720ff7b59e19cd9c65642",
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-errors-go.json": "929b5095af738f460e8b6ace3ac3a27c6edc8331078e0cc8689751975dca7f08",
+        "server-rust/crates/protocols/smtp/oracle/transport-observe.sql": "f7fd6306bde272df5818aa5aa27f089124e96fecfc75b87f2b2106fa590dc656"
+      }
+    },
+    {
+      "name": "transport-report",
+      "cases": 1,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-report-requests.json": "6467c25d014ad939af101946056d474d25de882bd0a9a339a46926a29cd1ef08",
+        "server-rust/crates/protocols/smtp/oracle/transport-report-go.json": "becce8361a175c54f9a088c811afbe27e634c77174d76575838679c6fa1cfb68",
+        "server-rust/crates/protocols/smtp/oracle/transport-report-observe.sql": "49db2d4131214d0a78667120c11a24ae323ef9a02b12a0f63edae4f794fc426d"
+      }
+    },
+    {
+      "name": "transport-report-matrix",
+      "cases": 13,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-report-matrix-go.json": "14a6b0ac143be0b941af3eafec3542fb26f96880300d5d0aaa29f745e510fc83",
+        "server-rust/crates/protocols/smtp/oracle/transport-report-matrix-requests.json": "554bb61e71a49f737c6c5ad3765b20e4705c28fa4a76acd858f272b93791c73e",
+        "server-rust/crates/protocols/smtp/oracle/transport-report-observe.sql": "49db2d4131214d0a78667120c11a24ae323ef9a02b12a0f63edae4f794fc426d"
+      }
+    },
+    {
+      "name": "transport-live",
+      "cases": 1,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-live-go.json": "e92737f32aad49e1bbd915a9823754cd2c8edf70f565025d1b6535b6dc86f09d",
+        "server-rust/crates/protocols/smtp/oracle/transport-live-requests.json": "df7480507dd0451f52c48b1edb453a689225bd234f7e37237207d044aff5bebb"
+      }
+    },
+    {
+      "name": "transport-mta-gzip",
+      "cases": 1,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-gzip-go.json": "d048e3fdbcf0dbe71b01686a9539b3cce66cd047592530523c4d6655ffac8cc6",
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-gzip-requests.json": "30280d9509271fc5d7f32d29ccf3a5d1615e871b2527b5530cad1f301b3541f1",
+        "server-rust/crates/protocols/smtp/oracle/transport-observe.sql": "f7fd6306bde272df5818aa5aa27f089124e96fecfc75b87f2b2106fa590dc656"
+      }
+    },
+    {
+      "name": "transport-mta-cache-edge",
+      "cases": 4,
+      "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+      "recording_transport": "record-transport.py HTTP-client-factory-only overlay",
+      "sha256": {
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-cache-edge-go.json": "c1cf9d1ab62ff94980b521d7fb0e2d0db3eaf27c20c9f5da097c859472ccbf7c",
+        "server-rust/crates/protocols/smtp/oracle/transport-mta-cache-edge-requests.json": "5f348c3c104663eed685f5db2fb79386c960f2b063dc3984a8a83cacd0711b89",
+        "server-rust/crates/protocols/smtp/oracle/transport-observe.sql": "f7fd6306bde272df5818aa5aa27f089124e96fecfc75b87f2b2106fa590dc656"
+      }
+    }
+  ],
+  "go_runtime_sha256": {
+    "mailserver/internal/smtp/smime_harvest.go": "d462946d205ea796d1cb6cf35ebd8283b8e695f0b453be10a33c379c888ea5e0",
+    "mailserver/internal/smtp/link_scanner.go": "99228c212bdef9cca70bbd89cfcc114b70d3250532179cfc1829f5027b03c69f",
+    "mailserver/internal/smtp/antiphish_lookalike.go": "d739b9a728f5df5893e6fa6e4e34744fd93e469ec960d1a6ae59ede45e8f56ed",
+    "mailserver/internal/smtp/dane.go": "0c9180d97de228f8375cc4c60fa3ccedafa6fe3722551b5b0570e2b47c551f4c",
+    "mailserver/internal/smtp/sandbox.go": "3fb443d26ed2dab8a1febc5d902e7baaff452e6fb0fe77f013667b3b00872828",
+    "mailserver/internal/smtp/helpers.go": "9b897fc73cb3dd34261b3adb17cd52d3699b80d8d3cf34d913513360fd527628",
+    "mailserver/internal/smtp/antispam.go": "854487315020bcee206a9f21d89c00875a8c382d2dfa97812b6a1559f4abf1f7",
+    "mailserver/internal/smtp/antiphish_display.go": "c0472318c4c8fd8aeae3a2d947d3dd8d27c410c3e60039309e75539f5cbc7a0e",
+    "mailserver/internal/smtp/antiphish_contact.go": "89c8f67a9614595455073ae81e57fe560310fcd23b3a98d8c1f974dd64d55515",
+    "mailserver/internal/smtp/dmarc_report.go": "1acb1845dce7e027ef68aedd3ead87d76638933c5eaa07d2085d602043965683",
+    "mailserver/internal/smtp/dkim.go": "6eac913d96e785fdd4f82156e7035ed43dc95b45496379fd6d1683ceb3b9775c",
+    "mailserver/internal/smtp/confusables.go": "e68d2305f634dc4d7635dc1a7b1016a99a88ec00aab29d95ce943e527c876f11",
+    "mailserver/internal/smtp/tls_policy.go": "c277cf026b016ace2b453f22183f6619be518ee6a0d38f7104260f15dc60c739",
+    "mailserver/internal/smtp/ml_detectors.go": "7b5fd89148ecf6b11257af832a393978f529510827ad22fe865c382757d6caa5",
+    "mailserver/internal/smtp/submission.go": "4cd26019e2ce30ce7e2d2fa344b0f811ef313ca17257f6259f5e76552e2a8394",
+    "mailserver/internal/smtp/clamav.go": "9f785bde9ef53b3531b49886e54634d91e95cf6ccc0b5311bf740a23d1fb78a4",
+    "mailserver/internal/smtp/tlsrpt.go": "84e24b6e93e8a2ef1d08003094b59e0555dbf465e77cf238ff5edfd5581e5915",
+    "mailserver/internal/smtp/reducer_error.go": "bb8b282d70ada4720176620a8959d6b04000c9ed4f3a0bdccd7496bab5084c2b",
+    "mailserver/internal/smtp/antiphish.go": "e46992f682db79770a1b90aacaf1d372b2dc73dddb267528677f6306a3126499",
+    "mailserver/internal/smtp/dmarc.go": "30131db6fc27fc0dcd913a730d83cbc01161734c911cca1873f1cf5199e76699",
+    "mailserver/internal/smtp/crypto.go": "3308ffa20a1c939eaed24653803280c12a1e2e41c417cf259e7bfa310e81b1d2",
+    "mailserver/internal/smtp/mtasts.go": "2d03c13b17595dd6468b115ff2297407b68b07e136754b9d5027a96c534e1c08",
+    "mailserver/internal/smtp/dns_adapter.go": "fd8c146fb401c3c9575520261a4315434974ff8ad67ef1760fb3021318353abc",
+    "mailserver/internal/smtp/arc.go": "1bfb865d1f1b2465c143ca8f3f62c3de90d19722756ce3ddcaa6848ef6ba14c8",
+    "mailserver/internal/smtp/raw_blob.go": "56e561dbe8dbc2127a0f8f921effa602d9b3d67d988b4a2a266bb4725f10f69a",
+    "mailserver/internal/smtp/link_protect.go": "dde5996aba28355bc0a08923299839425aa29bd18ef5f5c8fe61f1c896c7deeb",
+    "mailserver/internal/smtp/outbound.go": "737e627b9508acb4fc4cd57d0f47fdf71926d268bd1100f9f1486e363b86f352",
+    "mailserver/internal/smtp/smime_inbound.go": "9324bdf0baea060aebcae8fc9167827cfbb0e47ddb7c63f01cb62979dfc5d393",
+    "mailserver/internal/smtp/spf.go": "07c298b6266b3406b64a9cd106435ac8726e0de58aec2ff5e7daf09557ed5a20",
+    "mailserver/internal/smtp/inbound.go": "16c3b44bdf757d818e20a038f22b9b1e9e9a39baa609519d8ad846b1d8334380"
+  },
+  "recorder_files": {
+    "mailserver/internal/smtp/outbound_oracle_record_test.go": "6f68f435b6187e4e6d723960c02b439f850c1d2f908827c8bbc7cda124aa046b",
+    "mailserver/internal/smtp/outbound_preparation_oracle_test.go": "ab1ef15a4a80a2828a57c71354aa2bf8d0df917ca54fe76958ed3805fbbb4ea8",
+    "mailserver/internal/smtp/transport_oracle_hook.go": "2ec465f365928c2c2f38bfce62fa3843a589ab790b4d622a96f8205188690243",
+    "server-rust/crates/protocols/smtp/oracle/record-transport.py": "e46c3c5c99b1e100ff66a557a37b6f966fcceb4bc28ef88c5c5495154e9235f2"
+  },
+  "current_fixture_sha256": {
+    "server-rust/crates/protocols/smtp/oracle/seed.sql": "4b31c53809aa53070b0e2bb61e3a19a4120ba7a42d743e63c5264a2b9a5d35e0",
+    "server-rust/crates/protocols/smtp/oracle/outbound-cleanup.sql": "f3e5a58e053624ce78dd8ecc1148e7ed8abfe76872267e1bd7c14cbf5d7638f0",
+    "server-rust/crates/protocols/smtp/oracle/outbound-observe.sql": "c362826930199906f3fd572e3b7e80a10e8d3dd8f7a2a36c4d9b64f86f40c1b4",
+    "server-rust/crates/protocols/smtp/oracle/outbound-backlog-observe.sql": "737790e2c5bf99fba8185a5d1509c9776ddd326c7af301b6a42e2bd7add014fd",
+    "server-rust/crates/protocols/smtp/oracle/transport-observe.sql": "f7fd6306bde272df5818aa5aa27f089124e96fecfc75b87f2b2106fa590dc656",
+    "server-rust/crates/protocols/smtp/oracle/transport-report-observe.sql": "49db2d4131214d0a78667120c11a24ae323ef9a02b12a0f63edae4f794fc426d"
+  },
+  "supplemental_tickets": [
+    351
+  ]
+}

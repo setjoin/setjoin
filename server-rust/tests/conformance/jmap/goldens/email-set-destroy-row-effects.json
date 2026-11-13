@@ -1,0 +1,142 @@
+{
+  "case": "email-set-destroy-row-effects",
+  "effects": [
+    {
+      "after": {
+        "collection_id": null,
+        "created_at": "<timestamp>",
+        "datatype": "email",
+        "entity_id": "<inbox-only>",
+        "mailbox_id": "<mailbox>",
+        "op": "destroyed",
+        "resource_uid": null,
+        "state_seq": 1
+      },
+      "change": "insert",
+      "row": "email:1:<inbox-only>",
+      "table": "jmap_changes_journal"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_email_state": {
+          "after": 1,
+          "before": 0
+        }
+      },
+      "row": "<mailbox>",
+      "table": "mailboxes"
+    },
+    {
+      "before": {
+        "added_at": "<timestamp>",
+        "added_by": "system",
+        "imap_modseq": 1,
+        "imap_uid": 2,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Inbox>"
+      },
+      "change": "delete",
+      "row": "<inbox-only>:<tag:Inbox>",
+      "table": "message_tags"
+    },
+    {
+      "after": {
+        "added_at": "<timestamp>",
+        "added_by": "user",
+        "imap_modseq": 1,
+        "imap_uid": 1,
+        "is_primary": true,
+        "message_id": "<inbox-only>",
+        "received_at": "<timestamp>",
+        "scheduled_at": null,
+        "snooze_until": null,
+        "tag_id": "<tag:Trash>"
+      },
+      "change": "insert",
+      "row": "<inbox-only>:<tag:Trash>",
+      "table": "message_tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "folder_id": {
+          "after": "<tag:Trash>",
+          "before": "<tag:Inbox>"
+        }
+      },
+      "row": "<inbox-only>",
+      "table": "messages"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "jmap_state": {
+          "after": 3,
+          "before": 2
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 20
+        },
+        "total_count": {
+          "after": 1,
+          "before": 2
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 2
+        }
+      },
+      "row": "Inbox",
+      "table": "tags"
+    },
+    {
+      "change": "update",
+      "columns": {
+        "imap_modseq": {
+          "after": 2,
+          "before": 1
+        },
+        "imap_uid_next": {
+          "after": 2,
+          "before": 1
+        },
+        "jmap_state": {
+          "after": 1,
+          "before": 0
+        },
+        "size_bytes": {
+          "after": 10,
+          "before": 0
+        },
+        "total_count": {
+          "after": 1,
+          "before": 0
+        },
+        "unread_count": {
+          "after": 1,
+          "before": 0
+        },
+        "updated_at": {
+          "after": "<timestamp>",
+          "before": "<timestamp>"
+        }
+      },
+      "row": "Trash",
+      "table": "tags"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Email/set"
+}

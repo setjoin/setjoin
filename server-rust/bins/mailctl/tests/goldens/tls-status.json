@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/tls/status",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "TLS: enabled\nChallenge: dns-01\nDomains: [example.test]\nEmail: admin@example.test\nDNS Provider: cloudflare\nCache Dir: /test\n\nCertificate:\n  Subject:   example.test\n  Issuer:    test\n  Not Before: 2026\n  Not After:  2027\n  Days Left:  30\n",
+  "stderr": "",
+  "exit": 0
+}

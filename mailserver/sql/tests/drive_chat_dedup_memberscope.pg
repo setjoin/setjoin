@@ -1,0 +1,55 @@
+-- mailserver/sql/tests/drive_chat_dedup_memberscope.pg
+-- Chat A2 Task 4 (Eng H2, the dedup-correctness bug): drive_file_put_version's
+-- BZ144 possession-proof SECOND ARM used to literally JOIN drive_space_members
+-- -- a derived (chat-only) member has ZERO rows there (DES-009 D2), so a
+-- HEAD-skip re-share (never claims the chunk themselves because a fellow
+-- member already uploaded it) hit BZ144 despite being a legitimate member who
+-- can already read the existing version. This pins the fix: the second arm
+-- now derives membership via drive_member_role, and re-sharing mints no new
+-- drive_chunks row / no new bytes.
+BEGIN;
+SELECT plan(8);
+SELECT mk_account('dmA') AS mba \gset
+SELECT mk_account('dmB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+SELECT chat_channel_create(:ua, 'a2-dedup-chan') AS chan \gset
+SELECT chat_channel_join(:ub, :chan);
+SELECT chat_space_ensure(:ua, :chan) AS space \gset
+
+-- Derivation sanity (V120): A is channel owner -> manager, B is a plain
+-- member -> editor, and NEITHER holds an ad-hoc drive_space_members row.
+SELECT is(drive_member_role(:space, :ua), 'manager', 'channel owner A derives manager');
+SELECT is(drive_member_role(:space, :ub), 'editor', 'channel member B derives editor');
+SELECT is((SELECT count(*) FROM drive_space_members WHERE space_id = :space)::int, 0,
+  'zero ad-hoc drive_space_members rows on the chat-bound space (DES-009 D2)');
+
+-- A uploads+claims chunk X and lands it in a version.
+SELECT drive_node_create(:ua, :space, NULL, 'file', 'a.bin') AS n1 \gset
+SELECT drive_chunk_register(:ua, :space, repeat('1', 64), 10);
+SELECT format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+  '[{"sha256":"%s","size":10}]', NULL, 'test') $$, :ua, :n1, repeat('c', 64), repeat('1', 64)) AS q1 \gset
+:q1;
+
+SELECT is((SELECT count(*) FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('1', 64))::int, 1,
+  'one drive_chunks row after A''s upload');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('1', 64))::int, 1,
+  'ref_count=1 after v1');
+
+-- B re-shares the SAME sha WITHOUT ever calling drive_chunk_register (the
+-- HEAD-skip dedup path: their client saw the chunk already exists and never
+-- claimed it) -- possession must come from arm 2 (derived membership +
+-- an existing version), not a claim of their own.
+SELECT drive_node_create(:ub, :space, NULL, 'file', 'b.bin') AS n2 \gset
+SELECT lives_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 10, NULL, NULL,
+  '[{"sha256":"%s","size":10}]', NULL, 'test') $$, :ub, :n2, repeat('d', 64), repeat('1', 64)),
+  'derived member B (no claim, no drive_space_members row) passes BZ144 via the derived-membership second arm');
+
+SELECT is((SELECT count(*) FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('1', 64))::int, 1,
+  'dedup re-share mints NO new drive_chunks row');
+SELECT is((SELECT ref_count FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('1', 64))::int, 2,
+  'ref_count increments to 2 -- both versions share one row, zero new bytes');
+
+SELECT finish();
+ROLLBACK;

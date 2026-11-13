@@ -1,0 +1,114 @@
+-- pgTAP: V153 exact-provider SSO entitlement provenance safety floor.
+
+BEGIN;
+SELECT plan(16);
+
+SELECT has_table(
+    'public',
+    'sso_distribution_group_provenance',
+    'distribution-group exact-provider provenance exists'
+);
+SELECT col_is_pk(
+    'public',
+    'sso_distribution_group_provenance',
+    ARRAY['provider_key', 'group_id', 'mailbox_id'],
+    'distribution-group provenance key is provider plus effective membership'
+);
+SELECT has_index(
+    'public',
+    'sso_distribution_group_provenance',
+    'sso_distribution_group_provenance_sweep_idx',
+    'distribution-group provider sweep index exists'
+);
+SELECT has_index(
+    'public',
+    'sso_distribution_group_provenance',
+    'sso_distribution_group_provenance_member_idx',
+    'distribution-group effective-row FK index exists'
+);
+
+SELECT has_table(
+    'public',
+    'sso_admin_role_provenance',
+    'admin-role exact-provider provenance exists'
+);
+SELECT col_is_pk(
+    'public',
+    'sso_admin_role_provenance',
+    ARRAY['provider_key', 'assignment_id'],
+    'admin-role provenance key is provider plus effective assignment'
+);
+SELECT has_index(
+    'public',
+    'sso_admin_role_provenance',
+    'sso_admin_role_provenance_assignment_idx',
+    'admin-role effective-row FK index exists'
+);
+
+SELECT has_table(
+    'public',
+    'sso_distribution_group_legacy_inventory',
+    'pre-V153 ambiguous distribution-group inventory exists'
+);
+SELECT col_is_pk(
+    'public',
+    'sso_distribution_group_legacy_inventory',
+    ARRAY['group_id', 'mailbox_id'],
+    'distribution-group legacy inventory identifies one effective membership'
+);
+SELECT has_table(
+    'public',
+    'sso_admin_role_legacy_inventory',
+    'pre-V153 ambiguous admin-role inventory exists'
+);
+SELECT col_is_pk(
+    'public',
+    'sso_admin_role_legacy_inventory',
+    'assignment_id',
+    'admin-role legacy inventory identifies one effective assignment'
+);
+
+SELECT col_has_check(
+    'public',
+    'sso_distribution_group_provenance',
+    'provider_key',
+    'distribution-group provider key is bounded'
+);
+SELECT col_has_check(
+    'public',
+    'sso_admin_role_provenance',
+    'provider_key',
+    'admin-role provider key is bounded'
+);
+
+SELECT is(
+    (SELECT enabled FROM public.feature_toggles WHERE key = 'feature.identity_model_v2'),
+    FALSE,
+    'identity model v2 is seeded off'
+);
+SELECT is(
+    (SELECT count(*)::integer FROM public.schema_migrations WHERE version = 153),
+    1,
+    'V153 is recorded exactly once'
+);
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1
+          FROM public.sso_distribution_group_legacy_inventory legacy
+          LEFT JOIN public.distribution_group_members dgm
+            ON dgm.group_id = legacy.group_id
+           AND dgm.mailbox_id = legacy.mailbox_id
+         WHERE dgm.group_id IS NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+          FROM public.sso_admin_role_legacy_inventory legacy
+          LEFT JOIN public.admin_role_assignments ara
+            ON ara.id = legacy.assignment_id
+         WHERE ara.id IS NULL
+    ),
+    'legacy inventory cannot outlive its effective grant'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

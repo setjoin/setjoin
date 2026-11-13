@@ -1,0 +1,180 @@
+-- pgTAP: inbound distribution-group moderation + anti-spam (Task 8).
+-- group_moderation_check  → reject / hold / deliver verdicts from a group's live settings.
+-- group_moderation_hold   → atomically creates the approval request + held_inbound_messages row.
+-- group_moderation_approval_decide → approve replays deliver() (members get the post, the
+--   PERSISTED verdict is reused verbatim — NOT recomputed); deny drops the held row, no delivery.
+-- Seed ids in the 960xx/96xxx range — no conflict with other test files.
+
+BEGIN;
+SELECT plan(16);
+
+-- ── Fixtures ──────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (96000, 'modgrp.test', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (96001, 'mod_owner', 96000, 'moderator@modgrp.test', 'Moderator', TRUE),
+  (96002, 'mod_m1',    96000, 'm1@modgrp.test',        'Member 1',  TRUE),
+  (96003, 'mod_m2',    96000, 'm2@modgrp.test',        'Member 2',  TRUE);
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) OVERRIDING SYSTEM VALUE VALUES
+  (9601, 96001, 96000, 'moderator@modgrp.test', 'Moderator', 'personal', TRUE),
+  (9602, 96002, 96000, 'm1@modgrp.test',        'Member 1',  'personal', TRUE),
+  (9603, 96003, 96000, 'm2@modgrp.test',        'Member 2',  'personal', TRUE);
+
+-- Group mailboxes (personal-type; the distribution_groups satellite row is the sole group signal).
+INSERT INTO mailboxes (id, domain_id, email, display_name, type, is_primary) OVERRIDING SYSTEM VALUE VALUES
+  (9604, 96000, 'modteam@modgrp.test', 'Mod Team', 'personal', FALSE),   -- closed + moderated
+  (9614, 96000, 'openmod@modgrp.test', 'Open Mod', 'personal', FALSE),   -- open  + moderated
+  (9624, 96000, 'openfree@modgrp.test','Open Free','personal', FALSE);   -- open  + unmoderated
+
+INSERT INTO distribution_groups (id, mailbox_id, moderated, allow_external_senders, moderator_mailbox_id) VALUES
+  (9600, 9604, TRUE,  FALSE, 9601),   -- closed (no external) + moderated
+  (9610, 9614, TRUE,  TRUE,  9601),   -- open (allow external) + moderated
+  (9620, 9624, FALSE, TRUE,  NULL);   -- open + unmoderated
+
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES
+  (9600, 9602),
+  (9600, 9603);
+
+-- ── group_moderation_check: the three verdicts ─────────────────────────────
+
+SELECT is( group_moderation_check(9600, TRUE),  'reject',
+  'closed group (allow_external=false) + external sender → reject (anti-spam hard block)');
+
+SELECT is( group_moderation_check(9600, FALSE), 'hold',
+  'closed+moderated group + internal sender → hold');
+
+SELECT is( group_moderation_check(9610, TRUE),  'hold',
+  'open+moderated group + external sender → hold (allowed but moderated)');
+
+SELECT is( group_moderation_check(9620, TRUE),  'deliver',
+  'open+unmoderated group + external sender → deliver (no moderation)');
+
+SELECT is( group_moderation_check(999999, TRUE), 'deliver',
+  'unknown group id → deliver (never a new failure mode)');
+
+-- ── group_moderation_hold: request + held row, verbatim deliver_params ──────
+
+-- Build the 32-arg deliver() payload as the Go seam would. A distinctive verdict
+-- (spam_score 3.7, smime_status 'valid') lets the approve case prove the persisted
+-- verdict is REUSED, not recomputed.
+SELECT group_moderation_hold(
+  9600,
+  'ext@outside.test',
+  'modref1',
+  jsonb_build_object('mail_from','ext@outside.test','rcpt_to','modteam@modgrp.test'),
+  jsonb_build_object(
+    'p_raw_ref','modref1', 'p_message_id','<modmsg1>',
+    'p_from_addr','ext@outside.test', 'p_from_name','Ext Sender',
+    'p_rcpt_addr','modteam@modgrp.test',
+    'p_to_addrs','[]'::jsonb, 'p_cc_addrs','[]'::jsonb, 'p_bcc_addrs','[]'::jsonb,
+    'p_subject','Held Group Post', 'p_in_reply_to',NULL, 'p_references_hdr',NULL,
+    'p_body_text','held body', 'p_body_html',NULL,
+    'p_size_bytes',100, 'p_has_attachments',false, 'p_sent_at',to_jsonb(now()),
+    'p_spf_result','pass', 'p_dkim_result','pass', 'p_dmarc_result','pass',
+    'p_spam_score',3.7, 'p_spam_headers','[]'::jsonb,
+    'p_vote_response',NULL, 'p_crypto_type',NULL,
+    'p_is_external',true, 'p_sender_display_name','Ext Sender', 'p_is_name_spoof',false,
+    'p_depth',0, 'p_list_id',NULL,
+    'p_smime_status','valid', 'p_smime_signer_email','ext@outside.test',
+    'p_smime_signer_cn','Ext Sender', 'p_smime_issuer_cn','Test CA'
+  )
+);
+
+-- one pending mail.group_moderation request, NO internal requester, approver = moderator owner
+SELECT is(
+  (SELECT COUNT(*)::int FROM approval_requests
+     WHERE consumer_type='mail.group_moderation' AND status='pending'
+       AND requester_user_id IS NULL AND approver_kind='user' AND approver_ref=96001),
+  1, 'hold creates one pending request: NULL requester, approver = moderator owner');
+
+-- domain_id populated from the target group's mailbox domain (no requester to
+-- derive it from — the sender is external; TODOS.md "approval_requests.domain_id").
+SELECT is(
+  (SELECT domain_id FROM approval_requests
+     WHERE consumer_type='mail.group_moderation' AND status='pending' AND requester_user_id IS NULL
+     ORDER BY id DESC LIMIT 1),
+  96000::bigint,
+  'group_moderation_hold populates domain_id from the target group''s mailbox domain');
+
+-- one held_inbound_messages row carrying the verbatim deliver_params
+SELECT is(
+  (SELECT COUNT(*)::int FROM held_inbound_messages h
+     JOIN approval_requests r ON r.id = h.approval_request_id
+    WHERE r.consumer_type='mail.group_moderation' AND h.group_id=9600
+      AND h.deliver_params->>'p_message_id'='<modmsg1>'),
+  1, 'hold creates a held_inbound_messages row with verbatim deliver_params');
+
+-- no member delivery yet (the post is parked, not expanded)
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id IN (9602,9603) AND message_id='<modmsg1>'),
+  0, 'hold does NOT expand to members (no delivery while held)');
+
+-- ── approve → deliver() replay: members get the post, verdict reused ────────
+
+SELECT is(
+  (SELECT group_moderation_approval_decide(
+     (SELECT id FROM approval_requests WHERE consumer_type='mail.group_moderation' AND status='pending' ORDER BY id DESC LIMIT 1),
+     96001, 'approve', 'looks fine')),
+  'applied', 'approve returns applied');
+
+-- both members now have the post (deliver() expanded the group exactly as a live inbound)
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id IN (9602,9603) AND message_id='<modmsg1>'),
+  2, 'approve replays deliver(): both members received the post');
+
+-- the PERSISTED verdict was reused, not recomputed (spam_score + smime_status round-trip)
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages
+     WHERE mailbox_id IN (9602,9603) AND message_id='<modmsg1>'
+       AND spam_score = 3.7::real AND smime_status='valid'),
+  2, 'approve reuses the stored verdict verbatim (spam_score 3.7 + smime_status valid on each copy)');
+
+-- the held row is gone; the request is applied
+SELECT is(
+  (SELECT COUNT(*)::int FROM held_inbound_messages h
+     JOIN approval_requests r ON r.id=h.approval_request_id
+    WHERE r.subject LIKE 'Moderate post from ext@outside.test%'),
+  0, 'approve drops the held_inbound_messages row');
+
+-- ── deny → held row dropped, NO delivery ────────────────────────────────────
+
+SELECT group_moderation_hold(
+  9600, 'ext2@outside.test', 'modref2',
+  jsonb_build_object('mail_from','ext2@outside.test','rcpt_to','modteam@modgrp.test'),
+  jsonb_build_object(
+    'p_raw_ref','modref2', 'p_message_id','<modmsg2>',
+    'p_from_addr','ext2@outside.test', 'p_from_name','Ext Two',
+    'p_rcpt_addr','modteam@modgrp.test',
+    'p_to_addrs','[]'::jsonb, 'p_cc_addrs','[]'::jsonb, 'p_bcc_addrs','[]'::jsonb,
+    'p_subject','Held Two', 'p_in_reply_to',NULL, 'p_references_hdr',NULL,
+    'p_body_text','body two', 'p_body_html',NULL,
+    'p_size_bytes',100, 'p_has_attachments',false, 'p_sent_at',to_jsonb(now()),
+    'p_spf_result','pass', 'p_dkim_result','pass', 'p_dmarc_result','pass',
+    'p_spam_score',0.0, 'p_spam_headers','[]'::jsonb,
+    'p_vote_response',NULL, 'p_crypto_type',NULL,
+    'p_is_external',true, 'p_sender_display_name','Ext Two', 'p_is_name_spoof',false,
+    'p_depth',0, 'p_list_id',NULL,
+    'p_smime_status',NULL, 'p_smime_signer_email',NULL,
+    'p_smime_signer_cn',NULL, 'p_smime_issuer_cn',NULL
+  )
+);
+
+SELECT is(
+  (SELECT group_moderation_approval_decide(
+     (SELECT id FROM approval_requests WHERE consumer_type='mail.group_moderation' AND status='pending' ORDER BY id DESC LIMIT 1),
+     96001, 'deny', 'no thanks')),
+  'denied', 'deny returns denied');
+
+SELECT is(
+  (SELECT COUNT(*)::int FROM messages WHERE mailbox_id IN (9602,9603) AND message_id='<modmsg2>'),
+  0, 'deny: the post never reaches members');
+
+SELECT is(
+  (SELECT COUNT(*)::int FROM held_inbound_messages h
+     JOIN approval_requests r ON r.id=h.approval_request_id
+    WHERE r.subject LIKE 'Moderate post from ext2@outside.test%'),
+  0, 'deny drops the held_inbound_messages row');
+
+SELECT * FROM finish();
+ROLLBACK;

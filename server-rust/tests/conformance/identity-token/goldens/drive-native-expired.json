@@ -1,0 +1,26 @@
+{
+  "case": "drive-native-expired",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "{\"lifetime\":99999999,\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/drive/native-token"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Unauthorized\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json",
+        "www-authenticate": "Negotiate, Bearer realm=\"mailserver\"",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 401
+    }
+  },
+  "route": "POST /drive/native-token"
+}

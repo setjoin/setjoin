@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of ca why:\n  -correlation string\n    \tCorrelation ID of a specific sign-in event\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

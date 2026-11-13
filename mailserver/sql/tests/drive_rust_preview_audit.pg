@@ -1,0 +1,35 @@
+-- Frozen Go preview audit deduplicates by actor/version over fifteen minutes.
+BEGIN;
+SELECT plan(5);
+SELECT mk_account('drive2-preview-audit') AS mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:mb \gset
+SELECT mk_account('drive2-preview-foreign') AS foreign_mb \gset
+SELECT user_id AS foreign_actor FROM mailboxes WHERE id=:foreign_mb \gset
+SELECT drive_space_create(:actor,'Preview','regular') AS space \gset
+SELECT drive_node_create(:actor,:space,NULL,'file','Preview.docx') AS node \gset
+SELECT drive_chunk_register(:actor,:space,repeat('a',64),1);
+SELECT (drive_file_put_version(:actor,:node,repeat('a',64),1,'application/msword',NULL,jsonb_build_array(jsonb_build_object('sha256',repeat('a',64),'size',1)),'drive2','audit')->>'versionId')::bigint AS version \gset
+SELECT set_config('app.current_user_id',:actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(format('SELECT drive_rust_preview_audit(%s,%s,%s)',:actor,:space,:version),'authorized audit succeeds');
+SELECT drive_rust_preview_audit(:actor,:space,:version);
+RESET ROLE;
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND user_id=:actor AND action='preview'),1::bigint,'repeat preview is deduplicated');
+SELECT set_config('app.current_user_id',:foreign_actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT drive_rust_preview_audit(:foreign_actor,:space,:version);
+RESET ROLE;
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND action='preview'),1::bigint,'foreign request writes no audit');
+SELECT drive_member_grant(:actor,:space,:foreign_actor,'viewer');
+SELECT set_config('app.current_user_id',:foreign_actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT ok(drive_runtime_has_node_capability(:foreign_actor,:node,'preview'),'metadata admission observes preview authority');
+RESET ROLE;
+SELECT drive_member_revoke(:actor,:space,:foreign_actor);
+SELECT set_config('app.current_user_id',:foreign_actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT drive_rust_preview_audit(:foreign_actor,:space,:version,true);
+RESET ROLE;
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND action='preview' AND user_id=:foreign_actor),1::bigint,'previously admitted open is audited after revocation, matching Go');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,20 @@
+-- Frozen-Go policy UPDATE data transaction; audit is separately best effort.
+CREATE OR REPLACE FUNCTION rust_approval_policy_update(p_actor bigint,p_id bigint,p_body jsonb)
+RETURNS bigint LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
+DECLARE v_count bigint;
+BEGIN
+  UPDATE approval_policies SET
+    name=COALESCE(p_body->>'name',name),
+    enabled=COALESCE((p_body->>'enabled')::boolean,enabled),
+    conditions=COALESCE(p_body->'conditions',conditions),
+    requires_approval=COALESCE((p_body->>'requiresApproval')::boolean,requires_approval),
+    approver_spec=COALESCE(p_body->'approverSpec',approver_spec),updated_at=now()
+   WHERE id=p_id AND EXISTS (SELECT 1 FROM public.admin_role_assignments a
+      JOIN public.admin_role_groups g ON g.id=a.role_group_id
+      WHERE a.user_id=p_actor AND (a.expires_at IS NULL OR a.expires_at>now())
+        AND public.admin_assignment_active(a.eligible,a.activated_until)
+        AND 'approvals.manage'=ANY(g.permissions));
+  GET DIAGNOSTICS v_count=ROW_COUNT;
+  RETURN v_count;
+END;
+$$;

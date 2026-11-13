@@ -1,0 +1,18 @@
+port: 7880
+bind_addresses: ["0.0.0.0"]
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50010
+  use_external_ip: false
+  node_ip: 127.0.0.1
+
+room:
+  auto_create: false
+
+keys:
+  setjoin: e2e-livekit-secret-at-least-32-characters
+
+logging:
+  level: info

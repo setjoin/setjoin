@@ -1,0 +1,165 @@
+{
+  "case": "to",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "before": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "table": "trace"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/trace/export",
+      "method": "GET",
+      "path": "/admin/trace/export",
+      "query": "?to=y.test"
+    },
+    "response": {
+      "body": "message_id,event,from_addr,rcpt_addr,remote_host,details,occurred_at\n<out1@trace.test>,delivered,zed@x.test,yan@y.test,,\"{\"\"status\"\": \"\"delivered\"\", \"\"subject\"\": \"\"ZZZ\"\"}\",2026-10-04T10:00:00Z\n<out1@trace.test>,received,zed@x.test,yan@y.test,mx1.x.test,\"{\"\"subject\"\": \"\"ZZZ\"\"}\",2026-10-03T10:00:00Z\n<out1@trace.test>,received,alice@x.test,bob@y.test,mx1.x.test,\"{\"\"size\"\": 120, \"\"status\"\": \"\"ok\"\", \"\"subject\"\": \"\"Hello World\"\"}\",2026-10-01T10:00:09Z\n<out1@trace.test>,delivered,alice@x.test,bob@y.test,,\"{\"\"status\"\": \"\"delivered\"\", \"\"subject\"\": \"\"Hello World\"\"}\",2026-10-01T10:00:08Z\n<a%b_c@trace.test>,spam_filtered,\"'=HYPERLINK(\"\"x\"\")\",'+1555@y.test,mx3.x.test,,2026-10-01T10:00:05Z\n\"<t,6@trace.test>\",rule_applied,\"\"\"quoted\"\"@x.test\",'@at@y.test,\" lead\nnl\",null,2026-10-01T10:00:04Z\n<t7@trace.test>,quarantined,'-dash@x.test,'\tTab@y.test,mx4.x.test,\"[\"\"arr\"\", 1, {\"\"k\"\": \"\"v\"\"}]\",2026-10-01T10:00:03Z\n<t8@trace.test>,held,ALICE@X.TEST,bob2@y.test,mx5.x.test,\"{\"\"status\"\": \"\"ok\"\", \"\"subject\"\": \"\"hello world\"\"}\",2026-10-01T10:00:02Z\n<t9@trace.test>,archived,erin@x.test,frank@y.test,mx6.x.test,\"{\"\"u\"\": \"\"é \"\", \"\"nested\"\": {\"\"a\"\": [1, 2, {\"\"b\"\": null}]}}\",2026-10-01T10:00:01Z\n<t10@trace.test>,expired,erin@x.test,gina@y.test,,{},2026-10-01T10:00:00Z\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"message-trace.csv\""
+        ],
+        "content-length": [
+          "1256"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/csv"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/trace/export"
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown ldap action: bogus (try: sync, sync-log, health)\n",
+  "exit": 1
+}

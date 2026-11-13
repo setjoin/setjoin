@@ -1,0 +1,103 @@
+-- pgTAP: jit_guards.pg — JIT guard asymmetry (Task 4)
+--
+-- The admin-domination/protection boundary under JIT activation. The rule:
+--   • the ACTOR's authority is ACTIVE-ONLY (a dormant-eligible actor wields
+--     nothing — admin_effective_authority + admin_can_reach JIT-gated);
+--   • the TARGET's protection counts ELIGIBLE-OR-ACTIVE (a dormant-eligible
+--     higher admin stays protected — admin_protection_check derives the target
+--     via admin_effective_authority(target, p_active_only => FALSE)).
+--
+-- 7 assertions:
+--   (a) actor active-only:  dormant-eligible actor has NO active perms
+--   (b) target potential:   the SAME assignment, as a target, still counts
+--   (c) dormant-window-abuse REGRESSION: a low admin cannot strip a
+--       dormant-eligible Super Admin (target protected via active_only=FALSE → BZ065)
+--   (d) compound-actor closed: an ACTIVE lower role + a DORMANT-eligible SA does
+--       NOT confer the super short-circuit (admin_is_super is JIT-gated) → BZ065
+--   (d2) activation restores it: after admin_role_activate the SA window opens and
+--        the SAME check succeeds (legit super, audited)
+--   (e) SoD bites on eligible (D1, code-free): an eligible conflicting grant → BZ001
+--   (f) toggle OFF: admin_effective_authority(x) == admin_effective_authority(x, FALSE)
+--
+-- Seed ids: 952xx (avoids conflicts with other test files). No users seeded in
+-- the baseline, so granted_by must reference a seeded user (95220, self-granter).
+
+BEGIN;
+SELECT plan(7);
+
+-- ── Seed ───────────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95200, 'apg-jit.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95220, 'jit_actor',  95200, 'actor@apg-jit.test',  'A', TRUE),   -- dormant-eligible role 2
+  (95230, 'jit_dormsa', 95200, 'dormsa@apg-jit.test', 'D', TRUE),   -- dormant-eligible Super Admin
+  (95231, 'jit_low',    95200, 'low@apg-jit.test',    'L', TRUE),   -- standing low admin (role 2)
+  (95240, 'jit_sod',    95200, 'sod@apg-jit.test',    'S', TRUE),   -- SoD subject
+  (95250, 'jit_compd',  95200, 'compd@apg-jit.test',  'C', TRUE);   -- compound: active role 2 + dormant SA
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'rbac.jit';
+
+-- actor 95220 holds an ELIGIBLE-DORMANT global admin role (role 2, non-super).
+INSERT INTO admin_role_assignments (user_id, role_group_id, eligible, granted_by)
+  VALUES (95220, 2, true, 95220);
+
+-- (a) actor active-only: a dormant-eligible actor wields NOTHING.
+SELECT is((SELECT cardinality(perms) FROM admin_effective_authority(95220)), 0,
+  'dormant-eligible actor has no active perms');
+
+-- (b) target potential: the SAME assignment, seen as a target, still counts.
+SELECT ok((SELECT cardinality(perms) FROM admin_effective_authority(95220, FALSE)) > 0,
+  'target potential counts the eligible role');
+
+-- (c) dormant-window-abuse REGRESSION: a lower admin must NOT strip a
+--     dormant-ELIGIBLE Super Admin (target protected via _potential → BZ065).
+INSERT INTO admin_role_assignments (user_id, role_group_id, eligible, granted_by)
+  VALUES (95230, 1, true, 95220);                 -- dormant-eligible Super Admin
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95231, 2, 95220);                        -- standing low admin
+SELECT throws_ok($$ SELECT admin_protection_check(95231, 95230, 'remove_role', 1) $$,
+  'BZ065', NULL,
+  'low admin cannot strip a DORMANT-eligible Super Admin (target protected via potential)');
+
+-- (d) compound-actor closed: an actor holding an ACTIVE standing lower role
+--     (role 2) PLUS a DORMANT-eligible Super Admin (role 1, eligible, no window)
+--     must NOT get the super short-circuit — admin_is_super is JIT-gated, so the
+--     dormant SA confers no live domination. The actor's ACTIVE (role-2) perms
+--     cannot dominate a peer Super Admin target → BZ065.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95250, 2, 95220);                        -- ACTIVE standing lower admin
+INSERT INTO admin_role_assignments (user_id, role_group_id, eligible, granted_by)
+  VALUES (95250, 1, true, 95220);                  -- DORMANT-eligible Super Admin
+SELECT throws_ok($$ SELECT admin_protection_check(95250, 95230, 'remove_role', 1) $$,
+  'BZ065', NULL,
+  'compound actor (active low role + dormant SA) cannot dominate a peer Super Admin');
+
+-- (d2) activation restores it: opening the SA window via admin_role_activate makes
+--      admin_is_super TRUE again, so the SAME check now succeeds (and the activate
+--      writes the role_activated audit row) — proving the gate withholds only the
+--      DORMANT window, not the role itself.
+SELECT admin_role_activate(95250, 1, 30, 'x');
+SELECT lives_ok($$ SELECT admin_protection_check(95250, 95230, 'remove_role', 1) $$,
+  'after activation the compound actor wields Super Admin and the check succeeds');
+
+-- (e) SoD bites on eligible (D1, code-free): 95240 holds a system-class role;
+--     an ELIGIBLE grant of a conflicting (audit) class is blocked by
+--     trg_sod_exclusion → BZ001. The SoD guard counts unexpired rows regardless
+--     of eligibility, so no code change was needed — only this assertion.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 95240, g.id, 95220 FROM admin_role_groups g WHERE g.name = '系统管理员';
+UPDATE feature_toggles SET enabled = true WHERE key = 'dengbao.sod_mode';
+SELECT throws_ok(
+  $$ INSERT INTO admin_role_assignments (user_id, role_group_id, eligible, granted_by)
+     SELECT 95240, g.id, true, 95220 FROM admin_role_groups g WHERE g.name = '审计管理员' $$,
+  'BZ001', NULL,
+  'SoD bites on an ELIGIBLE conflicting grant (D1 code-free)');
+
+-- (f) toggle OFF: admin_effective_authority(x) == admin_effective_authority(x, FALSE).
+UPDATE feature_toggles SET enabled = false WHERE key = 'rbac.jit';
+SELECT is((SELECT cardinality(perms) FROM admin_effective_authority(95220)),
+          (SELECT cardinality(perms) FROM admin_effective_authority(95220, FALSE)),
+          'toggle off: active == potential (inert)');
+
+SELECT * FROM finish();
+ROLLBACK;

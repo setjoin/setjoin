@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" fill="none">
+  
+  <g transform="translate(4 8)">
+    <defs>
+      <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#0A84FF"></stop>
+        <stop offset="0.5" stop-color="#AF52DE"></stop>
+        <stop offset="1" stop-color="#FF9F0A"></stop>
+      </linearGradient>
+    </defs>
+    <path d="M20 0 L40 38 H0 Z" fill="url(#pg)" opacity="0.92"></path>
+    <path d="M20 0 L40 38 H0 Z" stroke="currentColor" stroke-opacity="0.18" stroke-width="1" fill="none"></path>
+    
+    <path d="M-6 12 L14 16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.45"></path>
+    
+    <path d="M30 24 L52 18" stroke="#FF453A" stroke-width="1.4" stroke-linecap="round" opacity="0.85"></path>
+    <path d="M30 24 L52 24" stroke="#FF9F0A" stroke-width="1.4" stroke-linecap="round" opacity="0.85"></path>
+    <path d="M30 24 L52 30" stroke="#30D158" stroke-width="1.4" stroke-linecap="round" opacity="0.85"></path>
+    <path d="M30 24 L52 36" stroke="#0A84FF" stroke-width="1.4" stroke-linecap="round" opacity="0.85"></path>
+  </g>
+  
+  <text x="68" y="38" font-family="Inter Tight, Inter, system-ui, sans-serif" font-weight="700" font-size="28" letter-spacing="-0.02em" fill="currentColor">Prism</text>
+</svg>

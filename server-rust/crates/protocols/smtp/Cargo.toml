@@ -1,0 +1,59 @@
+[package]
+name = "setjoin-smtp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+setjoin-calendar-format = { path = "../../calendar-format" }
+scraper = { version = "=0.29.0", default-features = false, features = ["deterministic"] }
+html-escape = "=0.3.0"
+quoted_printable = "=0.5.2"
+percent-encoding = "=2.3.2"
+form_urlencoded = "=1.2.2"
+setjoin-certificates = { path = "../../certificates" }
+openssl = { version = "=0.10.82", features = ["vendored"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "gzip", "multipart"] }
+setjoin-spam = { path = "../../spam" }
+regex = "=1.13.1"
+mail-auth = { version = "=0.9.0", default-features = false, features = ["ring"] }
+hickory-net = { version = "=0.26.3", default-features = false, features = ["tokio"] }
+hickory-resolver = { version = "=0.26.3", default-features = false, features = ["system-config", "tokio"] }
+base64 = "=0.22.1"
+x509-parser = "=0.18.1"
+rustls-native-certs = "=0.8.5"
+rustls-pki-types = "=1.15.1"
+ipnet = "=2.12.2"
+psl = "2.1"
+setjoin-mime = { path = "../../mime" }
+sha2 = "=0.10.9"
+subtle = "=2.6.1"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+ring = "=0.17.14"
+setjoin-pg = { path = "../../pg" }
+setjoin-threat = { path = "../../threat" }
+setjoin-authz = { path = "../../authz" }
+smtp-proto = "=0.2.5"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+tokio = { version = "=1.54.1", features = ["net", "io-util", "rt", "sync", "time", "macros"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+serde_json = "=1.0.145"
+
+[features]
+# Test-only: restores each fixed security bug (SETJOIN_SMTP_MUTANT=<id>).
+oracle-mutants = []
+
+[dev-dependencies]
+http-body-util = "=0.1.5"
+hyper = { version = "=1.12.0", features = ["http1", "server"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+multer = "=3.1.0"
+flate2 = "=1.1.9"
+base64 = "=0.22.1"
+setjoin-conformance = { path = "../../../tests/conformance" }
+tokio-postgres = "0.7.18"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "test-util"] }
+
+[lints.rust]
+unsafe_code = "forbid"

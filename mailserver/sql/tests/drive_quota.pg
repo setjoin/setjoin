@@ -1,0 +1,72 @@
+-- mailserver/sql/tests/drive_quota.pg — I-14: quota atomic, all three kinds
+BEGIN;
+SELECT plan(11);
+SELECT mk_account('dq') AS mb \gset
+SELECT mk_account('dqA') AS mba \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+-- AUTOPLAN batch-3 item 1: admin_role_assignments has granted_by, not
+-- assigned_by; id/eligible/activated_until all have defaults, so omit them.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:ua, 1, :ua);
+-- V255__drive_space_update_rls_backstop.sql: trg_drive_space_no_reassign pins
+-- quota_bytes to a drive.manage admin resolved from app.current_user_id — the
+-- GUC every drive route sets per request via dbscope.RunUserScoped before
+-- calling these reducers (internal/drive/spaces.go patchSpace). A bare pgTAP
+-- session has no GUC, so emulate the request envelope for :ua's admin calls.
+SELECT set_config('app.current_user_id', :ua::text, true);
+-- three kinds: personal, shared, secure — quota applies identically (§0.1-2)
+SELECT drive_space_create(:u, 'me', 'regular', p_is_personal => true) AS ps \gset
+SELECT drive_space_create(:u, 'sh', 'regular') AS sh \gset
+SELECT drive_space_create(:u, 'se', 'secure')  AS se \gset
+SELECT drive_space_set_quota(:ua, :ps, 150);
+SELECT drive_space_set_quota(:ua, :sh, 150);
+SELECT drive_space_set_quota(:ua, :se, 150);
+
+-- helper fixture per space: one file node + one 100-byte claimed chunk
+SELECT drive_node_create(:u, :ps, NULL, 'file', 'p.bin') AS np \gset
+SELECT drive_node_create(:u, :sh, NULL, 'file', 's.bin') AS ns \gset
+SELECT drive_node_create(:u, :se, NULL, 'file', 'e.bin') AS ne \gset
+SELECT drive_chunk_register(:u, :ps, repeat('1',64), 100);
+SELECT drive_chunk_register(:u, :sh, repeat('1',64), 100);
+SELECT drive_chunk_register(:u, :se, repeat('1',64), 100);
+
+SELECT lives_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 100, NULL, NULL,
+  '[{"sha256":"%s","size":100}]', NULL, 't') $$, :u, :np, repeat('b',64), repeat('1',64)), 'personal: under quota ok');
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 100, NULL,
+  (SELECT head_version_id FROM drive_files WHERE node_id=%s),
+  '[{"sha256":"%s","size":100}]', NULL, 't') $$, :u, :np, repeat('c',64), :np, repeat('1',64)),
+  'BZ148', NULL, 'personal: second 100 bytes over the 150 quota → BZ148');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:ps), 100::bigint, 'ATOMIC: used_bytes unchanged after the rejected write');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE space_id=:ps)::int, 1, 'ATOMIC: no partial version row');
+-- shared: same gate — seed to 100, then the second write trips it
+SELECT drive_file_put_version(:u, :ns, repeat('b',64), 100, NULL, NULL,
+  format('[{"sha256":"%s","size":100}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 100, NULL,
+  (SELECT head_version_id FROM drive_files WHERE node_id=%s),
+  '[{"sha256":"%s","size":100}]', NULL, 't') $$, :u, :ns, repeat('c',64), :ns, repeat('1',64)),
+  'BZ148', NULL, 'shared: same gate');
+-- upload_max_bytes + clearing quota unblocks
+UPDATE drive_spaces SET export_policy = '{"upload_max_bytes":50}' WHERE id = :se;
+SELECT throws_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 100, NULL, NULL,
+  '[{"sha256":"%s","size":100}]', NULL, 't') $$, :u, :ne, repeat('b',64), repeat('1',64)),
+  'BZ148', NULL, 'secure: upload_max_bytes → BZ148');
+UPDATE drive_spaces SET export_policy = '{}' WHERE id = :se;
+SELECT drive_space_set_quota(:ua, :se, NULL);
+SELECT lives_ok(format($$ SELECT drive_file_put_version(%s, %s, %L, 100, NULL, NULL,
+  '[{"sha256":"%s","size":100}]', NULL, 't') $$, :u, :ne, repeat('b',64), repeat('1',64)),
+  'secure: clearing quota unblocks');
+SELECT throws_ok(format($$ SELECT drive_space_set_quota(%s, %s, 1) $$, :u, :se),
+  'BZ140', NULL, 'quota change by non-drive.manage → BZ140');
+
+-- P6 (V117) I-14 delta: destroy no longer decrements used_bytes (tier-2
+-- bytes are still physically stored); drive_node_destroy_hard is the
+-- release point (AUTOPLAN contradiction #7).
+SELECT drive_node_trash(:u, :np);
+SELECT drive_node_destroy(:u, :np);
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:ps), 100::bigint,
+  'destroy purges to tier 2 without releasing used_bytes (P6)');
+SELECT ok(drive_node_destroy_hard(:np), 'worker hard-destroy succeeds');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:ps), 0::bigint,
+  'hard-destroy releases used_bytes back to zero');
+SELECT * FROM finish();
+ROLLBACK;

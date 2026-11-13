@@ -1,0 +1,70 @@
+BEGIN;
+SELECT plan(8);
+
+SELECT has_trigger(
+    'public',
+    'system_config',
+    'trg_system_config_notify',
+    'system_config emits configuration changes'
+);
+SELECT has_trigger(
+    'public',
+    'saml_sp_registrations',
+    'trg_saml_sp_config_notify',
+    'SAML registration changes emit configuration changes'
+);
+
+SELECT ok(
+    strpos(
+    pg_get_triggerdef(
+        (SELECT oid FROM pg_trigger
+          WHERE tgrelid='public.system_config'::regclass
+            AND tgname='trg_system_config_notify')
+    ),
+    'INSERT OR DELETE OR UPDATE'
+    )>0,
+    'system_config notification trigger covers insert, delete, and update'
+);
+SELECT ok(
+    strpos(
+    pg_get_triggerdef(
+        (SELECT oid FROM pg_trigger
+          WHERE tgrelid='public.saml_sp_registrations'::regclass
+            AND tgname='trg_saml_sp_config_notify')
+    ),
+    'INSERT OR DELETE OR UPDATE'
+    )>0,
+    'SAML notification trigger covers insert, delete, and update'
+);
+
+SELECT ok(
+    strpos(
+    pg_get_functiondef('public.trg_system_config_notify()'::regprocedure),
+    'COALESCE(NEW, OLD)'
+    )>0,
+    'system_config delete notifications use the deleted row'
+);
+SELECT ok(
+    strpos(
+    pg_get_functiondef('public.trg_saml_sp_config_notify()'::regprocedure),
+    '''saml_sp'''
+    )>0,
+    'SAML notifications use the canonical aggregate key'
+);
+SELECT ok(
+    strpos(
+    pg_get_functiondef('public.trg_system_config_notify()'::regprocedure),
+    'lower(TG_OP)'
+    )>0,
+    'system_config payload records the operation'
+);
+SELECT ok(
+    strpos(
+    pg_get_functiondef('public.trg_saml_sp_config_notify()'::regprocedure),
+    'lower(TG_OP)'
+    )>0,
+    'SAML payload records the operation'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

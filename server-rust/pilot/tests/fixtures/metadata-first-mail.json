@@ -1,0 +1,50 @@
+{
+  "schema": "setjoin.p0.metadata-first-mail.fixture/v1",
+  "run_id": "t03_metadata_20261027",
+  "tenant": {"key": "tenant"},
+  "actors": [{"key": "owner"}, {"key": "other"}],
+  "mailboxes": [
+    {"key": "owner-inbox", "actor": "owner", "tenant": "tenant"},
+    {"key": "bystander-inbox", "actor": "other", "tenant": "tenant"}
+  ],
+  "thread": {"key": "t03-thread-001"},
+  "messages": [
+    {
+      "key": "root",
+      "mailbox": "owner-inbox",
+      "internet_id": "<t03-root@fixture.test>",
+      "received_at": "2026-06-14T10:00:00Z",
+      "subject": "T03 t03_metadata_20261027",
+      "from_addr": "fixture-sender@fixture.test",
+      "from_name": "T03 Root Sender",
+      "body_text": "T03 t03_metadata_20261027 root body",
+      "body_html": null,
+      "seen": false,
+      "attachment_keys": []
+    },
+    {
+      "key": "reply",
+      "mailbox": "owner-inbox",
+      "internet_id": "<t03-reply@fixture.test>",
+      "received_at": "2026-06-14T11:00:00Z",
+      "subject": "Re: T03 t03_metadata_20261027",
+      "from_addr": "fixture-sender@fixture.test",
+      "from_name": "T03 Reply Sender",
+      "body_text": "T03 t03_metadata_20261027 reply body",
+      "body_html": null,
+      "seen": false,
+      "attachment_keys": ["reply-attachment"]
+    }
+  ],
+  "attachment": {
+    "key": "reply-attachment",
+    "message": "reply",
+    "filename": "e2e-attachment.txt",
+    "content_type": "text/plain",
+    "disposition": "attachment",
+    "content_id": null,
+    "size_bytes": 51,
+    "blob_metadata_key": "fixture-blob"
+  },
+  "membership": {"mailbox": "owner-inbox", "tag": "Inbox", "messages": ["root", "reply"]}
+}

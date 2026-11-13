@@ -1,0 +1,257 @@
+{
+  "case": "unicode-header",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "office.provider.configured",
+        "after_state": {
+          "configSha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+          "generation": 3,
+          "profile": "existing-provider",
+          "providerId": "office1",
+          "routeState": "connected_inactive"
+        },
+        "before_state": {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": false,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 2,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "connected_inactive",
+          "updated_at": "<timestamp>",
+          "updated_by": null
+        },
+        "id": "<audit:0>",
+        "ip": null,
+        "notes": "Office1 审核原因",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "office_provider",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "action": "office.provider.configured",
+            "after_state": {
+              "configSha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+              "generation": 3,
+              "profile": "existing-provider",
+              "providerId": "office1",
+              "routeState": "connected_inactive"
+            },
+            "before_state": {
+              "active_qualification_id": "<qualification:0>",
+              "allowed_classifications": [
+                "regular"
+              ],
+              "allowed_file_families": [
+                "word",
+                "sheet",
+                "presentation"
+              ],
+              "allowed_platforms": [
+                "web",
+                "electron"
+              ],
+              "build_id": "test-1",
+              "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "default_modes": {},
+              "draining": false,
+              "enabled": false,
+              "entitlement_ref": null,
+              "entitlement_state": "valid",
+              "generation": 2,
+              "provider_id": "office1",
+              "removed_at": null,
+              "route_state": "connected_inactive",
+              "updated_at": "<timestamp>",
+              "updated_by": null
+            },
+            "id": "<audit:0>",
+            "ip": null,
+            "notes": "Office1 审核原因",
+            "occurred_at": "<timestamp>",
+            "target_id": null,
+            "target_type": "office_provider",
+            "user_id": "<actor>"
+          }
+        ],
+        "before": [],
+        "table": "core_audit"
+      },
+      {
+        "after": [
+          {
+            "active_qualification_id": null,
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "https://editor.test/browser",
+              "proofDiscoveryUrl": "https://editor.test/hosting/discovery",
+              "wopiPublicBaseUrl": "https://mail.test"
+            },
+            "config_sha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 3,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          }
+        ],
+        "before": [
+          {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "https://editor.test/launch",
+              "proofMode": "test_disabled",
+              "wopiPublicBaseUrl": "https://setjoin.test"
+            },
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": null
+          }
+        ],
+        "table": "providers"
+      }
+    ],
+    "notify": [
+      {
+        "generation": 3,
+        "provider_id": "office1",
+        "route_state": "connected_inactive"
+      }
+    ],
+    "request": {
+      "body": {
+        "buildId": "test-1",
+        "config": {
+          "editorUrl": "https://editor.test/browser",
+          "proofDiscoveryUrl": "https://editor.test/hosting/discovery",
+          "wopiPublicBaseUrl": "https://mail.test"
+        },
+        "entitlementState": "valid",
+        "expectedGeneration": 2,
+        "profile": "existing-provider"
+      },
+      "external_path": "/api/admin/office/providers/{providerId}",
+      "headers": {
+        "authorization": "<verified-session>",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-audit-reason": "Office1 审核原因"
+      },
+      "method": "PUT",
+      "path": "/admin/office/providers/{providerId}"
+    },
+    "response": {
+      "body": {
+        "configSha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+        "generation": 3,
+        "providerId": "office1",
+        "qualified": false,
+        "routeState": "connected_inactive"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-admin"
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": {
+          "configSha256": "4195942174dfdacd74af040665a54524476ac07be6a554c9ae89d938a3dd4cda",
+          "generation": 3,
+          "providerId": "office1",
+          "qualified": false,
+          "routeState": "connected_inactive"
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-admin"
+        },
+        "status": 200
+      }
+    ]
+  },
+  "route": "PUT /admin/office/providers/{providerId}"
+}

@@ -1,0 +1,22 @@
+-- pgTAP: admin_assignment_active.pg
+--
+-- 6 tests covering admin_assignment_active(): the JIT eligibility gate.
+-- Toggle OFF (default) → every row active (behaviorally inert).
+-- Toggle ON → only non-eligible OR open-window rows are active.
+
+BEGIN;
+SELECT plan(6);
+
+-- toggle OFF (default): every row "active"
+SELECT ok(admin_assignment_active(false, NULL), 'off: standing → active');
+SELECT ok(admin_assignment_active(true, NULL), 'off: eligible-dormant → active (inert)');
+
+-- toggle ON
+UPDATE feature_toggles SET enabled=true WHERE key='rbac.jit';
+SELECT ok(admin_assignment_active(false, NULL), 'on: standing → active');
+SELECT ok(NOT admin_assignment_active(true, NULL), 'on: eligible-dormant → NOT active');
+SELECT ok(admin_assignment_active(true, now() + interval '10 min'), 'on: eligible + open window → active');
+SELECT ok(NOT admin_assignment_active(true, now() - interval '1 min'), 'on: eligible + expired window → NOT active');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,43 @@
+-- Public seam for the F01 org-policies transactions (#372): refusals are statuses (no
+-- rows), the department update's 500 keeps the subtree path rewrite (Go's partial
+-- effect), reorder keeps Go's per-id UPDATE order. Go audits none of these writes.
+BEGIN;
+SELECT plan(21);
+CREATE TEMP TABLE adm10_acc(kind text,mailbox_id bigint,user_id bigint);
+INSERT INTO adm10_acc(kind,mailbox_id) VALUES('admin',mk_account('adm10-admin')),('stranger',mk_account('adm10-stranger')),('target',mk_account('adm10-target'));
+UPDATE adm10_acc a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE adm10_role AS WITH r AS (INSERT INTO admin_role_groups(name,permissions) VALUES('adm10-role','{users.create}') RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm10_role),a.user_id FROM adm10_acc a WHERE a.kind='admin';
+CREATE TEMP TABLE adm10_dept AS SELECT (rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='admin'),'adm10-root',NULL,'adm10-root',NULL)->>'id')::bigint AS id;
+SELECT is((SELECT path FROM departments WHERE id=(SELECT id FROM adm10_dept)),'adm10-root','a root department takes its name as its path');
+CREATE TEMP TABLE adm10_kid AS SELECT (rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='admin'),'adm10-kid',(SELECT id FROM adm10_dept),'adm10-kid',NULL)->>'id')::bigint AS id;
+SELECT is((SELECT path FROM departments WHERE id=(SELECT id FROM adm10_kid)),'adm10-root/adm10-kid','a child path extends its parent path');
+SELECT is(rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='admin'),'adm10-x',99999999,'x',NULL)->>'status','400','a missing parent is 400');
+SELECT throws_ok($$SELECT rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='admin'),'adm10-z',0,'z',NULL)$$,'23503',NULL,'a non-positive parent is bound to the INSERT and refused by the foreign key');
+SELECT throws_ok($$SELECT rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='admin'),'adm10-root',NULL,'z',NULL)$$,'23505',NULL,'a duplicate path raises 23505');
+SELECT is(rust_admin_department_update((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_dept),'adm10-renamed',NULL,'',NULL,NULL)->>'status','204','rename succeeds');
+SELECT is((SELECT path FROM departments WHERE id=(SELECT id FROM adm10_kid)),'adm10-renamed/adm10-kid','rename rewrites the subtree paths');
+SELECT is(rust_admin_department_update((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_kid),'',0,'',NULL,NULL)->>'status','500','a non-positive parent fails the field UPDATE with a 500 verdict');
+SELECT is((SELECT path FROM departments WHERE id=(SELECT id FROM adm10_kid)),'adm10-kid','the path rewrite before the failed field UPDATE is kept, as in Go');
+SELECT is(rust_admin_department_update((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_kid),'',NULL,'',NULL,NULL)->>'status','500','an empty field set is a 500 verdict');
+SELECT is(rust_admin_department_update((SELECT user_id FROM adm10_acc WHERE kind='admin'),99999999,'x',NULL,'',NULL,NULL)->>'status','404','a missing department is 404');
+SELECT is(rust_admin_department_assign_user((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT user_id FROM adm10_acc WHERE kind='target'),(SELECT id FROM adm10_dept),NULL)->>'status','204','assign sets the department');
+SELECT is(rust_admin_department_delete((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_dept),NULL)->>'detail','cannot delete department with sub-departments','a department with children is refused');
+SELECT is(rust_admin_department_delete((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_kid),NULL)->>'status','204','an empty department is deleted');
+SELECT is(rust_admin_department_delete((SELECT user_id FROM adm10_acc WHERE kind='admin'),(SELECT id FROM adm10_dept),NULL)->>'detail','cannot delete department with assigned users','a department with users is refused');
+INSERT INTO email_address_policies(id,priority,name,primary_template) VALUES(980001,10,'adm10-p1','{surname}@{domain}'),(980002,20,'adm10-p2','{surname}@{domain}');
+SELECT rust_admin_eap_reorder(ARRAY[980001,980002]::bigint[]);
+SELECT is((SELECT array_agg(priority ORDER BY id) FROM email_address_policies WHERE id IN (980001,980002)),ARRAY[10,20],'reorder assigns stepped priorities in list order');
+SELECT throws_ok($$SELECT rust_admin_eap_reorder(ARRAY[980002,980001]::bigint[])$$,'23505',NULL,'a swap collides on the first UPDATE, as in Go');
+-- Owner-approved security fix 2026-11-05 (#402): departments are org-wide objects. A domain-scoped actor
+-- whose grant is not OU-confined is refused; an org-wide grant or an OU-confined actor is not.
+CREATE TEMP TABLE adm10_dom AS WITH d AS (INSERT INTO domains(name) VALUES('adm10-a.test') RETURNING id) SELECT id FROM d;
+CREATE TEMP TABLE adm10_scoped_role AS WITH r AS (INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES('adm10-scoped','{users.create}',(SELECT id FROM adm10_dom)) RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm10_scoped_role),a.user_id FROM adm10_acc a WHERE a.kind='stranger';
+SELECT is(rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='stranger'),'adm10-scoped-root',NULL,'x',(SELECT id FROM adm10_dom))->>'status','403','a domain-scoped, unconfined actor cannot create a department');
+SELECT is(rust_admin_department_update((SELECT user_id FROM adm10_acc WHERE kind='stranger'),(SELECT id FROM adm10_dept),'adm10-hijack',NULL,'',NULL,(SELECT id FROM adm10_dom))->>'status','403','a domain-scoped, unconfined actor cannot update a department');
+SELECT is(rust_admin_department_delete((SELECT user_id FROM adm10_acc WHERE kind='stranger'),(SELECT id FROM adm10_dept),(SELECT id FROM adm10_dom))->>'status','403','a domain-scoped, unconfined actor cannot delete a department');
+UPDATE admin_role_assignments SET scope_type='ou',scope_id=(SELECT id FROM adm10_dept) WHERE user_id=(SELECT user_id FROM adm10_acc WHERE kind='stranger');
+SELECT is(rust_admin_department_create((SELECT user_id FROM adm10_acc WHERE kind='stranger'),'adm10-ou-kid',(SELECT id FROM adm10_dept),'x',(SELECT id FROM adm10_dom))->>'status','200','an OU-confined actor still manages its own subtree');
+SELECT * FROM finish();
+ROLLBACK;

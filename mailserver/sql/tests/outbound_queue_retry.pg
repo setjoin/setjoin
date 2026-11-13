@@ -1,0 +1,63 @@
+-- pgTAP: V151 outbound retry drain must preserve the NOT NULL timing contract.
+BEGIN;
+SELECT plan(9);
+
+INSERT INTO outbound_queue
+    (id, message_id, from_addr, rcpt_addrs, raw_ref, status, attempt_count, next_attempt_at)
+VALUES
+    (915101, '<due@test>', 'sender@example.test', ARRAY['due@example.test'], 'retry/due',
+     'deferred', 3, now() - interval '1 minute'),
+    (915102, '<future@test>', 'sender@example.test', ARRAY['future@example.test'], 'retry/future',
+     'deferred', 4, now() + interval '1 hour'),
+    (915103, '<exhausted@test>', 'sender@example.test', ARRAY['exhausted@example.test'], 'retry/exhausted',
+     'deferred', 20, now() - interval '1 minute'),
+    (915104, '<pending@test>', 'sender@example.test', ARRAY['pending@example.test'], 'retry/pending',
+     'pending', 2, now() - interval '1 minute');
+
+SELECT lives_ok(
+    $$SELECT drain_outbound_queue(true)$$,
+    'due deferred retry drain does not violate next_attempt_at NOT NULL'
+);
+
+SELECT is(
+    (SELECT status FROM outbound_queue WHERE id = 915101),
+    'pending',
+    'due deferred row becomes pending'
+);
+SELECT ok(
+    (SELECT next_attempt_at IS NOT NULL AND next_attempt_at <= clock_timestamp()
+       FROM outbound_queue WHERE id = 915101),
+    're-pended row remains immediately eligible with a non-NULL timestamp'
+);
+SELECT is(
+    (SELECT attempt_count FROM outbound_queue WHERE id = 915101),
+    3,
+    'drain does not consume an SMTP delivery attempt'
+);
+SELECT is(
+    (SELECT status FROM outbound_queue WHERE id = 915102),
+    'deferred',
+    'future deferred row remains deferred'
+);
+SELECT ok(
+    (SELECT next_attempt_at > now() FROM outbound_queue WHERE id = 915102),
+    'future retry schedule is preserved'
+);
+SELECT is(
+    (SELECT status FROM outbound_queue WHERE id = 915103),
+    'deferred',
+    'attempt-limit row is not re-pended'
+);
+SELECT is(
+    (SELECT attempt_count FROM outbound_queue WHERE id = 915103),
+    20,
+    'attempt-limit row is not mutated'
+);
+SELECT is(
+    (SELECT status FROM outbound_queue WHERE id = 915104),
+    'pending',
+    'already-pending row is unchanged'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

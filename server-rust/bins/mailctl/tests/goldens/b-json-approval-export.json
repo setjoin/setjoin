@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/approval-policies?consumer_type=mail.external_send",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "[\n  {\n    \"id\": 7,\n    \"consumerType\": \"mail.external_send\",\n    \"name\": \"Review\",\n    \"enabled\": false,\n    \"requiresApproval\": false\n  }\n]\n",
+  "stderr": "",
+  "exit": 0
+}

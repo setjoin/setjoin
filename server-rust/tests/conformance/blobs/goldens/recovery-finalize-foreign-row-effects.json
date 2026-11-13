@@ -1,0 +1,7 @@
+{
+  "case": "foreign-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "206f9b0aa6c6aff8dc867ab84a6b6789aa940a6d",
+  "route": "POST /recovery/uploads/{sessionId}/finalize"
+}

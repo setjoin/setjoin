@@ -1,0 +1,24 @@
+[
+  {
+    "route": "acme-renewal",
+    "case": "acme-tls-alpn-cold-cache",
+    "field": "/certs/localhost/key_label",
+    "from": "RSA PRIVATE KEY",
+    "to": "PRIVATE KEY",
+    "reason": "Go issues RSA2048. New Rust certificate and TLS-ALPN challenge keys use ECDSA P-256 (owner-approved 2026-11-03). Existing cached RSA keys are reused on renewal to preserve DANE-EE SPKI. Immutable Go golden is unchanged; replay separately asserts the generated P-256 key algorithm and CSR signature/curve.",
+    "reviewer": "Setjoin owner",
+    "reviewed": true,
+    "review_reference": "Owner decision 2026-11-03, reaffirmed by #413 conflict + fix run instructions 2026-11-05"
+  },
+  {
+    "route": "acme-renewal",
+    "case": "acme-tls-alpn-cold-cache",
+    "field": "/certs/alt.localhost/key_label",
+    "from": "RSA PRIVATE KEY",
+    "to": "PRIVATE KEY",
+    "reason": "Go issues RSA2048. New Rust certificate and TLS-ALPN challenge keys use ECDSA P-256 (owner-approved 2026-11-03). Existing cached RSA keys are reused on renewal to preserve DANE-EE SPKI. Immutable Go golden is unchanged; replay separately asserts the generated P-256 key algorithm and CSR signature/curve.",
+    "reviewer": "Setjoin owner",
+    "reviewed": true,
+    "review_reference": "Owner decision 2026-11-03, reaffirmed by #413 conflict + fix run instructions 2026-11-05"
+  }
+]

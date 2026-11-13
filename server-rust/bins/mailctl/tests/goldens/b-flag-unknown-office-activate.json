@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of office activate:\n  -generation int\n    \texpected provider generation\n  -provider string\n    \tprovider identifier (default \"collabora\")\n  -qualification string\n    \tqualification UUID\n  -reason string\n    \taudit reason\n  -scope string\n    \trouting scope JSON (default \"{}\")\nError: usage: mailctl office activate --generation N --qualification UUID --scope JSON --reason TEXT --yes\n",
+  "exit": 1
+}

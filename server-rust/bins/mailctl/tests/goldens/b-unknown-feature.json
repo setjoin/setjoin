@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown feature action: unsupported (try: list, get, set)\n",
+  "exit": 1
+}

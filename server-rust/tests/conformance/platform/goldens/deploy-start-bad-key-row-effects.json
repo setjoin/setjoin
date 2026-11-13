@@ -1,0 +1,69 @@
+{
+  "case": "bad-key-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "completed_at": "<timestamp>",
+          "error": "SSH <node-1>: parse key: ssh: no key found — output: ",
+          "output": "",
+          "started_at": "<timestamp>",
+          "status": "failed",
+          "step_name": "ssh_check"
+        }
+      ],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": {
+        "log": [
+          "[ssh_check] SSH connectivity check",
+          "[ssh_check] FAILED: SSH <node-1>: parse key: ssh: no key found — output: "
+        ],
+        "nodes": [
+          {
+            "host": "<node-1>",
+            "key_path": "gofree-plat2b-missing-key",
+            "role": "primary",
+            "ssh_user": "root"
+          },
+          {
+            "host": "<node-2>",
+            "key_path": "gofree-plat2b-missing-key",
+            "role": "standby",
+            "ssh_user": "root"
+          },
+          {
+            "host": "<node-3>",
+            "key_path": "gofree-plat2b-missing-key",
+            "role": "standby",
+            "ssh_user": "root"
+          }
+        ],
+        "profile": 0,
+        "started_at": "<timestamp>",
+        "status": "failed",
+        "steps": [
+          {
+            "error": "SSH <node-1>: parse key: ssh: no key found — output: ",
+            "name": "ssh_check",
+            "status": "failed"
+          }
+        ]
+      },
+      "before": {
+        "log": null,
+        "nodes": [],
+        "profile": 0,
+        "started_at": "<zero-time>",
+        "status": "",
+        "steps": null
+      },
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/start"
+}

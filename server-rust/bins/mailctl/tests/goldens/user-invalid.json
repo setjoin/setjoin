@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown user action: bogus (try: list, create, delete, password, quota, bulk-create)\n",
+  "exit": 1
+}

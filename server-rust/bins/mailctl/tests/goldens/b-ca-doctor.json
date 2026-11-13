@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/doctor",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "CA health: 1/2 checks passed\n\n  [FAIL] coverage\n       → add policy\n\nHygiene: 1 stale report_only policy/policies (>30d):\n  [id=7] Old — 40d in report_only\n  → Promote or disable to keep policies actionable.\n\nTime to first enforcing policy: 12s\n",
+  "stderr": "Error: ca doctor: not all checks passed\n",
+  "exit": 1
+}

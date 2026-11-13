@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of eap apply:\n  -id int\n    \tPolicy ID to apply (omit to apply all enabled policies)\n",
+  "exit": 2
+}

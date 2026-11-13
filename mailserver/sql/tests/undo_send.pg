@@ -1,0 +1,148 @@
+-- undo_send.pg: undo_send (message_lifecycle.sql) — the "undo send" window action.
+-- In one txn, for the OWNER's just-sent message it: cancels any pending deferred
+-- `send` scheduled_action, removes the Sent location tag, restores the Drafts tag,
+-- and deletes the outbound rows from BOTH the durable outbound_queue (deferred,
+-- future next_attempt_at) AND the hot UNLOGGED outbound_queue_hot (pending).
+--
+-- Error contract: BZ021 message-not-found / not-owned; BZ022 message-not-sent.
+--
+-- ADR-003: the account comes from mk_account(), so user_id != mailbox_id. Every
+-- statement in undo_send is owner-scoped by p_mailbox_id (the mailbox id); a
+-- foreign mailbox finds no message and raises BZ021 — kept observable by divergent ids.
+BEGIN;
+SELECT plan(12);
+
+CREATE TEMP TABLE _us AS
+  SELECT mk_account('usA') AS mbA, mk_account('usB') AS mbB;
+
+-- create_system_tags already ran via the mailbox trigger → Sent/Drafts exist.
+-- A "sent" message in mailbox A: in Sent (location tag), RFC message-id '<us1@mk.test>'.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8601, (SELECT mbA FROM _us), get_tag_id('Sent', (SELECT mbA FROM _us)),
+        '<us1@mk.test>', 'Oops', 'usA@mk.test', 100, 'thr-8601', 'raw-8601', now(), TRUE);
+SELECT tag_message(8601, (SELECT received_at FROM messages WHERE id = 8601), 'Sent', (SELECT mbA FROM _us), 'user', TRUE);
+
+-- A pending deferred send scheduled_action referencing this message (undo cancels it).
+SELECT enqueue_scheduled_action('send', now() + interval '20 seconds',
+         jsonb_build_object('message_id', 8601), (SELECT mbA FROM _us));
+
+-- Outbound rows: one durable deferred (future), one hot pending.
+INSERT INTO outbound_queue (message_id, from_addr, rcpt_addrs, raw_ref, status, next_attempt_at, mailbox_id)
+VALUES ('<us1@mk.test>', 'usA@mk.test', ARRAY['ext@remote.test'], 'raw-8601',
+        'deferred', now() + interval '20 seconds', (SELECT mbA FROM _us));
+INSERT INTO outbound_queue_hot (message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id)
+VALUES ('<us1@mk.test>', 'usA@mk.test', ARRAY['ext@remote.test'], 'raw-8601',
+        'pending', (SELECT mbA FROM _us));
+
+-- ── Test 1: undo_send succeeds and reports it undid the send ──
+SELECT is(
+  (undo_send((SELECT mbA FROM _us), 8601)->>'undone')::BOOLEAN,
+  TRUE,
+  'undo_send reports undone=true for a just-sent owned message');
+
+-- Test 2: the Sent location tag was removed.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8601 AND t.name = 'Sent'),
+  0,
+  'undo_send removes the Sent tag');
+
+-- Test 3: the Drafts tag was restored.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8601 AND t.name = 'Drafts'),
+  1,
+  'undo_send restores the Drafts tag');
+
+-- Test 4: the pending deferred scheduled `send` action was cancelled.
+SELECT is(
+  (SELECT count(*)::INT FROM scheduled_actions
+     WHERE mailbox_id = (SELECT mbA FROM _us) AND action_kind = 'send'
+       AND payload @> jsonb_build_object('message_id', 8601)),
+  0,
+  'undo_send cancels the pending deferred send scheduled_action');
+
+-- Test 5: the durable outbound_queue row is gone.
+SELECT is(
+  (SELECT count(*)::INT FROM outbound_queue WHERE message_id = '<us1@mk.test>'),
+  0,
+  'undo_send deletes the deferred outbound_queue row');
+
+-- Test 6: the hot outbound_queue_hot row is gone.
+SELECT is(
+  (SELECT count(*)::INT FROM outbound_queue_hot WHERE message_id = '<us1@mk.test>'),
+  0,
+  'undo_send deletes the pending outbound_queue_hot row');
+
+-- Test 7: it reported the cleared queue items (1 durable + 1 hot = 2).
+-- (re-set up a second send to read queueItemsCleared cleanly)
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8602, (SELECT mbA FROM _us), get_tag_id('Sent', (SELECT mbA FROM _us)),
+        '<us2@mk.test>', 'Oops2', 'usA@mk.test', 100, 'thr-8602', 'raw-8602', now(), TRUE);
+SELECT tag_message(8602, (SELECT received_at FROM messages WHERE id = 8602), 'Sent', (SELECT mbA FROM _us), 'user', TRUE);
+INSERT INTO outbound_queue (message_id, from_addr, rcpt_addrs, raw_ref, status, next_attempt_at, mailbox_id)
+VALUES ('<us2@mk.test>', 'usA@mk.test', ARRAY['ext@remote.test'], 'raw-8602',
+        'deferred', now() + interval '20 seconds', (SELECT mbA FROM _us));
+INSERT INTO outbound_queue_hot (message_id, from_addr, rcpt_addrs, raw_ref, status, mailbox_id)
+VALUES ('<us2@mk.test>', 'usA@mk.test', ARRAY['ext@remote.test'], 'raw-8602',
+        'pending', (SELECT mbA FROM _us));
+SELECT is(
+  (undo_send((SELECT mbA FROM _us), 8602)->>'queueItemsCleared')::INT,
+  2,
+  'undo_send reports both queue rows cleared (durable + hot)');
+
+-- ── Ownership + error contract ──
+-- Test 8: a FOREIGN mailbox cannot undo A's message — BZ021 not-found (R3).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8603, (SELECT mbA FROM _us), get_tag_id('Sent', (SELECT mbA FROM _us)),
+        '<us3@mk.test>', 'Oops3', 'usA@mk.test', 100, 'thr-8603', 'raw-8603', now(), TRUE);
+SELECT tag_message(8603, (SELECT received_at FROM messages WHERE id = 8603), 'Sent', (SELECT mbA FROM _us), 'user', TRUE);
+SELECT throws_ok(
+  $$ SELECT undo_send((SELECT mbB FROM _us), 8603) $$,
+  'BZ021', NULL,
+  'a foreign mailbox cannot undo another mailbox message (BZ021)');
+
+-- Test 9: the foreign attempt left A's Sent tag intact.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8603 AND t.name = 'Sent'),
+  1,
+  'the rejected foreign undo left the Sent tag intact');
+
+-- Test 10: an unknown message id raises BZ021.
+SELECT throws_ok(
+  $$ SELECT undo_send((SELECT mbA FROM _us), 99999999) $$,
+  'BZ021', NULL,
+  'unknown message id raises BZ021');
+
+-- Test 11: a message that was never sent (no Sent tag — sits only in Drafts)
+-- raises BZ022 not-sent.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8604, (SELECT mbA FROM _us), get_tag_id('Drafts', (SELECT mbA FROM _us)),
+        '<us4@mk.test>', 'Draft', 'usA@mk.test', 100, 'thr-8604', 'raw-8604', now(), TRUE);
+SELECT tag_message(8604, (SELECT received_at FROM messages WHERE id = 8604), 'Drafts', (SELECT mbA FROM _us), 'user', TRUE);
+SELECT throws_ok(
+  $$ SELECT undo_send((SELECT mbA FROM _us), 8604) $$,
+  'BZ022', NULL,
+  'a never-sent (drafts-only) message raises BZ022 not-sent');
+
+-- ── State-token bump (red-mail finding): the Sent→Drafts swap is a visibility
+-- change, so undo_send must advance mailboxes.jmap_email_state (the token WS/IMAP
+-- consumers poll), not only the per-tag counter trigger. ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8605, (SELECT mbA FROM _us), get_tag_id('Sent', (SELECT mbA FROM _us)),
+        '<us5@mk.test>', 'Oops5', 'usA@mk.test', 100, 'thr-8605', 'raw-8605', now(), TRUE);
+SELECT tag_message(8605, (SELECT received_at FROM messages WHERE id = 8605), 'Sent', (SELECT mbA FROM _us), 'user', TRUE);
+CREATE TEMP TABLE _es AS SELECT jmap_email_state AS e0 FROM mailboxes WHERE id = (SELECT mbA FROM _us);
+SELECT undo_send((SELECT mbA FROM _us), 8605);
+
+-- Test 12: undo_send advanced jmap_email_state (FAILS before the fix — the
+-- open-coded tag swap only fired the per-tag counter trigger).
+SELECT cmp_ok(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mbA FROM _us)),
+  '>',
+  (SELECT e0 FROM _es),
+  'undo_send advances mailboxes.jmap_email_state (visibility change pushed)');
+
+SELECT * FROM finish();
+ROLLBACK;

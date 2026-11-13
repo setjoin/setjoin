@@ -1,0 +1,178 @@
+-- mailserver/sql/tests/drive_watch_prune_sweep.pg
+-- P6 Task 4 adds the two-level trash cadence assertions (tier-1 aging,
+-- tier-2 grace-expiry hard-destroy leaf-first, gxp-in-retention survival) to
+-- the SAME single drive_maintenance_sweep() call the journal/claims/grants
+-- assertions already share below. P6 Task 5 adds a SECOND, separate
+-- drive_maintenance_sweep() call for audit-alarm evaluation (needs its own
+-- clean read of drive_audit_log timing, after the trash-cadence fixtures'
+-- own audit rows have already landed). Chat A2 Task 6 adds the orphan-chunk
+-- reaper assertions to the SAME first sweep call: chunk repeat('9',64) below
+-- was already an orphan (registered, never put into a version, claim aged
+-- past 7 days) — it just wasn't being asserted on beyond its claim row.
+-- Chunk repeat('5',64) pins the other half of the guard: registered with a
+-- FRESH claim (an in-flight upload, put_version not yet called) it must
+-- survive the same sweep untouched.
+BEGIN;
+SELECT plan(32);
+SELECT mk_account('dwp') AS mb \gset
+SELECT mk_account('dwpT') AS mbt \gset
+SELECT user_id AS u  FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ut FROM mailboxes WHERE id = :mbt \gset
+SELECT drive_space_create(:u, 'W', 'regular') AS sid \gset
+SELECT drive_node_create(:u, :sid, NULL, 'folder', 'w') AS nid \gset
+
+SELECT lives_ok(format($$ SELECT drive_watch_set(%s, %s, ARRAY['rename','move']) $$, :u, :nid), 'member sets a watch');
+SELECT lives_ok(format($$ SELECT drive_watch_set(%s, %s, NULL) $$, :u, :nid), 'upsert to all-ops (NULL)');
+SELECT is((SELECT ops FROM drive_watches WHERE node_id=:nid AND user_id=:u), NULL, 'ops overwritten');
+SELECT throws_ok(format($$ SELECT drive_watch_set(%s, %s, NULL) $$, :ut, :nid),
+  'BZ139', NULL, 'non-member cannot watch');
+SELECT throws_ok(format($$ SELECT drive_watch_set(%s, %s, ARRAY['explode']) $$, :u, :nid),
+  'BZ141', NULL, 'unknown op class → BZ141');
+SELECT lives_ok(format($$ SELECT drive_watch_remove(%s, %s) $$, :u, :nid), 'remove own watch');
+
+-- prune: keep newest 2 of 4 versions; head + conflict-referenced always kept
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'p.bin') AS fid \gset
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:u, :fid, repeat('a',64), 10, NULL, NULL,                      format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:u, :fid, repeat('b',64), 10, NULL, (SELECT head_version_id FROM drive_files WHERE node_id=:fid), format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:u, :fid, repeat('c',64), 10, NULL, (SELECT head_version_id FROM drive_files WHERE node_id=:fid), format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT drive_chunk_register(:u, :sid, repeat('1',64), 10);
+SELECT drive_file_put_version(:u, :fid, repeat('d',64), 10, NULL, (SELECT head_version_id FROM drive_files WHERE node_id=:fid), format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't');
+SELECT is(drive_version_prune(:sid, 2), 2::int, 'prune deletes the 2 oldest non-head versions');
+SELECT is((SELECT used_bytes FROM drive_spaces WHERE id=:sid), 20::bigint, 'prune decrements used_bytes');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE file_node_id=:fid)::int, 2, 'newest 2 kept');
+
+-- sweep: journal 90 d + claims 7 d
+INSERT INTO drive_changes (space_id, seq, node_id, op)
+  SELECT :sid, change_seq + 1, 0, 'space' FROM drive_spaces WHERE id=:sid;
+UPDATE drive_spaces SET change_seq = change_seq + 1 WHERE id=:sid;
+UPDATE drive_changes SET at = now() - interval '91 days' WHERE space_id=:sid AND seq = 1;
+SELECT drive_chunk_register(:u, :sid, repeat('9',64), 10);
+UPDATE drive_upload_claims SET claimed_at = now() - interval '8 days' WHERE sha256 = repeat('9',64);
+-- fresh (<7d) claim on an otherwise-identical ref_count=0 chunk: pins the TTL
+-- guard itself — an in-flight upload (registered seconds ago, put_version not
+-- yet called) must NOT be queued for GC.
+SELECT drive_chunk_register(:u, :sid, repeat('5',64), 10);
+
+-- sweep also prunes drive_export_grants (P5 Task 6 Step 4): consumed>30d or
+-- expired>7d unconsumed goes away; a live grant survives.
+SELECT head_version_id AS vid FROM drive_files WHERE node_id=:fid \gset
+INSERT INTO drive_export_grants (version_id, space_id, grantee, action, token_hash, minted_by, expires_at) VALUES
+  (:vid, :sid, :u, 'download', repeat('1',64), :u, now() - interval '10 days'),   -- expired >7d unconsumed
+  (:vid, :sid, :u, 'download', repeat('2',64), :u, now() + interval '1 hour');    -- live -> survives
+
+-- P6 Task 4: two-level trash cadence fixtures — a fresh space so node counts
+-- here don't disturb the prune/journal assertions above.
+SELECT drive_space_create(:u, 'W3', 'regular') AS sid3 \gset
+
+-- (a) tier-1 row trashed 31 days ago -> ages to tier 2 this sweep, purged_by
+-- NULL (system-aged, not a manager action).
+SELECT drive_node_create(:u, :sid3, NULL, 'file', 'old.txt') AS old_node \gset
+SELECT drive_node_trash(:u, :old_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '31 days' WHERE id = :old_node;
+
+-- (b) tier-1 row trashed 2 days ago -> untouched by aging.
+SELECT drive_node_create(:u, :sid3, NULL, 'file', 'fresh.txt') AS fresh_node \gset
+SELECT drive_node_trash(:u, :fresh_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '2 days' WHERE id = :fresh_node;
+
+-- (c) tier-2 folder+child destroyed by a manager, purged 31 days ago ->
+-- hard-destroyed leaf-first by the grace-expiry loop (child first, then the
+-- now-childless folder).
+SELECT drive_node_create(:u, :sid3, NULL, 'folder', 'oldfolder') AS old_folder \gset
+SELECT drive_node_create(:u, :sid3, :old_folder, 'file', 'child.bin') AS old_child \gset
+SELECT drive_chunk_register(:u, :sid3, repeat('7',64), 10);
+SELECT drive_file_put_version(:u, :old_child, repeat('e',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('7',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:u, :old_folder);
+SELECT drive_node_destroy(:u, :old_folder);
+UPDATE drive_nodes SET purged_at = now() - interval '31 days' WHERE id IN (:old_folder, :old_child);
+
+-- (e) gxp file destroyed (tier 2) 31 days ago, but its version is still
+-- inside its 30-day retention window (created_at = now()) -> the sweep's
+-- grace-expiry loop must refuse to hard-destroy it (drive_node_destroy_hard
+-- returns false; I-16), so it stays in tier 2.
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive_compliance';
+SELECT drive_space_create(:u, 'GX3', 'gxp', false, 30, 'compliance') AS gxp_sid \gset
+SELECT drive_node_create(:u, :gxp_sid, NULL, 'file', 'gxp.bin') AS gxp_node \gset
+SELECT drive_chunk_register(:u, :gxp_sid, repeat('8',64), 10);
+SELECT drive_file_put_version(:u, :gxp_node, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('8',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:u, :gxp_node);
+SELECT drive_node_destroy(:u, :gxp_node);
+UPDATE drive_nodes SET purged_at = now() - interval '31 days' WHERE id = :gxp_node;
+
+SELECT drive_maintenance_sweep() AS sweep_result \gset
+SELECT is((:'sweep_result')::jsonb->>'journalPruned', '1', 'sweep prunes 90-day journal rows');
+SELECT is((SELECT count(*) FROM drive_upload_claims WHERE sha256=repeat('9',64))::int, 0, 'sweep prunes 7-day stale claims');
+-- Chat A2 Task 6: chunk '9' (ref_count=0, claim expired above) is an orphan
+-- (uploaded-but-never-sent) chunk -> queued for GC on the same rail
+-- trg_drive_chunk_zero_ref_fn uses; chunk '1' (ref_count=2, still
+-- version-referenced by :fid after the prune above) is untouched.
+SELECT is((:'sweep_result')::jsonb->>'orphanChunksQueued', '1', 'sweep reports one orphan chunk queued');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key='g' AND sha256=repeat('9',64))::int, 1,
+          'orphan chunk (ref_count=0, claim expired) queued for GC');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key='g' AND sha256=repeat('1',64))::int, 0,
+          'version-referenced chunk (ref_count>0) left untouched');
+SELECT is((SELECT count(*) FROM drive_chunk_gc_queue WHERE scope_key='g' AND sha256=repeat('5',64))::int, 0,
+          'orphan chunk with a fresh (<7d) claim (in-flight upload) is NOT queued');
+SELECT is((:'sweep_result')::jsonb->>'grantsPruned', '1', 'sweep prunes the one expired>7d grant');
+SELECT is((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('1',64))::int, 0,
+          'expired>7d grant pruned');
+SELECT is((SELECT count(*) FROM drive_export_grants WHERE token_hash = repeat('2',64))::int, 1,
+          'unexpired grant survives the sweep');
+
+-- P6 Task 4: two-level trash cadence assertions (same sweep call above).
+SELECT ok((SELECT purged_at IS NOT NULL AND purged_by IS NULL FROM drive_nodes WHERE id = :old_node),
+          'tier-1 aged row falls to tier 2, purged_by NULL = system-aged');
+SELECT ok((SELECT count(*) FROM drive_changes WHERE node_id = :old_node AND op = 'destroy')::int >= 1,
+          'tier-1 aging journals a destroy row for the aged node');
+SELECT is((SELECT purged_at FROM drive_nodes WHERE id = :fresh_node), NULL,
+          'fresh tier-1 row (2 days) untouched by aging');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id IN (:old_folder, :old_child))::int, 0,
+          'tier-2 grace-expired folder+child hard-destroyed leaf-first');
+SELECT ok((SELECT purged_at IS NOT NULL FROM drive_nodes WHERE id = :gxp_node),
+          'gxp-in-retention purged file survives the grace-expiry hard-destroy, stays tier 2');
+SELECT ok(((:'sweep_result')::jsonb->>'trashAged')::int >= 1, 'sweep reports a trashAged count');
+SELECT ok(((:'sweep_result')::jsonb->>'trashDestroyed')::int >= 2,
+          'sweep reports a trashDestroyed count (folder + child)');
+
+-- P6 Task 5: audit-alarm evaluation — a scripted export.deny storm crosses
+-- the seeded org-wide threshold (5 hits / 10 min window, V117).
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT drive_access_audit(:u, :sid3, 'export.deny', 'version', :gxp_node, NULL, NULL, NULL, NULL)
+  FROM generate_series(1, 5);
+SELECT lives_ok($$ SELECT drive_maintenance_sweep() $$, 'sweep evaluates alarms without error');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE action = 'alarm.fire' AND target_type = 'alarm')::int,
+          1, 'alarm fired exactly once, self-recorded on the chain');
+SELECT ok((SELECT count(*) FROM _test_notify_log WHERE channel = 'drive-alarm')::int >= 1,
+          'admins notified via app_notify');
+-- rate limit: a second sweep inside the same window does NOT re-fire
+SELECT lives_ok($$ SELECT drive_maintenance_sweep() $$, 'second in-window sweep lives');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE action = 'alarm.fire')::int, 1,
+          'exactly once per rule per window');
+-- the chain stays valid with the self-recorded alarm.fire row on it (I-8 interplay)
+SELECT ok((SELECT bool_and(valid) FROM verify_drive_audit_chain(:sid3)),
+          'chain verifies green with the self-recorded alarm.fire row on it');
+
+-- Task 10 (C6 part 1): drive_alarm_evaluate() is the extracted evaluator the
+-- sweep now delegates to — prove the extraction is behavior-identical by
+-- running the FULL sweep and the standalone evaluator against the exact
+-- same seeded, un-fired state (a savepoint rewinds the sweep's side effects,
+-- including its own self-dedupe alarm.fire row, before the direct call).
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (:u, 1, :u)
+  ON CONFLICT DO NOTHING;
+SELECT drive_alarm_create(:u, NULL, 'lock.*', 3, 10) AS extract_rule \gset
+SELECT drive_access_audit(:u, :sid3, 'lock.acquire', 'node', :gxp_node, NULL, NULL, NULL, NULL)
+  FROM generate_series(1, 3);
+SAVEPOINT extract_equiv;
+SELECT (drive_maintenance_sweep()->>'alarmsFired')::int AS via_sweep \gset
+ROLLBACK TO SAVEPOINT extract_equiv;
+SELECT drive_alarm_evaluate() AS via_direct \gset
+SELECT is(:via_direct, :via_sweep,
+          'drive_alarm_evaluate() called directly fires the same count the sweep reports');
+
+SELECT * FROM finish();
+ROLLBACK;

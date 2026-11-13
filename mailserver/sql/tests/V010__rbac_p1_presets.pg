@@ -1,0 +1,35 @@
+-- pgTAP: V010__rbac_p1_presets.pg — new preset role groups
+BEGIN;
+SELECT plan(6);
+
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_role_groups WHERE is_builtin = true$$,
+  $$SELECT 11$$,
+  '11 builtin role groups after V013 (6 baseline + 2 V010 + 3 等保 presets)');
+
+SELECT results_eq(
+  $$SELECT permissions FROM admin_role_groups WHERE name = 'Compliance Admin'$$,
+  $$SELECT '{compliance.read,compliance.write,audit.read}'::text[]$$,
+  'Compliance Admin has the expected permissions');
+
+SELECT is(
+  (SELECT is_builtin FROM admin_role_groups WHERE name = 'Compliance Admin'),
+  true, 'Compliance Admin is builtin');
+
+SELECT results_eq(
+  $$SELECT permissions FROM admin_role_groups WHERE name = 'Global Reader'$$,
+  $$SELECT '{users.read,domains.read,audit.read,mam.read,queue.read,reports.read,compliance.read,backup.read}'::text[]$$,
+  'Global Reader has all 8 read permissions');
+
+SELECT ok(
+  (SELECT bool_and(p LIKE '%.read')
+   FROM admin_role_groups, unnest(permissions) AS p
+   WHERE name = 'Global Reader'),
+  'Global Reader contains only .read permissions');
+
+SELECT is(
+  (SELECT domain_scope FROM admin_role_groups WHERE name = 'Global Reader'),
+  NULL::bigint, 'Global Reader is global (no domain_scope)');
+
+SELECT * FROM finish();
+ROLLBACK;

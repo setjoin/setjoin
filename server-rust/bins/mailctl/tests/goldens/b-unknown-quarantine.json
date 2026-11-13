@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown quarantine action: unsupported (try: list, stats, preview, release, reject)\n",
+  "exit": 1
+}

@@ -1,0 +1,33 @@
+-- approval_resolve_approver.pg — pgTAP tests for the fail-closed approver resolver.
+-- Covers: manager hit, manager NULL + skip, manager NULL no-fallback (fail-closed), named kind.
+BEGIN;
+SELECT plan(6);
+
+-- fixtures: domain + users. manager_id FK requires user 20 to exist.
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90901, 'appres.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (10, 'appres_req',  90901, 'req@appres.test',  'Requester',  TRUE),
+  (11, 'appres_req2', 90901, 'req2@appres.test', 'Requester2', TRUE),
+  (20, 'appres_mgr',  90901, 'mgr@appres.test',  'Manager',    TRUE);
+
+-- manager hit
+UPDATE users SET manager_id = 20 WHERE id = 10;
+SELECT is((SELECT ref FROM approval_resolve_approver(10, '{"kind":"manager"}'::jsonb)), 20::bigint, 'manager resolves');
+
+-- manager NULL + explicit skip terminal
+UPDATE users SET manager_id = NULL WHERE id = 11;
+SELECT is((SELECT skip FROM approval_resolve_approver(11, '{"kind":"manager","fallback":[{"kind":"skip"}]}'::jsonb)), true, 'skip honored');
+
+-- manager NULL + NO fallback → fail-closed to default_admin, NOT a raise
+UPDATE system_config SET value='77' WHERE key='approval.default_approver_user_id';
+SELECT is((SELECT ref FROM approval_resolve_approver(11, '{"kind":"manager"}'::jsonb)), 77::bigint, 'fail-closed to default_admin');
+
+-- named
+SELECT is((SELECT ref FROM approval_resolve_approver(11, '{"kind":"named","user_id":42}'::jsonb)), 42::bigint, 'named resolves');
+
+-- role_group
+SELECT is((SELECT kind FROM approval_resolve_approver(11, '{"kind":"role_group","role_group_id":3}'::jsonb)), 'role_group', 'role_group kind resolves');
+SELECT is((SELECT ref  FROM approval_resolve_approver(11, '{"kind":"role_group","role_group_id":3}'::jsonb)), 3::bigint,      'role_group ref resolves');
+
+SELECT * FROM finish();
+ROLLBACK;

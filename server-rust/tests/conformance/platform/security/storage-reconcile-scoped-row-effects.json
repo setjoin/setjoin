@@ -1,0 +1,33 @@
+{
+  "case": "storage-reconcile-scoped-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "blobs": null,
+          "scans": [
+            {
+              "id": 9601,
+              "reimported": 0,
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "before": [
+        {
+          "blobs": null,
+          "scans": [
+            {
+              "id": 9601,
+              "reimported": 0,
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "table": "storage-reconcile"
+    }
+  ],
+  "format": 1
+}

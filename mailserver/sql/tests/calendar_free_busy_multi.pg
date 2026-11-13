@@ -1,0 +1,97 @@
+-- pgTAP: calendar_freebusy_multi.sql — the access (ownership) gate.
+--
+-- ADR-003 regression guard. calendar_free_busy_multi keeps the legacy param name
+-- p_account_id (frozen V061 — Postgres forbids renaming a CREATE-OR-REPLACE input
+-- param), but the VALUE is the caller's primary MAILBOX id (parseAccountID), never
+-- a users.id. The access check must therefore probe the `mailboxes` table.
+--
+-- mk_account() gives DIVERGENT ids (user_id in 70000+, mailbox id in 90000+), so the
+-- mailbox id passed as p_account_id is NOT a valid users.id. Under the OLD buggy
+-- predicate (`PERFORM 1 FROM users WHERE id = p_account_id`) this call would match
+-- zero rows and raise BZ006 — silently breaking batch free/busy for every real
+-- account. With the fix (`mailboxes WHERE id = p_account_id`) it succeeds and returns
+-- the requested calendar's busy intervals. This test PASSES with the fix and would
+-- have raised BZ006 without it, so it genuinely guards the change.
+BEGIN;
+SELECT plan(4);
+
+-- A real account with divergent user_id != mailbox_id.
+CREATE TEMP TABLE _a AS SELECT mk_account('fbm') AS mb_id;
+
+-- That account's default calendar with one busy event in the query window.
+INSERT INTO calendars (id, mailbox_id, name, is_default, resource_type)
+VALUES (94001, (SELECT mb_id FROM _a), 'FBM Calendar', TRUE, 'personal');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at)
+VALUES (94001, 94001, 'fbm-evt-1', 'Standup',
+        '2026-06-15 10:00:00+00', '2026-06-15 10:30:00+00');
+
+-- (1) The ownership path: a valid mailbox id resolves (no spurious raise) and the
+--     batch query returns a JSONB array entry for the requested calendar. Under the
+--     old `users WHERE id = p_account_id` predicate this would raise BZ006 instead.
+SELECT is(
+  jsonb_array_length(
+    calendar_free_busy_multi(
+      (SELECT mb_id FROM _a),
+      ARRAY[94001]::BIGINT[],
+      '2026-06-15 00:00:00+00'::TIMESTAMPTZ,
+      '2026-06-16 00:00:00+00'::TIMESTAMPTZ)),
+  1,
+  'valid mailbox-id account resolves and returns one calendar entry (mailbox check, not users)'
+);
+
+-- (2) The busy event in the window is reported as a busy interval.
+SELECT is(
+  (calendar_free_busy_multi(
+      (SELECT mb_id FROM _a),
+      ARRAY[94001]::BIGINT[],
+      '2026-06-15 00:00:00+00'::TIMESTAMPTZ,
+      '2026-06-16 00:00:00+00'::TIMESTAMPTZ) -> 0 -> 'intervals' -> 0 ->> 'status'),
+  'busy',
+  'the in-window event is reported busy'
+);
+
+-- (3) The access gate still fires for a genuinely unknown account: a mailbox id that
+--     does not exist raises (BZ001, matching calendar_free_busy's sibling reducers).
+SELECT throws_ok(
+  $$ SELECT calendar_free_busy_multi(
+       99999999::BIGINT,
+       ARRAY[94001]::BIGINT[],
+       '2026-06-15 00:00:00+00'::TIMESTAMPTZ,
+       '2026-06-16 00:00:00+00'::TIMESTAMPTZ) $$,
+  'BZ001',
+  NULL,
+  'unknown account id raises BZ001 (calendar-reducer not-found convention)'
+);
+
+-- (4) Recurrence-exception child not double-counted. A daily-recurring parent
+--     (FREQ=DAILY;COUNT=3) plus a time-shifted exception child for day 2
+--     (parent_event_uid = parent.uid, recurrence_override on day 2, rrule/
+--     recurrence_id NULL) must yield exactly 3 busy intervals over the 3-day
+--     window — the day-2 slot folded into the series via the recurring CTE's
+--     LEFT JOIN, NOT emitted a second time as a standalone non-recurring block.
+--     Without the `parent_event_uid IS NULL` guard on the non_recurring CTE the
+--     child is counted twice and this returns 4.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule)
+VALUES (94002, 94001, 'fbm-rec-parent', 'Daily Sync',
+        '2026-06-20 09:00:00+00', '2026-06-20 09:30:00+00', 'FREQ=DAILY;COUNT=3');
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at,
+                             parent_event_uid, recurrence_override, status)
+VALUES (94003, 94001, 'fbm-rec-exc', 'Daily Sync (moved)',
+        '2026-06-21 14:00:00+00', '2026-06-21 14:30:00+00',
+        'fbm-rec-parent', '2026-06-21 09:00:00+00', 'confirmed');
+
+SELECT is(
+  jsonb_array_length(
+    calendar_free_busy_multi(
+      (SELECT mb_id FROM _a),
+      ARRAY[94001]::BIGINT[],
+      '2026-06-20 00:00:00+00'::TIMESTAMPTZ,
+      '2026-06-23 00:00:00+00'::TIMESTAMPTZ) -> 0 -> 'intervals'),
+  3,
+  'recurrence-exception child folded into the series once, not double-counted'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

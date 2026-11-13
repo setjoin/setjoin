@@ -1,0 +1,348 @@
+{
+  "schemaVersion": "setjoin.exchange.docs-input/v1",
+  "registryVersion": 1,
+  "sourceDigest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+  "capabilities": [
+    {
+      "id": "EX-ACCEPTED-REMOTE-DOMAINS",
+      "outcome": {
+        "zh": "接受域、远程域与中继控制",
+        "en": "Accepted domains, remote domains, and relay controls"
+      },
+      "category": "transport",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/domains-routing"
+    },
+    {
+      "id": "EX-ADDRESS-LISTS-OAB",
+      "outcome": {
+        "zh": "地址列表、全局地址簿与离线地址簿",
+        "en": "Address lists, GAL, and offline address books"
+      },
+      "category": "identity",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/address-lists"
+    },
+    {
+      "id": "EX-ANTISPAM-MALWARE",
+      "outcome": {
+        "zh": "反垃圾、反恶意软件与隔离",
+        "en": "Anti-spam, anti-malware, and quarantine"
+      },
+      "category": "security",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/antispam-malware"
+    },
+    {
+      "id": "EX-ARCHIVE-MAILBOX",
+      "outcome": {
+        "zh": "联机存档与归档邮箱",
+        "en": "Online archive and archive mailboxes"
+      },
+      "category": "compliance",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/archive-mailbox"
+    },
+    {
+      "id": "EX-AUTH-CLIENT-PROTOCOLS",
+      "outcome": {
+        "zh": "客户端协议、现代认证与应用密码",
+        "en": "Client protocols, modern authentication, and app passwords"
+      },
+      "category": "access",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/client-protocols"
+    },
+    {
+      "id": "EX-AUTO-REPLIES",
+      "outcome": {
+        "zh": "自动回复与计划外出设置",
+        "en": "Automatic replies and scheduled out-of-office settings"
+      },
+      "category": "mailbox",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/automatic-replies"
+    },
+    {
+      "id": "EX-CALENDAR-VISIBILITY",
+      "outcome": {
+        "zh": "日历忙闲与有限详情可见性",
+        "en": "Calendar free/busy and limited-details visibility"
+      },
+      "category": "calendar",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/calendar-visibility"
+    },
+    {
+      "id": "EX-CERTIFICATES-TLS",
+      "outcome": {
+        "zh": "Exchange 证书、服务绑定与 TLS 策略",
+        "en": "Exchange certificates, service bindings, and TLS policy"
+      },
+      "category": "infrastructure",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/certificates-tls"
+    },
+    {
+      "id": "EX-DATABASE-HA",
+      "outcome": {
+        "zh": "邮箱数据库、DAG 高可用与恢复",
+        "en": "Mailbox databases, DAG high availability, and recovery"
+      },
+      "category": "infrastructure",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/database-ha"
+    },
+    {
+      "id": "EX-DISTRIBUTION-GROUPS",
+      "outcome": {
+        "zh": "通讯组、动态通讯组与成员规则",
+        "en": "Distribution groups, dynamic groups, and membership rules"
+      },
+      "category": "identity",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/distribution-groups"
+    },
+    {
+      "id": "EX-DLP",
+      "outcome": {
+        "zh": "数据防泄漏策略、提示与阻断",
+        "en": "Data loss prevention policy, tips, and blocking"
+      },
+      "category": "security",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/dlp"
+    },
+    {
+      "id": "EX-EDISCOVERY-SEARCH",
+      "outcome": {
+        "zh": "电子数据展示、内容搜索与导出",
+        "en": "eDiscovery, content search, and export"
+      },
+      "category": "compliance",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/ediscovery"
+    },
+    {
+      "id": "EX-EMAIL-ADDRESS-POLICIES",
+      "outcome": {
+        "zh": "邮箱地址策略与别名生成",
+        "en": "Email address policies and alias generation"
+      },
+      "category": "identity",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/email-address-policies"
+    },
+    {
+      "id": "EX-FEDERATION-ORG-RELATIONSHIPS",
+      "outcome": {
+        "zh": "组织关系、共享策略与联合忙闲",
+        "en": "Organization relationships, sharing policy, and federated free/busy"
+      },
+      "category": "hybrid",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/federation-sharing"
+    },
+    {
+      "id": "EX-HYBRID-COEXISTENCE",
+      "outcome": {
+        "zh": "Exchange Online 混合共存与迁移端点",
+        "en": "Exchange Online hybrid coexistence and migration endpoints"
+      },
+      "category": "hybrid",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/hybrid-coexistence"
+    },
+    {
+      "id": "EX-INBOX-RULES",
+      "outcome": {
+        "zh": "用户收件箱规则与自动处理",
+        "en": "User inbox rules and automatic processing"
+      },
+      "category": "mailbox",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/inbox-rules"
+    },
+    {
+      "id": "EX-JOURNALING",
+      "outcome": {
+        "zh": "日记规则与合规副本投递",
+        "en": "Journaling rules and compliance-copy delivery"
+      },
+      "category": "compliance",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/journaling"
+    },
+    {
+      "id": "EX-MAIL-FLOW-RULES",
+      "outcome": {
+        "zh": "组织邮件流规则与操作",
+        "en": "Organization mail-flow rules and actions"
+      },
+      "category": "transport",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/mail-flow-rules"
+    },
+    {
+      "id": "EX-MAILBOX-AUDIT",
+      "outcome": {
+        "zh": "邮箱访问审计与管理员操作追踪",
+        "en": "Mailbox access auditing and administrator action tracking"
+      },
+      "category": "compliance",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/mailbox-audit"
+    },
+    {
+      "id": "EX-MAILBOX-DELEGATION",
+      "outcome": {
+        "zh": "邮箱委派访问与代发",
+        "en": "Mailbox delegation and send-as workflows"
+      },
+      "category": "mailbox",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/mailbox-delegation"
+    },
+    {
+      "id": "EX-MIGRATION-SIZING",
+      "outcome": {
+        "zh": "迁移规模、依赖和风险评估",
+        "en": "Migration sizing, dependency, and risk assessment"
+      },
+      "category": "migration",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/migration-sizing"
+    },
+    {
+      "id": "EX-MOBILE-ACTIVESYNC",
+      "outcome": {
+        "zh": "移动设备邮箱访问与 ActiveSync 策略",
+        "en": "Mobile mailbox access and ActiveSync policy"
+      },
+      "category": "client",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/mobile-access"
+    },
+    {
+      "id": "EX-MONITORING-OPERATIONS",
+      "outcome": {
+        "zh": "运行健康、队列、消息跟踪与诊断",
+        "en": "Operational health, queues, message tracking, and diagnostics"
+      },
+      "category": "operations",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/monitoring-operations"
+    },
+    {
+      "id": "EX-PUBLIC-FOLDERS",
+      "outcome": {
+        "zh": "公用文件夹、层级与权限",
+        "en": "Public folders, hierarchy, and permissions"
+      },
+      "category": "collaboration",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/public-folders"
+    },
+    {
+      "id": "EX-QUOTAS-LIMITS",
+      "outcome": {
+        "zh": "邮箱配额、邮件大小与传输限制",
+        "en": "Mailbox quotas, message size, and transport limits"
+      },
+      "category": "operations",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/quotas-limits"
+    },
+    {
+      "id": "EX-RBAC-MANAGEMENT-SCOPES",
+      "outcome": {
+        "zh": "管理角色、角色组与管理范围",
+        "en": "Management roles, role groups, and management scopes"
+      },
+      "category": "administration",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/rbac-scopes"
+    },
+    {
+      "id": "EX-RESOURCE-BOOKING",
+      "outcome": {
+        "zh": "会议室和设备预订策略",
+        "en": "Room and equipment booking policy"
+      },
+      "category": "resource",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/resource-booking"
+    },
+    {
+      "id": "EX-RETENTION-HOLD",
+      "outcome": {
+        "zh": "保留策略、诉讼保留与不可变性",
+        "en": "Retention policy, litigation hold, and immutability"
+      },
+      "category": "compliance",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/retention-hold"
+    },
+    {
+      "id": "EX-ROOM-LISTS",
+      "outcome": {
+        "zh": "会议室列表和地点发现",
+        "en": "Room lists and location discovery"
+      },
+      "category": "resource",
+      "mappingMaximum": "alternative",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/room-lists"
+    },
+    {
+      "id": "EX-SEND-RECEIVE-CONNECTORS",
+      "outcome": {
+        "zh": "发送和接收连接器、路由与 TLS",
+        "en": "Send/receive connectors, routing, and TLS"
+      },
+      "category": "transport",
+      "mappingMaximum": "transformed",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/connectors"
+    },
+    {
+      "id": "EX-SHARED-MAILBOX",
+      "outcome": {
+        "zh": "共享邮箱生命周期与成员访问",
+        "en": "Shared mailbox lifecycle and member access"
+      },
+      "category": "mailbox",
+      "mappingMaximum": "native",
+      "claimMaximum": "experimental",
+      "documentation": "outcomes/shared-mailbox"
+    }
+  ]
+}

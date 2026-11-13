@@ -1,0 +1,57 @@
+{
+  "go_source": "57ef845202c6ba93d2edf7224b1fae34f53c1cce",
+  "observed": {
+    "current": "old",
+    "previous": "new",
+    "evidence": [
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "before",
+        "reason": "operator rollback",
+        "forced": true,
+        "status": {
+          "current": "new",
+          "previous": "old",
+          "recovery_required": false,
+          "database_reconciliation_required": false
+        },
+        "units": {
+          "setjoin": "active",
+          "setjoin-auth": "active",
+          "setjoin-updater": "active"
+        }
+      },
+      {
+        "schema_version": 1,
+        "recorded_at": "<time>",
+        "phase": "verified_previous",
+        "reason": "operator rollback",
+        "forced": true,
+        "status": {
+          "current": "old",
+          "previous": "new",
+          "recovery_required": false,
+          "database_reconciliation_required": false
+        },
+        "units": {
+          "setjoin": "active",
+          "setjoin-auth": "active",
+          "setjoin-updater": "active"
+        }
+      }
+    ],
+    "host": [
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "stop setjoin-updater",
+      "stop setjoin-gateway setjoin setjoin-auth",
+      "start setjoin-auth setjoin setjoin-gateway",
+      "is-active setjoin-auth",
+      "is-active setjoin",
+      "is-active setjoin-updater",
+      "start setjoin-updater"
+    ]
+  }
+}

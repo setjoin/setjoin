@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/ad/health",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"lastSync\": \"yesterday\",\n  \"status\": \"healthy\",\n  \"checked\": 2,\n  \"created\": 0,\n  \"updated\": 0,\n  \"disabled\": 0,\n  \"skipped\": 0,\n  \"errors\": 0,\n  \"pendingConflicts\": 1\n}\n",
+  "stderr": "",
+  "exit": 0
+}

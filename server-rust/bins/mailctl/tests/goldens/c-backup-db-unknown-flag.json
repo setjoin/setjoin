@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -oracle-unknown\nUsage of backup-db:\n  -access-key string\n    \tS3 access key; refused on the command line (set BACKUP_ACCESS_KEY or pass --access-key-file)\n  -access-key-file string\n    \t0600 file containing the S3 access key\n  -bucket string\n    \tBackup bucket name\n  -dsn string\n    \tPostgreSQL DSN (defaults to owner-first DB_*_DSN precedence)\n  -dump-hmac-key-file string\n    \t0600 file containing the dump-authentication HMAC key (required: binds every uploaded dump so restore can verify it fail-closed before pg_restore runs)\n  -endpoint string\n    \tS3 endpoint (host or https://host)\n  -provider string\n    \tS3 provider (e.g. minio, aws)\n  -region string\n    \tS3 region\n  -secret-key string\n    \tS3 secret key; refused on the command line (set BACKUP_SECRET_KEY or pass --secret-key-file)\n  -secret-key-file string\n    \t0600 file containing the S3 secret key\nError: flag provided but not defined: -oracle-unknown\n",
+  "exit": 1
+}

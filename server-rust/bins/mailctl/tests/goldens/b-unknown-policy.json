@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown policy action: unsupported. Try: list, set, group, template\n",
+  "exit": 1
+}

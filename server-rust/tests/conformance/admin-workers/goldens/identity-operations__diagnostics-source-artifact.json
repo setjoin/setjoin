@@ -1,0 +1,134 @@
+{
+  "case": "diagnostics-source-artifact",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "artifacts": [
+        {
+          "entries": [
+            {
+              "crc_ok": true,
+              "creator": 788,
+              "date": 60449,
+              "external": 2172649472,
+              "extra": [
+                85,
+                84,
+                5,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ],
+              "flags": 8,
+              "lines": [
+                {
+                  "createdAt": "<time>",
+                  "files": [
+                    "evidence.jsonl"
+                  ],
+                  "jobId": "aaaaaaaa-0000-4000-8000-000000000001",
+                  "manifestVersion": "1",
+                  "redactionPolicy": "identity-diagnostics-v1",
+                  "scope": {
+                    "sinceSeconds": 3600,
+                    "sourceId": "880001",
+                    "transitionId": null
+                  }
+                }
+              ],
+              "method": 8,
+              "name": "manifest.json",
+              "reader": 20,
+              "size_ok": true,
+              "text_has_spaces_after_colon": false,
+              "time": 0,
+              "trailing_newline": true
+            },
+            {
+              "crc_ok": true,
+              "creator": 788,
+              "date": 60449,
+              "external": 2172649472,
+              "extra": [
+                85,
+                84,
+                5,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0
+              ],
+              "flags": 8,
+              "lines": [
+                {
+                  "divergences": {
+                    "critical": 0,
+                    "expectedAmbiguity": 0
+                  },
+                  "generation": "1",
+                  "inbox": {
+                    "pending": 0,
+                    "quarantined": 0
+                  },
+                  "kind": "local",
+                  "lastErrorCode": null,
+                  "lastFailureAt": null,
+                  "lastSuccessAt": null,
+                  "mappingVersion": "1",
+                  "readMode": "shadow",
+                  "sourceId": "880001",
+                  "sourceKey": "gofree-ajw-src",
+                  "state": "active",
+                  "type": "source"
+                },
+                {
+                  "candidates": "<database-wide>",
+                  "jobs": "<database-wide>",
+                  "sinceSeconds": 3600,
+                  "transitions": "<database-wide>",
+                  "type": "boundedMetrics"
+                }
+              ],
+              "method": 8,
+              "name": "evidence.jsonl",
+              "reader": 20,
+              "size_ok": true,
+              "text_has_spaces_after_colon": true,
+              "time": 0,
+              "trailing_newline": true
+            }
+          ],
+          "job": "aaaaaaaa-0000-4000-8000-000000000001",
+          "sha256_matches_artifact": true
+        }
+      ],
+      "audit": [
+        "identity.diagnostics.ready:identity_job:sanitized diagnostic bundle ready"
+      ],
+      "rows": {
+        "jobs": [
+          "aaaaaaaa-0000-4000-8000-000000000001:diagnostics:completed:1:0:true:none:{\"failed\": 0, \"processed\": 2}:true:{\"files\": [\"evidence.jsonl\"], \"jobId\": \"aaaaaaaa-0000-4000-8000-000000000001\", \"scope\": {\"sourceId\": \"880001\", \"sinceSeconds\": 3600, \"transitionId\": null}, \"manifestVersion\": \"1\", \"redactionPolicy\": \"identity-diagnostics-v1\"}:{\"emails\": 1, \"credentials\": 1, \"rawAssertions\": 1, \"externalSubjects\": 1, \"personalProfiles\": 1}:true"
+        ],
+        "results": []
+      }
+    },
+    "before": {
+      "artifacts": [],
+      "audit": [],
+      "rows": {
+        "jobs": [
+          "aaaaaaaa-0000-4000-8000-000000000001:diagnostics:queued:0:0:true:wait:{\"failed\": 0, \"processed\": 0}:false:::false"
+        ],
+        "results": []
+      }
+    },
+    "notifies": []
+  },
+  "worker": "identity-operations"
+}

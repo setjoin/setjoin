@@ -1,0 +1,61 @@
+-- pgTAP: ca_client_type_parity.pg — med-shard3-022 (wave89 HOLD item 3).
+-- Persistence/runtime vocabulary parity for the client_type condition:
+-- the SQL mirror ca_validate_policy_document (re-seeded by
+-- V251__ca_client_type_vocabulary_alignment.sql) must accept EXACTLY the
+-- runtime emitter domain — exported by shared/threat as
+-- threat.AllowedClientTypeValues() (web|mobile|imap|smtp|caldav|legacy,
+-- the values clientTypeFromProtocol[_Umbrella] can emit) — and must reject
+-- the never-emittable values the pre-V251 mirror accepted (browser, native,
+-- pop, activesync): a validator-accepted 'browser' block policy evaluated
+-- 'skipped' with default-allow (CA-SCHEMA-ENUM-DRIFT-CONDITION-NO-OP).
+BEGIN;
+SELECT plan(15);
+
+-- ── Runtime emitter domain: every value the Go side accepts and the runtime
+--    can emit must be accepted by the persistence mirror. ──────────────────
+SELECT is(ca_validate_policy_document('{"client_type":"web"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value web');
+SELECT is(ca_validate_policy_document('{"client_type":"mobile"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value mobile');
+SELECT is(ca_validate_policy_document('{"client_type":"imap"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value imap');
+SELECT is(ca_validate_policy_document('{"client_type":"smtp"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value smtp');
+SELECT is(ca_validate_policy_document('{"client_type":"caldav"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value caldav');
+SELECT is(ca_validate_policy_document('{"client_type":"legacy"}'::jsonb, NULL),
+          true, 'mirror accepts runtime emitter value legacy');
+
+-- ── Never-emittable values (the stale pre-alignment vocabulary): rejected,
+--    so direct-SQL writes can no longer persist a silently-dead condition. ──
+SELECT is(ca_validate_policy_document('{"client_type":"browser"}'::jsonb, NULL),
+          false, 'mirror rejects never-emittable value browser');
+SELECT is(ca_validate_policy_document('{"client_type":"native"}'::jsonb, NULL),
+          false, 'mirror rejects never-emittable value native');
+SELECT is(ca_validate_policy_document('{"client_type":"pop"}'::jsonb, NULL),
+          false, 'mirror rejects never-emittable value pop');
+SELECT is(ca_validate_policy_document('{"client_type":"activesync"}'::jsonb, NULL),
+          false, 'mirror rejects never-emittable value activesync');
+
+-- ── No collateral damage from the CREATE OR REPLACE: the other mirror keys
+--    and grant validation still behave (spot checks across kinds). ──────────
+SELECT is(ca_validate_policy_document('{"device_bound":true}'::jsonb, NULL),
+          true, 'device_bound (bool) validation intact after V251');
+SELECT is(ca_validate_policy_document('{"country_in":["KP","RU"]}'::jsonb, NULL),
+          true, 'country_in (string[]) validation intact after V251');
+SELECT is(ca_validate_policy_document('{"client_type":"legacy"}'::jsonb,
+                                      '{"operator":"all","grants":[{"action":"block"}]}'::jsonb),
+          true, 'grant-array validation intact after V251');
+SELECT is(ca_validate_policy_document('{"client_type":"legacy"}'::jsonb,
+                                      '{"action":"detonate"}'::jsonb),
+          false, 'unknown grant action still rejected after V251');
+
+-- ── V149 restore-safety pin must survive the OR REPLACE (pg_dump/pg_restore
+--    re-validate nested grants under an empty search_path). ────────────────
+SELECT is(
+  (SELECT 'search_path=pg_catalog, public' = ANY (proconfig)
+     FROM pg_proc WHERE proname = 'ca_validate_policy_document'),
+  true, 'V149 search_path pin preserved through V251 OR REPLACE');
+
+SELECT * FROM finish();
+ROLLBACK;

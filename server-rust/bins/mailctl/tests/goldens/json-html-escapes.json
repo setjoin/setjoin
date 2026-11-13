@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/health",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"value\": \"\\u003c\\u003e\\u0026\\u2028\\u2029\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

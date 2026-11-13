@@ -1,0 +1,442 @@
+-- guest_invite_flow.pg — Guest G1 Task 1 FORCE-RLS denial proofs plus Task 2
+-- invite lifecycle, authority, attribution, and target-invariant coverage.
+BEGIN;
+SELECT plan(61);
+
+INSERT INTO domains (name, is_local) VALUES ('g1-rls-host.example', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('g1-rls-other.example', TRUE);
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT v.username, d.id, v.email, v.display_name, TRUE
+  FROM (VALUES
+    ('g1-rls-a', 'g1-rls-a@guest.invalid', 'Guest A'),
+    ('g1-rls-b', 'g1-rls-b@guest.invalid', 'Guest B'),
+    ('g1-rls-scope-guest', 'g1-rls-scope-guest@guest.invalid', 'Scoped Guest'),
+    ('g1-rls-admin', 'g1-rls-admin@guest.invalid', 'Guest Admin')
+  ) AS v(username, email, display_name)
+  JOIN domains d ON d.name = 'guest.invalid';
+
+INSERT INTO guest_invites
+       (guest_user_id, token_hash, host_domain_id, created_by_email, expires_at)
+SELECT u.id, 'g1-rls-' || u.username, h.id, 'host@g1-rls-host.example', now() + interval '1 day'
+  FROM users u
+ CROSS JOIN (SELECT id FROM domains WHERE name = 'g1-rls-host.example') h
+ WHERE u.email IN ('g1-rls-a@guest.invalid', 'g1-rls-b@guest.invalid',
+                   'g1-rls-scope-guest@guest.invalid');
+
+INSERT INTO guest_accounts
+       (user_id, invited_email, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 'host@g1-rls-host.example', h.id, 'invited'
+  FROM users u
+ CROSS JOIN (SELECT id FROM domains WHERE name = 'g1-rls-host.example') h
+ WHERE u.email IN ('g1-rls-a@guest.invalid', 'g1-rls-b@guest.invalid',
+                   'g1-rls-scope-guest@guest.invalid');
+
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'g1-host-admin', id, 'admin@g1-rls-host.example', 'Host Admin', TRUE
+  FROM domains WHERE name='g1-rls-host.example'
+UNION ALL
+SELECT 'g1-other-admin', id, 'admin@g1-rls-other.example', 'Other Admin', TRUE
+  FROM domains WHERE name='g1-rls-other.example';
+
+INSERT INTO admin_role_groups (name, permissions)
+VALUES ('g1-scoped-guest-managers', ARRAY['guests.manage']);
+INSERT INTO admin_role_assignments
+       (user_id, role_group_id, domain_override, granted_by, eligible)
+SELECT u.id, rg.id, u.domain_id, u.id, FALSE
+  FROM users u
+ CROSS JOIN admin_role_groups rg
+ WHERE rg.name='g1-scoped-guest-managers'
+   AND u.email IN ('admin@g1-rls-host.example', 'admin@g1-rls-other.example');
+
+INSERT INTO guest_invite_domains (domain, host_domain_id, added_by_email)
+SELECT 'g1-rls-allowed.example', id, 'host@g1-rls-host.example'
+  FROM domains WHERE name = 'g1-rls-host.example';
+
+-- Super Admin carries guests.manage from V143; eligible=false is an active
+-- standing assignment even if rbac.jit is later enabled.
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT id, 1, id, FALSE FROM users WHERE email = 'g1-rls-admin@guest.invalid';
+
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.guest_invites'::regclass),
+  TRUE, 'guest_invites RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.guest_invite_domains'::regclass),
+  TRUE, 'guest_invite_domains RLS FORCED');
+SELECT is((SELECT count(*) FROM guest_invites)::int, 3,
+  'owner fixture contains all protected guest_invites rows');
+SELECT is((SELECT count(*) FROM guest_invite_domains)::int, 1,
+  'owner fixture contains the protected guest_invite_domains row');
+
+-- Preserve the row ids before the role switch: the constrained role must not
+-- discover either principal's invite through a late fixture lookup.
+SELECT set_config('app.current_user_id',
+  (SELECT id::text FROM users WHERE email = 'g1-rls-a@guest.invalid'), true);
+SELECT set_config('g1.invite_b_id',
+  (SELECT id::text FROM users WHERE email = 'g1-rls-b@guest.invalid'), true);
+SELECT set_config('g1.invite_b_invite_id',
+  (SELECT id::text FROM guest_invites
+    WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-b@guest.invalid')), true);
+SELECT set_config('g1.invite_admin_id',
+  (SELECT id::text FROM users WHERE email = 'g1-rls-admin@guest.invalid'), true);
+SELECT set_config('g1.scope_guest_id',
+  (SELECT id::text FROM users WHERE email = 'g1-rls-scope-guest@guest.invalid'), true);
+SELECT set_config('g1.scope_invite_id',
+  (SELECT id::text FROM guest_invites
+    WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-scope-guest@guest.invalid')), true);
+SELECT set_config('g1.host_admin_id',
+  (SELECT id::text FROM users WHERE email = 'admin@g1-rls-host.example'), true);
+SELECT set_config('g1.other_admin_id',
+  (SELECT id::text FROM users WHERE email = 'admin@g1-rls-other.example'), true);
+
+GRANT SELECT, UPDATE ON guest_invites, guest_invite_domains TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+SELECT is((SELECT count(*) FROM guest_invites)::int, 0,
+  'guest_invites: token_hash visible only via BYPASSRLS workerPool; no user-facing SELECT policy');
+SELECT is((SELECT count(*) FROM guest_invites
+             WHERE guest_user_id = current_setting('g1.invite_b_id')::bigint)::int, 0,
+  'guest_invites: other principal row is invisible under FORCE RLS');
+WITH upd AS (
+  UPDATE guest_invites SET used_at = now()
+   WHERE guest_user_id = current_setting('g1.invite_b_id')::bigint
+  RETURNING 1
+)
+SELECT is((SELECT count(*) FROM upd)::int, 0,
+  'guest_invites: other principal row is immutable under FORCE RLS');
+SELECT is((SELECT count(*) FROM guest_invite_domains)::int, 0,
+  'guest_invite_domains: guests.manage-gated admin read policy; reducer-only writes');
+SELECT set_config('app.current_user_id', current_setting('g1.invite_admin_id'), true);
+SELECT is((SELECT count(*) FROM guest_invite_domains)::int, 1,
+  'guest_invite_domains: active guests.manage admin sees the allowlist row through the policy');
+
+-- SECURITY DEFINER mutations still make their own reducer-side authority
+-- decision; the constrained app role cannot bypass it by forging actor args.
+SELECT set_config('app.current_user_id',
+  (SELECT id::text FROM users WHERE email='g1-rls-a@guest.invalid'), true);
+SELECT throws_ok(
+  format('SELECT guest_invite_revoke(%s,%s,%s)',
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    current_setting('g1.invite_b_id'), current_setting('g1.invite_b_invite_id')),
+  'BZ002', NULL, 'guest_invite_revoke denies an actor without guests.manage');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'unauthorized.example',%s,
+    'g1-rls-a@guest.invalid',false)$q$,
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ002', NULL, 'guest_invite_domain_set denies an actor without guests.manage');
+SELECT set_config('app.current_user_id', current_setting('g1.invite_admin_id'), true);
+SELECT throws_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'forged-actor.example',%s,
+    'forged@example.invalid',false)$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ002', NULL, 'guest_invite_domain_set refuses forged actor email attribution');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'admin-managed.example',%s,
+    'g1-rls-admin@guest.invalid',false)$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'guest_invite_domain_set permits an active guests.manage assignment');
+SELECT is(
+  guest_invite_revoke(current_setting('g1.invite_admin_id')::bigint,
+    current_setting('g1.invite_b_id')::bigint,
+    current_setting('g1.invite_b_invite_id')::bigint),
+  'revoked', 'guest_invite_revoke permits an active guests.manage assignment');
+RESET ROLE;
+SELECT is((SELECT added_by FROM guest_invite_domains
+            WHERE domain='admin-managed.example'),
+  current_setting('g1.invite_admin_id')::bigint,
+  'authorized domain mutation records the validated actor');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE user_id=current_setting('g1.invite_admin_id')::bigint
+              AND action='guest.invite_revoke'
+              AND target_id=current_setting('g1.invite_b_invite_id')::bigint), 1,
+  'authorized revoke records a non-vacuous admin audit row');
+
+-- Reducer authority is the final boundary: the caller role is constrained,
+-- both actors genuinely hold guests.manage, and only host-domain reach differs.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', current_setting('g1.other_admin_id'), true);
+SELECT throws_ok(
+  format('SELECT guest_invite_revoke(%s,%s,%s)',
+    current_setting('g1.other_admin_id'), current_setting('g1.scope_guest_id'),
+    current_setting('g1.scope_invite_id')),
+  'BZ002', NULL,
+  'guest_invite_revoke denies guests.manage actor outside the guest host domain');
+RESET ROLE;
+SELECT is((SELECT used_at FROM guest_invites
+            WHERE guest_user_id=current_setting('g1.scope_guest_id')::bigint),
+  NULL::timestamptz, 'out-of-scope reducer call leaves pending invite untouched');
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', current_setting('g1.host_admin_id'), true);
+SELECT is(
+  guest_invite_revoke(current_setting('g1.host_admin_id')::bigint,
+    current_setting('g1.scope_guest_id')::bigint,
+    current_setting('g1.scope_invite_id')::bigint),
+  'revoked', 'guest_invite_revoke permits guests.manage actor in the guest host domain');
+RESET ROLE;
+SELECT isnt((SELECT used_at FROM guest_invites
+              WHERE guest_user_id=current_setting('g1.scope_guest_id')::bigint),
+  NULL::timestamptz, 'same-host reducer call tombstones the pending invite');
+
+-- Task 2 reducer behavior. Keep the Task 1 FORCE-RLS proofs above intact:
+-- these calls are the only supported way through the deny-all tables.
+DELETE FROM guest_invite_domains;
+UPDATE guest_accounts SET status='active'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-member-target',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='admin@g1-rls-host.example'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ221', NULL, 'guest_invite_create refuses a user without a guest_accounts satellite');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-wrong-host',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='guest.invalid')),
+  'BZ002', NULL, 'guest_invite_create refuses a host domain that disagrees with the guest satellite');
+UPDATE guest_accounts SET status='invited'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+UPDATE users SET enabled=FALSE
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-forged-creator',%s,
+    'forged@example.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ002', NULL, 'guest_invite_create refuses forged creator attribution');
+
+UPDATE guest_accounts SET status='active'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+UPDATE users SET enabled=TRUE
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-hash-1',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'guest_invite_create cannot silently re-arm an active guest');
+SELECT is(
+  (SELECT status FROM guest_accounts
+    WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'active', 'rejected raw mint leaves active lifecycle state unchanged');
+SELECT lives_ok(
+  format($q$SELECT guest_set_status(%s,%s,'reinvite',NULL)$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'explicit recovery transition re-arms an active guest');
+SELECT is(
+  (SELECT status FROM guest_accounts
+    WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'invited', 'explicit recovery freezes the guest in invited state');
+SELECT is(
+  (SELECT enabled FROM users
+    WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  FALSE, 'explicit recovery disables sign-in until invite acceptance');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-hash-1',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'guest_invite_create mints only after the explicit recovery transition');
+SELECT is(
+  (SELECT token_hash FROM guest_invites
+    WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+      AND used_at IS NULL),
+  'g1-hash-1', 'guest_invite_create stores only the supplied token hash');
+SELECT is(
+  (SELECT status FROM guest_accounts
+    WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'invited', 'token mint leaves lifecycle state unchanged');
+
+SELECT is(
+  guest_invite_accept_test_helper(
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    'known-g1-token'),
+  'known-g1-token', 'accept test helper returns the known raw token');
+SELECT is(
+  (SELECT token_hash FROM guest_invites
+    WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+      AND used_at IS NULL),
+  encode(sha256('known-g1-token'::bytea), 'hex'),
+  'accept test helper replaces the pending row with the SHA-256 hash');
+
+SELECT lives_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-hash-2',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'guest_invite_create re-invites an already invited guest');
+SELECT is((SELECT count(*)::int FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND used_at IS NULL), 1,
+  're-invite leaves exactly one pending invite');
+SELECT ok((SELECT count(*) FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND used_at IS NOT NULL) >= 1,
+  're-invite tombstones the prior pending invite');
+SELECT is((SELECT terminal_reason FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND token_hash=encode(sha256('known-g1-token'::bytea), 'hex')),
+  'superseded', 'replacement records the exact superseded terminal reason');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-past-expiry',%s,
+    'g1-rls-admin@guest.invalid',now()-interval '1 second')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'past effective expiry is rejected before replacing the current invite');
+SELECT is((SELECT token_hash FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND used_at IS NULL),
+  'g1-hash-2', 'invalid replacement leaves the current invite pending');
+UPDATE guest_accounts SET expires_at=now()+interval '1 day'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-capped-expiry',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'invite creation accepts a caller TTL beyond the guest account ceiling');
+SELECT is((SELECT gi.expires_at FROM guest_invites gi
+            WHERE gi.guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND gi.used_at IS NULL),
+  (SELECT expires_at FROM guest_accounts
+    WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'invite expiry is capped exactly at the guest account expiry');
+UPDATE guest_accounts SET expires_at=NULL
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+
+UPDATE guest_accounts SET status='disabled'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+UPDATE users SET enabled=FALSE
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-disabled-rearm',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'guest_invite_create cannot silently re-arm a disabled guest');
+SELECT is((SELECT status FROM guest_accounts
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'disabled', 'rejected disabled raw mint leaves status unchanged');
+SELECT is((SELECT enabled FROM users
+            WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  FALSE, 'rejected disabled raw mint leaves sign-in disabled');
+
+UPDATE guest_accounts SET status='expired'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-expired-rearm',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'guest_invite_create cannot silently re-arm an expired guest');
+SELECT is((SELECT status FROM guest_accounts
+            WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  'expired', 'rejected expired raw mint leaves status unchanged');
+SELECT is((SELECT enabled FROM users
+            WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  FALSE, 'rejected expired raw mint leaves sign-in disabled');
+
+UPDATE guest_accounts SET status='invited'
+ WHERE user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+UPDATE users SET enabled=TRUE
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-invited-repair',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'guest_invite_create refuses a legacy invited-but-enabled row');
+SELECT is((SELECT enabled FROM users
+            WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')),
+  TRUE, 'raw invite mint never repairs lifecycle state as a side effect');
+
+UPDATE users SET enabled=FALSE
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+
+UPDATE users SET sync_source='sso', oidc_subject='g1-imported-subject',
+                 oidc_issuer='https://idp.g1.example'
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-sso-fallback',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ162', NULL, 'shared invite mint rejects an SSO-linked guest fallback');
+SELECT is((SELECT count(*)::int FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND used_at IS NULL),1,
+  'SSO-linked mint denial leaves the prior pending digest unchanged');
+UPDATE users SET sync_source='local', oidc_subject=NULL, oidc_issuer=NULL
+ WHERE id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid');
+
+SELECT is(
+  guest_invite_revoke(current_setting('g1.invite_admin_id')::bigint,
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM guest_invites
+      WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+        AND used_at IS NULL)),
+  'revoked', 'guest_invite_revoke tombstones a pending invite');
+SELECT is((SELECT count(*)::int FROM guest_invites
+            WHERE guest_user_id=(SELECT id FROM users WHERE email='g1-rls-a@guest.invalid')
+              AND used_at IS NULL), 0,
+  'guest_invite_revoke leaves no pending invite');
+SELECT is(
+  guest_invite_revoke(current_setting('g1.invite_admin_id')::bigint,
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'), 1),
+  'not_found', 'guest_invite_revoke is idempotent');
+
+SELECT lives_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'UPPER.EXAMPLE',%s,
+    'g1-rls-admin@guest.invalid',false)$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'guest_invite_domain_set adds a domain');
+SELECT is((SELECT count(*)::int FROM guest_invite_domains
+            WHERE domain='upper.example'), 1,
+  'guest_invite_domain_set lowercases domain input');
+SELECT throws_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-denied',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'BZ218', NULL, 'non-empty allowlist rejects an unlisted guest domain');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'guest.invalid',%s,
+    'g1-rls-admin@guest.invalid',false)$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'guest_invite_domain_set adds the invited address domain');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_create(%s,%s,'g1-allowed',%s,
+    'g1-rls-admin@guest.invalid',now()+interval '7 days')$q$,
+    current_setting('g1.invite_admin_id'),
+    (SELECT id FROM users WHERE email='g1-rls-a@guest.invalid'),
+    (SELECT id FROM domains WHERE name='g1-rls-host.example')),
+  'listed guest domain passes guest_invite_create');
+
+SELECT hasnt_function('public', 'guest_invite_list', ARRAY['bigint','bigint'],
+  'obsolete host-domain-wide invite list surface is removed');
+SELECT lives_ok(
+  format($q$SELECT guest_invite_domain_set(%s,'UPPER.EXAMPLE',0,'',true)$q$,
+    current_setting('g1.invite_admin_id')),
+  'guest_invite_domain_set removes a domain with the Task 5 route call shape');
+
+SELECT * FROM finish();
+ROLLBACK;

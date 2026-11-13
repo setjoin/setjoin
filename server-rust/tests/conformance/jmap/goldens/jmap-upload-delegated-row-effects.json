@@ -1,0 +1,57 @@
+{
+  "case": "jmap-upload-delegated-row-effects",
+  "effects": [
+    {
+      "after": {
+        "blob_sha256": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+        "delay_minutes": 1440,
+        "scheduled_at": "<timestamp>"
+      },
+      "change": "insert",
+      "row": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+      "table": "blob_cleanup_queue"
+    },
+    {
+      "after": {
+        "blob_sha256": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+        "charged_at": "<timestamp>",
+        "size_bytes": 20,
+        "user_id": "<user>"
+      },
+      "change": "insert",
+      "row": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+      "table": "blob_user_charges"
+    },
+    {
+      "after": {
+        "charged_bytes": 20,
+        "updated_at": "<timestamp>",
+        "user_id": "<user>"
+      },
+      "change": "insert",
+      "row": "<user>",
+      "table": "blob_user_usage"
+    },
+    {
+      "after": {
+        "content_type": "application/json",
+        "created_at": "<timestamp>",
+        "minio_ref": "mailblobs/569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+        "ref_count": 0,
+        "sha256": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+        "size_bytes": 20
+      },
+      "change": "insert",
+      "row": "569a2b7acf8d8a3e7d1c8dbccf2bafe414b6aa47bfefb9275f1b4a69ac405324",
+      "table": "blobs"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap/upload/{accountId}"
+}

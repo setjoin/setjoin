@@ -1,0 +1,228 @@
+-- pgTAP tests for the tag system (Phase 17)
+BEGIN;
+SELECT plan(12);
+
+-- ============================================================
+-- Shared fixtures
+-- ============================================================
+INSERT INTO domains (name, is_local) VALUES ('tagtest.example', TRUE);
+INSERT INTO mailboxes (email, domain_id, display_name, type)
+VALUES ('tagtest@tagtest.example',
+        (SELECT id FROM domains WHERE name = 'tagtest.example'),
+        'Tag Test', 'personal');
+
+-- Temp tables to hold generated IDs across statements
+CREATE TEMP TABLE _tag_ids (mb_id BIGINT, inbox_id BIGINT, trash_id BIGINT,
+                             drafts_id BIGINT, sent_id BIGINT);
+INSERT INTO _tag_ids
+SELECT mb.id,
+       (SELECT id FROM tags WHERE mailbox_id = mb.id AND name = 'Inbox'),
+       (SELECT id FROM tags WHERE mailbox_id = mb.id AND name = 'Trash'),
+       (SELECT id FROM tags WHERE mailbox_id = mb.id AND name = 'Drafts'),
+       (SELECT id FROM tags WHERE mailbox_id = mb.id AND name = 'Sent')
+FROM mailboxes mb WHERE mb.email = 'tagtest@tagtest.example';
+
+CREATE TEMP TABLE _msg_ids (label TEXT, msg_id BIGINT, recv TIMESTAMPTZ);
+
+-- ============================================================
+-- Test 1: Tags table exists
+-- ============================================================
+SELECT has_table('tags');
+
+-- ============================================================
+-- Test 2: Default system tags exist for a test mailbox
+-- ============================================================
+SELECT ok(
+    (SELECT COUNT(*) >= 8 FROM tags WHERE mailbox_id = (SELECT mb_id FROM _tag_ids)),
+    'System tags created for new mailbox'
+);
+
+-- ============================================================
+-- Test 3: Exclusive group enforcement: adding Trash removes Inbox
+-- ============================================================
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at)
+SELECT mb_id, inbox_id, '<test-exclusive@test>', 'a@b.com', '[]'::JSONB, 'Test', 'raw', 't1', now()
+FROM _tag_ids
+RETURNING id, received_at;
+
+INSERT INTO _msg_ids (label, msg_id, recv)
+SELECT 'exclusive', m.id, m.received_at FROM messages m WHERE m.message_id = '<test-exclusive@test>';
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.inbox_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'exclusive';
+
+-- Now add Trash — should remove Inbox automatically
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.trash_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'exclusive';
+
+SELECT ok(
+    (SELECT COUNT(*) = 1
+     FROM message_tags mt, _msg_ids mi, _tag_ids ti
+     WHERE mi.label = 'exclusive'
+       AND mt.message_id = mi.msg_id AND mt.received_at = mi.recv
+       AND mt.tag_id IN (ti.inbox_id, ti.trash_id)),
+    'Exclusivity: Trash replaced Inbox (only one location tag remains)'
+);
+
+-- ============================================================
+-- Test 4: Counter maintenance on message_tags INSERT
+-- ============================================================
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at, size_bytes)
+SELECT mb_id, inbox_id, '<test-counter@test>', 'a@b.com', '[]'::JSONB, 'Counter', 'raw', 't2', now() + interval '1 second', 256
+FROM _tag_ids;
+
+INSERT INTO _msg_ids (label, msg_id, recv)
+SELECT 'counter', m.id, m.received_at FROM messages m WHERE m.message_id = '<test-counter@test>';
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.inbox_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'counter';
+
+SELECT ok(
+    (SELECT total_count > 0 FROM tags t, _tag_ids ti WHERE t.id = ti.inbox_id),
+    'Counter: Inbox total_count incremented after tag add'
+);
+
+SELECT is(
+    (SELECT size_bytes FROM tags t, _tag_ids ti WHERE t.id = ti.inbox_id),
+    256::BIGINT,
+    'Counter: Inbox size_bytes incremented after tag add'
+);
+
+DELETE FROM message_tags mt
+USING _msg_ids mi, _tag_ids ti
+WHERE mi.label = 'counter'
+  AND mt.message_id = mi.msg_id AND mt.received_at = mi.recv
+  AND mt.tag_id = ti.inbox_id;
+
+SELECT is(
+    (SELECT size_bytes FROM tags t, _tag_ids ti WHERE t.id = ti.inbox_id),
+    0::BIGINT,
+  'Counter: Inbox size_bytes decremented after tag removal'
+);
+
+-- Re-add the membership, then delete the parent message. V182's message-level
+-- trigger must subtract bytes before the FK cascade hides the parent row from
+-- the message_tags AFTER DELETE trigger.
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.inbox_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'counter';
+
+DELETE FROM messages m
+USING _msg_ids mi
+WHERE mi.label = 'counter' AND m.id = mi.msg_id AND m.received_at = mi.recv;
+
+SELECT is(
+    (SELECT size_bytes FROM tags t, _tag_ids ti WHERE t.id = ti.inbox_id),
+    0::BIGINT,
+    'Counter: parent-message cascade decrements Inbox size_bytes exactly once'
+);
+
+-- ============================================================
+-- Test 5: All Mail view excludes Trash and Spam
+-- ============================================================
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at)
+SELECT mb_id, trash_id, '<test-allmail@test>', 'a@b.com', '[]'::JSONB, 'AllMail', 'raw', 't3', now() + interval '2 seconds'
+FROM _tag_ids;
+
+INSERT INTO _msg_ids (label, msg_id, recv)
+SELECT 'allmail', m.id, m.received_at FROM messages m WHERE m.message_id = '<test-allmail@test>';
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.trash_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'allmail';
+
+SELECT ok(
+    (SELECT COUNT(*) = 0
+     FROM all_mail((SELECT mb_id FROM _tag_ids)) am, _msg_ids mi
+     WHERE mi.label = 'allmail' AND am.id = mi.msg_id AND am.received_at = mi.recv),
+    'All Mail: excludes messages with Trash tag'
+);
+
+-- ============================================================
+-- Test 6: set_message_location helper works
+-- ============================================================
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at)
+SELECT mb_id, drafts_id, '<test-location@test>', 'a@b.com', '[]'::JSONB, 'Location', 'raw', 't4', now() + interval '3 seconds'
+FROM _tag_ids;
+
+INSERT INTO _msg_ids (label, msg_id, recv)
+SELECT 'location', m.id, m.received_at FROM messages m WHERE m.message_id = '<test-location@test>';
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.drafts_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'location';
+
+SELECT lives_ok(
+    $$ SELECT set_message_location(
+        (SELECT msg_id FROM _msg_ids WHERE label = 'location'),
+        (SELECT recv FROM _msg_ids WHERE label = 'location'),
+        'Sent',
+        (SELECT mb_id FROM _tag_ids),
+        'test'
+    ) $$,
+    'set_message_location call succeeds'
+);
+
+SELECT ok(
+    (SELECT COUNT(*) = 1
+     FROM message_tags mt, _msg_ids mi, _tag_ids ti
+     WHERE mi.label = 'location'
+       AND mt.message_id = mi.msg_id AND mt.received_at = mi.recv
+       AND mt.tag_id IN (ti.drafts_id, ti.sent_id)),
+    'set_message_location: replaced Drafts with Sent (only one location)'
+);
+
+-- ============================================================
+-- Test 7 & 8: Archive = remove location tag, message stays in All Mail
+-- ============================================================
+INSERT INTO messages (mailbox_id, folder_id, message_id, from_addr, to_addrs, subject, raw_ref, thread_id, received_at)
+SELECT mb_id, inbox_id, '<test-archive@test>', 'a@b.com', '[]'::JSONB, 'Archive', 'raw', 't5', now() + interval '4 seconds'
+FROM _tag_ids;
+
+INSERT INTO _msg_ids (label, msg_id, recv)
+SELECT 'archive', m.id, m.received_at FROM messages m WHERE m.message_id = '<test-archive@test>';
+
+-- Add inbox and a user tag
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT mi.msg_id, mi.recv, ti.inbox_id, 'test', TRUE
+FROM _msg_ids mi, _tag_ids ti WHERE mi.label = 'archive';
+
+DO $$
+DECLARE v_user_tag_id BIGINT;
+BEGIN
+    INSERT INTO tags (mailbox_id, name, tag_type, color, sort_order)
+    SELECT mb_id, 'TestLabel', 'user', '#FF0000', 100 FROM _tag_ids
+    RETURNING id INTO v_user_tag_id;
+
+    INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+    SELECT msg_id, recv, v_user_tag_id, 'test', FALSE FROM _msg_ids WHERE label = 'archive';
+END;
+$$;
+
+-- Remove location tags (simulates archive)
+DELETE FROM message_tags mt
+USING _msg_ids mi, tags t
+WHERE mi.label = 'archive'
+  AND mt.message_id = mi.msg_id AND mt.received_at = mi.recv
+  AND mt.tag_id = t.id AND t.exclusive_group = 'location';
+
+SELECT ok(
+    (SELECT COUNT(*) = 1
+     FROM message_tags mt, _msg_ids mi
+     WHERE mi.label = 'archive'
+       AND mt.message_id = mi.msg_id AND mt.received_at = mi.recv),
+    'Archive: user label preserved after removing location tags'
+);
+
+SELECT ok(
+    (SELECT COUNT(*) = 1
+     FROM all_mail((SELECT mb_id FROM _tag_ids)) am, _msg_ids mi
+     WHERE mi.label = 'archive' AND am.id = mi.msg_id AND am.received_at = mi.recv),
+    'Archive: message still in All Mail after archiving'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

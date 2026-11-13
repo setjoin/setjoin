@@ -1,0 +1,16 @@
+BEGIN:VCARD
+VERSION:3.0
+UID:test-contact-001@migration
+FN:Alice Test
+N:Test;Alice;;;
+ORG:Test Corp
+EMAIL;TYPE=WORK:alice@test.local
+TEL;TYPE=WORK:+1-555-0100
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+UID:test-contact-002@migration
+FN:Bob Test
+N:Test;Bob;;;
+EMAIL;TYPE=WORK:bob@test.local
+END:VCARD

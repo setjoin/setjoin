@@ -1,0 +1,72 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "approval_required": false,
+          "approved_at": null,
+          "approved_by": null,
+          "close_reason": null,
+          "closed_at": null,
+          "closed_by": null,
+          "created_at": "<timestamp>",
+          "expires_at": "<timestamp>",
+          "id": "<uuid>",
+          "idempotency_key": "<uuid>",
+          "installation_id": "<installation>",
+          "maximum_timeline": 2,
+          "minimum_timeline": 1,
+          "opened_by": "<admin>",
+          "reason": "oracle recovery opening",
+          "status": "open",
+          "step_up_binding": "<verified-step-up-binding>"
+        }
+      ],
+      "before": [
+        {
+          "approval_required": false,
+          "approved_at": null,
+          "approved_by": null,
+          "close_reason": null,
+          "closed_at": null,
+          "closed_by": null,
+          "created_at": "<timestamp>",
+          "expires_at": "<timestamp>",
+          "id": "<uuid>",
+          "idempotency_key": "<uuid>",
+          "installation_id": "<installation>",
+          "maximum_timeline": 2,
+          "minimum_timeline": 1,
+          "opened_by": "<admin>",
+          "reason": "oracle recovery opening",
+          "status": "open",
+          "step_up_binding": "<verified-step-up-binding>"
+        }
+      ],
+      "table": "mail_recovery_incidents"
+    },
+    {
+      "after": [
+        {
+          "affected_user_id": "<other>",
+          "evidence_token_sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "incident_id": "<uuid>",
+          "mailbox_id": "<other-mailbox>"
+        }
+      ],
+      "before": [
+        {
+          "affected_user_id": "<other>",
+          "evidence_token_sha256": "\\xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "incident_id": "<uuid>",
+          "mailbox_id": "<other-mailbox>"
+        }
+      ],
+      "table": "mail_recovery_incident_accounts"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/system/recovery/incidents"
+}

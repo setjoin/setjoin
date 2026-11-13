@@ -1,0 +1,117 @@
+-- jmap_identity.pg: JMAP Identity/set reducers (RFC 8620 §4).
+--   * jmap_identity_set_update — the ONLY mutating one: updates alias-identity
+--     properties (signature / replyTo / displayName), scoped by
+--     aliases.mailbox_id = p_mailbox_id (the caller's primary mailbox id).
+--   * jmap_identity_set_create / _set_destroy — no-ops (identities are not
+--     JMAP-creatable/destroyable); every key comes back forbidden.
+--
+-- ADR-003 — THE DIVERGENT-ID OWNERSHIP CASE: jmap_identity_set_update scopes by
+-- the MAILBOX id (m.id = p_mailbox_id), never the owning user_id. mk_account()
+-- gives user_id != mailbox_id, so a stray `user_id = p_mailbox_id` predicate would
+-- match zero rows. The negative test passes a FOREIGN mailbox id and proves a
+-- caller cannot touch another mailbox's alias.
+BEGIN;
+SELECT plan(13);
+
+-- Two accounts, each with its own divergent owning user.
+CREATE TEMP TABLE _idn AS
+  SELECT mk_account('idnA') AS mbA, mk_account('idnB') AS mbB;
+
+-- An alias owned by mailbox A.
+INSERT INTO aliases (id, mailbox_id, email, domain_id, is_primary, display_name, signature, reply_to)
+VALUES (8501, (SELECT mbA FROM _idn), 'aliasA@mk.test',
+        (SELECT domain_id FROM mailboxes WHERE id = (SELECT mbA FROM _idn)),
+        FALSE, 'Old Name', 'old sig', NULL);
+
+-- Identity/changes delta token = users.updated_at of the owning user. Stamp BOTH
+-- owners to a stale instant so the bump (→ now()) is observable in this single txn
+-- (now() is frozen per-txn, so a fresh mk_account row already reads now() and could
+-- not be distinguished from a bump without this pre-stamp).
+UPDATE users SET updated_at = TIMESTAMPTZ '2000-01-01 00:00:00Z'
+WHERE id IN ((SELECT user_id FROM mailboxes WHERE id = (SELECT mbA FROM _idn)),
+             (SELECT user_id FROM mailboxes WHERE id = (SELECT mbB FROM _idn)));
+
+-- ── jmap_identity_set_update — the divergent-id ownership case ──
+
+-- Test 1: the OWNER mailbox updates its alias identity (key "a8501").
+SELECT is(
+  (jmap_identity_set_update((SELECT mbA FROM _idn),
+     '{"a8501":{"signature":"new sig","replyTo":"reply@mk.test","name":"New Name"}}'::JSONB)
+   ->'updated') ? 'a8501',
+  TRUE,
+  'owner mailbox updates its alias identity (returned in updated)');
+
+-- Test 2–4: the columns actually changed.
+SELECT is((SELECT signature    FROM aliases WHERE id = 8501), 'new sig',     'signature updated');
+SELECT is((SELECT reply_to     FROM aliases WHERE id = 8501), 'reply@mk.test','replyTo updated');
+SELECT is((SELECT display_name FROM aliases WHERE id = 8501), 'New Name',     'displayName updated');
+
+-- Test 4b: the bump — owner A's users.updated_at advanced from the stale stamp to
+-- now() (the Identity/changes delta token). Remove the bump in the reducer and this
+-- goes red (mutation-check).
+SELECT is(
+  (SELECT updated_at FROM users WHERE id = (SELECT user_id FROM mailboxes WHERE id = (SELECT mbA FROM _idn))),
+  now(),
+  'identity set_update bumps the owner users.updated_at (Identity/changes delta token)');
+
+-- Test 5: a FOREIGN mailbox (B) cannot update A's alias — notFound, not updated.
+-- THIS is the divergent-id ownership proof: the WHERE m.id = p_mailbox_id guard
+-- matches no row for the wrong mailbox.
+SELECT is(
+  (jmap_identity_set_update((SELECT mbB FROM _idn),
+     '{"a8501":{"signature":"hijack"}}'::JSONB)
+   ->'notUpdated') ? 'a8501',
+  TRUE,
+  'a foreign mailbox cannot update another mailbox alias (notUpdated)');
+
+-- Test 6: and the alias was NOT mutated by the foreign attempt.
+SELECT is(
+  (SELECT signature FROM aliases WHERE id = 8501),
+  'new sig',
+  'the foreign update left the alias untouched (R3 ownership in the UPDATE WHERE)');
+
+-- Test 6b: a no-op set_update (foreign mailbox B touched nothing) does NOT bump the
+-- state — owner B's users.updated_at is still the stale stamp. Proves the bump is
+-- gated on a real mutation (and scoped to the owning user, not the caller's).
+SELECT is(
+  (SELECT updated_at FROM users WHERE id = (SELECT user_id FROM mailboxes WHERE id = (SELECT mbB FROM _idn))),
+  TIMESTAMPTZ '2000-01-01 00:00:00Z',
+  'a no-op identity set_update leaves users.updated_at untouched (no spurious bump)');
+
+-- Test 7: a non-alias identity key (not "a…") is forbidden (only aliases updatable).
+SELECT is(
+  (jmap_identity_set_update((SELECT mbA FROM _idn),
+     '{"i123":{"signature":"x"}}'::JSONB)
+   ->'notUpdated'->'i123'->>'type'),
+  'forbidden',
+  'a primary "i…" identity key is forbidden (only alias identities updatable)');
+
+-- Test 8: an unknown alias id is notFound.
+SELECT is(
+  (jmap_identity_set_update((SELECT mbA FROM _idn),
+     '{"a99999999":{"signature":"x"}}'::JSONB)
+   ->'notUpdated'->'a99999999'->>'type'),
+  'notFound',
+  'an unknown alias id is reported notFound');
+
+-- ── create / destroy are no-ops (every key forbidden) ──
+SELECT is(
+  (jmap_identity_set_create((SELECT mbA FROM _idn), '{"k1":{"email":"x@mk.test"}}'::JSONB)
+   ->'notCreated'->'k1'->>'type'),
+  'forbidden',
+  'jmap_identity_set_create is a no-op (forbidden)');
+
+SELECT is(
+  (jmap_identity_set_destroy((SELECT mbA FROM _idn), ARRAY[8501::BIGINT])
+   ->'notDestroyed'->'8501'->>'type'),
+  'forbidden',
+  'jmap_identity_set_destroy is a no-op (forbidden)');
+
+-- Test 11: destroy did NOT actually delete the alias (no-op means no mutation).
+SELECT is(
+  (SELECT count(*)::INT FROM aliases WHERE id = 8501),
+  1,
+  'destroy no-op leaves the alias row in place');
+
+SELECT * FROM finish();
+ROLLBACK;

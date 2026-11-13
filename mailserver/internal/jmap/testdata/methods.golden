@@ -1,0 +1,111 @@
+AddressBook/changes	urn:ietf:params:jmap:contacts	contacts	personal
+AddressBook/get	urn:ietf:params:jmap:contacts	contacts	personal
+AddressBook/set	urn:ietf:params:jmap:contacts	contacts	personal
+Blob/copy	urn:ietf:params:jmap:blob		personal
+Blob/get	urn:ietf:params:jmap:blob		personal
+Blob/lookup	urn:ietf:params:jmap:blob		personal
+Calendar/changes	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/delegateList	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/get	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/getShared	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/set	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/shareGet	urn:ietf:params:jmap:calendars	calendar	personal
+Calendar/shareSet	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/changes	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/counter	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/freeBusy	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/get	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/getShared	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/import	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/query	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/queryFreeSlots	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/resourceList	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/rsvp	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/sendUpdate	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/set	urn:ietf:params:jmap:calendars	calendar	personal
+CalendarEvent/setOccurrence	urn:ietf:params:jmap:calendars	calendar	personal
+ContactCard/changes	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/directoryMembers	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/directorySearch	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/directoryTree	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/findDuplicates	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/galSearch	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/get	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/merge	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/query	urn:ietf:params:jmap:contacts	contacts	personal
+ContactCard/set	urn:ietf:params:jmap:contacts	contacts	personal
+ContactGroup/expand	urn:ietf:params:jmap:contacts	contacts	personal
+ContactGroup/get	urn:ietf:params:jmap:contacts	contacts	personal
+ContactGroup/query	urn:ietf:params:jmap:contacts	contacts	personal
+ContactGroup/set	urn:ietf:params:jmap:contacts	contacts	personal
+Continuity/get	urn:ietf:params:jmap:mail		read
+Continuity/present	urn:ietf:params:jmap:mail		read
+Core/echo	urn:ietf:params:jmap:core		personal
+Email/bundles	urn:ietf:params:jmap:mail		read
+Email/changes	urn:ietf:params:jmap:mail		read
+Email/deletedQuery	urn:ietf:params:jmap:mail		read
+Email/get	urn:ietf:params:jmap:mail		read
+Email/nudgeDismiss	urn:ietf:params:jmap:mail		mutate
+Email/nudges	urn:ietf:params:jmap:mail		read
+Email/purge	urn:ietf:params:jmap:mail		mutate
+Email/query	urn:ietf:params:jmap:mail		read
+Email/recover	urn:ietf:params:jmap:mail		mutate
+Email/recoveryReceipt	urn:ietf:params:jmap:mail		read
+Email/set	urn:ietf:params:jmap:mail		mutate
+EmailSubmission/cancel	urn:ietf:params:jmap:submission		submit
+EmailSubmission/get	urn:ietf:params:jmap:submission		submit
+EmailSubmission/query	urn:ietf:params:jmap:submission		submit
+EmailSubmission/set	urn:ietf:params:jmap:submission		submit
+EmailTemplate/delete	urn:setjoin:params:jmap:mail		personal
+EmailTemplate/list	urn:setjoin:params:jmap:mail		personal
+EmailTemplate/set	urn:setjoin:params:jmap:mail		personal
+Identity/changes	urn:ietf:params:jmap:submission		personal
+Identity/get	urn:ietf:params:jmap:submission		personal
+Identity/set	urn:ietf:params:jmap:submission		personal
+MailComment/get	urn:ietf:params:jmap:mail		read
+MailComment/set	urn:ietf:params:jmap:mail		collaborate
+MailDraft/get	urn:ietf:params:jmap:mail		read
+MailDraft/lease	urn:ietf:params:jmap:mail		collaborate
+MailDraft/open	urn:ietf:params:jmap:mail		collaborate
+MailDraft/replace	urn:ietf:params:jmap:mail		collaborate
+MailDraft/save	urn:ietf:params:jmap:mail		collaborate
+MailWork/action	urn:ietf:params:jmap:mail		collaborate
+MailWork/changes	urn:ietf:params:jmap:mail		read
+MailWork/get	urn:ietf:params:jmap:mail		read
+MailWork/set	urn:ietf:params:jmap:mail		collaborate
+MailWorkCollaborators/get	urn:ietf:params:jmap:mail		read
+MailWorkMetrics/get	urn:ietf:params:jmap:mail		read
+MailWorkNotificationPreferences/get	urn:ietf:params:jmap:mail		read
+MailWorkNotificationPreferences/set	urn:ietf:params:jmap:mail		collaborate
+MailWorkPolicy/get	urn:ietf:params:jmap:mail		read
+MailWorkPolicy/set	urn:ietf:params:jmap:mail		collaborate
+Mailbox/changes	urn:ietf:params:jmap:mail		read
+Mailbox/get	urn:ietf:params:jmap:mail		read
+Mailbox/query	urn:ietf:params:jmap:mail		read
+Mailbox/queryChanges	urn:ietf:params:jmap:mail		read
+Mailbox/set	urn:ietf:params:jmap:mail		mutate
+QuickStep/apply	urn:setjoin:params:jmap:mail		personal
+QuickStep/get	urn:setjoin:params:jmap:mail		personal
+QuickStep/set	urn:setjoin:params:jmap:mail		personal
+Reminder/dismiss	urn:setjoin:params:jmap:reminders		personal
+Reminder/get	urn:setjoin:params:jmap:reminders		personal
+Reminder/snooze	urn:setjoin:params:jmap:reminders		personal
+SavedSearch/delete	urn:setjoin:params:jmap:mail		personal
+SavedSearch/list	urn:setjoin:params:jmap:mail		personal
+SavedSearch/set	urn:setjoin:params:jmap:mail		personal
+SearchSnippet/get	urn:ietf:params:jmap:mail		read
+Task/changes	urn:ietf:params:jmap:tasks	tasks	personal
+Task/get	urn:ietf:params:jmap:tasks	tasks	personal
+Task/query	urn:ietf:params:jmap:tasks	tasks	personal
+Task/set	urn:ietf:params:jmap:tasks	tasks	personal
+TaskAssigned/get	urn:ietf:params:jmap:tasks	tasks	personal
+TaskAssigned/setStatus	urn:ietf:params:jmap:tasks	tasks	personal
+TaskComment/get	urn:ietf:params:jmap:tasks	tasks	personal
+TaskComment/set	urn:ietf:params:jmap:tasks	tasks	personal
+TaskList/get	urn:ietf:params:jmap:tasks	tasks	personal
+TaskList/set	urn:ietf:params:jmap:tasks	tasks	personal
+TaskList/taskSet	urn:ietf:params:jmap:tasks	tasks	personal
+TaskList/tasks	urn:ietf:params:jmap:tasks	tasks	personal
+TaskListMember/set	urn:ietf:params:jmap:tasks	tasks	personal
+Thread/changes	urn:ietf:params:jmap:mail		read
+Thread/get	urn:ietf:params:jmap:mail		read

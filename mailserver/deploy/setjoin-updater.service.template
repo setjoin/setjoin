@@ -1,0 +1,54 @@
+[Unit]
+Description=Setjoin Transactional Updater
+Documentation=https://github.com/setjoin/setjoin
+After=network.target postgresql.service
+Wants=postgresql.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/libexec/setjoin-updater run --state-dir={{UPDATER_DATA_DIR}}/journal --release-store={{UPDATER_DATA_DIR}}/releases --dsn-file={{UPDATER_DSN_FILE}} --execution-config={{UPDATER_EXECUTION_CONFIG}} --owner-dsn-file={{UPDATER_OWNER_DSN_FILE}} --recovery-access-key-file={{UPDATER_RECOVERY_ACCESS_FILE}} --recovery-secret-key-file={{UPDATER_RECOVERY_SECRET_FILE}} --recovery-hmac-key-file={{UPDATER_RECOVERY_HMAC_FILE}} --probe-credential-file={{UPDATER_PROBE_CREDENTIAL_FILE}} --office-app-execution --office-app-worker-dsn-file={{UPDATER_APP_WORKER_DSN_FILE}} --office-app-manifest={{OFFICE_APP_MANIFEST}} --office-app-state-dir={{OFFICE_APP_STATE_DIR}}
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=30
+
+# The daemon has no listener, shell, generic path, URL, command, or unit input.
+# execution.json defaults disabled; when explicitly enabled, the database OFF
+# gate remains authoritative and only the fixed core-cohort catalog can write.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths={{UPDATER_DATA_DIR}}/journal {{INSTALL_DIR}} {{OFFICE_APP_STATE_DIR}}
+ReadOnlyPaths={{UPDATER_DATA_DIR}}/releases {{OFFICE_APP_MANIFEST}}
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-updater
+
+[Install]
+WantedBy=multi-user.target

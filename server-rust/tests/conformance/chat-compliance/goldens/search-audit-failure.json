@@ -1,0 +1,247 @@
+{
+  "case": "audit-failure",
+  "format": 1,
+  "go_source": "f3ff02591aa3decdecec6e87f3c2ecf47df7e82e",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "acts": [
+            {
+              "action": "search.run",
+              "after_state": {
+                "_checksum": "<digest>",
+                "caseId": 970001,
+                "query": {
+                  "channelIds": [
+                    961001
+                  ],
+                  "terms": "oracle"
+                },
+                "resultCount": 1,
+                "searchId": 964101
+              },
+              "before_state": null,
+              "channel_id": 961001,
+              "id": 1,
+              "ip": null,
+              "notes": null,
+              "occurred_at": "<timestamp>",
+              "target_id": 961001,
+              "target_type": "channel",
+              "user_id": "<actor>"
+            }
+          ],
+          "channel": [
+            {
+              "broadcast_permission": "admins",
+              "change_seq": 0,
+              "classification": "regular",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "federated_local_key": null,
+              "federated_peer_domain": null,
+              "federated_remote_id": null,
+              "federated_room_id": null,
+              "federated_room_removed_at": null,
+              "id": 961001,
+              "is_archived": false,
+              "kind": "channel",
+              "last_purged_seq": 0,
+              "legal_hold": false,
+              "legal_hold_reason": null,
+              "member_key": null,
+              "name": "compl3-channel",
+              "post_permission": "all",
+              "retention_days": null,
+              "topic": null,
+              "visibility": "public",
+              "worm_mode": null
+            }
+          ],
+          "coverage": [],
+          "holds": [],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "author_id": "<actor>",
+              "body": "Evidence oracle <A>",
+              "broadcast": null,
+              "channel_id": 961001,
+              "created_at": "<timestamp>",
+              "deleted_at": null,
+              "delivered_at": null,
+              "edited_at": null,
+              "federated_origin_domain": null,
+              "federated_sender_addr": null,
+              "federated_stanza_id": null,
+              "id": 966001,
+              "msg_type": "text",
+              "parent_message_id": null,
+              "payload": null,
+              "search_tsv": "'evidence':1 'oracle':2",
+              "seq": 1,
+              "spam_quarantined": false,
+              "spam_reason": null
+            }
+          ],
+          "policies": [
+            {
+              "applies_to": "channel",
+              "created_at": "<timestamp>",
+              "duration_days": 90,
+              "effective_at": "<timestamp>",
+              "enabled": true,
+              "id": 962001,
+              "name": "Shield <A>",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "searches": [
+            {
+              "case_id": 970001,
+              "executed_at": "<timestamp>",
+              "executed_by": "<actor>",
+              "id": 964101,
+              "kind": "search",
+              "query": {
+                "channelIds": [
+                  961001
+                ],
+                "terms": "oracle"
+              },
+              "result_count": 1
+            }
+          ]
+        },
+        "before": {
+          "acts": [],
+          "channel": [
+            {
+              "broadcast_permission": "admins",
+              "change_seq": 0,
+              "classification": "regular",
+              "created_at": "<timestamp>",
+              "created_by": "<actor>",
+              "federated_local_key": null,
+              "federated_peer_domain": null,
+              "federated_remote_id": null,
+              "federated_room_id": null,
+              "federated_room_removed_at": null,
+              "id": 961001,
+              "is_archived": false,
+              "kind": "channel",
+              "last_purged_seq": 0,
+              "legal_hold": false,
+              "legal_hold_reason": null,
+              "member_key": null,
+              "name": "compl3-channel",
+              "post_permission": "all",
+              "retention_days": null,
+              "topic": null,
+              "visibility": "public",
+              "worm_mode": null
+            }
+          ],
+          "coverage": [],
+          "holds": [],
+          "mailbox_state": {
+            "email": 0,
+            "mailbox": 0,
+            "tag": 0,
+            "thread": 0
+          },
+          "messages": [
+            {
+              "author_id": "<actor>",
+              "body": "Evidence oracle <A>",
+              "broadcast": null,
+              "channel_id": 961001,
+              "created_at": "<timestamp>",
+              "deleted_at": null,
+              "delivered_at": null,
+              "edited_at": null,
+              "federated_origin_domain": null,
+              "federated_sender_addr": null,
+              "federated_stanza_id": null,
+              "id": 966001,
+              "msg_type": "text",
+              "parent_message_id": null,
+              "payload": null,
+              "search_tsv": "'evidence':1 'oracle':2",
+              "seq": 1,
+              "spam_quarantined": false,
+              "spam_reason": null
+            }
+          ],
+          "policies": [
+            {
+              "applies_to": "channel",
+              "created_at": "<timestamp>",
+              "duration_days": 90,
+              "effective_at": "<timestamp>",
+              "enabled": true,
+              "id": 962001,
+              "name": "Shield <A>",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "searches": []
+        },
+        "table": "chat_compliance"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"caseId\":970001,\"terms\":\"oracle\",\"channelIds\":[961001],\"actorId\":-1}",
+      "method": "POST",
+      "path": "/admin/chat-ediscovery/search"
+    },
+    "response": {
+      "body": "{\"hits\":[{\"deleted\":false,\"excerpt\":\"Evidence oracle \\u003cA\\u003e\",\"authorId\":\"<actor>\",\"channelId\":961001,\"createdAt\":\"<timestamp>\",\"matchedIn\":[\"body\"],\"messageId\":966001,\"federatedSenderAddr\":null}],\"searchId\":964101,\"resultCount\":1,\"scheduledHits\":[]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "257"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-compl3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/chat-ediscovery/search"
+}

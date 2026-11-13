@@ -1,0 +1,46 @@
+{
+  "case": "mailbox-lifecycle-media-error",
+  "format": 1,
+  "go_source": "7ec306f6e82923894ea99c1693cb7388a5eaee73",
+  "observation": {
+    "calls": [
+      {
+        "body": {
+          "identity": "u:one",
+          "room": "a-room"
+        },
+        "grant": {
+          "room": "a-room",
+          "roomAdmin": true
+        },
+        "method": "RemoveParticipant",
+        "service": "livekit.RoomService"
+      }
+    ],
+    "effects": [
+      [
+        "failed",
+        1,
+        "twirp error permission_denied: injected",
+        false
+      ]
+    ],
+    "targets": [
+      [
+        "a-room",
+        "u:one",
+        false
+      ],
+      [
+        "completed-room",
+        "u:gone",
+        true
+      ],
+      [
+        "z-room",
+        "u:two",
+        false
+      ]
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "Usage: mailctl storage status | migrate | verify\n  (migrate target from STORAGE_PROVIDER env var)\n\nFlags (all subcommands): --json, --quiet, --yes/-y\n",
+  "stderr": "",
+  "exit": 0
+}

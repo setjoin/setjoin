@@ -1,0 +1,28 @@
+// Recording-only overlay (#314): runs frozen Go's real user-risk scoring tick once against the
+// disposable database. The feature toggle is read from the database row exactly as Go's
+// FeatureFlags does (no environment override exists for feature.user_risk).
+package cron
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+
+	"setjoin.com/shared/pgxutil"
+	"setjoin.com/shared/toggle"
+)
+
+func TestGoFreeUserRiskTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_RISK_DSN"), 2, "", os.Getenv("GOFREE_RISK_HMAC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	toggles, err := toggle.New(ctx, pool, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	computeUserRiskTick(ctx, pgxutil.WorkerPool{Pool: pool}, toggles, slog.Default())
+}

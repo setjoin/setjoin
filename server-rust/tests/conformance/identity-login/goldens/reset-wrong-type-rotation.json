@@ -1,0 +1,24 @@
+{
+  "case": "reset-wrong-type-rotation",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "rotation": [
+    {
+      "family_id": "<family>",
+      "previous_token_hash": null,
+      "revoked": false,
+      "rotated": false,
+      "token_hash": "<token-hash>",
+      "user_id": "<actor>"
+    },
+    {
+      "family_id": "<family>",
+      "previous_token_hash": null,
+      "revoked": false,
+      "rotated": false,
+      "token_hash": "<token-hash>",
+      "user_id": "<actor>"
+    }
+  ],
+  "route": "POST /auth/forgot-password/reset"
+}

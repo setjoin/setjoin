@@ -1,0 +1,278 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "deployment_steps"
+      },
+      {
+        "after": {
+          "log": [
+            "[ssh_check] SSH connectivity check",
+            "[ssh_check] OK",
+            "[install_packages] Install PostgreSQL + Pgpool-II + SeaweedFS",
+            "[install_packages] OK",
+            "[configure_replication] Configure streaming replication",
+            "[configure_replication] OK",
+            "[configure_pgpool] Configure Pgpool-II + watchdog",
+            "[configure_pgpool] OK",
+            "[configure_seaweedfs] Configure SeaweedFS 3-node Raft",
+            "[configure_seaweedfs] OK",
+            "[start_services] Start all services",
+            "[start_services] OK",
+            "[verify] Verify cluster health",
+            "[verify] OK"
+          ],
+          "nodes": [
+            {
+              "has_inline_key": true,
+              "host": "<node-1>",
+              "role": "primary",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-2>",
+              "role": "standby",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-3>",
+              "role": "standby",
+              "ssh_user": "root"
+            }
+          ],
+          "profile": 0,
+          "started_at": "<timestamp>",
+          "status": "done",
+          "steps": [
+            {
+              "name": "ssh_check",
+              "status": "ok"
+            },
+            {
+              "name": "install_packages",
+              "status": "ok"
+            },
+            {
+              "name": "configure_replication",
+              "status": "ok"
+            },
+            {
+              "name": "configure_pgpool",
+              "status": "ok"
+            },
+            {
+              "name": "configure_seaweedfs",
+              "status": "ok"
+            },
+            {
+              "name": "start_services",
+              "status": "ok"
+            },
+            {
+              "name": "verify",
+              "status": "ok"
+            }
+          ]
+        },
+        "before": {
+          "log": null,
+          "nodes": [],
+          "profile": 0,
+          "started_at": "<zero-time>",
+          "status": "",
+          "steps": null
+        },
+        "table": "deploy_process_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"nodes\":[{\"host\":\"{{ssh-node-1}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"primary\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"},{\"host\":\"{{ssh-node-2}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"standby\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"},{\"host\":\"{{ssh-node-3}}\",\"password\":\"gofree-plat2b-node-password\",\"role\":\"standby\",\"ssh_key\":\"{{ssh-inline-key}}\",\"ssh_user\":\"root\"}]}",
+      "external_path": "/api/admin/deploy/start",
+      "method": "POST",
+      "path": "/admin/deploy/start"
+    },
+    "response": {
+      "body": "{\"status\":\"deploying\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "23"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 202
+    },
+    "ssh": [
+      {
+        "command": "echo ok && hostname",
+        "node": 1
+      },
+      {
+        "command": "echo ok && hostname",
+        "node": 2
+      },
+      {
+        "command": "echo ok && hostname",
+        "node": 3
+      },
+      {
+        "command": "apt-get update && apt-get install -y postgresql-18 pgpool2 && weedTmp=$(mktemp -d) && trap 'rm -rf \"$weedTmp\"' EXIT && curl -fsSL -o $weedTmp/linux_amd64.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/v3.80/linux_amd64.tar.gz && if command -v sha256sum >/dev/null 2>&1; then weedGot=$(sha256sum $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); else weedGot=$(shasum -a 256 $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); fi && if [ \"$weedGot\" != \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" ]; then echo \"seaweedfs v3.80 checksum mismatch: expected aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, got $weedGot — refusing to install\" >&2; exit 1; fi && tar -xzf $weedTmp/linux_amd64.tar.gz -C \"$weedTmp\" weed && install -m 0755 \"$weedTmp/weed\" /usr/local/bin/weed",
+        "node": 1
+      },
+      {
+        "command": "apt-get update && apt-get install -y postgresql-18 pgpool2 && weedTmp=$(mktemp -d) && trap 'rm -rf \"$weedTmp\"' EXIT && curl -fsSL -o $weedTmp/linux_amd64.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/v3.80/linux_amd64.tar.gz && if command -v sha256sum >/dev/null 2>&1; then weedGot=$(sha256sum $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); else weedGot=$(shasum -a 256 $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); fi && if [ \"$weedGot\" != \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" ]; then echo \"seaweedfs v3.80 checksum mismatch: expected aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, got $weedGot — refusing to install\" >&2; exit 1; fi && tar -xzf $weedTmp/linux_amd64.tar.gz -C \"$weedTmp\" weed && install -m 0755 \"$weedTmp/weed\" /usr/local/bin/weed",
+        "node": 2
+      },
+      {
+        "command": "apt-get update && apt-get install -y postgresql-18 pgpool2 && weedTmp=$(mktemp -d) && trap 'rm -rf \"$weedTmp\"' EXIT && curl -fsSL -o $weedTmp/linux_amd64.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/v3.80/linux_amd64.tar.gz && if command -v sha256sum >/dev/null 2>&1; then weedGot=$(sha256sum $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); else weedGot=$(shasum -a 256 $weedTmp/linux_amd64.tar.gz | cut -d' ' -f1); fi && if [ \"$weedGot\" != \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\" ]; then echo \"seaweedfs v3.80 checksum mismatch: expected aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, got $weedGot — refusing to install\" >&2; exit 1; fi && tar -xzf $weedTmp/linux_amd64.tar.gz -C \"$weedTmp\" weed && install -m 0755 \"$weedTmp/weed\" /usr/local/bin/weed",
+        "node": 3
+      },
+      {
+        "command": "systemctl stop postgresql",
+        "node": 2
+      },
+      {
+        "command": "rm -rf /var/lib/postgresql/18/main",
+        "node": 2
+      },
+      {
+        "command": "pg_basebackup -h <node-1> -D /var/lib/postgresql/18/main -U replicator -P -X stream",
+        "node": 2
+      },
+      {
+        "command": "touch /var/lib/postgresql/18/main/standby.signal",
+        "node": 2
+      },
+      {
+        "command": "echo 'primary_conninfo = host=<node-1> port=5432 user=replicator' >> /var/lib/postgresql/18/main/postgresql.auto.conf",
+        "node": 2
+      },
+      {
+        "command": "systemctl start postgresql",
+        "node": 2
+      },
+      {
+        "command": "systemctl stop postgresql",
+        "node": 3
+      },
+      {
+        "command": "rm -rf /var/lib/postgresql/18/main",
+        "node": 3
+      },
+      {
+        "command": "pg_basebackup -h <node-1> -D /var/lib/postgresql/18/main -U replicator -P -X stream",
+        "node": 3
+      },
+      {
+        "command": "touch /var/lib/postgresql/18/main/standby.signal",
+        "node": 3
+      },
+      {
+        "command": "echo 'primary_conninfo = host=<node-1> port=5432 user=replicator' >> /var/lib/postgresql/18/main/postgresql.auto.conf",
+        "node": 3
+      },
+      {
+        "command": "systemctl start postgresql",
+        "node": 3
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g root -m 0755 /etc/pgpool2\ncat > /etc/pgpool2/failover.sh << 'ENDOFFAILOVER'\n#!/bin/bash\n# Pgpool-II failover script — promotes a standby to primary.\n# Called by Pgpool-II when the primary backend fails.\n# Arguments from Pgpool-II:\n#   %d = failed backend node id\n#   %P = old primary node id\n#   %H = new primary hostname\n#   %R = old primary port\n#\n# Host-identity policy (fail closed, D-MAILSERVER-DEPLOY-002): the SSH client\n# trusts ONLY peer host keys pre-provisioned in /etc/pgpool2/known_hosts.\n# StrictHostKeyChecking=yes refuses unknown or substituted keys instead of\n# accepting them (TOFU/accept-new is deliberately rejected), and BatchMode=yes\n# disables every interactive prompt, so an unattended failover toward an\n# unauthenticated or spoofed host fails, is logged, and returns nonzero to\n# pgpool instead of hanging or silently promoting an impostor. The wizard\n# provisions /etc/pgpool2/known_hosts in this same deployment step from the\n# operator-pinned deployment host key (see buildPgpoolKnownHosts); the\n# install.sh HA leg provisions it from operator-verified host keys instead.\n\nFAILED_NODE=$1\nOLD_PRIMARY=$2\nNEW_HOST=$3\n# shellcheck disable=SC2034  # OLD_PORT documents pgpool's %R argument position\nOLD_PORT=$4\n\nLOG=\"/var/log/pgpool/failover.log\"\nPGCTL=\"/usr/lib/postgresql/18/bin/pg_ctl\"\nPGDATA=\"/var/lib/postgresql/18/main\"\nKNOWN_HOSTS=\"/etc/pgpool2/known_hosts\"\n\necho \"$(date): Failover triggered — failed=$FAILED_NODE old=$OLD_PRIMARY new=$NEW_HOST\" >> \"$LOG\"\n\n# Promote the new primary\nif [ \"$NEW_HOST\" = \"$(hostname -f)\" ] || [ \"$NEW_HOST\" = \"$(hostname)\" ] || [ \"$NEW_HOST\" = \"localhost\" ]; then\n    echo \"$(date): Promoting local PostgreSQL to primary\" >> \"$LOG\"\n    if \"$PGCTL\" promote -D \"$PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nelse\n    echo \"$(date): Promoting remote PostgreSQL on $NEW_HOST\" >> \"$LOG\"\n    if ssh -o StrictHostKeyChecking=yes \\\n           -o UserKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o GlobalKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o BatchMode=yes \\\n           -o ConnectTimeout=5 \\\n           \"root@$NEW_HOST\" \\\n           \"$PGCTL promote -D $PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Remote promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Remote promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nfi\n\nENDOFFAILOVER\nchown root:root /etc/pgpool2/failover.sh\nchmod 0700 /etc/pgpool2/failover.sh\ncat > /etc/pgpool2/known_hosts << 'ENDOFKNOWNHOSTS'\n<node-1> ssh-ed25519 <pinned-host-key>\n<node-2> ssh-ed25519 <pinned-host-key>\n<node-3> ssh-ed25519 <pinned-host-key>\nENDOFKNOWNHOSTS\nchown root:root /etc/pgpool2/known_hosts\nchmod 0644 /etc/pgpool2/known_hosts\ncat > /etc/pgpool2/pgpool.conf << 'ENDOFCONFIG'\n# Auto-generated by HA Deploy Wizard\nbackend_hostname0 = '<node-1>'\nbackend_port0 = 5432\nbackend_weight0 = 1\nbackend_flag0 = 'ALWAYS_PRIMARY|DISALLOW_TO_FAILOVER'\nbackend_hostname1 = '<node-2>'\nbackend_port1 = 5432\nbackend_weight1 = 1\nbackend_hostname2 = '<node-3>'\nbackend_port2 = 5432\nbackend_weight2 = 1\nlisten_addresses = '*'\nport = 9999\nnum_init_children = 32\nmax_pool = 4\nhealth_check_period = 3\nhealth_check_user = 'pgpool'\nhealth_check_password = '<verified-pgpool-password>'\nfailover_command = '/etc/pgpool2/failover.sh %d %P %H %R'\nfail_over_on_backend_error = on\nload_balance_mode = on\nuse_watchdog = on\nwd_hostname = '<node-1>'\nwd_port = 9000\nwd_priority = 1\nwd_lifecheck_method = 'heartbeat'\nwd_heartbeat_keepalive = 2\nwd_heartbeat_deadtime = 30\nother_pgpool_hostname0 = '<node-2>'\nother_pgpool_port0 = 9999\nother_pgpool_wd_port0 = 9000\nother_pgpool_hostname1 = '<node-3>'\nother_pgpool_port1 = 9999\nother_pgpool_wd_port1 = 9000\n\nENDOFCONFIG\nchown root:postgres /etc/pgpool2/pgpool.conf\nchmod 0640 /etc/pgpool2/pgpool.conf\nsystemctl restart pgpool2 2>/dev/null || systemctl restart pgpool 2>/dev/null",
+        "node": 1
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g root -m 0755 /etc/pgpool2\ncat > /etc/pgpool2/failover.sh << 'ENDOFFAILOVER'\n#!/bin/bash\n# Pgpool-II failover script — promotes a standby to primary.\n# Called by Pgpool-II when the primary backend fails.\n# Arguments from Pgpool-II:\n#   %d = failed backend node id\n#   %P = old primary node id\n#   %H = new primary hostname\n#   %R = old primary port\n#\n# Host-identity policy (fail closed, D-MAILSERVER-DEPLOY-002): the SSH client\n# trusts ONLY peer host keys pre-provisioned in /etc/pgpool2/known_hosts.\n# StrictHostKeyChecking=yes refuses unknown or substituted keys instead of\n# accepting them (TOFU/accept-new is deliberately rejected), and BatchMode=yes\n# disables every interactive prompt, so an unattended failover toward an\n# unauthenticated or spoofed host fails, is logged, and returns nonzero to\n# pgpool instead of hanging or silently promoting an impostor. The wizard\n# provisions /etc/pgpool2/known_hosts in this same deployment step from the\n# operator-pinned deployment host key (see buildPgpoolKnownHosts); the\n# install.sh HA leg provisions it from operator-verified host keys instead.\n\nFAILED_NODE=$1\nOLD_PRIMARY=$2\nNEW_HOST=$3\n# shellcheck disable=SC2034  # OLD_PORT documents pgpool's %R argument position\nOLD_PORT=$4\n\nLOG=\"/var/log/pgpool/failover.log\"\nPGCTL=\"/usr/lib/postgresql/18/bin/pg_ctl\"\nPGDATA=\"/var/lib/postgresql/18/main\"\nKNOWN_HOSTS=\"/etc/pgpool2/known_hosts\"\n\necho \"$(date): Failover triggered — failed=$FAILED_NODE old=$OLD_PRIMARY new=$NEW_HOST\" >> \"$LOG\"\n\n# Promote the new primary\nif [ \"$NEW_HOST\" = \"$(hostname -f)\" ] || [ \"$NEW_HOST\" = \"$(hostname)\" ] || [ \"$NEW_HOST\" = \"localhost\" ]; then\n    echo \"$(date): Promoting local PostgreSQL to primary\" >> \"$LOG\"\n    if \"$PGCTL\" promote -D \"$PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nelse\n    echo \"$(date): Promoting remote PostgreSQL on $NEW_HOST\" >> \"$LOG\"\n    if ssh -o StrictHostKeyChecking=yes \\\n           -o UserKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o GlobalKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o BatchMode=yes \\\n           -o ConnectTimeout=5 \\\n           \"root@$NEW_HOST\" \\\n           \"$PGCTL promote -D $PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Remote promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Remote promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nfi\n\nENDOFFAILOVER\nchown root:root /etc/pgpool2/failover.sh\nchmod 0700 /etc/pgpool2/failover.sh\ncat > /etc/pgpool2/known_hosts << 'ENDOFKNOWNHOSTS'\n<node-1> ssh-ed25519 <pinned-host-key>\n<node-2> ssh-ed25519 <pinned-host-key>\n<node-3> ssh-ed25519 <pinned-host-key>\nENDOFKNOWNHOSTS\nchown root:root /etc/pgpool2/known_hosts\nchmod 0644 /etc/pgpool2/known_hosts\ncat > /etc/pgpool2/pgpool.conf << 'ENDOFCONFIG'\n# Auto-generated by HA Deploy Wizard\nbackend_hostname0 = '<node-1>'\nbackend_port0 = 5432\nbackend_weight0 = 1\nbackend_flag0 = 'ALWAYS_PRIMARY|DISALLOW_TO_FAILOVER'\nbackend_hostname1 = '<node-2>'\nbackend_port1 = 5432\nbackend_weight1 = 1\nbackend_hostname2 = '<node-3>'\nbackend_port2 = 5432\nbackend_weight2 = 1\nlisten_addresses = '*'\nport = 9999\nnum_init_children = 32\nmax_pool = 4\nhealth_check_period = 3\nhealth_check_user = 'pgpool'\nhealth_check_password = '<verified-pgpool-password>'\nfailover_command = '/etc/pgpool2/failover.sh %d %P %H %R'\nfail_over_on_backend_error = on\nload_balance_mode = on\nuse_watchdog = on\nwd_hostname = '<node-2>'\nwd_port = 9000\nwd_priority = 1\nwd_lifecheck_method = 'heartbeat'\nwd_heartbeat_keepalive = 2\nwd_heartbeat_deadtime = 30\nother_pgpool_hostname0 = '<node-1>'\nother_pgpool_port0 = 9999\nother_pgpool_wd_port0 = 9000\nother_pgpool_hostname1 = '<node-3>'\nother_pgpool_port1 = 9999\nother_pgpool_wd_port1 = 9000\n\nENDOFCONFIG\nchown root:postgres /etc/pgpool2/pgpool.conf\nchmod 0640 /etc/pgpool2/pgpool.conf\nsystemctl restart pgpool2 2>/dev/null || systemctl restart pgpool 2>/dev/null",
+        "node": 2
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g root -m 0755 /etc/pgpool2\ncat > /etc/pgpool2/failover.sh << 'ENDOFFAILOVER'\n#!/bin/bash\n# Pgpool-II failover script — promotes a standby to primary.\n# Called by Pgpool-II when the primary backend fails.\n# Arguments from Pgpool-II:\n#   %d = failed backend node id\n#   %P = old primary node id\n#   %H = new primary hostname\n#   %R = old primary port\n#\n# Host-identity policy (fail closed, D-MAILSERVER-DEPLOY-002): the SSH client\n# trusts ONLY peer host keys pre-provisioned in /etc/pgpool2/known_hosts.\n# StrictHostKeyChecking=yes refuses unknown or substituted keys instead of\n# accepting them (TOFU/accept-new is deliberately rejected), and BatchMode=yes\n# disables every interactive prompt, so an unattended failover toward an\n# unauthenticated or spoofed host fails, is logged, and returns nonzero to\n# pgpool instead of hanging or silently promoting an impostor. The wizard\n# provisions /etc/pgpool2/known_hosts in this same deployment step from the\n# operator-pinned deployment host key (see buildPgpoolKnownHosts); the\n# install.sh HA leg provisions it from operator-verified host keys instead.\n\nFAILED_NODE=$1\nOLD_PRIMARY=$2\nNEW_HOST=$3\n# shellcheck disable=SC2034  # OLD_PORT documents pgpool's %R argument position\nOLD_PORT=$4\n\nLOG=\"/var/log/pgpool/failover.log\"\nPGCTL=\"/usr/lib/postgresql/18/bin/pg_ctl\"\nPGDATA=\"/var/lib/postgresql/18/main\"\nKNOWN_HOSTS=\"/etc/pgpool2/known_hosts\"\n\necho \"$(date): Failover triggered — failed=$FAILED_NODE old=$OLD_PRIMARY new=$NEW_HOST\" >> \"$LOG\"\n\n# Promote the new primary\nif [ \"$NEW_HOST\" = \"$(hostname -f)\" ] || [ \"$NEW_HOST\" = \"$(hostname)\" ] || [ \"$NEW_HOST\" = \"localhost\" ]; then\n    echo \"$(date): Promoting local PostgreSQL to primary\" >> \"$LOG\"\n    if \"$PGCTL\" promote -D \"$PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nelse\n    echo \"$(date): Promoting remote PostgreSQL on $NEW_HOST\" >> \"$LOG\"\n    if ssh -o StrictHostKeyChecking=yes \\\n           -o UserKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o GlobalKnownHostsFile=\"$KNOWN_HOSTS\" \\\n           -o BatchMode=yes \\\n           -o ConnectTimeout=5 \\\n           \"root@$NEW_HOST\" \\\n           \"$PGCTL promote -D $PGDATA\" >> \"$LOG\" 2>&1; then\n        echo \"$(date): Remote promote successful\" >> \"$LOG\"\n        exit 0\n    else\n        echo \"$(date): Remote promote FAILED\" >> \"$LOG\"\n        exit 1\n    fi\nfi\n\nENDOFFAILOVER\nchown root:root /etc/pgpool2/failover.sh\nchmod 0700 /etc/pgpool2/failover.sh\ncat > /etc/pgpool2/known_hosts << 'ENDOFKNOWNHOSTS'\n<node-1> ssh-ed25519 <pinned-host-key>\n<node-2> ssh-ed25519 <pinned-host-key>\n<node-3> ssh-ed25519 <pinned-host-key>\nENDOFKNOWNHOSTS\nchown root:root /etc/pgpool2/known_hosts\nchmod 0644 /etc/pgpool2/known_hosts\ncat > /etc/pgpool2/pgpool.conf << 'ENDOFCONFIG'\n# Auto-generated by HA Deploy Wizard\nbackend_hostname0 = '<node-1>'\nbackend_port0 = 5432\nbackend_weight0 = 1\nbackend_flag0 = 'ALWAYS_PRIMARY|DISALLOW_TO_FAILOVER'\nbackend_hostname1 = '<node-2>'\nbackend_port1 = 5432\nbackend_weight1 = 1\nbackend_hostname2 = '<node-3>'\nbackend_port2 = 5432\nbackend_weight2 = 1\nlisten_addresses = '*'\nport = 9999\nnum_init_children = 32\nmax_pool = 4\nhealth_check_period = 3\nhealth_check_user = 'pgpool'\nhealth_check_password = '<verified-pgpool-password>'\nfailover_command = '/etc/pgpool2/failover.sh %d %P %H %R'\nfail_over_on_backend_error = on\nload_balance_mode = on\nuse_watchdog = on\nwd_hostname = '<node-3>'\nwd_port = 9000\nwd_priority = 1\nwd_lifecheck_method = 'heartbeat'\nwd_heartbeat_keepalive = 2\nwd_heartbeat_deadtime = 30\nother_pgpool_hostname0 = '<node-1>'\nother_pgpool_port0 = 9999\nother_pgpool_wd_port0 = 9000\nother_pgpool_hostname1 = '<node-2>'\nother_pgpool_port1 = 9999\nother_pgpool_wd_port1 = 9000\n\nENDOFCONFIG\nchown root:postgres /etc/pgpool2/pgpool.conf\nchmod 0640 /etc/pgpool2/pgpool.conf\nsystemctl restart pgpool2 2>/dev/null || systemctl restart pgpool 2>/dev/null",
+        "node": 3
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g mail -m 0750 /etc/mail\ncat > /etc/mail/seaweedfs-s3.json << 'ENDOFS3CONFIG'\n{\n  \"identities\": [\n    {\n      \"name\": \"admin\",\n      \"credentials\": [\n        {\n          \"accessKey\": \"test-access\",\n          \"secretKey\": \"test-secret\"\n        }\n      ],\n      \"actions\": [\n        \"Admin\",\n        \"Read\",\n        \"Write\",\n        \"List\",\n        \"Tagging\"\n      ]\n    }\n  ]\n}\nENDOFS3CONFIG\nchown root:mail /etc/mail/seaweedfs-s3.json\nchmod 0640 /etc/mail/seaweedfs-s3.json\ncat > /etc/systemd/system/seaweedfs.service << 'ENDOFUNIT'\n[Unit]\nDescription=SeaweedFS Storage Node\nAfter=network.target\n\n[Service]\nType=simple\nUser=mail\nExecStart=/usr/local/bin/weed server \\\n  -dir=/data/seaweedfs \\\n  -master.peers=<node-1>:9333,<node-2>:9333,<node-3>:9333 \\\n  -filer -s3 -s3.port=9000 \\\n  -s3.config=/etc/mail/seaweedfs-s3.json \\\n  -volume.max=100 \\\n  -rack=rack1-<node-1> \\\n  -dataCenter=dc1\nRestart=always\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n\nENDOFUNIT\nsystemctl daemon-reload\nsystemctl enable seaweedfs\nsystemctl restart seaweedfs",
+        "node": 1
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g mail -m 0750 /etc/mail\ncat > /etc/mail/seaweedfs-s3.json << 'ENDOFS3CONFIG'\n{\n  \"identities\": [\n    {\n      \"name\": \"admin\",\n      \"credentials\": [\n        {\n          \"accessKey\": \"test-access\",\n          \"secretKey\": \"test-secret\"\n        }\n      ],\n      \"actions\": [\n        \"Admin\",\n        \"Read\",\n        \"Write\",\n        \"List\",\n        \"Tagging\"\n      ]\n    }\n  ]\n}\nENDOFS3CONFIG\nchown root:mail /etc/mail/seaweedfs-s3.json\nchmod 0640 /etc/mail/seaweedfs-s3.json\ncat > /etc/systemd/system/seaweedfs.service << 'ENDOFUNIT'\n[Unit]\nDescription=SeaweedFS Storage Node\nAfter=network.target\n\n[Service]\nType=simple\nUser=mail\nExecStart=/usr/local/bin/weed server \\\n  -dir=/data/seaweedfs \\\n  -master.peers=<node-1>:9333,<node-2>:9333,<node-3>:9333 \\\n  -filer -s3 -s3.port=9000 \\\n  -s3.config=/etc/mail/seaweedfs-s3.json \\\n  -volume.max=100 \\\n  -rack=rack1-<node-2> \\\n  -dataCenter=dc1\nRestart=always\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n\nENDOFUNIT\nsystemctl daemon-reload\nsystemctl enable seaweedfs\nsystemctl restart seaweedfs",
+        "node": 2
+      },
+      {
+        "command": "set -e\ninstall -d -o root -g mail -m 0750 /etc/mail\ncat > /etc/mail/seaweedfs-s3.json << 'ENDOFS3CONFIG'\n{\n  \"identities\": [\n    {\n      \"name\": \"admin\",\n      \"credentials\": [\n        {\n          \"accessKey\": \"test-access\",\n          \"secretKey\": \"test-secret\"\n        }\n      ],\n      \"actions\": [\n        \"Admin\",\n        \"Read\",\n        \"Write\",\n        \"List\",\n        \"Tagging\"\n      ]\n    }\n  ]\n}\nENDOFS3CONFIG\nchown root:mail /etc/mail/seaweedfs-s3.json\nchmod 0640 /etc/mail/seaweedfs-s3.json\ncat > /etc/systemd/system/seaweedfs.service << 'ENDOFUNIT'\n[Unit]\nDescription=SeaweedFS Storage Node\nAfter=network.target\n\n[Service]\nType=simple\nUser=mail\nExecStart=/usr/local/bin/weed server \\\n  -dir=/data/seaweedfs \\\n  -master.peers=<node-1>:9333,<node-2>:9333,<node-3>:9333 \\\n  -filer -s3 -s3.port=9000 \\\n  -s3.config=/etc/mail/seaweedfs-s3.json \\\n  -volume.max=100 \\\n  -rack=rack1-<node-3> \\\n  -dataCenter=dc1\nRestart=always\nRestartSec=10\n\n[Install]\nWantedBy=multi-user.target\n\nENDOFUNIT\nsystemctl daemon-reload\nsystemctl enable seaweedfs\nsystemctl restart seaweedfs",
+        "node": 3
+      },
+      {
+        "command": "weed shell -master=<node-1>:9333 volume.configure.replication 001",
+        "node": 1
+      },
+      {
+        "command": "weed shell -master=<node-1>:9333 volume.balance",
+        "node": 1
+      },
+      {
+        "command": "curl -s http://<node-1>:9333/cluster/status",
+        "node": 1
+      },
+      {
+        "command": "systemctl start postgresql && systemctl start pgpool2 && systemctl start seaweedfs-master",
+        "node": 1
+      },
+      {
+        "command": "systemctl start postgresql && systemctl start pgpool2 && systemctl start seaweedfs-master",
+        "node": 2
+      },
+      {
+        "command": "systemctl start postgresql && systemctl start pgpool2 && systemctl start seaweedfs-master",
+        "node": 3
+      },
+      {
+        "command": "psql -U mail -d mailserver -c \"SELECT usename, application_name, state, sync_state, sync_priority FROM pg_stat_replication;\"",
+        "node": 1
+      },
+      {
+        "command": "psql -U mail -d mailserver -c \"SELECT pg_is_in_recovery();\"",
+        "node": 2
+      },
+      {
+        "command": "psql -U mail -d mailserver -c \"SELECT pg_is_in_recovery();\"",
+        "node": 3
+      }
+    ]
+  },
+  "route": "POST /admin/deploy/start"
+}

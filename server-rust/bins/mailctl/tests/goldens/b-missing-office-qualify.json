@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl office qualify --generation N --synthetic-receipt ID --reason TEXT [--build-digest sha256:...]\n",
+  "exit": 1
+}

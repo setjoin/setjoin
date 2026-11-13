@@ -1,0 +1,113 @@
+-- chat_seq_cursor.pg: THE load-bearing test for the seq-cursor rail
+-- (review C2/F2). Pins that edit AND delete each bump the channel's
+-- change_seq and re-stamp the mutated row's seq — NOT just insert — so a
+-- reconnecting client's chat_messages_since(seq) replay sees an edit's new
+-- body and a delete's tombstone in commit order, never a stale copy.
+-- chat_channel_members has no FK to users (V119); bare bigint ids suffice.
+-- Requires: chat_channel.sql, notify_chat_state.sql, chat_message.sql.
+BEGIN;
+SELECT plan(25);
+
+-- Fixture: owner 801, member 802, in a fresh channel (change_seq starts 0).
+SELECT chat_channel_create(801, 'seq-cursor-test') AS ch_id \gset
+SELECT chat_member_add(801, :ch_id, 802);
+
+-- Two independent top-level messages: A will be EDITED (never deleted), B
+-- will be DELETED (never edited) — a single-row-per-message store means one
+-- message can't show "the edited body" AND "the tombstone" at once; two
+-- messages demonstrate both replay shapes in the same since() window.
+SELECT chat_message_send(801, :ch_id, 'original A') AS a_json \gset
+SELECT (:'a_json'::jsonb ->> 'messageId')::bigint AS a_id \gset
+SELECT (:'a_json'::jsonb ->> 'seq')::bigint AS a_seq0 \gset
+SELECT chat_message_send(802, :ch_id, 'original B') AS b_json \gset
+SELECT (:'b_json'::jsonb ->> 'messageId')::bigint AS b_id \gset
+SELECT (:'b_json'::jsonb ->> 'seq')::bigint AS b_seq0 \gset
+
+-- since_floor: a client that reconnected right after both sends landed.
+SELECT :a_seq0 AS since_floor \gset
+
+-- ── edit re-stamps seq ────────────────────────────────────────────────────
+SELECT chat_message_edit(801, :a_id, 'edited A') AS a_seq1 \gset
+SELECT cmp_ok(:a_seq1::bigint, '>', :a_seq0::bigint, 'edit produced a NEW, higher seq');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_id), :a_seq1::bigint,
+  'edit bumped the CHANNEL change_seq to match the returned seq');
+SELECT is((SELECT seq FROM chat_messages WHERE id = :a_id), :a_seq1::bigint,
+  'the row itself is re-stamped to the new seq (not left at the insert seq)');
+SELECT is((SELECT body FROM chat_messages WHERE id = :a_id), 'edited A',
+  'the row body is updated to the edited text');
+
+-- ── delete re-stamps seq, RETAINS body in the table ──────────────────────
+SELECT chat_message_delete(801, :b_id) AS b_seq1 \gset
+SELECT cmp_ok(:b_seq1::bigint, '>', :b_seq0::bigint, 'delete produced a NEW, higher seq');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_id), :b_seq1::bigint,
+  'delete bumped the CHANNEL change_seq to match the returned seq');
+SELECT is((SELECT seq FROM chat_messages WHERE id = :b_id), :b_seq1::bigint,
+  'the deleted row is re-stamped to the new seq');
+SELECT is((SELECT deleted_at FROM chat_messages WHERE id = :b_id) IS NOT NULL, true,
+  'deleted_at is set');
+SELECT is((SELECT body FROM chat_messages WHERE id = :b_id), 'original B',
+  'C1: the RAW TABLE still holds the original body — delete never destroys content');
+
+-- ── the list PROJECTION blanks the deleted body (unlike the raw table) ───
+SELECT is((SELECT (elem->>'body') FROM jsonb_array_elements(chat_messages_list(801, :ch_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :b_id),
+  '', 'chat_messages_list projects deleted body as empty string');
+SELECT is((SELECT (elem->>'deletedAt') IS NOT NULL FROM jsonb_array_elements(chat_messages_list(801, :ch_id, NULL, 200)) elem
+            WHERE (elem->>'messageId')::bigint = :b_id),
+  true, 'chat_messages_list surfaces deletedAt to the client');
+
+-- ── chat_messages_since(since_floor): replays BOTH the edit and the tombstone ──
+SELECT chat_messages_since(801, :ch_id, :since_floor) AS since1 \gset
+SELECT is(jsonb_array_length(:'since1'::jsonb), 2,
+  'since(since_floor) returns exactly the two mutated rows (A edited, B deleted)');
+SELECT is((SELECT (elem->>'body') FROM jsonb_array_elements(:'since1'::jsonb) elem
+            WHERE (elem->>'messageId')::bigint = :a_id),
+  'edited A', 'since() shows A''s NEW edited body');
+SELECT is((SELECT (elem->>'body') FROM jsonb_array_elements(:'since1'::jsonb) elem
+            WHERE (elem->>'messageId')::bigint = :b_id),
+  '', 'since() shows B as a tombstone: body blanked');
+SELECT is((SELECT (elem->>'deletedAt') IS NOT NULL FROM jsonb_array_elements(:'since1'::jsonb) elem
+            WHERE (elem->>'messageId')::bigint = :b_id),
+  true, 'since() surfaces B''s deletedAt');
+-- ascending order: whichever mutation committed LAST (the delete, since it
+-- ran after the edit above) carries the higher seq and sorts last.
+SELECT is((:'since1'::jsonb -> 0 ->> 'messageId')::bigint, :a_id::bigint,
+  'since() is ascending by seq: the earlier-committed edit (A) sorts first');
+SELECT is((:'since1'::jsonb -> 1 ->> 'messageId')::bigint, :b_id::bigint,
+  'since() is ascending by seq: the later-committed delete (B) sorts last');
+
+-- ── gapless partial replay: reconnecting strictly AFTER the edit but before
+-- the delete returns ONLY the delete tombstone — no gap, no duplicate ──────
+SELECT chat_messages_since(801, :ch_id, :a_seq1) AS since2 \gset
+SELECT is(jsonb_array_length(:'since2'::jsonb), 1,
+  'since(a_seq1) returns exactly one row (the delete), not the edit again');
+SELECT is((:'since2'::jsonb -> 0 ->> 'messageId')::bigint, :b_id::bigint,
+  'that one row is B''s tombstone');
+
+-- ── edit evidence: two successive edits produce two CHRONOLOGICAL revisions ──
+SELECT chat_message_edit(801, :a_id, 'edited A v2') AS a_seq2 \gset
+SELECT is((SELECT count(*)::int FROM chat_message_revisions WHERE message_id = :a_id), 2,
+  'two edits produced two revision rows');
+SELECT is((SELECT prior_body FROM chat_message_revisions
+            WHERE message_id = :a_id ORDER BY id ASC LIMIT 1),
+  'original A', 'the FIRST revision captures the ORIGINAL pre-edit body');
+SELECT is((SELECT prior_body FROM chat_message_revisions
+            WHERE message_id = :a_id ORDER BY id DESC LIMIT 1),
+  'edited A', 'the SECOND revision captures the body from just before the second edit');
+
+-- ── archive freezes edit/delete too (BZ171), and does so WITHOUT bumping
+-- change_seq or writing a revision row — the guard is folded into the same
+-- row-lock UPDATE the seq-bump itself uses, so a rejected mutation leaves
+-- zero trace on the seq rail.
+SELECT chat_channel_update(801, :ch_id, NULL, NULL, true);
+SELECT (SELECT change_seq FROM chat_channels WHERE id = :ch_id) AS seq_before_frozen_attempt \gset
+SELECT throws_ok(format($$ SELECT chat_message_edit(801, %s, 'frozen edit') $$, :a_id),
+  'BZ171', NULL, 'editing a message in an archived channel raises BZ171');
+SELECT throws_ok(format($$ SELECT chat_message_delete(801, %s) $$, :a_id),
+  'BZ171', NULL, 'deleting a message in an archived channel raises BZ171');
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :ch_id), :seq_before_frozen_attempt::bigint,
+  'a rejected archived-channel mutation never bumps change_seq');
+SELECT chat_channel_update(801, :ch_id, NULL, NULL, false);
+
+SELECT * FROM finish();
+ROLLBACK;

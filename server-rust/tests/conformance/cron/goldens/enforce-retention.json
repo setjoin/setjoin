@@ -1,0 +1,44 @@
+{
+  "case": "enforce-retention",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "messages": [
+              "gofree-cron-ret-1expired",
+              "gofree-cron-ret-2live"
+            ],
+            "tags": [
+              "2"
+            ],
+            "trace": []
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "messages": [
+              "gofree-cron-ret-2live"
+            ],
+            "tags": [
+              "1"
+            ],
+            "trace": [
+              "expired:gofree-cron-ret-1expired"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

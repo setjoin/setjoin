@@ -1,0 +1,52 @@
+-- mailserver/sql/tests/drive_space_create.pg — G6 gate, personal idempotency,
+-- gxp toggle+knobs, reducer-arm no-downgrade (I-2 second arm).
+BEGIN;
+SELECT plan(14);
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT mk_account('dsc') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+
+SELECT ok(drive_space_create(:u, 'Team', 'regular') > 0, 'shared space created');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid \gset
+SELECT is((SELECT role FROM drive_space_members WHERE space_id=:sid AND user_id=:u), 'manager', 'owner seeded as manager member');
+SELECT is((SELECT op FROM drive_changes WHERE space_id=:sid ORDER BY seq DESC LIMIT 1), 'space', 'journal op=space (node_id 0 sentinel, R3)');
+SELECT is((SELECT action FROM drive_audit_log WHERE space_id=:sid AND id=1), 'space.create', 'audit space.create is chain row 1');
+
+-- Native-RLS runtime identity: INSERT ... RETURNING evaluates the SELECT
+-- policy before the manager membership can be seeded.  The direct owner
+-- self-seed predicate must therefore remain outside the STABLE access helper.
+SELECT set_config('app.current_user_id', :u::text, true);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(format($$ SELECT drive_space_create(%s, 'Runtime RLS', 'regular') $$, :u),
+  'setjoin_app can create a space through the owner self-seed window');
+RESET ROLE;
+
+-- personal: idempotent, ignores drive.space_creation
+SELECT drive_space_create(:u, 'Me', 'regular', p_is_personal => true) AS pid \gset
+SELECT is(drive_space_create(:u, 'Me again', 'regular', p_is_personal => true), :pid::bigint, 'personal create is idempotent (same id)');
+
+-- G6: toggle OFF blocks non-admin shared creation, personal still works
+UPDATE feature_toggles SET enabled = false WHERE key = 'drive.space_creation';
+SELECT throws_ok(format($$ SELECT drive_space_create(%s, 'Blocked', 'regular') $$, :u),
+  'BZ140', NULL, 'space_creation OFF + no drive.manage → BZ140');
+SELECT lives_ok(format($$ SELECT drive_space_create(%s, 'P2', 'regular', p_is_personal => true) $$, :u),
+  'personal provisioning ignores the toggle (G6 carve-out)');
+UPDATE feature_toggles SET enabled = true WHERE key = 'drive.space_creation';
+
+-- gxp: compliance toggle + knobs
+SELECT throws_ok(format($$ SELECT drive_space_create(%s, 'G', 'gxp', false, 30, 'compliance') $$, :u),
+  'BZ141', NULL, 'gxp while feature.drive_compliance OFF → BZ141');
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive_compliance';
+SELECT throws_ok(format($$ SELECT drive_space_create(%s, 'G', 'gxp') $$, :u),
+  'BZ141', NULL, 'gxp without retention/worm knobs → BZ141');
+SELECT lives_ok(format($$ SELECT drive_space_create(%s, 'G', 'gxp', false, 30, 'compliance') $$, :u),
+  'gxp create with knobs + toggle succeeds');
+SELECT throws_ok(format($$ SELECT drive_space_create(%s, 'X', 'bogus') $$, :u),
+  'BZ141', NULL, 'unknown classification → BZ141');
+
+-- set_classification: manager-gated, upgrade-only (reducer arm of I-2)
+SELECT lives_ok(format($$ SELECT drive_space_set_classification(%s, %s, 'secure') $$, :u, :sid), 'regular→secure upgrade');
+SELECT throws_ok(format($$ SELECT drive_space_set_classification(%s, %s, 'regular') $$, :u, :sid),
+  'BZ142', NULL, 'secure→regular via reducer → BZ142 (trigger backstop)');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,25 @@
+{
+  "case": "ws-presence-connections",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/chat/presence"
+    },
+    "response": {
+      "frames": [
+        "false",
+        "true",
+        "true",
+        "false"
+      ],
+      "status": 200
+    }
+  },
+  "route": "GET /chat/presence"
+}

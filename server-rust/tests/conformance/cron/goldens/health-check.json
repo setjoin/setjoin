@@ -1,0 +1,55 @@
+{
+  "case": "health-check",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "health": []
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "health": [
+              "replication_lag_seconds:ok",
+              "outbound_queue_depth:ok",
+              "outbound_queue_age_minutes:ok",
+              "journal_queue_depth:ok",
+              "journal_dead_letter:ok",
+              "scheduled_actions_depth:ok",
+              "scheduled_actions_failed:ok",
+              "security_event_outbox_failed:ok",
+              "security_event_outbox_pending_age_minutes:ok",
+              "database_size_gb:ok",
+              "auth_failure_rate:ok",
+              "partition:audit_log_YYYY_MM:ok",
+              "partition:audit_log_YYYY_MM:ok",
+              "partition:auth_attempts_YYYY_MM:ok",
+              "partition:auth_attempts_YYYY_MM:ok",
+              "partition:mailbox_audit_log_YYYY_MM:ok",
+              "partition:mailbox_audit_log_YYYY_MM:ok",
+              "partition:message_tags_YYYY_MM:ok",
+              "partition:message_tags_YYYY_MM:ok",
+              "partition:message_trace_YYYY_MM:ok",
+              "partition:message_trace_YYYY_MM:ok",
+              "partition:messages_YYYY_MM:ok",
+              "partition:messages_YYYY_MM:ok",
+              "partition:login_events_YYYY_MM:ok",
+              "partition:login_events_YYYY_MM:ok"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

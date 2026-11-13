@@ -1,0 +1,58 @@
+{
+  "case": "mailbox-lifecycle-media-success",
+  "format": 1,
+  "go_source": "7ec306f6e82923894ea99c1693cb7388a5eaee73",
+  "observation": {
+    "calls": [
+      {
+        "body": {
+          "identity": "u:one",
+          "room": "a-room"
+        },
+        "grant": {
+          "room": "a-room",
+          "roomAdmin": true
+        },
+        "method": "RemoveParticipant",
+        "service": "livekit.RoomService"
+      },
+      {
+        "body": {
+          "identity": "u:two",
+          "room": "z-room"
+        },
+        "grant": {
+          "room": "z-room",
+          "roomAdmin": true
+        },
+        "method": "RemoveParticipant",
+        "service": "livekit.RoomService"
+      }
+    ],
+    "effects": [
+      [
+        "completed",
+        1,
+        null,
+        true
+      ]
+    ],
+    "targets": [
+      [
+        "a-room",
+        "u:one",
+        true
+      ],
+      [
+        "completed-room",
+        "u:gone",
+        true
+      ],
+      [
+        "z-room",
+        "u:two",
+        true
+      ]
+    ]
+  }
+}

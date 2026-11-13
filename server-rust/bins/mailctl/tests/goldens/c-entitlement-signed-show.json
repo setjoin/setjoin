@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"entitlementId\": \"ent-1\",\n  \"installationId\": \"install-1\",\n  \"customerId\": \"customer-1\",\n  \"channels\": [\n    \"enterprise\"\n  ],\n  \"versionRanges\": [\n    \"\\u003e=2.0.0 \\u003c3.0.0\"\n  ],\n  \"validUntil\": \"2099-01-01T00:00:00Z\",\n  \"graceUntil\": \"2099-02-01T00:00:00Z\",\n  \"state\": \"valid\",\n  \"digest\": \"57d3fc1c5d61c81e50d726f348a0684583115460ed54d675aacc7d63261a9b53\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,34 @@
+{
+  "case": "assist-bad-url",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "POST",
+      "path": "/assist/complete"
+    },
+    "response": {
+      "body_length": 180,
+      "body_sha256": "2c69f96df10c06b368b04204df9370fb33ade5c4c2d9d9545119d20171f37ca6",
+      "body_text": "{\"type\":\"https://setjoin.com/errors/service-unavailable\",\"title\":\"Service Unavailable\",\"status\":503,\"detail\":\"AI assist is temporarily unavailable.\",\"instance\":\"/assist/complete\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-assist_bad_url"
+      },
+      "status": 503
+    }
+  },
+  "route": "POST /assist/complete"
+}

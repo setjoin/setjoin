@@ -1,0 +1,57 @@
+{
+  "case": "login-unknown-user",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [
+      {
+        "details": {
+          "reason": "user_not_found"
+        },
+        "email": "nobody@idlogin1.test",
+        "event": "login_failed",
+        "ip_address": "127.0.0.1",
+        "occurred_at": "<time>",
+        "provider": "bcrypt",
+        "user_id": null
+      }
+    ],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": [
+        {
+          "auth_method": "password",
+          "client": "web",
+          "correlation_id": null,
+          "device_fingerprint": null,
+          "device_name": null,
+          "fail_reason": "invalid_credentials",
+          "location": null,
+          "platform": null,
+          "protocol": "http",
+          "session_id": null,
+          "source_ip": "127.0.0.1",
+          "success": false,
+          "user_id": null
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"nobody@idlogin1.test\",\"password\":\"Password1!\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"invalid credentials\",\"instance\":\"/auth/login\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 401,
+      "tokens": []
+    }
+  },
+  "route": "POST /auth/login"
+}

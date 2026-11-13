@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -json: parse error\nUsage of identity job watch:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -timeout string\n    \twatch timeout (default \"30m\")\nError: invalid boolean value \"not-a-bool\" for -json: parse error\n",
+  "exit": 1
+}

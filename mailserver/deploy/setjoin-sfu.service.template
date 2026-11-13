@@ -1,0 +1,62 @@
+[Unit]
+Description=setjoin Meet SFU (LiveKit)
+Documentation=https://github.com/setjoin/setjoin
+After=network.target
+# Ordering only (Wants, not Requires) — same rationale as setjoin-auth: the
+# SFU holds no authority (spike §2 — reducers do), so a restart here must
+# never hard-fail anything, and the gateway's own Wants=/After= on this unit
+# (mailserver.service) must never hard-fail the gateway just because the SFU
+# is down. A dead SFU degrades meetings; it must never degrade mail.
+# StartLimit* live in [Unit] (systemd ignores them under [Service]) — they
+# cap a crash-looping SFU to 5 starts / 60s so Restart=always can't storm.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{INSTALL_DIR}}
+ExecStart={{INSTALL_DIR}}/bin/livekit-server --config {{LIVEKIT_YAML|/etc/setjoin/livekit.yaml}}
+
+# Restart policy (StartLimit* are in [Unit], above)
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=400%
+TasksMax=1024
+LimitNOFILE=65536
+
+# Security hardening — the mailserver.service block MINUS CapabilityBoundingSet
+# net-bind (every SFU port — 7880/7881/the RTC UDP range/3478/5349 — is >1024,
+# so no CAP_NET_BIND_SERVICE is needed) and with ReadWritePaths trimmed to
+# none (B1 has no recording/egress; the SFU writes nothing to disk).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# AF_NETLINK is load-bearing: livekit-server (and any pion/WebRTC process)
+# enumerates interfaces/routes via netlink RIB at startup for node-IP/ICE
+# discovery. Without it the binary exits 0 immediately ("route ip+net:
+# netlinkrib: address family not supported by protocol") and the unit
+# crash-loops into start-limit-hit — found by the 2026-07-16 fresh-VM
+# systemd gate (the unit had only ever been parse-verified before; the live
+# SFU runs used the raw binary, never this unit).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-sfu
+
+[Install]
+WantedBy=multi-user.target

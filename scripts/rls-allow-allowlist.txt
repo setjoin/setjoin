@@ -1,0 +1,127 @@
+# ──────────────────────────────────────────────────────────────────────────
+# rls-allow-allowlist.txt — the human-maintained ALLOW-TEST classification
+# read by scripts/check-rls-allow.sh.
+#
+# Every FORCE'd table that BOTH (a) a reducer writes and (b) carries at least
+# one write-capable RLS policy must have exactly one entry here. The guard
+# computes that required set itself (FORCE'd tables ∩ reducer writers ∩
+# write-capable policy, all derived live from the schema/reducer source) — a
+# table with no reducer writer, or with only a FOR SELECT policy (worker/
+# BYPASSRLS-only writes — e.g. user_risk, session_activity), needs NO entry
+# at all: it is auto-excluded every run, nothing to hand-maintain.
+#
+# This file only says, per REQUIRED table, whether a genuine as-setjoin_app
+# ALLOW-flow proof exists yet, and if so, where.
+#
+# An "allow-flow proof" is NOT "the policy exists" or "a foreign tenant is
+# denied" (that's check-rls-denial.sh's job) — it is a pgTAP case that runs
+# as a non-owner role (SET LOCAL ROLE setjoin_app — the test connection
+# `mail` is a SUPERUSER + table owner and bypasses RLS even under FORCE, so
+# the role switch is load-bearing) and asserts the table's own LEGITIMATE
+# writer (its owning reducer, called with the correct
+# app.current_user_id / app.current_mailbox_id GUC) actually SUCCEEDS —
+# not merely that it doesn't throw, but that the written row is readable
+# back under the same GUC.
+#
+# FORMAT (TAB-separated, 5 fields) — identical shape to
+# scripts/rls-denial-allowlist.txt:
+#   <table>\t<STATUS>\t<file>\t<substring>\t<reason>
+#   · <table>     — exact table name.
+#   · <STATUS>    — COVERED | PENDING.
+#   · <file>      — for COVERED: the basename of the mailserver/sql/tests/*.pg
+#                   file carrying the proof. For PENDING: "-".
+#   · <substring> — for COVERED: a unique, stable substring of the file's own
+#                   success assertion (the pgTAP description is a good pick —
+#                   it changes if the test is weakened/renamed/deleted,
+#                   re-tripping the guard). For PENDING: "-".
+#   · <reason>    — one line. For PENDING, name the gap (or, where building
+#                   the proof surfaced a REAL bug rather than a missing test,
+#                   name the bug and point at the owning file/reducer).
+#
+# The guard verifies, for every COVERED row: <file> exists under
+# mailserver/sql/tests/, contains <substring>, AND contains a SET [LOCAL]
+# ROLE line — a deleted/gutted/renamed test re-fails the guard.
+#
+# PENDING rows do NOT fail the guard (that is how a fresh gap is seeded
+# green — same convention as rls-denial-allowlist.txt); they DO show up in
+# the guard's summary count so the gap stays visible on every run.
+#
+# Lines beginning with `#` (and blank lines) are ignored.
+# ──────────────────────────────────────────────────────────────────────────
+
+# ── Already COVERED by an existing V134-era flow test (no new file needed —
+# these reducer flows already drive real writes as setjoin_app + assert the
+# result is readable back; this file only records the classification). ─────
+meetings	COVERED	rls_meet.pg	meeting_create works as setjoin_app under FORCE	V134 flow: meeting_create() succeeds as setjoin_app and the creator reads the fresh row back (the exact meeting_create-500'd-live flip-blocker this guard exists to catch).
+meeting_participants	COVERED	rls_meet.pg	the joiner reads their own fresh participant row back	V134 flow: meeting_join() self-INSERTs a participant row as setjoin_app, read back under the joiner's own GUC.
+meeting_join_requests	COVERED	rls_meet.pg	cohost admits a member knock (join_requests UPDATE + bridge chat-membership INSERT)	V134 flow: meeting_admit() UPDATEs a join_requests row as setjoin_app (host/cohost arm).
+meeting_breakouts	COVERED	rls_meet.pg	host opens breakouts (meeting_breakouts INSERT)	V134 flow: meeting_breakout_open() INSERTs as setjoin_app (host/cohost arm).
+meeting_recordings	COVERED	rls_meet.pg	host starts a recording (meeting_recordings INSERT, started_by pinned)	V134 flow: meeting_recording_start() INSERTs as setjoin_app (host/cohost attendee WITH CHECK).
+chat_channels	COVERED	rls_chat.pg	app role can create a PRIVATE channel under FORCE-RLS (no RETURNING trap)	chat_channel_create() INSERTs as setjoin_app, creator reads the fresh channel back.
+chat_channel_members	COVERED	rls_chat.pg	owner adds a member (owner/admin WITH CHECK arm)	V134 flow: chat_member_add() INSERTs as setjoin_app (owner/admin arm).
+chat_messages	COVERED	rls_chat.pg	the send rail bumps change_seq as setjoin_app (chat_channels UPDATE policy — the live-gate denial)	V134 flow: chat_message_send() INSERTs a message as setjoin_app, sender reads it back.
+chat_message_reactions	COVERED	rls_chat.pg	a member reacts under FORCE	V134 flow: chat_reaction_toggle() INSERTs as setjoin_app.
+chat_message_revisions	COVERED	rls_chat.pg	the edit captured a revision row (member-scoped INSERT)	V134 flow: chat_message_edit() INSERTs a revision row as setjoin_app.
+drive_file_locks	COVERED	rls_drive_versioning.pg	editor INSERT own lock row succeeds	editor self-INSERTs a lock row as setjoin_app (WITH CHECK user_id=GUC).
+drive_folder_admins	COVERED	rls_drive_versioning.pg	manager CAN write drive_folder_admins	manager DELETEs a folder-admin row as setjoin_app (manager-only write arm), proving the write policy actually admits the manager (not just denies the editor, proven alongside).
+drive_export_grants	COVERED	drive_export_gate.pg	grant landed while called as setjoin_app	drive_export_approval_decide() INSERTs a grant row as setjoin_app (non-member approver, the DEFINER-footer proof), grant confirmed landed by a direct SELECT.
+task_lists	COVERED	rls_task_lists.pg	stranger CAN create their OWN list (owner-write policy is scoped, not blanket-closed)	self-owned INSERT + owner UPDATE (rename) both succeed as setjoin_app.
+mailbox_delegates	COVERED	rls_mailbox_delegates.pg	owner INSERT (grant) SUCCEEDS under user GUC	owner INSERT+DELETE both succeed as setjoin_app (grant/revoke).
+jmap_changes_journal	COVERED	journal_op.pg	same-mailbox write journaled under setjoin_app	journal_op() INSERTs a journal row as setjoin_app when the mailbox GUC matches (F5 proof, also proves the cross-mailbox skip is best-effort not raised).
+messages	COVERED	rls_smtp_delivery.pg	setjoin_app WITH recipient''s own GUC: INSERT succeeds	recipient's own GUC admits the delivery INSERT as setjoin_app (proven alongside the cross-tenant/wrong-GUC denials).
+ca_signin_log	COVERED	ca_signin_log.pg	setjoin_app (NOBYPASSRLS) can INSERT via ca_signin_log_app_insert RLS policy	ca_signin_log_append() INSERTs a telemetry row as setjoin_app.
+
+# ── NEW as-setjoin_app flow proofs (mailserver/sql/tests/rls_allow_backfill.pg,
+# arch review #A4). ──────────────────────────────────────────────────────────
+message_tags	COVERED	rls_allow_backfill.pg	tag_message: app role tags its own message under setjoin_app (message_tags ALLOW)	tag_message() INSERTs as setjoin_app under the owning mailbox's GUC, row read back.
+jmap_entity_state	COVERED	rls_allow_backfill.pg	bump_entity_state: first bump returns seq=1 as setjoin_app (jmap_entity_state ALLOW)	bump_entity_state() upserts as setjoin_app under the owning mailbox's GUC, row read back.
+saved_searches	COVERED	rls_allow_backfill.pg	saved_search_set: app role creates its own saved search under setjoin_app (saved_searches ALLOW)	saved_search_set() INSERTs as setjoin_app, row read back (rls_denial_extra.pg only proved the DENIAL side for this table — the owner's own write was never proven until now).
+task_list_members	COVERED	rls_allow_backfill.pg	task_list_create: app role seeds its own owner roster row under setjoin_app (task_list_members ALLOW)	task_list_create() INSERTs the owner's own roster row as setjoin_app (rls_task_lists.pg proved task_lists writes but never the reducer's own task_list_members INSERT).
+terms_of_use_acceptance	COVERED	rls_allow_backfill.pg	record_tou_acceptance: app role accepts ToU for itself under setjoin_app (terms_of_use_acceptance ALLOW)	record_tou_acceptance() upserts as setjoin_app, row read back (rls_denial_extra.pg only proved the DENIAL side).
+focus_sender_overrides	COVERED	rls_allow_backfill.pg	set_message_focus: app role focuses its own message under setjoin_app (focus_sender_overrides ALLOW)	set_message_focus() upserts as setjoin_app, row read back (rls_denial_extra.pg only proved the DENIAL side).
+vip_senders	COVERED	rls_allow_backfill.pg	vip_sender_set: app role VIPs a sender for itself under setjoin_app (vip_senders ALLOW)	vip_sender_set() INSERTs as setjoin_app, row read back (this table's DENIAL side is ALSO still PENDING — see rls-denial-allowlist.txt — a pre-existing gap this guard did not close, out of territory).
+devices	COVERED	rls_allow_backfill.pg	offline_device_register: app role registers its own native device under setjoin_app (devices + user_devices ALLOW)	offline_device_register() INSERTs both devices and user_devices as setjoin_app under the resolved user's own GUC, both rows read back.
+user_devices	COVERED	rls_allow_backfill.pg	the user_devices row is readable back by the same GUC	same offline_device_register() call as the devices row above (single reducer, two tables, one proof).
+device_enroll_events	COVERED	rls_allow_backfill.pg	device_enroll_transition: app role enrolls its own device under setjoin_app (device_enroll_events ALLOW)	device_enroll_transition() INSERTs an audit row as setjoin_app, read back.
+session_revocations	COVERED	rls_allow_backfill.pg	revoke_user_sessions: app role inserts a revocation row under setjoin_app (session_revocations ALLOW — WITH CHECK (true))	revoke_user_sessions() INSERTs as setjoin_app — the widest-open write policy in the suite (WITH CHECK (true)), previously never exercised under a real constrained connection.
+approval_requests	COVERED	rls_allow_backfill.pg	approval_request_create: app role creates a request as its own requester under setjoin_app (approval_requests ALLOW)	approval_request_create() INSERTs as setjoin_app under the requester's own GUC, row read back.
+held_inbound_messages	COVERED	rls_allow_backfill.pg	group_moderation_hold: app role (the moderator) parks a held inbound message under setjoin_app (held_inbound_messages ALLOW)	group_moderation_hold() INSERTs as setjoin_app under the approving moderator's GUC (the external-sender/NULL-requester path), row read back.
+sharing_defaults	COVERED	rls_allow_backfill.pg	sharing_default_set: app role sets its own self-scope sharing default under setjoin_app (sharing_defaults ALLOW)	sharing_default_set() self-scope arm (owner_scope='user', bypasses the sharing.manage admin ladder) INSERTs as setjoin_app, row read back.
+booking_pages	COVERED	rls_allow_backfill.pg	booking_page_upsert: app role creates its own booking page under setjoin_app (booking_pages ALLOW)	booking_page_upsert() INSERTs as setjoin_app under the owning mailbox's GUC, row read back.
+drive_audit_alarms	COVERED	rls_allow_backfill.pg	drive_alarm_create: a drive.manage admin creates an org-wide alarm under setjoin_app (drive_audit_alarms ALLOW)	drive_alarm_create() INSERTs as setjoin_app for a Super-Admin caller (drive_alarm_crud.pg only proved the non-admin DENIAL side — BZ140 — never that a real admin's write succeeds).
+drive_file_branches	COVERED	rls_allow_backfill.pg	drive_branch_create: an editor creates a branch under setjoin_app (drive_file_branches ALLOW)	drive_branch_create() INSERTs as setjoin_app for an editor (rls_drive_versioning.pg only proved the viewer DENIAL side for this table — every branch INSERT there was superuser-seeded).
+drive_version_labels	COVERED	rls_allow_backfill.pg	drive_version_label_set: an editor labels a version under setjoin_app (drive_version_labels ALLOW)	drive_version_label_set() INSERTs as setjoin_app for an editor (both drive_version_labels.pg and rls_drive_versioning.pg only ever seeded labels as superuser before the role switch).
+chat_mentions	COVERED	rls_allow_backfill.pg	chat_message_send: a member sends a mention+attachment message under setjoin_app (chat_mentions + chat_message_attachments + chat_send_counters ALLOW)	chat_message_send() with p_mentions INSERTs a mention row as setjoin_app, read back (rls_chat.pg's send-rail flow never passed p_mentions).
+chat_message_attachments	COVERED	rls_allow_backfill.pg	the attachment link row is readable back by the sender GUC	SAME chat_message_send() call above, with p_attachments — the exact V135-shaped risk class (a chat-derived member with zero drive_space_members rows uploading a file) proven end-to-end under setjoin_app (rls_chat_attachments.pg's attachment link row was superuser-seeded; only the underlying chunk-register call was previously proven as setjoin_app there).
+chat_send_counters	COVERED	rls_allow_backfill.pg	the send-rate counter row is readable back by the sender GUC	SAME chat_message_send() call — the per-user rate-limit upsert (WITH CHECK user_id=GUC) — proven live (rls_chat.pg's send rail exercised this table via GRANT but never asserted on it directly).
+chat_message_pins	COVERED	rls_allow_backfill.pg	chat_pin_toggle: an owner pins a message under setjoin_app (chat_message_pins ALLOW)	chat_pin_toggle() INSERTs as setjoin_app, row read back.
+chat_saved_messages	COVERED	rls_allow_backfill.pg	chat_save_toggle: a member saves a message under setjoin_app (chat_saved_messages ALLOW)	chat_save_toggle() INSERTs as setjoin_app under the saver's own GUC, row read back.
+chat_polls	COVERED	rls_allow_backfill.pg	chat_poll_create: an owner creates a poll under setjoin_app (chat_polls + chat_poll_options ALLOW)	chat_poll_create() INSERTs as setjoin_app, poll read back.
+chat_poll_options	COVERED	rls_allow_backfill.pg	both poll options are readable back by the creator GUC	SAME chat_poll_create() call — both option rows INSERTed as setjoin_app, read back.
+chat_poll_votes	COVERED	rls_allow_backfill.pg	chat_poll_vote: a member votes under setjoin_app (chat_poll_votes ALLOW)	chat_poll_vote() INSERTs as setjoin_app under the voter's own GUC, row read back.
+
+# ── Transactional continuity + Drive ACL governance proofs. ───────────────
+continuity_client_witnesses	COVERED	mail_recovery_continuity.pg	setjoin_app records and reads its own continuity witness under FORCE RLS	The authenticated mailbox GUC calls the witness reducer as setjoin_app and reads the resulting row back through the FORCE-RLS policy.
+drive_access_request_policies	COVERED	drive_access_governance.pg	drive.manage app role updates the request policy under FORCE RLS	A drive.manage principal updates the bounded request policy through the reducer as setjoin_app and reads the exact row back.
+
+# ── PENDING — required (FORCE'd + reducer writer + write-capable policy),
+# but no as-setjoin_app allow-flow proof exists yet. ────────────────────────
+booking_requests	PENDING	-	-	booking_create() (the only writer) is called from the PUBLIC unauthenticated /book/<slug> handler with NO per-tenant caller identity to set app.current_mailbox_id from — the same reasoning rls-denial-allowlist.txt already records for this table's DENIAL side (reducer-level slug/token checks are the trust boundary, not RLS, per booking.PublicHandler's own doc comment). An allow-flow proof would need to run on the worker/BYPASSRLS pool the real public route actually uses, which is a different (already-covered-by-design) posture than this guard's setjoin_app+GUC shape — tracked here rather than faked.
+webhook_publications	PENDING	-	-	V211 is a worker-only durable publication queue. Production writers and claim/settle reducers run on DB_WORKER_DSN; setjoin_app is deliberately denied and therefore cannot have the app-role allow-flow this guard normally requires. The denial side is covered in webhook_publication_outbox.pg.
+continuity_client_witnesses	COVERED	mail_recovery_continuity.pg	setjoin_app records a valid newer-timeline continuity witness through the reducer	V180: the app-role caller uses the mailbox GUC and the SECURITY DEFINER witness reducer; the row lands without exposing cross-mailbox witness data.
+hr_expense_receipts	COVERED	rls_allow_backfill.pg	hr_request_create: NON-admin employee files an expense under setjoin_app	FLIP-BLOCKER FOUND then FIXED by this guard (arch #A4/#80): hr_request_create (SECURITY INVOKER) calls approval_match_policies() over approval_policies (FORCE-RLS admin-only, V070/V073), so a non-admin employee saw ZERO policy rows under setjoin_app → required=false → RETURN NULL (silent approval bypass, no receipt row). Fix: approval_match_policies is now SECURITY DEFINER + worker-owned (approval_match_policies.sql) — matching is a fail-closed SYSTEM decision returning only a decision, never policy rows, so a non-admin gets policies APPLIED without reading them, fixing this at the choke point for ALL five consumers (hr/drive_export/drive_member_grant/send-external/group_moderation). Proof runs the reducer as setjoin_app under a NON-admin requester's GUC and reads the receipt row back — the exact production shape that returned NULL before.
+
+# ── 2026-09-16 guard re-run: the V254 MDM and V234 m365 allow-flow proofs
+# already shipped inside their own migration pgTAP files; recorded here
+# (no new test files needed). ────────────────────────────────────────────────
+device_events	COVERED	V254__mdm_rls_backstop.pg	the arm wrote its durable device_events lifecycle row (NULL device_id admitted)	Item 11: the owning reducer mdm_device_wipe_arm() runs as setjoin_app under the mam.write admin GUC, returns 'armed', and its durable device_events lifecycle row is asserted landed; item 5 additionally proves a direct own-device INSERT passes the device-join WITH CHECK as setjoin_app.
+mdm_device_state	COVERED	V254__mdm_rls_backstop.pg	own-row mdm_device_state INSERT passes WITH CHECK	Item 5: a setjoin_app INSERT under the owner's own GUC lands (admission backed by the admin OR-form read-back of the inserted row and the item-11 wipe-arm flow, "arms the wipe end-to-end through the real role", whose resulting state is asserted); the foreign-user_id INSERT is 42501-refused in the same file.
+m365_consent_states	COVERED	m365_consent_state_mint.pg	setjoin_app mints under its own actor GUC (the production RunUserScoped seam)	The owning reducer m365_consent_state_mint() runs as setjoin_app under the actor's own GUC and the minted row is read back ("the GUC-scoped mint is visible to its actor"); the foreign-actor mint is 42501-refused in the same block.
+meeting_presentations	COVERED	meet_presentation_rls.pg	the host prepares a session through the real reducer as setjoin_app (ALLOW)	V265 flow: meeting_presentation_prepare() runs as setjoin_app under the host's GUC (initiated_by pinned + host/cohost WITH CHECK) and the session is read back; the host's own UPDATE and event-rail INSERT survive FORCE in the same file.
+meeting_presentation_events	COVERED	meet_presentation_rls.pg	the host INSERTs a durable event as setjoin_app (ALLOW)	V265: the reducer's durable event INSERT (participant backstop policy) succeeds under the host's GUC; the foreign INSERT is 42501-refused (denial arm, same file).
+meeting_presentation_annotations	COVERED	meet_annotation_rls.pg	the presenter commits a snapshot through the real reducer as setjoin_app (ALLOW)	V267 flow: meeting_presentation_annotation_commit() runs as setjoin_app under the presenter's GUC (the ledger INSERT rides the participant write backstop) and the committed snapshot reads back under FORCE; the foreign INSERT/UPDATE arms are 42501/no-op denials in the same file.
+meeting_semantic_recordings	COVERED	meet_semantic_recording_rls.pg	the host starts a semantic recording through the real reducer as setjoin_app (ALLOW)	V266 flow: meeting_semantic_recording_start() INSERTs as setjoin_app under the host's GUC (started_by pinned + host/cohost WITH CHECK) and the fresh row reads back under FORCE.
+meeting_semantic_segments	COVERED	meet_semantic_recording_rls.pg	the worker-plane segment ingest commits under FORCE (ALLOW)	V266 flow: meeting_semantic_segment_ingest() (SECURITY DEFINER + worker ownership, the meeting_recording_event genre) INSERTs a segment as setjoin_app under the host's GUC-adjacent path; cross-tenant INSERT is 42501-refused in the same file.
+meeting_semantic_children	COVERED	meet_semantic_recording_rls.pg	tenant A sees exactly their own child	V266 flow: the seeded child rows insert through the start reducer's SECURITY-adjacent seed path and read back under the host's GUC; cross-tenant SELECT is 0-count in the same file.
+meeting_semantic_exports	COVERED	meet_semantic_recording_rls.pg	tenant A sees exactly their own export	V266 flow: the receipt rows seed + read back as setjoin_app; the claim/complete reducers are worker-owned SECURITY DEFINER; the foreign INSERT is 42501-refused (denial arm, same file).
+meeting_local_capture_leases	COVERED	meet_local_capture_rls.pg	the host reattaches through the real reducer as setjoin_app (ALLOW)	V268 flow: meeting_local_capture_lease_acquire() runs as setjoin_app under the host's GUC (started_by pinned + host/cohost WITH CHECK on the lease INSERT) and the live lease reads back under FORCE; the direct recording-INSERT arm is proven in meet_local_capture.pg.

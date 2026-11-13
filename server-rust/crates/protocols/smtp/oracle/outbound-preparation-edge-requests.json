@@ -1,0 +1,178 @@
+[
+  {
+    "blob_headers": null,
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": null,
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-unknown-inert",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9wbGFpbiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.X5BTfQlJNIaAI9rBvBANyfHBPa08Z8Y-_8BbSf4kcr0=\n',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  },
+  {
+    "blob_headers": null,
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": null,
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-unknown-markup",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg=\n',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  },
+  {
+    "blob_headers": {
+      "Last-Modified": "Thu, 10 Sep 2026 10:00:00 GMT"
+    },
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": {
+      "blobs/forward-raw": "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQoNCv8gaHR0cHM6Ly9tYWlsLnNtdHAzLnRlc3QvbGluay1wcm90ZWN0P3Rva2VuPWV5SjFJam9pYUhSMGNITTZMeTl2Y21sbmFXNHVkR1Z6ZEM5aFAzZzlNVngxTURBeU5uazlNaUlzSW0waU9pSmNkVEF3TTJOd2NtOTBaV04wWldSQWMyMTBjRE11ZEdWemRGeDFNREF6WlNJc0ltSWlPamt6TkRnd01qRXNJbVVpT2pReE1ESTBORFE0TURCOS5ONXZja1I5YjlUR1g0bDNJQXJvZGRVUXZOQkZjQWp0ZUVhVzBON0paOExVPQ0K"
+    },
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-binary-plain",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'blobs/forward-raw',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  },
+  {
+    "blob_headers": {
+      "Last-Modified": "Thu, 10 Sep 2026 10:00:00 GMT"
+    },
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": {
+      "blobs/forward-raw": "/2h0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOW1iM0psYVdkdUlpd2liU0k2SWx4MU1EQXpZM0J5YjNSbFkzUmxaRUJ6YlhSd015NTBaWE4wWEhVd01ETmxJaXdpWWlJNk9UTTBPREF5TVN3aVpTSTZOREV3TWpRME5EZ3dNSDA9LjdvWHNQejlpcTlEMXgxUjRkZ3ktV2ZJS3hJNDl0MnQ2SDFVRVBVQ3A0YVE9Cg=="
+    },
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-binary-unknown",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'blobs/forward-raw',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  },
+  {
+    "blob_headers": null,
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": null,
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-qp-malformed",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nliteral=ZZ https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  },
+  {
+    "blob_headers": null,
+    "teardown_sql": "",
+    "link_secret": "smtp3-link-current",
+    "link_previous": "smtp3-link-previous",
+    "link_version": 2,
+    "blobs": null,
+    "timeout_ms": 0,
+    "data_timeout_ms": 0,
+    "hang_at": "",
+    "barrier": 0,
+    "tls": false,
+    "advertise_tls": false,
+    "starttls_reply": "",
+    "tls_final": false,
+    "name": "unwrap-edge-css-refused",
+    "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/html\r\n\r\n\u003cstyle\u003ebody{background:url(''https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg='')}\u003c/style\u003e\u003cp\u003ehttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\u003c/p\u003e',0,9348021,9350001,true);",
+    "mx": {
+      "dest.test": [
+        "mx.dest.test."
+      ]
+    },
+    "replies": null,
+    "greeting": "",
+    "data_reply": "",
+    "final_reply": "",
+    "ticks": 1
+  }
+]

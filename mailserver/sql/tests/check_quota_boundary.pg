@@ -1,0 +1,38 @@
+-- pgTAP: pin the inclusive (<=) boundary of check_quota() in utils.sql.
+-- check_quota returns (used_bytes + p_bytes) <= quota_bytes, so an exact fill
+-- (used + bytes == quota) MUST be allowed and one byte over MUST be rejected.
+BEGIN;
+SELECT plan(2);
+
+-- Fixture: namespaced high ids so we never collide with other test files.
+-- quota_bytes is an explicit non-default value (10000 != 53687091200) so the
+-- mailbox_quota_defaults trigger preserves it. used_bytes = 3000 → headroom 7000.
+INSERT INTO domains (id, name, is_local)
+VALUES (96041, 'cq-boundary.example', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO users (id, username, email, display_name, password_hash, domain_id, enabled)
+VALUES (70041, 'cqboundary', 'cq@cq-boundary.example', 'CQ Boundary',
+        '$2a$10$abcdefghijklmnopqrstuv', 96041, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary,
+                       quota_bytes, used_bytes)
+VALUES (90041, 70041, 96041, 'cq@cq-boundary.example', 'CQ Boundary', TRUE,
+        10000, 3000)
+ON CONFLICT (id) DO NOTHING;
+
+-- Exact fill: used(3000) + headroom(7000) = quota(10000) <= quota → TRUE.
+SELECT ok(
+  check_quota(90041, (SELECT quota_bytes - used_bytes FROM mailboxes WHERE id = 90041)),
+  'check_quota allows exact fill (used+bytes = quota; <= boundary is inclusive)'
+);
+
+-- One byte over: 10001 <= 10000 → FALSE.
+SELECT ok(
+  NOT check_quota(90041, (SELECT quota_bytes - used_bytes + 1 FROM mailboxes WHERE id = 90041)),
+  'check_quota rejects one byte over the exact fill (boundary is < quota+1)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

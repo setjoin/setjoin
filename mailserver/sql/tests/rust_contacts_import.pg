@@ -1,0 +1,28 @@
+BEGIN;
+SELECT plan(7);
+INSERT INTO domains(name,is_local) VALUES('cal2-imp.test',true);
+INSERT INTO users(username,email,domain_id,display_name)
+ SELECT 'cal2-a@cal2-imp.test','cal2-a@cal2-imp.test',id,'A' FROM domains WHERE name='cal2-imp.test';
+INSERT INTO users(username,email,domain_id,display_name)
+ SELECT 'cal2-b@cal2-imp.test','cal2-b@cal2-imp.test',id,'B' FROM domains WHERE name='cal2-imp.test';
+INSERT INTO mailboxes(user_id,domain_id,email,display_name,is_primary)
+ SELECT u.id,u.domain_id,u.email,u.display_name,true FROM users u WHERE u.email LIKE 'cal2-%@cal2-imp.test';
+CREATE TEMP TABLE cal2_ids AS
+ SELECT m.id AS mailbox, m.email FROM mailboxes m WHERE m.email LIKE 'cal2-%@cal2-imp.test';
+INSERT INTO addressbooks(mailbox_id,name) SELECT mailbox,'cal2-book-'||email FROM cal2_ids;
+CREATE TEMP TABLE cal2_books AS
+ SELECT b.id AS book, b.mailbox_id AS mailbox, i.email FROM addressbooks b JOIN cal2_ids i ON i.mailbox=b.mailbox_id;
+SELECT is((SELECT rust_contacts_import_write(a.mailbox,a.book,'u1','Dee','Dee','D','Co','T','[]','[]','[]','[]','[]','n',NULL,NULL,false)
+            FROM cal2_books a WHERE a.email LIKE 'cal2-a@%'),1::bigint,'owner inserts');
+SELECT is((SELECT rust_contacts_import_write(b.mailbox,a.book,'u2','Eve','Eve','E','','','[]','[]','[]','[]','[]','',NULL,NULL,false)
+            FROM cal2_books a, cal2_books b WHERE a.email LIKE 'cal2-a@%' AND b.email LIKE 'cal2-b@%'),0::bigint,'another mailbox writes nothing');
+SELECT is((SELECT count(*) FROM contacts c JOIN cal2_books a ON a.book=c.addressbook_id),1::bigint,'only the owner row exists');
+UPDATE contacts SET etag='old';
+SELECT is((SELECT rust_contacts_import_write(a.mailbox,a.book,'u1','Dee2','Dee','D','Co2','T','[]','[]','[]','[]','[]','n',NULL,NULL,true)
+            FROM cal2_books a WHERE a.email LIKE 'cal2-a@%'),1::bigint,'upsert updates in place');
+SELECT isnt((SELECT etag FROM contacts WHERE vcard_uid='u1'),'old','upsert regenerates the etag');
+SELECT is((SELECT rust_contacts_import_remove(b.mailbox,a.book,'u1')
+            FROM cal2_books a, cal2_books b WHERE a.email LIKE 'cal2-a@%' AND b.email LIKE 'cal2-b@%'),0::bigint,'another mailbox removes nothing');
+SELECT is((SELECT rust_contacts_import_remove(a.mailbox,a.book,'u1') FROM cal2_books a WHERE a.email LIKE 'cal2-a@%'),1::bigint,'owner removes');
+SELECT * FROM finish();
+ROLLBACK;

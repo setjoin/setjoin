@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/signin-log?limit=3&user_id=7&correlation_id=evt+1",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 AUTH_DENIED: Access denied (remediation: Ask an administrator) (retry after: 7)\n",
+  "exit": 3
+}

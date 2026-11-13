@@ -1,0 +1,139 @@
+{
+  "case": "other-owner",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "deliveries": 4,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-a.example/hook?x=<&>",
+            "user": "<other>"
+          },
+          {
+            "deliveries": 1,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-b.example/hook?x=<&>",
+            "user": "<admin>"
+          }
+        ],
+        "before": [
+          {
+            "deliveries": 4,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-a.example/hook?x=<&>",
+            "user": "<other>"
+          },
+          {
+            "deliveries": 1,
+            "event_types": "[\"user.created\", \"user.updated\"]",
+            "is_active": true,
+            "legacy_prev_secret": null,
+            "legacy_secret": null,
+            "prev_secret_enc": {
+              "cell": "null",
+              "key": null
+            },
+            "scope": "self",
+            "secret_enc": {
+              "cell": "sealed",
+              "key": "v1",
+              "opens_to": "<seed:old>"
+            },
+            "url": "https://plat4-b.example/hook?x=<&>",
+            "user": "<admin>"
+          }
+        ],
+        "table": "webhook_subscriptions"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/webhooks/<sub-a>/deliveries",
+      "method": "GET",
+      "path": "/admin/webhooks/{id}/deliveries"
+    },
+    "response": {
+      "body": "[{\"id\":\"<delivery-4>\",\"eventId\":\"evt_four\",\"eventType\":\"user.created\",\"responseCode\":0,\"latencyMs\":0,\"attempt\":3,\"status\":\"exhausted\",\"errorMessage\":\"circuit breaker open\",\"createdAt\":\"2026-10-01T10:13:00Z\"},{\"id\":\"<delivery-3>\",\"eventId\":\"evt_three\",\"eventType\":\"user.created\",\"attempt\":0,\"status\":\"pending\",\"createdAt\":\"2026-10-01T10:12:00Z\"},{\"id\":\"<delivery-2>\",\"eventId\":\"evt_two\",\"eventType\":\"user.created\",\"responseCode\":503,\"latencyMs\":1500,\"attempt\":2,\"status\":\"failed\",\"errorMessage\":\"upstream \\u003cbusy\\u003e \\u0026 slow\",\"createdAt\":\"2026-10-01T10:11:00Z\"},{\"id\":\"<delivery-1>\",\"eventId\":\"evt_one\",\"eventType\":\"user.created\",\"responseCode\":200,\"latencyMs\":12,\"attempt\":1,\"status\":\"success\",\"errorMessage\":\"\",\"createdAt\":\"2026-10-01T10:10:00Z\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "758"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat4-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/webhooks/{id}/deliveries"
+}

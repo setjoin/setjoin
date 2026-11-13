@@ -1,0 +1,42 @@
+// Recording-only overlay file (#457): lets another package's overlay build frozen Go's
+// real webhook Dispatcher (production code, durable enqueue and executor) with the
+// loopback-capable client the fake receivers need, and wait for it to settle.
+package webhook
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"setjoin.com/shared/cryptokey"
+	wh "setjoin.com/shared/webhook"
+)
+
+func GoFreeDispatcher(ctx context.Context, pool *pgxpool.Pool) *Dispatcher {
+	codec := wh.NewSecretCodec([]byte(os.Getenv("GOFREE_WEBHOOK_MASTER")), cryptokey.ProfileStandard)
+	d := NewDispatcher(pool, slog.Default(), WithSecretCodec(codec))
+	d.httpClient = &http.Client{
+		Timeout:       deliveryTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	d.StartRetryWorker(ctx)
+	return d
+}
+
+// GoFreeWait waits for every admitted delivery to finish.
+func GoFreeWait(d *Dispatcher) {
+	deadline := time.Now().Add(30 * time.Second)
+	for len(d.admission) > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// GoFreeSettle waits for every admitted delivery to finish, then stops the executor.
+func GoFreeSettle(d *Dispatcher, cancel context.CancelFunc) {
+	GoFreeWait(d)
+	cancel()
+	d.executorWG.Wait()
+}

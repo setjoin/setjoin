@@ -1,0 +1,64 @@
+-- pgTAP: expand_group() dynamic path excludes group-backing mailboxes
+-- Regression guard: after mailbox-type refactor, group mailboxes are personal-type.
+-- The dynamic filter must use NOT EXISTS(distribution_groups) not mb.type='personal'
+-- to avoid self-enrolment.
+BEGIN;
+SELECT plan(2);
+
+-- Use a hardcoded domain_id (9901) so we can scope the dynamic filter
+-- to this domain only, preventing the dynamic expand from pulling in
+-- mailboxes seeded by other pgTAP tests in the same DB session.
+INSERT INTO domains (id, name, is_local) VALUES (9901, 'dyn.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- ADR-003: DIVERGENT ids — member users 109901/109902 own mailboxes 9901/9902
+-- (the group-owner user 9903 was already divergent from its mailbox 9904).
+-- expand_group() is group/mailbox-scoped; domain_id 9901 is a domain id, unrelated.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (109901, 'dynuser1', 9901, 'u1@dyn.test', 'U1')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (109902, 'dynuser2', 9901, 'u2@dyn.test', 'U2')
+  ON CONFLICT (id) DO NOTHING;
+-- User 3 owns the group mailbox (its primary mailbox IS the group backing mailbox)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (9903, 'dyngroup', 9901, 'team@dyn.test', 'Team Group')
+  ON CONFLICT (id) DO NOTHING;
+
+-- Two regular personal primary mailboxes for member users
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9901, 109901, 9901, 'u1@dyn.test', 'U1', 'personal', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9902, 109902, 9901, 'u2@dyn.test', 'U2', 'personal', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Group mailbox: personal-type (not distribution), user_id IS NOT NULL so INNER JOIN
+-- in the dynamic path connects it to user 9903. This is the mailbox that must not
+-- appear in its own expansion results.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9904, 9903, 9901, 'team@dyn.test', 'Team', 'personal', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- The satellite row marks mailbox 9904 as a distribution group.
+-- dynamic_filter includes domain_id=9901 so only this test domain's mailboxes
+-- are returned, preventing leakage from other mailboxes in the test DB.
+INSERT INTO distribution_groups (id, mailbox_id, is_dynamic, dynamic_filter)
+  VALUES (9901, 9904, TRUE, '{"enabled": true, "domain_id": "9901"}'::JSONB)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Test 1: dynamic group expands to exactly the 2 enabled member mailboxes
+SELECT is(
+  (SELECT COUNT(*)::BIGINT FROM expand_group(9901)),
+  2::BIGINT,
+  'dynamic group expands to 2 enabled members'
+);
+
+-- Test 2: the group backing mailbox (9904) is not enrolled in its own expansion
+SELECT ok(
+  9904 NOT IN (SELECT mailbox_id FROM expand_group(9901)),
+  'dynamic group does not enrol itself as a member'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

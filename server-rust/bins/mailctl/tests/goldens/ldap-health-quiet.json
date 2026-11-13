@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/ldap/health",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Status: healthy\nLast sync: yesterday\nChecked: 2  Created: 0  Updated: 0  Disabled: 0  Skipped: 0  Errors: 0\nPending conflicts: 1\n",
+  "stderr": "",
+  "exit": 0
+}

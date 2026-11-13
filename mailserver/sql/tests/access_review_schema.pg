@@ -1,0 +1,63 @@
+-- access_review_schema.pg — V034 table constraints
+BEGIN;
+SELECT plan(7);
+
+-- a valid user is needed for FK + CHECK tests; insert before any campaign rows.
+INSERT INTO domains (name, is_local) VALUES ('arv-schema.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (90100, 'arv_admin', (SELECT id FROM domains WHERE name='arv-schema.test'),
+          'arv_admin@arv-schema.test', 'ARV Admin', TRUE);
+
+-- status CHECK rejects junk
+SELECT throws_ok(
+  $$ INSERT INTO access_review_campaigns (name, status, created_by)
+     VALUES ('t', 'bogus', 90100) $$,
+  '23514', NULL, 'status CHECK rejects non-open/closed');
+
+-- a valid campaign + item, then assert FK behaviors
+
+INSERT INTO access_review_campaigns (id, name, created_by) OVERRIDING SYSTEM VALUE
+  VALUES (90100, 'campaign A', 90100);
+SELECT is(
+  (SELECT status FROM access_review_campaigns WHERE id=90100), 'open',
+  'campaign defaults to open');
+
+-- decision CHECK
+SELECT throws_ok(
+  $$ INSERT INTO access_review_items (campaign_id, user_id, role_group_id, is_sso, decision)
+     VALUES (90100, 90100, 1, FALSE, 'maybe') $$,
+  '23514', NULL, 'decision CHECK rejects non-enum');
+
+-- item with a live assignment link; SET NULL on assignment delete
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE
+  VALUES (90100, 'arv-role', ARRAY['roles.manage'], NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by) OVERRIDING SYSTEM VALUE
+  VALUES (90100, 90100, 90100, 90100);
+INSERT INTO access_review_items (id, campaign_id, assignment_id, user_id, role_group_id, is_sso)
+  OVERRIDING SYSTEM VALUE VALUES (90100, 90100, 90100, 90100, 90100, FALSE);
+
+DELETE FROM admin_role_assignments WHERE id=90100;
+SELECT is(
+  (SELECT assignment_id FROM access_review_items WHERE id=90100), NULL,
+  'assignment delete SET NULLs the item link (item survives)');
+
+-- CASCADE on campaign delete
+DELETE FROM access_review_campaigns WHERE id=90100;
+SELECT is(
+  (SELECT count(*)::int FROM access_review_items WHERE id=90100), 0,
+  'campaign delete CASCADEs to items');
+
+-- campaign→domains FK rejects a bad scope
+SELECT throws_ok(
+  $$ INSERT INTO access_review_campaigns (name, domain_scope, created_by)
+     VALUES ('bad', 9999999, 90100) $$,
+  '23503', NULL, 'domain_scope FK rejects nonexistent domain');
+
+-- applied_at column exists and defaults NULL
+SELECT is(
+  (SELECT count(*)::int FROM information_schema.columns
+    WHERE table_name='access_review_items' AND column_name='applied_at'), 1,
+  'applied_at column exists');
+
+SELECT * FROM finish();
+ROLLBACK;

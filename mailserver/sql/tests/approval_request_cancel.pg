@@ -1,0 +1,70 @@
+-- approval_request_cancel.pg — pgTAP tests for the engine-level cancel reducer
+-- (spec §10.1 gap, closes it for ALL consumers, not just HR).
+BEGIN;
+SELECT plan(9);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (91200, 'hrcancel.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (91201, 'cnl_req',   91200, 'req@hrcancel.test',   'Requester', TRUE),
+  (91202, 'cnl_apr',   91200, 'apr@hrcancel.test',   'Approver',  TRUE),
+  (91203, 'cnl_other', 91200, 'oth@hrcancel.test',   'Other',     TRUE);
+
+-- fixture: a fresh pending request
+INSERT INTO approval_requests (consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  VALUES ('rbac.jit_activation', 91201, 'cancel test 1', '{}'::jsonb, 'user', 91202, now() + interval '1h');
+
+-- requester cancels own pending request → cancelled + audit
+SELECT is(
+  (SELECT approval_request_cancel((SELECT id FROM approval_requests WHERE subject='cancel test 1'), 91201)),
+  'cancelled', 'requester cancel returns cancelled'
+);
+SELECT is(
+  (SELECT status FROM approval_requests WHERE subject='cancel test 1'), 'cancelled', 'row status is cancelled'
+);
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action = 'approval_cancelled'
+     AND target_id = (SELECT id FROM approval_requests WHERE subject='cancel test 1')) >= 1,
+  'approval_cancelled audit written'
+);
+
+-- double-cancel → BZ125 (already cancelled, no longer pending)
+SELECT throws_ok(
+  $$SELECT approval_request_cancel((SELECT id FROM approval_requests WHERE subject='cancel test 1'), 91201)$$,
+  'BZ125', NULL, 'double-cancel → BZ125'
+);
+
+-- a second fresh pending request for the non-requester / approver / unknown-id cases
+INSERT INTO approval_requests (consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  VALUES ('rbac.jit_activation', 91201, 'cancel test 2', '{}'::jsonb, 'user', 91202, now() + interval '1h');
+
+-- the designated APPROVER is not the requester → BZ125 (not a cancel authority)
+SELECT throws_ok(
+  $$SELECT approval_request_cancel((SELECT id FROM approval_requests WHERE subject='cancel test 2'), 91202)$$,
+  'BZ125', NULL, 'approver cannot cancel (not the requester) → BZ125'
+);
+-- an unrelated user → BZ125
+SELECT throws_ok(
+  $$SELECT approval_request_cancel((SELECT id FROM approval_requests WHERE subject='cancel test 2'), 91203)$$,
+  'BZ125', NULL, 'stranger cannot cancel → BZ125'
+);
+-- unknown request id → BZ125 (same opaque code — no oracle)
+SELECT throws_ok(
+  $$SELECT approval_request_cancel(999999999, 91201)$$,
+  'BZ125', NULL, 'unknown id → BZ125'
+);
+-- the row is untouched by the failed attempts
+SELECT is(
+  (SELECT status FROM approval_requests WHERE subject='cancel test 2'), 'pending',
+  'row still pending after rejected cancel attempts'
+);
+
+-- already-decided request cannot be cancelled
+UPDATE approval_requests SET status = 'approved', decided_at = now(), decided_by_user_id = 91202
+  WHERE subject = 'cancel test 2';
+SELECT throws_ok(
+  $$SELECT approval_request_cancel((SELECT id FROM approval_requests WHERE subject='cancel test 2'), 91201)$$,
+  'BZ125', NULL, 'already-decided request → BZ125'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

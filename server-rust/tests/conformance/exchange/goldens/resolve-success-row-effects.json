@@ -1,0 +1,410 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "claims": [
+          {
+            "id": "<claim-0>",
+            "invalidated_at": null,
+            "invalidation_reason": null,
+            "projection": {
+              "phase": "V1A",
+              "registryDigest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+              "replacementReady": false,
+              "rows": [
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-ACCEPTED-REMOTE-DOMAINS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-ADDRESS-LISTS-OAB",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-ANTISPAM-MALWARE",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-ARCHIVE-MAILBOX",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-AUTH-CLIENT-PROTOCOLS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-AUTO-REPLIES",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-CALENDAR-VISIBILITY",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-CERTIFICATES-TLS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-DATABASE-HA",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-DISTRIBUTION-GROUPS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-DLP",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-EDISCOVERY-SEARCH",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-EMAIL-ADDRESS-POLICIES",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-FEDERATION-ORG-RELATIONSHIPS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-HYBRID-COEXISTENCE",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-INBOX-RULES",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-JOURNALING",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MAILBOX-AUDIT",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MAILBOX-DELEGATION",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MAIL-FLOW-RULES",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MIGRATION-SIZING",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MOBILE-ACTIVESYNC",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-MONITORING-OPERATIONS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-PUBLIC-FOLDERS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-QUOTAS-LIMITS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-RBAC-MANAGEMENT-SCOPES",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-RESOURCE-BOOKING",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-RETENTION-HOLD",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-ROOM-LISTS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-SEND-RECEIVE-CONNECTORS",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                },
+                {
+                  "assessmentState": "unassessed",
+                  "capabilityId": "EX-SHARED-MAILBOX",
+                  "claimState": "unassessed",
+                  "decision": "pending",
+                  "evidenceTier": "unassessed",
+                  "mapping": "none"
+                }
+              ],
+              "runGeneration": 1,
+              "runId": "<run-a>",
+              "schemaVersion": "setjoin.exchange.claim-snapshot/v1",
+              "supportCellDigest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+              "supportCellStale": false
+            },
+            "projection_digest": "<projection-sha256>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "resolved_at": "<timestamp>",
+            "resolved_by": "<admin>",
+            "run_generation": 1,
+            "run_id": "<run-a>",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963"
+          }
+        ],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "before": {
+        "claims": [],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "table": "exchange_assessment"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/exchange-replacement/runs/{runId}/claims/resolve"
+}

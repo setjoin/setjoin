@@ -1,0 +1,132 @@
+{
+  "format": 1,
+  "route": "* /carddav/ gal-propfind",
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "books": [
+          {
+            "description": "Personal & shared",
+            "id": 994271,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL5 Owner"
+          },
+          {
+            "description": "Foreign",
+            "id": 994272,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL5 Other"
+          }
+        ],
+        "contacts": [],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994271,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994272,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "state": [
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          }
+        ],
+        "visibility": [
+          {
+            "mailbox_id": "<mailbox-a>",
+            "user_id": "<user-a>"
+          },
+          {
+            "mailbox_id": "<mailbox-a>",
+            "user_id": "<user-b>"
+          }
+        ]
+      },
+      "before": {
+        "books": [
+          {
+            "description": "Personal & shared",
+            "id": 994271,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-a>",
+            "name": "CAL5 Owner"
+          },
+          {
+            "description": "Foreign",
+            "id": 994272,
+            "is_default": false,
+            "is_shared": false,
+            "jmap_state": 0,
+            "mailbox_id": "<mailbox-b>",
+            "name": "CAL5 Other"
+          }
+        ],
+        "contacts": [],
+        "journal": [
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994271,
+            "mailbox_id": "<mailbox-a>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          },
+          {
+            "collection_id": null,
+            "datatype": "AddressBook",
+            "entity_id": 994272,
+            "mailbox_id": "<mailbox-b>",
+            "op": "created",
+            "resource_uid": null,
+            "state_seq": 1
+          }
+        ],
+        "state": [
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-a>",
+            "seq": 1
+          },
+          {
+            "datatype": "AddressBook",
+            "mailbox_id": "<mailbox-b>",
+            "seq": 1
+          }
+        ],
+        "visibility": []
+      },
+      "table": "f17-carddav"
+    }
+  ]
+}

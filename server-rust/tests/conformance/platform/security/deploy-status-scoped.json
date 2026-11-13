@@ -1,0 +1,111 @@
+{
+  "case": "deploy-status-scoped",
+  "format": 1,
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "system.upgrade (organization-wide grant required)",
+          "target": "/admin/deploy/status"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/admin/deploy/status",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "completed_at": null,
+            "error": "legacy secret",
+            "output": "legacy private output",
+            "started_at": null,
+            "status": "running",
+            "step_name": "gofree_plat2b_a"
+          },
+          {
+            "completed_at": null,
+            "error": "",
+            "output": "legacy successful output",
+            "started_at": null,
+            "status": "done",
+            "step_name": "gofree_plat2b_b"
+          }
+        ],
+        "before": [
+          {
+            "completed_at": null,
+            "error": "legacy secret",
+            "output": "legacy private output",
+            "started_at": null,
+            "status": "running",
+            "step_name": "gofree_plat2b_a"
+          },
+          {
+            "completed_at": null,
+            "error": "",
+            "output": "legacy successful output",
+            "started_at": null,
+            "status": "done",
+            "step_name": "gofree_plat2b_b"
+          }
+        ],
+        "table": "deployment_steps"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/deploy/status",
+      "method": "GET",
+      "path": "/admin/deploy/status"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 403
+    }
+  }
+}

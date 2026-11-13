@@ -1,0 +1,117 @@
+-- rls_chat_qol.pg — Chat A3 QoL Task 1 (V122): schema existence, FORCE-RLS
+-- denial proofs (pins channel-scoped, saves self-scoped, chat_link_previews
+-- deny-all), msg_type widen, poll-votes PK shape, trgm index, toggle seeds,
+-- chat_notifications column. Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A3-qol.md Task 1.
+BEGIN;
+SELECT plan(31);
+
+-- ── existence ────────────────────────────────────────────────────────────
+SELECT has_table('public', 'chat_message_pins', 'chat_message_pins exists');
+SELECT has_table('public', 'chat_saved_messages', 'chat_saved_messages exists');
+SELECT has_table('public', 'chat_polls', 'chat_polls exists');
+SELECT has_table('public', 'chat_poll_options', 'chat_poll_options exists');
+SELECT has_table('public', 'chat_poll_votes', 'chat_poll_votes exists');
+SELECT has_table('public', 'chat_link_previews', 'chat_link_previews exists');
+SELECT has_table('public', 'org_default_channels', 'org_default_channels exists');
+
+-- ── FORCE-RLS flags ──────────────────────────────────────────────────────
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_message_pins'::regclass), TRUE, 'pins RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_saved_messages'::regclass), TRUE, 'saves RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_polls'::regclass), TRUE, 'polls RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_poll_options'::regclass), TRUE, 'poll options RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_poll_votes'::regclass), TRUE, 'poll votes RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_link_previews'::regclass), TRUE, 'link previews RLS FORCED');
+
+-- ── shape assertions ─────────────────────────────────────────────────────
+SELECT col_is_pk('public', 'chat_poll_votes', ARRAY['poll_id', 'option_id', 'user_id'], 'poll_votes PK is (poll_id,option_id,user_id) always');
+SELECT has_index('chat_messages', 'chat_messages_body_trgm_idx', 'CJK-search trgm index present on chat_messages.body');
+SELECT has_column('public', 'user_notification_prefs', 'chat_notifications', 'chat_notifications column present');
+
+-- ── fixtures: a channel with two members + a non-member ─────────────────
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'a3qol-t1', 88001);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 88001, 'owner' FROM chat_channels WHERE name = 'a3qol-t1';
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 88002, 'member' FROM chat_channels WHERE name = 'a3qol-t1';
+INSERT INTO chat_messages (channel_id, seq, author_id, body)
+  SELECT id, 1, 88001, 'v122 fixture message' FROM chat_channels WHERE name = 'a3qol-t1';
+
+-- msg_type widen: 'voice' and 'poll' both now accepted (CHECK does not raise).
+SELECT lives_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, body, msg_type)
+       SELECT id, 2, 88001, '', 'voice' FROM chat_channels WHERE name = 'a3qol-t1' $$,
+  'msg_type accepts voice');
+SELECT lives_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, body, msg_type)
+       SELECT id, 3, 88001, '', 'poll' FROM chat_channels WHERE name = 'a3qol-t1' $$,
+  'msg_type accepts poll');
+
+-- pin the fixture message, save it for the owner.
+INSERT INTO chat_message_pins (channel_id, message_id, pinned_by)
+  SELECT c.id, m.id, 88001 FROM chat_channels c JOIN chat_messages m ON m.channel_id = c.id
+    WHERE c.name = 'a3qol-t1' AND m.seq = 1;
+INSERT INTO chat_saved_messages (user_id, message_id)
+  SELECT 88001, m.id FROM chat_messages m JOIN chat_channels c ON c.id = m.channel_id
+    WHERE c.name = 'a3qol-t1' AND m.seq = 1;
+
+-- a poll anchored to the 'poll'-typed fixture message, one option, one vote.
+INSERT INTO chat_polls (message_id, channel_id, question, created_by)
+  SELECT m.id, c.id, 'Coffee or tea?', 88001
+    FROM chat_messages m JOIN chat_channels c ON c.id = m.channel_id
+    WHERE c.name = 'a3qol-t1' AND m.msg_type = 'poll';
+INSERT INTO chat_poll_options (poll_id, ordinal, label)
+  SELECT p.id, 0, 'Coffee' FROM chat_polls p
+    JOIN chat_channels c ON c.id = p.channel_id WHERE c.name = 'a3qol-t1';
+INSERT INTO chat_poll_options (poll_id, ordinal, label)
+  SELECT p.id, 1, 'Tea' FROM chat_polls p
+    JOIN chat_channels c ON c.id = p.channel_id WHERE c.name = 'a3qol-t1';
+INSERT INTO chat_poll_votes (poll_id, option_id, user_id)
+  SELECT o.poll_id, o.id, 88001 FROM chat_poll_options o
+    JOIN chat_polls p ON p.id = o.poll_id
+    JOIN chat_channels c ON c.id = p.channel_id
+    WHERE c.name = 'a3qol-t1' AND o.ordinal = 0;
+
+GRANT SELECT ON public.chat_message_pins, public.chat_saved_messages, public.chat_link_previews,
+  public.chat_polls, public.chat_poll_options, public.chat_poll_votes TO setjoin_app;
+
+-- ── denial proof: pins are channel-scoped (member sees, non-member doesn't) ─
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '88002', true);
+SELECT is((SELECT count(*) FROM chat_message_pins)::int, 1, 'channel member sees the pin');
+SELECT set_config('app.current_user_id', '88099', true);
+SELECT is((SELECT count(*) FROM chat_message_pins)::int, 0, 'non-member sees no pins (FORCE-RLS denial)');
+
+-- ── denial proof: saves are self-scoped ─────────────────────────────────
+SELECT set_config('app.current_user_id', '88001', true);
+SELECT is((SELECT count(*) FROM chat_saved_messages)::int, 1, 'owner sees their own saved message');
+SELECT set_config('app.current_user_id', '88002', true);
+SELECT is((SELECT count(*) FROM chat_saved_messages)::int, 0, 'a different channel member sees none of another user''s saves');
+
+-- ── denial proof: polls/options/votes are channel-derived (EXISTS-join
+-- through chat_polls, mirrors chat_reactions_scope's join-through-
+-- chat_messages shape) ────────────────────────────────────────────────────
+SELECT set_config('app.current_user_id', '88002', true);
+SELECT is((SELECT count(*) FROM chat_polls)::int, 1, 'channel member sees the poll');
+SELECT is((SELECT count(*) FROM chat_poll_options)::int, 2, 'channel member sees the poll options');
+SELECT is((SELECT count(*) FROM chat_poll_votes)::int, 1, 'channel member sees the poll vote');
+SELECT set_config('app.current_user_id', '88099', true);
+SELECT is((SELECT count(*) FROM chat_polls)::int, 0, 'non-member sees no polls (FORCE-RLS denial)');
+SELECT is((SELECT count(*) FROM chat_poll_options)::int, 0, 'non-member sees no poll options (FORCE-RLS denial)');
+SELECT is((SELECT count(*) FROM chat_poll_votes)::int, 0, 'non-member sees no poll votes (FORCE-RLS denial)');
+
+-- ── denial proof: chat_link_previews denies ALL app-role access ─────────
+RESET ROLE;
+INSERT INTO chat_link_previews (url_hash, url, title) VALUES ('deadbeef', 'https://example.com/', 'Example');
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '88001', true);
+SELECT is((SELECT count(*) FROM chat_link_previews)::int, 0, 'chat_link_previews denies ALL app-role access (zero policies, FORCE)');
+RESET ROLE;
+
+SELECT set_config('app.current_user_id', '', true);
+
+-- ── toggles seeded ───────────────────────────────────────────────────────
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'chat.unfurl'), FALSE, 'chat.unfurl seeded OFF');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'chat.channel_creation'), TRUE, 'chat.channel_creation seeded ON (all users, drive.space_creation shape)');
+
+SELECT finish();
+ROLLBACK;

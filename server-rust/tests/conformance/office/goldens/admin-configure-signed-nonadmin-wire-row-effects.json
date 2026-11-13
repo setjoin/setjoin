@@ -1,0 +1,30 @@
+{
+  "case": "signed-nonadmin-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "action": "console.denied",
+          "after_state": null,
+          "before_state": {
+            "actor": "<actor-email>",
+            "missingPermission": "office.manage",
+            "target": "/admin/office/providers/office1"
+          },
+          "id": "<audit:0>",
+          "ip": null,
+          "notes": "/admin/office/providers/office1",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "console",
+          "user_id": null
+        }
+      ],
+      "before": [],
+      "table": "core_audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "PUT /admin/office/providers/{providerId}"
+}

@@ -1,0 +1,61 @@
+-- mailbox_delegate_revoke.pg — pgTAP tests for the mailbox delegation revoke path
+-- (spec 2026-06-27-sharing-delegation-design.md §4 / D8).
+-- Covers: revoke removes ALL of a grantee's permission rows, non-owner BZ114,
+-- idempotent no-op for the owner, audit row, send.sql enforcement loses the grant.
+BEGIN;
+SELECT plan(7);
+
+CREATE TEMP TABLE _mdr AS
+SELECT (SELECT mk_account('mdr_owner'))    AS owner_mb,
+       (SELECT mk_account('mdr_grantee'))  AS grantee_mb,
+       (SELECT mk_account('mdr_stranger')) AS stranger_mb;
+ALTER TABLE _mdr
+  ADD COLUMN owner_uid    BIGINT,
+  ADD COLUMN grantee_uid  BIGINT,
+  ADD COLUMN stranger_uid BIGINT,
+  ADD COLUMN grantee_email TEXT;
+UPDATE _mdr SET
+  owner_uid     = (SELECT user_id FROM mailboxes WHERE id = owner_mb),
+  grantee_uid   = (SELECT user_id FROM mailboxes WHERE id = grantee_mb),
+  stranger_uid  = (SELECT user_id FROM mailboxes WHERE id = stranger_mb),
+  grantee_email = (SELECT u.email FROM users u JOIN mailboxes m ON m.user_id = u.id WHERE m.id = grantee_mb);
+
+-- seed two permission rows for the grantee via the grant reducer
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'send_as')$$,
+         (SELECT owner_uid FROM _mdr), (SELECT owner_mb FROM _mdr), (SELECT grantee_email FROM _mdr)),
+  'seed grant send_as');
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'read')$$,
+         (SELECT owner_uid FROM _mdr), (SELECT owner_mb FROM _mdr), (SELECT grantee_email FROM _mdr)),
+  'seed grant read');
+
+-- non-owner revoke → BZ114, rows untouched
+SELECT throws_ok(
+  format($$SELECT mailbox_delegate_revoke(%s, %s, %s)$$,
+         (SELECT stranger_uid FROM _mdr), (SELECT owner_mb FROM _mdr), (SELECT grantee_uid FROM _mdr)),
+  'BZ114', NULL, 'non-owner revoke raises BZ114');
+SELECT is(
+  (SELECT count(*)::int FROM mailbox_delegates
+    WHERE mailbox_id = (SELECT owner_mb FROM _mdr) AND user_id = (SELECT grantee_uid FROM _mdr)),
+  2, 'non-owner revoke removed nothing');
+
+-- owner revoke removes ALL the grantee's rows
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_revoke(%s, %s, %s)$$,
+         (SELECT owner_uid FROM _mdr), (SELECT owner_mb FROM _mdr), (SELECT grantee_uid FROM _mdr)),
+  'owner revoke succeeds');
+SELECT is(
+  (SELECT count(*)::int FROM mailbox_delegates
+    WHERE mailbox_id = (SELECT owner_mb FROM _mdr) AND user_id = (SELECT grantee_uid FROM _mdr)),
+  0, 'all permission rows removed');
+
+-- audit row written (D8, tier core)
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log
+    WHERE action = 'mailbox_delegate_revoked'
+      AND user_id = (SELECT owner_uid FROM _mdr)) >= 1,
+  'audit row written');
+
+SELECT * FROM finish();
+ROLLBACK;

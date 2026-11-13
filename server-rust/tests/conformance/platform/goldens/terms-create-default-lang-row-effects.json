@@ -1,0 +1,24 @@
+{
+  "case": "default-lang-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "body_md": "x",
+          "created_at": "<timestamp>",
+          "enabled": false,
+          "id": 9200,
+          "lang": "en",
+          "name": "Acceptable use",
+          "require_scroll": false,
+          "version": 1
+        }
+      ],
+      "before": [],
+      "table": "terms_of_use"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/terms-of-use"
+}

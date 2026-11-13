@@ -1,0 +1,98 @@
+-- mailserver/sql/tests/drive_node_destroy_versioning.pg — the P4
+-- drive_node_destroy extension (AUTOPLAN batch-3 #1): the circular
+-- versions<->branches FK pair and the cross-file merged_from_version_id
+-- reference must be unlinked, in order, before the P1 head-NULL + version
+-- DELETE, and the unlink must still correctly refuse under WORM/gxp.
+--
+-- P6 (V117) update: this FK-unwind body relocated from drive_node_destroy
+-- to drive_node_destroy_hard (destroy itself now only purges to tier 2 —
+-- AUTOPLAN contradiction #7). Every block below now purges first (always
+-- lives_ok, unconditionally — destroy no longer touches content) then
+-- calls drive_node_destroy_hard to exercise the relocated unwind logic.
+BEGIN;
+SELECT plan(14);
+SELECT mk_account('dndvm') AS mbm \gset
+SELECT mk_account('dndve') AS mbe \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e FROM mailboxes WHERE id = :mbe \gset
+SELECT drive_space_create(:m, 'DND', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+
+-- ── locked + branched + labelled subtree destroys clean ──────────────────
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'd.bin') AS nid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't')->>'versionId')::bigint AS h1 \gset
+SELECT drive_branch_create(:e, :nid, 'b', :h1) AS bid \gset
+SELECT drive_file_lock(:e, :nid, 'soft');
+INSERT INTO drive_version_labels (version_id, label, created_by) VALUES (:h1, 'Approved', :m);
+SELECT drive_node_trash(:m, :nid);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :m, :nid),
+  'locked + branched + labelled subtree purges clean (P6: tier-2, not hard delete)');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id=:nid AND purged_at IS NOT NULL)::int, 1,
+  'node moves to tier 2, still present (branches/locks intact for the grace window)');
+SELECT ok(drive_node_destroy_hard(:nid),
+  'worker hard-destroy unwinds the branch/lock FK pair and destroys the leaf');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id=:nid)::int, 0, 'node gone after hard-destroy');
+SELECT is((SELECT count(*) FROM drive_file_branches WHERE file_node_id=:nid)::int, 0, 'branches gone after hard-destroy');
+SELECT is((SELECT count(*) FROM drive_file_locks WHERE node_id=:nid)::int, 0, 'locks gone after hard-destroy');
+
+-- ── keep_both pair destroys clean in EITHER order ─────────────────────────
+-- original-first
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'kb1.bin') AS onid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('2',64), 10);
+SELECT (drive_file_put_version(:m, :onid, repeat('b',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 't')->>'versionId')::bigint AS oh1 \gset
+SELECT drive_branch_create(:e, :onid, 'kb', :oh1) AS okbid \gset
+SELECT drive_chunk_register(:e, :sid, repeat('3',64), 10);
+SELECT (drive_file_put_version(:e, :onid, repeat('c',64), 10, NULL, :oh1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, NULL, 't', :okbid)->>'versionId')::bigint AS okbh \gset
+SELECT drive_branch_resolve(:e, :okbid, 'keep_both') AS okbres \gset
+SELECT ((:'okbres'::jsonb->>'newNodeId')::bigint) AS snid \gset
+SELECT drive_node_trash(:m, :onid);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :m, :onid),
+  'destroying the ORIGINAL first purges clean');
+SELECT ok(drive_node_destroy_hard(:onid),
+  'worker hard-destroy of the ORIGINAL unlinks the sibling''s merged_from reference');
+SELECT is((SELECT merged_from_version_id FROM drive_file_versions WHERE file_node_id=:snid),
+  NULL, 'sibling''s merged_from_version_id nulled after the original is hard-destroyed');
+
+-- sibling-first (trivial: destroying the row that HOLDS the outward
+-- reference never trips an FK on the referenced side)
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'kb2.bin') AS onid2 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('4',64), 10);
+SELECT (drive_file_put_version(:m, :onid2, repeat('d',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('4',64))::jsonb, NULL, 't')->>'versionId')::bigint AS oh2 \gset
+SELECT drive_branch_create(:e, :onid2, 'kb2', :oh2) AS okbid2 \gset
+SELECT drive_chunk_register(:e, :sid, repeat('5',64), 10);
+SELECT (drive_file_put_version(:e, :onid2, repeat('e',64), 10, NULL, :oh2,
+  format('[{"sha256":"%s","size":10}]', repeat('5',64))::jsonb, NULL, 't', :okbid2)->>'versionId')::bigint AS okbh2 \gset
+SELECT drive_branch_resolve(:e, :okbid2, 'keep_both') AS okbres2 \gset
+SELECT ((:'okbres2'::jsonb->>'newNodeId')::bigint) AS snid2 \gset
+SELECT drive_node_trash(:m, :snid2);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :m, :snid2),
+  'destroying the SIBLING first purges clean');
+SELECT ok(drive_node_destroy_hard(:snid2),
+  'worker hard-destroy of the SIBLING succeeds trivially (never referenced outward)');
+
+-- ── gxp refusal: destroying a subtree with an in-retention branch/version
+-- must still refuse via BZ145 (identical to the P1 contract, just earlier) ─
+INSERT INTO drive_spaces (name, owner_user_id, classification, retention_days, worm_mode)
+  VALUES ('GXPDND', :m, 'gxp', 365, 'compliance');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS gsid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES
+  (:gsid, :m, 'manager', :m), (:gsid, :e, 'editor', :m);
+SELECT drive_node_create(:m, :gsid, NULL, 'file', 'g.bin') AS gnid \gset
+SELECT drive_chunk_register(:m, :gsid, repeat('6',64), 10);
+SELECT (drive_file_put_version(:m, :gnid, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('6',64))::jsonb, NULL, 't')->>'versionId')::bigint AS gh1 \gset
+SELECT drive_branch_create(:e, :gnid, 'gb', :gh1) AS gbid \gset
+SELECT drive_node_trash(:m, :gnid);
+SELECT lives_ok(format($$ SELECT drive_node_destroy(%s, %s) $$, :m, :gnid),
+  'gxp-in-retention subtree purges to tier 2 unconditionally (P6: destroy no longer touches content)');
+SELECT is(drive_node_destroy_hard(:gnid), FALSE,
+  'worker hard-destroy refuses a gxp-in-retention subtree with a live branch (WORM, same contract as P1, now a graceful skip not BZ145)');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id=:gnid)::int, 1, 'gxp node survives the refused hard-destroy');
+
+SELECT * FROM finish();
+ROLLBACK;

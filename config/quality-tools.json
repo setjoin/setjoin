@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "languages": [
+    {"id":"go","authored":true,"extensions":["go"],"owner":"go-modules","runner":"ubuntu+macos","fast":["gofmt","golangci-lint"],"security":["gosec-mailserver","govulncheck"]},
+    {"id":"postgresql","authored":true,"extensions":["sql","pg"],"owner":"database","runner":"ubuntu-postgresql","full":["project-structural-guards","schema-load","pgtap"]},
+    {"id":"web","authored":true,"extensions":["ts","js","mjs","mts","svelte","css"],"owner":"webmail+electron","runner":"macos+ubuntu","fast":["typescript","svelte-check","eslint","stylelint","biome-electron"],"security":["npm-audit"]},
+    {"id":"rust","authored":true,"extensions":["rs"],"owner":"clients","runner":"macos+ubuntu","fast":["rustfmt"],"full":["clippy"],"security":["cargo-audit"]},
+    {"id":"arkts","authored":true,"extensions":["ets"],"owner":"harmonyos","runner":"macos-deveco","full":["hvigor-build","bridge-conformance"]},
+    {"id":"shell","authored":true,"extensions":["sh"],"owner":"scripts+deploy","runner":"macos+ubuntu","fast":["declared-shell-syntax","shellcheck","shfmt-ratchet"]},
+    {"id":"python","authored":true,"extensions":["py"],"owner":"generators","runner":"ubuntu","fast":["python-compile","ruff-check","ruff-format-check"],"include":["**/*.py","*.py"],"exclude":[],"exclude_generated":["node_modules/**","refs/**","build/**","dist/**","test-results/**","**/node_modules/**","**/refs/**","**/build/**","**/dist/**","**/test-results/**"],"note":"Lane inputs are tracked files matching include minus exclude minus exclude_generated; tracked admission is the prerequisite. Globs use bash case semantics: a pattern with a slash needs a directory, so *.py is declared to admit root-level files with zero directories. exclude_generated declares vendor/generated trees defensively at the repository root (dir/**) and nested at any depth (**/dir/**), matching the catalog contract's any-depth exclusion of those directory names (nothing tracked beneath them is the healthy state), so only the evidence exclude set is rot-checked. check-quality-input-coverage.sh owns this universe and quality.sh consumers take their inputs from it."},
+    {"id":"powershell","authored":true,"extensions":["ps1"],"owner":"exchange-collectors","runner":"windows-ci","fast":["powershell-parser"],"full":["psscriptanalyzer"]},
+    {"id":"deployment-config","authored":true,"extensions":["dockerfile","yml","yaml","json","json5","toml"],"owner":"artifact-owner","runner":"ubuntu","fast":["native-schema-checks"],"security":["actionlint"]},
+    {"id":"generated-mobile","authored":false,"extensions":["swift","kt","java"],"owner":"tauri-generators","runner":"macos+ubuntu-android","full":["xcode-build","android-lint"],"note":"No tracked authored Swift/Kotlin/Java; lint generated products only in their platform lane."}
+  ],
+  "tools": [
+    {"id":"golangci-lint","license":"GPL-3.0","status":"blocking","offline":true},
+    {"id":"govulncheck","license":"BSD-3-Clause","status":"blocking","offline":"mirror-vulndb"},
+    {"id":"eslint","license":"MIT","status":"blocking","offline":"npm-lock"},
+    {"id":"stylelint","license":"MIT","status":"blocking","offline":"npm-lock"},
+    {"id":"biome-electron","license":"MIT OR Apache-2.0","status":"blocking","offline":"npm-lock"},
+    {"id":"clippy","license":"MIT OR Apache-2.0","status":"blocking","offline":true},
+    {"id":"cargo-audit","license":"MIT OR Apache-2.0","status":"blocking","offline":"mirror-rustsec"},
+    {"id":"shellcheck","license":"GPL-3.0","status":"blocking","offline":true},
+    {"id":"ruff","license":"MIT","status":"blocking","offline":"pinned-runner-binary"},
+    {"id":"shfmt","license":"BSD-3-Clause","status":"ratchet-blocking","offline":"pinned-runner-binary"},
+    {"id":"psscriptanalyzer","license":"MIT","status":"platform-blocking","offline":"mirror-module"},
+    {"id":"gitleaks","license":"MIT","status":"blocking","offline":"pinned-runner-binary"},
+    {"id":"actionlint","license":"MIT","status":"blocking","offline":"pinned-runner-binary"}
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "case": "large-audience",
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [],
+          "mailbox_delegates": [],
+          "preferences": [
+            {
+              "external_sender_warning": true,
+              "user_id": "<a>"
+            },
+            {
+              "external_sender_warning": true,
+              "user_id": "<b>"
+            }
+          ],
+          "vacation_settings": []
+        },
+        "before": {
+          "app_passwords": [],
+          "mailbox_delegates": [],
+          "preferences": [
+            {
+              "external_sender_warning": true,
+              "user_id": "<a>"
+            },
+            {
+              "external_sender_warning": true,
+              "user_id": "<b>"
+            }
+          ],
+          "vacation_settings": []
+        }
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/me/mailtips",
+      "wire_path": "/auth/me/mailtips?recipients=rcpt00@EXAMPLE.NET,rcpt01@EXAMPLE.NET,rcpt02@EXAMPLE.NET,rcpt03@EXAMPLE.NET,rcpt04@EXAMPLE.NET,rcpt05@EXAMPLE.NET,rcpt06@EXAMPLE.NET,rcpt07@EXAMPLE.NET,rcpt08@EXAMPLE.NET,rcpt09@EXAMPLE.NET,rcpt10@EXAMPLE.NET,rcpt11@EXAMPLE.NET,rcpt12@EXAMPLE.NET,rcpt13@EXAMPLE.NET,rcpt14@EXAMPLE.NET,rcpt15@EXAMPLE.NET,rcpt16@EXAMPLE.NET,rcpt17@EXAMPLE.NET,rcpt18@EXAMPLE.NET,rcpt19@EXAMPLE.NET,rcpt20@EXAMPLE.NET,rcpt21@EXAMPLE.NET,rcpt22@EXAMPLE.NET,rcpt23@EXAMPLE.NET,rcpt24@EXAMPLE.NET,rcpt25@EXAMPLE.NET"
+    },
+    "response": {
+      "body": "{\"warnings\":[{\"count\":26,\"message\":\"Your message will be sent to 26 recipients\",\"type\":\"large_audience\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt00@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt01@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt02@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt03@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt04@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt05@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt06@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt07@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt08@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt09@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt10@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt11@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt12@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt13@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt14@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt15@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt16@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt17@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt18@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt19@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt20@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt21@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt22@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt23@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt24@EXAMPLE.NET\",\"type\":\"external_recipient\"},{\"domain\":\"example.net\",\"recipient\":\"rcpt25@EXAMPLE.NET\",\"type\":\"external_recipient\"}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "transfer-encoding": [
+          "chunked"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-idlogin4"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/me/mailtips"
+}

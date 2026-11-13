@@ -1,0 +1,340 @@
+-- pgTAP: calendar_recurrence.sql — occurrence/following/series recurring-event edit.
+BEGIN;
+SELECT plan(34);
+
+-- ============================================================
+-- V109: master-lookup partial index (CalDAV getEventByUID determinism).
+-- The pre-existing calendar_events_calendar_id_uid_recurrence_key UNIQUE
+-- (calendar_id, uid, recurrence_override) NULLS NOT DISTINCT already
+-- guarantees at most one master row per (calendar_id, uid); this index is
+-- the lookup path CalDAV's "master only" query hits.
+-- ============================================================
+SELECT has_index('public', 'calendar_events', 'idx_calendar_events_master_uid',
+  'idx_calendar_events_master_uid exists for CalDAV master-row lookup');
+
+INSERT INTO domains (name, is_local) VALUES ('rec.test', TRUE);
+
+-- ADR-003: DIVERGENT ids (users 107101/107102 != mailboxes 7101/7102).
+-- jmap_calendar_event_set_occurrence is mailbox-keyed; calendar/event ids (7101/7102)
+-- are separate namespaces.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (107101, 'recowner', (SELECT id FROM domains WHERE name = 'rec.test'), 'owner@rec.test', 'Owner'),
+  (107102, 'recother', (SELECT id FROM domains WHERE name = 'rec.test'), 'other@rec.test', 'Other');
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (7101, 107101, (SELECT id FROM domains WHERE name = 'rec.test'), 'owner@rec.test', 'personal', 'Owner Mbox', TRUE),
+  (7102, 107102, (SELECT id FROM domains WHERE name = 'rec.test'), 'other@rec.test', 'personal', 'Other Mbox', TRUE);
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (7101, 7101, 'Default', TRUE),
+  (7102, 7102, 'Default', TRUE);
+
+-- A weekly master starting Monday 2026-06-15 09:00Z. Occurrence #2 is 2026-06-22 09:00Z.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule, recurrence_override)
+VALUES
+  (7101, 7101, 'master-rec-1', 'Standup', '2026-06-15 09:00:00+00', '2026-06-15 09:30:00+00', 'FREQ=WEEKLY', NULL);
+
+-- ============================================================
+-- Scope 'this' (single occurrence override)
+-- ============================================================
+
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7101, '2026-06-22 09:00:00+00'::timestamptz, 'this', '{"title":"Moved"}'::jsonb))->>'ok',
+  'true',
+  'scope=this returns ok=true'
+);
+
+-- A new override row exists with recurrence_override = the occurrence ts and patched title.
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events
+     WHERE calendar_id = 7101 AND uid = 'master-rec-1'
+       AND recurrence_override = '2026-06-22 09:00:00+00'::timestamptz
+       AND title = 'Moved'),
+  1,
+  'scope=this creates a single override row with the patched title'
+);
+
+-- The master's exdate now contains the occurrence ts.
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM calendar_events ce, unnest(ce.exdate) AS x(d)
+    WHERE ce.id = 7101 AND x.d = '2026-06-22 09:00:00+00'::timestamptz
+  ),
+  'scope=this appends the occurrence to the master exdate'
+);
+
+-- The master is still a single master (recurrence_override NULL) and not patched.
+SELECT is(
+  (SELECT title FROM calendar_events WHERE id = 7101),
+  'Standup',
+  'scope=this does not patch the master title'
+);
+
+-- ============================================================
+-- Scope 'following' (UNTIL split + new master)
+-- ============================================================
+
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7101, '2026-07-06 09:00:00+00'::timestamptz, 'following', '{"title":"NewSeries"}'::jsonb))->>'ok',
+  'true',
+  'scope=following returns ok=true'
+);
+
+-- Master rrule now carries an UNTIL clause.
+SELECT ok(
+  (SELECT rrule LIKE '%UNTIL=%' FROM calendar_events WHERE id = 7101),
+  'scope=following adds UNTIL to the master rrule'
+);
+
+-- A new master row exists starting at the split point with the patch applied.
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events
+     WHERE calendar_id = 7101 AND recurrence_override IS NULL
+       AND start_at = '2026-07-06 09:00:00+00'::timestamptz
+       AND title = 'NewSeries'),
+  1,
+  'scope=following creates a new master from the split point'
+);
+
+-- ============================================================
+-- Scope 'series' (patch master in place)
+-- ============================================================
+
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7101, '2026-06-15 09:00:00+00'::timestamptz, 'series', '{"title":"AllRenamed"}'::jsonb))->>'ok',
+  'true',
+  'scope=series returns ok=true'
+);
+
+SELECT is(
+  (SELECT title FROM calendar_events WHERE id = 7101),
+  'AllRenamed',
+  'scope=series patches the master in place'
+);
+
+-- No NEW override row was created for the series patch (count of overrides unchanged from the 'this' step = 1).
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events
+     WHERE calendar_id = 7101 AND uid = 'master-rec-1' AND recurrence_override IS NOT NULL),
+  1,
+  'scope=series creates no new override row'
+);
+
+-- ============================================================
+-- Cross-account ownership guard
+-- ============================================================
+
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_event_set_occurrence(7102, 7101, '2026-06-29 09:00:00+00'::timestamptz, 'series', '{"title":"Hijack"}'::jsonb) $$,
+  'BZ001',
+  NULL,
+  'cross-account edit raises BZ001'
+);
+
+-- ============================================================
+-- Task 2: delete-occurrence modes ({"excluded":true}) + upsert + orphan-free destroy
+-- ============================================================
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule) VALUES
+  (7201, 7101, 'master-del-this',     'Del This',     '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY'),
+  (7202, 7101, 'master-del-detached', 'Del Detached', '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY'),
+  (7203, 7101, 'master-del-following','Del Following','2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY'),
+  (7204, 7101, 'master-destroy',      'Destroy Me',   '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY'),
+  (7206, 7101, 'master-upsert',       'Upsert Me',    '2026-08-03 10:00:00+00', '2026-08-03 10:30:00+00', 'FREQ=WEEKLY');
+
+-- A detached (already-edited) child of master-destroy, simulating the orphan bug.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, recurrence_override, parent_event_uid)
+VALUES (7205, 7101, 'master-destroy', 'Destroy Me (moved)', '2026-08-10 14:00:00+00', '2026-08-10 14:30:00+00',
+        '2026-08-10 10:00:00+00', 'master-destroy');
+
+-- delete THIS occurrence: exdate appended, no override row created.
+SELECT (jmap_calendar_event_set_occurrence(7101, 7201, '2026-08-10 10:00:00+00'::timestamptz, 'this', '{"excluded":true}'::jsonb));
+SELECT ok(
+  EXISTS (SELECT 1 FROM calendar_events ce, unnest(ce.exdate) AS x(d)
+          WHERE ce.id = 7201 AND x.d = '2026-08-10 10:00:00+00'::timestamptz),
+  'delete-this appends exdate'
+);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE uid = 'master-del-this' AND recurrence_override = '2026-08-10 10:00:00+00'::timestamptz),
+  0,
+  'delete-this creates no override row'
+);
+
+-- delete THIS on an already-detached occurrence removes the override row too.
+SELECT (jmap_calendar_event_set_occurrence(7101, 7202, '2026-08-17 10:00:00+00'::timestamptz, 'this', '{"title":"Moved once"}'::jsonb));
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE uid = 'master-del-detached' AND recurrence_override = '2026-08-17 10:00:00+00'::timestamptz),
+  1,
+  'setup: this-edit created the detached override'
+);
+SELECT (jmap_calendar_event_set_occurrence(7101, 7202, '2026-08-17 10:00:00+00'::timestamptz, 'this', '{"excluded":true}'::jsonb));
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE uid = 'master-del-detached' AND recurrence_override = '2026-08-17 10:00:00+00'::timestamptz),
+  0,
+  're-delete of a detached occurrence removes its override row'
+);
+SELECT ok(
+  EXISTS (SELECT 1 FROM calendar_events ce, unnest(ce.exdate) AS x(d)
+          WHERE ce.id = 7202 AND x.d = '2026-08-17 10:00:00+00'::timestamptz),
+  're-delete of a detached occurrence still records the exdate'
+);
+
+-- delete FOLLOWING: rrule gains UNTIL, no new tail master.
+SELECT (jmap_calendar_event_set_occurrence(7101, 7203, '2026-09-07 10:00:00+00'::timestamptz, 'following', '{"excluded":true}'::jsonb));
+SELECT ok(
+  (SELECT rrule FROM calendar_events WHERE id = 7203) LIKE '%UNTIL=%',
+  'delete-following truncates the rrule with UNTIL'
+);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events
+     WHERE uid = 'master-del-following' AND recurrence_override IS NULL AND id <> 7203),
+  0,
+  'delete-following creates no tail master'
+);
+
+-- destroy of a recurring master removes its detached-override siblings (orphan bug).
+SELECT jmap_calendar_event_set_destroy(7101, ARRAY[7204]::bigint[]);
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE uid = 'master-destroy'),
+  0,
+  'destroying a series master removes detached overrides too'
+);
+
+-- repeated 'this' edits of the SAME occurrence upsert one row (not a crash, not a dup).
+SELECT (jmap_calendar_event_set_occurrence(7101, 7206, '2026-08-03 10:00:00+00'::timestamptz, 'this', '{"title":"Once"}'::jsonb));
+SELECT (jmap_calendar_event_set_occurrence(7101, 7206, '2026-08-03 10:00:00+00'::timestamptz, 'this', '{"title":"Twice"}'::jsonb));
+SELECT is(
+  (SELECT count(*)::int FROM calendar_events WHERE uid = 'master-upsert' AND recurrence_override = '2026-08-03 10:00:00+00'::timestamptz),
+  1,
+  'repeated this-edit upserts one override row'
+);
+SELECT is(
+  (SELECT title FROM calendar_events WHERE uid = 'master-upsert' AND recurrence_override = '2026-08-03 10:00:00+00'::timestamptz),
+  'Twice',
+  'second this-edit updated the existing override row'
+);
+
+-- ============================================================
+-- Task 3: following-split RRULE surgery + tail re-parenting
+-- ============================================================
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule)
+VALUES (7301, 7101, 'master-count', 'Count Series', '2026-08-03 09:00:00+00', '2026-08-03 09:30:00+00',
+        'FREQ=WEEKLY;COUNT=20');
+
+-- A detached override AFTER the split point (2026-08-24).
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, recurrence_override, parent_event_uid)
+VALUES (7302, 7101, 'master-count', 'Count Series (moved)', '2026-08-24 11:00:00+00', '2026-08-24 11:30:00+00',
+        '2026-08-24 09:00:00+00', 'master-count');
+
+-- An exdate AFTER the split point (2026-08-31), recorded directly on the master.
+UPDATE calendar_events SET exdate = ARRAY['2026-08-31 09:00:00+00'::timestamptz] WHERE id = 7301;
+
+SELECT (jmap_calendar_event_set_occurrence(7101, 7301, '2026-08-17 09:00:00+00'::timestamptz, 'following', '{"location":"Room B"}'::jsonb));
+
+SELECT ok(
+  (SELECT rrule FROM calendar_events WHERE id = 7301) !~ 'COUNT=',
+  'following-split strips COUNT before adding UNTIL (no COUNT+UNTIL together)'
+);
+
+SELECT is(
+  (SELECT ce.uid FROM calendar_events ce WHERE ce.id = 7302),
+  (SELECT uid FROM calendar_events WHERE calendar_id = 7101 AND recurrence_override IS NULL
+     AND start_at = '2026-08-17 09:00:00+00'::timestamptz),
+  'post-split detached override re-parented onto the tail master'
+);
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM calendar_events ce, unnest(ce.exdate) AS x(d)
+          WHERE ce.calendar_id = 7101 AND ce.recurrence_override IS NULL
+            AND ce.start_at = '2026-08-17 09:00:00+00'::timestamptz
+            AND x.d = '2026-08-31 09:00:00+00'::timestamptz),
+  'post-split exdate migrated to the tail master'
+);
+
+-- ============================================================
+-- Task 4: override-copy completeness + BZ123 occurrence validation
+-- ============================================================
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule,
+                              color, classification, valarm)
+VALUES (7402, 7101, 'master-copy', 'Copy Series', '2026-08-03 09:00:00+00', '2026-08-03 09:30:00+00',
+        'FREQ=WEEKLY', '#ff0000', 'PRIVATE', '[{"trigger":"2026-08-03T08:45:00Z","action":"DISPLAY"}]'::jsonb);
+
+INSERT INTO event_attendees (event_id, email, name, role, status, rsvp) VALUES
+  (7402, 'a@rec.test', 'A', 'required', 'accepted', TRUE),
+  (7402, 'b@rec.test', 'B', 'required', 'needs-action', TRUE);
+
+SELECT (jmap_calendar_event_set_occurrence(7101, 7402, '2026-08-10 09:00:00+00'::timestamptz, 'this', '{"title":"Copied"}'::jsonb));
+
+SELECT is(
+  (SELECT count(*)::int FROM event_attendees
+     WHERE event_id = (SELECT id FROM calendar_events WHERE uid = 'master-copy' AND recurrence_override = '2026-08-10 09:00:00+00'::timestamptz)),
+  2,
+  'this-edit copies attendees onto the override row'
+);
+SELECT is(
+  (SELECT classification FROM calendar_events WHERE uid = 'master-copy' AND recurrence_override = '2026-08-10 09:00:00+00'::timestamptz),
+  'PRIVATE',
+  'this-edit copies classification'
+);
+SELECT is(
+  (SELECT color FROM calendar_events WHERE uid = 'master-copy' AND recurrence_override = '2026-08-10 09:00:00+00'::timestamptz),
+  '#ff0000',
+  'this-edit copies color'
+);
+SELECT ok(
+  (SELECT valarm FROM calendar_events WHERE uid = 'master-copy' AND recurrence_override = '2026-08-10 09:00:00+00'::timestamptz) IS NOT NULL,
+  'this-edit copies valarm'
+);
+
+-- A recurrence id that is NOT an occurrence of the series raises BZ123.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule)
+VALUES (7403, 7101, 'master-bz123', 'BZ123 Series', '2026-08-03 09:00:00+00', '2026-08-03 09:30:00+00', 'FREQ=WEEKLY');
+
+SELECT throws_ok(
+  $$ SELECT jmap_calendar_event_set_occurrence(7101, 7403, '2026-08-11 03:33:00+00'::timestamptz, 'this', '{}'::jsonb) $$,
+  'BZ123',
+  NULL,
+  'non-occurrence recurrence id rejected'
+);
+
+-- ============================================================
+-- Task 9: occurrence-scoped iTIP outbound (REQUEST on edit, CANCEL on delete)
+-- ============================================================
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, rrule,
+                              is_meeting, organizer_email, organizer_name)
+VALUES (7501, 7101, 'master-itip', 'Board Sync', '2026-08-03 09:00:00+00', '2026-08-03 09:30:00+00',
+        'FREQ=WEEKLY', TRUE, 'owner@rec.test', 'Owner');
+INSERT INTO event_attendees (event_id, email, name, role, status, rsvp) VALUES
+  (7501, 'attendee1@rec.test', 'A1', 'required', 'accepted', TRUE),
+  (7501, 'attendee2@rec.test', 'A2', 'required', 'needs-action', TRUE);
+
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-10 09:00:00+00'::timestamptz, 'this',
+    '{"title":"Board Sync (moved)"}'::jsonb))->'invitePayload'->>'method',
+  'REQUEST',
+  'this-edit of a meeting occurrence enqueues a REQUEST-method invite payload'
+);
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-17 09:00:00+00'::timestamptz, 'this',
+    '{"title":"x"}'::jsonb))->'invitePayload'->>'recurrenceId',
+  '2026-08-17T09:00:00Z',
+  'invite payload carries the RECURRENCE-ID as UTC-Z'
+);
+SELECT is(
+  jsonb_array_length((jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-24 09:00:00+00'::timestamptz, 'this',
+    '{"title":"x"}'::jsonb))->'invitePayload'->'attendees'),
+  2,
+  'invite payload carries both attendees'
+);
+SELECT is(
+  (jmap_calendar_event_set_occurrence(7101, 7501, '2026-08-31 09:00:00+00'::timestamptz, 'this',
+    '{"excluded":true}'::jsonb))->'invitePayload'->>'method',
+  'CANCEL',
+  'excluded:true (delete-this) enqueues a CANCEL-method invite payload'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

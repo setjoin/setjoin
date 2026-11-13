@@ -1,0 +1,115 @@
+-- pgTAP: recipients_ooo_status.sql — compose OOO advisory (QoL #7).
+-- Active-window logic (verbatim from deliver_group_vacation) + M5 directory-
+-- enumeration safety (external/unknown → absent, indistinguishable from not-OOO).
+BEGIN;
+SELECT plan(9);
+
+-- Dates are computed relative to CURRENT_DATE (not hardcoded), so this is stable
+-- across server timezones; SET LOCAL pins the session anyway for defence in depth.
+SET LOCAL timezone = 'UTC';
+
+SELECT has_function('recipients_ooo_status', ARRAY['bigint', 'jsonb'],
+  'recipients_ooo_status(bigint, jsonb) exists');
+
+-- Fixtures: DIVERGENT user_id != mailbox_id (ADR-003 regression guard).
+INSERT INTO domains (name, is_local) VALUES ('ooo.test', TRUE);
+
+-- Caller (the composer)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91001, 'caller', (SELECT id FROM domains WHERE name='ooo.test'), 'caller@ooo.test', 'Caller');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99001, 91001, (SELECT id FROM domains WHERE name='ooo.test'), 'caller@ooo.test', 'Caller', 'personal', TRUE);
+
+-- Recipient: ACTIVE OOO (window spans today)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91002, 'active', (SELECT id FROM domains WHERE name='ooo.test'), 'active@ooo.test', 'Active');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99002, 91002, (SELECT id FROM domains WHERE name='ooo.test'), 'active@ooo.test', 'Active', 'personal', TRUE);
+INSERT INTO vacation_settings (mailbox_id, enabled, subject, body_text, start_date, end_date)
+  VALUES (99002, TRUE, 'Secret subject', 'Secret body',
+          CURRENT_DATE - 1, CURRENT_DATE + 5);
+
+-- Recipient: EXPIRED OOO (ended yesterday)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91003, 'expired', (SELECT id FROM domains WHERE name='ooo.test'), 'expired@ooo.test', 'Expired');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99003, 91003, (SELECT id FROM domains WHERE name='ooo.test'), 'expired@ooo.test', 'Expired', 'personal', TRUE);
+INSERT INTO vacation_settings (mailbox_id, enabled, start_date, end_date)
+  VALUES (99003, TRUE, CURRENT_DATE - 10, CURRENT_DATE - 1);
+
+-- Recipient: FUTURE OOO (starts tomorrow)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91004, 'future', (SELECT id FROM domains WHERE name='ooo.test'), 'future@ooo.test', 'Future');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99004, 91004, (SELECT id FROM domains WHERE name='ooo.test'), 'future@ooo.test', 'Future', 'personal', TRUE);
+INSERT INTO vacation_settings (mailbox_id, enabled, start_date, end_date)
+  VALUES (99004, TRUE, CURRENT_DATE + 1, CURRENT_DATE + 5);
+
+-- Recipient: INDEFINITE OOO (enabled, no dates)
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91005, 'indef', (SELECT id FROM domains WHERE name='ooo.test'), 'indef@ooo.test', 'Indefinite');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99005, 91005, (SELECT id FROM domains WHERE name='ooo.test'), 'indef@ooo.test', 'Indefinite', 'personal', TRUE);
+INSERT INTO vacation_settings (mailbox_id, enabled, start_date, end_date)
+  VALUES (99005, TRUE, NULL, NULL);
+
+-- Recipient: OOO DISABLED
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (91006, 'off', (SELECT id FROM domains WHERE name='ooo.test'), 'off@ooo.test', 'Off');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (99006, 91006, (SELECT id FROM domains WHERE name='ooo.test'), 'off@ooo.test', 'Off', 'personal', TRUE);
+INSERT INTO vacation_settings (mailbox_id, enabled, start_date, end_date)
+  VALUES (99006, FALSE, CURRENT_DATE - 1, CURRENT_DATE + 5);
+
+-- Active recipient is returned with the end date, NOT the subject/body.
+SELECT is(
+  recipients_ooo_status(99001, '["active@ooo.test"]'::jsonb),
+  jsonb_build_array(jsonb_build_object('email', 'active@ooo.test', 'until', (CURRENT_DATE + 5))),
+  'active OOO returns {email, until} with end date only (no body/subject)');
+
+-- Expired / future / disabled recipients are ABSENT.
+SELECT is(
+  recipients_ooo_status(99001, '["expired@ooo.test","future@ooo.test","off@ooo.test"]'::jsonb),
+  '[]'::jsonb,
+  'expired, future, and disabled OOO are all absent');
+
+-- Indefinite OOO returns until=null (no "until" date).
+SELECT is(
+  recipients_ooo_status(99001, '["indef@ooo.test"]'::jsonb),
+  jsonb_build_array(jsonb_build_object('email', 'indef@ooo.test', 'until', NULL)),
+  'indefinite OOO returns until=null');
+
+-- M5: an external / unknown address returns NOTHING — indistinguishable from an
+-- internal address that is simply not out of office (no enumeration oracle).
+SELECT is(
+  recipients_ooo_status(99001, '["stranger@external.example"]'::jsonb),
+  '[]'::jsonb,
+  'external/unknown address is absent (no found/not-found distinction)');
+
+-- Mixed batch: only the active internal OOO recipient surfaces.
+SELECT is(
+  recipients_ooo_status(99001,
+    '["active@ooo.test","expired@ooo.test","stranger@external.example"]'::jsonb),
+  jsonb_build_array(jsonb_build_object('email', 'active@ooo.test', 'until', (CURRENT_DATE + 5))),
+  'mixed batch returns only the active internal OOO recipient');
+
+-- Body/subject never leak: the serialized result must not contain the reply text.
+SELECT is(
+  (recipients_ooo_status(99001, '["active@ooo.test"]'::jsonb))::text NOT LIKE '%Secret%',
+  TRUE,
+  'auto-reply subject/body never appear in the result');
+
+-- R1: a bogus caller mailbox returns an empty array (fail-closed, no leak).
+SELECT is(
+  recipients_ooo_status(-999, '["active@ooo.test"]'::jsonb),
+  '[]'::jsonb,
+  'bogus caller mailbox returns empty (R1 fail-closed)');
+
+-- Null / empty inputs are handled gracefully.
+SELECT is(
+  recipients_ooo_status(99001, '[]'::jsonb),
+  '[]'::jsonb,
+  'empty recipient list returns empty array');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,33 @@
+{
+  "case": "raw-json",
+  "format": 1,
+  "go_source": "c517ac13d77b7ed50f96b098249354483212109a",
+  "normalization": [
+    "fixture mailbox id"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/eventsource"
+    },
+    "response": {
+      "body": "event: state\ndata: {\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"0\",\"Mailbox\":\"0\",\"Task\":\"0\",\"Thread\":\"0\"}}}\n\nevent: chat\ndata: null\n\nevent: chat\ndata: [1,true]\n\nevent: chat\ndata: {\n  \"marker\": \"<>&雪\"\n}\n\nevent: chat\ndata: 1e999\n\n",
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/event-stream",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-accel-buffering": "no",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /jmap/eventsource"
+}

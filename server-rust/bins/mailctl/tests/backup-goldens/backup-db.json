@@ -1,0 +1,13 @@
+{
+  "exit": 0,
+  "stdout": "Backup uploaded: s3://fixture/db-dump.dump (+db-dump.dump.hmac)\nArchival copy:   s3://fixture/db-dump-$STAMP.dump (+db-dump-$STAMP.dump.hmac)\n",
+  "stderr": "Running pg_dump (custom format)...\nDump complete ($DUMP_SIZE bytes). Uploading to s3://fixture ...\n",
+  "objects": [
+    "db-dump.dump",
+    "db-dump.dump.hmac",
+    "db-dump-$STAMP.dump",
+    "db-dump-$STAMP.dump.hmac"
+  ],
+  "dump_authenticated": true,
+  "child_password_only_in_environment": true
+}

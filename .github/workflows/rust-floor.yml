@@ -1,0 +1,81 @@
+name: Rust floor builds
+on:
+  push:
+    branches: [main]
+    paths: ['server-rust/**', 'scripts/**', '.github/ci/rust-loong-*.Dockerfile', '.github/workflows/rust-floor.yml']
+  pull_request:
+    paths: ['server-rust/**', 'scripts/**', '.github/ci/rust-loong-*.Dockerfile', '.github/workflows/rust-floor.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  floor:
+    name: Rust ${{ matrix.arch }} glibc ${{ matrix.floor }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            floor: '2.28'
+            runner: ubuntu-24.04
+            image: quay.io/pypa/manylinux_2_28_x86_64@sha256:e0adf18521ad35192df733a6c62d35df7801957d24e0470238aacecfab2188a3
+          - arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            floor: '2.28'
+            runner: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux_2_28_aarch64@sha256:a3e02308c822fb6ce0d12248b0c941817ba5e1a1bc9e7bb5929f29c50eaa40a9
+          - arch: loongarch64
+            target: loongarch64-unknown-linux-gnu
+            floor: '2.36'
+            runner: ubuntu-24.04
+            image: setjoin-rust-loong-toolchain:ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
+          targets: ${{ matrix.target }}
+      - name: Prepare LoongArch toolchain with the build-guard interpreter
+        if: matrix.arch == 'loongarch64'
+        shell: bash
+        run: docker build -t setjoin-rust-loong-toolchain:ci - < .github/ci/rust-loong-toolchain.Dockerfile
+      - name: Build all workspace binaries and check their glibc requirements
+        shell: bash
+        env:
+          FLOOR_IMAGE: ${{ matrix.image }}
+          FLOOR_TARGET: ${{ matrix.target }}
+          FLOOR_VERSION: ${{ matrix.floor }}
+          FLOOR_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          toolchain=$(rustc --print sysroot)
+          docker run --rm --name "setjoin-floor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${FLOOR_ARCH}" \
+            -v "$GITHUB_WORKSPACE:/src" -v "$toolchain:/opt/rust:ro" \
+            -w /src -e FLOOR_TARGET -e FLOOR_VERSION -e FLOOR_ARCH \
+            -e CARGO_TARGET_DIR="/src/build/rust-floor/$FLOOR_ARCH" -e CARGO_BUILD_JOBS=2 \
+            --entrypoint /bin/bash "$FLOOR_IMAGE" -c '
+              set -euo pipefail
+              export PATH="/opt/rust/bin:$PATH" CARGO_HOME=/tmp/cargo
+              if [ "$FLOOR_TARGET" != loongarch64-unknown-linux-gnu ]; then
+                test "$(getconf GNU_LIBC_VERSION)" = "glibc $FLOOR_VERSION"
+              else
+                /usr/local/bin/qemu-loongarch64 -L "$CROSS_SYSROOT" "$CROSS_SYSROOT/lib64/libc.so.6" | head -1 | grep -F "version $FLOOR_VERSION"
+              fi
+              bash scripts/cross-build.sh --rust --arch "$FLOOR_ARCH"
+            '
+      - name: Smoke LoongArch in the new-world runtime image
+        if: matrix.arch == 'loongarch64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/test-build-rust-floor.py
+          python3 scripts/test-check-glibc-floor.py
+          python3 scripts/test-cross-build-rust.py
+          bash scripts/smoke-rust-floor.test.sh
+          docker build -t setjoin-rust-loong-floor:ci - < .github/ci/rust-loong-runtime.Dockerfile
+          # The copied libc must be the actual floor, and QEMU must execute it.
+          docker run --rm setjoin-rust-loong-floor:ci /lib64/libc.so.6 | head -1 | grep -F 'version 2.36'
+          expected=$(cargo metadata --manifest-path server-rust/Cargo.toml --locked --no-deps --format-version=1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "setjoin-gateway"))')
+          SMOKE_EXPECTED_VERSION="$expected" bash scripts/smoke-rust-floor.sh "$GITHUB_WORKSPACE/scripts/smoke-rust-loong-container.sh"

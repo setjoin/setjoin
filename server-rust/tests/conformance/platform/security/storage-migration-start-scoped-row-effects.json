@@ -1,0 +1,11 @@
+{
+  "case": "storage-migration-start-scoped-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "storage_migrations"
+    }
+  ],
+  "format": 1
+}

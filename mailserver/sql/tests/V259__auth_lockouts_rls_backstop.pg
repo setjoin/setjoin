@@ -1,0 +1,392 @@
+-- pgTAP: V259__auth_lockouts_rls_backstop.pg — the auth_lockouts R4 FORCE-RLS
+-- deny-all backstop (PLAN-20260913 D2 / REDUCERS-004, Astra AGREE).
+--
+-- Methodology per V254__mdm_rls_backstop.pg: the r12 actual-role contract
+-- (SET LOCAL ROLE setjoin_app = NOBYPASSRLS; setjoin_worker = BYPASSRLS
+-- control; the test connection `mail` is a SUPERUSER + table owner and
+-- bypasses RLS even under FORCE, so the role switch is load-bearing), the
+-- r3.4 denial normalization (INSERT denials are WITH CHECK rejections →
+-- 42501; USING-side UPDATE/DELETE denials FILTER to 0 rows), mutation-count
+-- admission arms (data-modifying CTE RETURNING, never lives_ok for
+-- mutations), and the deny-all FORCE proof being non-vacuous (fixture rows
+-- EXIST before the app-role zero-count assertion).
+--
+-- Posture (V217/V246/V249/V254 posture D): ENABLE + FORCE RLS with ZERO
+-- policies = fail-closed for every runtime role INCLUDING the owner. The
+-- table's ONLY write/read surface is the ten worker-owned SECURITY DEFINER
+-- accessors (authserver/sql/reducers: lockout_escalate, prune_old_lockouts,
+-- lockout_check, lockout_clear, lockout_arm, lockout_list,
+-- lockout_count, push_lockout_acquire, push_lockout_record,
+-- push_lockout_count_locked).
+--
+-- WORKER-ONLY ACLs: this file performs NO ACL repair. It asserts the ACTUAL
+-- post-provisioning state: the test-cluster load runs scripts/provision-roles.sql
+-- AFTER the reducer load (load-test-schema.sh step 4/4, install.sh post-load
+-- pass), and its worker-only carve-out carries ALL TEN accessor signatures, so
+-- it re-establishes the REVOKE-from-setjoin_app denial that the broad
+-- GRANT EXECUTE ON ALL FUNCTIONS (provision-roles.sql:168) would otherwise
+-- undo. Because nothing is repaired here, the EXECUTE-denial arms below prove
+-- the shipped ACL state and fail if the carve-out registration ever drifts
+-- (the Astra HOLD finding this round closes).
+--
+-- Astra impl-r2 P2 x2 (impl-r3): lockout_list gained validated p_sort/p_dir
+-- ordering applied BEFORE the page bounds (the fixed locked_until DESC
+-- silently dropped the admin view's supported sorting), and the new
+-- lockout_count carries the FULL filtered count (counting a lockout_list
+-- page capped the reported total at the 500-row accessor ceiling, so
+-- pagination could never reach row 501). The Item-4 arms below prove both:
+-- a 524-row corpus pages past row 500 and every allow-listed column sorts
+-- both directions, while the worker-only ACL posture extends to the new
+-- signature and accessor.
+BEGIN;
+SELECT plan(78);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures (superuser) — clean slate, two live lock rows, the four prune
+-- rows inserted later in their own block.
+-- ══════════════════════════════════════════════════════════════════════
+DELETE FROM auth_lockouts;
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('d2_ip:192.0.2.81', 6, now() + interval '20 minutes', 2),
+       ('d2_user:lockedvictim@example.test', 7, now() + interval '40 minutes', 3);
+
+-- Non-vacuousness precondition for the deny-all proof (asserted as the
+-- fixture role BEFORE the role switch, V254 form).
+SELECT is((SELECT count(*)::int FROM auth_lockouts), 2,
+    'd2: the fixture lock rows exist so the deny-all proof is not vacuous');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- No ACL setup: the denial arms below run against the ACTUAL
+-- post-provisioning ACL state (see the header — provisioning already ran
+-- after the reducer load and its worker-only carve-out owns the denial).
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 1 — Shape: deny-all FORCE RLS, isolated ownership, zero policies,
+-- and the ten SECURITY DEFINER accessors (definer = setjoin_worker,
+-- worker-only EXECUTE).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(
+  (SELECT c.relrowsecurity AND c.relforcerowsecurity
+          AND (SELECT rolname = 'setjoin_owner' FROM pg_roles WHERE oid = c.relowner)
+     FROM pg_class c
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname = 'auth_lockouts'),
+  TRUE, 'd2: auth_lockouts is ENABLE+FORCE RLS and owned by setjoin_owner');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policy p
+    WHERE p.polrelid = 'auth_lockouts'::regclass),
+  0, 'd2: zero policies exist on auth_lockouts (deny-all, no USING(true) arm)');
+
+SELECT has_function('public', 'lockout_escalate', ARRAY['text','int'],
+    'd2: lockout_escalate(text,int) accessor is installed');
+SELECT has_function('public', 'prune_old_lockouts', ARRAY['int','int'],
+    'd2: prune_old_lockouts(int,int) accessor is installed');
+SELECT has_function('public', 'lockout_check', ARRAY['text[]'],
+    'd2: lockout_check(text[]) accessor is installed');
+SELECT has_function('public', 'lockout_clear', ARRAY['text[]'],
+    'd2: lockout_clear(text[]) accessor is installed');
+SELECT has_function('public', 'lockout_arm', ARRAY['text','int'],
+    'd2: lockout_arm(text,int) accessor is installed');
+SELECT has_function('public', 'lockout_list', ARRAY['text','int','int','text','text'],
+    'd2: lockout_list(text,int,int,text,text) sort accessor is installed');
+SELECT is((SELECT count(*)::int FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'lockout_list'),
+  1, 'd2: exactly ONE lockout_list (the 5-arg sort accessor; the stale 3-arg overload is dropped)');
+SELECT has_function('public', 'lockout_count', ARRAY['text'],
+    'd2: lockout_count(text) full-count accessor is installed');
+SELECT has_function('public', 'push_lockout_acquire', ARRAY['bigint'],
+    'd2: push_lockout_acquire(bigint) accessor is installed');
+SELECT has_function('public', 'push_lockout_record', ARRAY['bigint','int','timestamptz'],
+    'd2: push_lockout_record(bigint,int,timestamptz) accessor is installed');
+SELECT has_function('public', 'push_lockout_count_locked', ARRAY['bigint'],
+    'd2: push_lockout_count_locked(bigint) accessor is installed');
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_proc
+    WHERE proname IN ('lockout_escalate','prune_old_lockouts','lockout_check',
+                      'lockout_clear','lockout_arm','lockout_list',
+                      'lockout_count',
+                      'push_lockout_acquire','push_lockout_record',
+                      'push_lockout_count_locked')
+      AND pronamespace = 'public'::regnamespace
+      AND prosecdef
+      AND (SELECT rolname = 'setjoin_worker' FROM pg_roles WHERE oid = proowner)),
+  10, 'd2: all ten accessors are SECURITY DEFINER owned by setjoin_worker');
+SELECT is(
+  (SELECT bool_and(has_function_privilege('setjoin_worker', sig::regprocedure, 'EXECUTE'))
+     FROM (VALUES ('lockout_escalate(text,int)'),
+                  ('prune_old_lockouts(int,int)'),
+                  ('lockout_check(text[])'),
+                  ('lockout_clear(text[])'),
+                  ('lockout_arm(text,int)'),
+                  ('lockout_list(text,int,int,text,text)'),
+                  ('lockout_count(text)'),
+                  ('push_lockout_acquire(bigint)'),
+                  ('push_lockout_record(bigint,int,timestamptz)'),
+                  ('push_lockout_count_locked(bigint)')) AS v(sig)),
+  TRUE, 'd2: setjoin_worker holds EXECUTE on every accessor');
+SELECT is(
+  (SELECT bool_and(NOT has_function_privilege('setjoin_app', sig::regprocedure, 'EXECUTE'))
+     FROM (VALUES ('lockout_escalate(text,int)'),
+                  ('prune_old_lockouts(int,int)'),
+                  ('lockout_check(text[])'),
+                  ('lockout_clear(text[])'),
+                  ('lockout_arm(text,int)'),
+                  ('lockout_list(text,int,int,text,text)'),
+                  ('lockout_count(text)'),
+                  ('push_lockout_acquire(bigint)'),
+                  ('push_lockout_record(bigint,int,timestamptz)'),
+                  ('push_lockout_count_locked(bigint)')) AS v(sig)),
+  TRUE, 'd2: setjoin_app holds NO EXECUTE on any accessor (worker-only carve-out)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 2 — the real runtime role (setjoin_app, NOBYPASSRLS): deny-all.
+-- ══════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+
+SELECT is((SELECT count(*)::int FROM auth_lockouts), 0,
+    'd2: setjoin_app sees 0 auth_lockouts rows (deny-all FORCE, zero-row read)');
+SELECT throws_ok(
+  $$INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until)
+      VALUES ('d2_evil', 1, now())$$,
+  '42501', NULL,
+  'd2: setjoin_app INSERT is denied (42501)');
+-- The push seam's PRE-conversion statement shape (INSERT .. ON CONFLICT
+-- upsert) must fail closed the same way — this is what forced the accessor
+-- conversion (push_lockout_accessors.sql).
+SELECT throws_ok(
+  $$INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until)
+      VALUES ('push_user:900420', 0, now())
+      ON CONFLICT (lockout_key) DO UPDATE
+          SET lockout_key = EXCLUDED.lockout_key$$,
+  '42501', NULL,
+  'd2: setjoin_app push-shaped lockout upsert INSERT is denied (42501)');
+-- USING-side denials FILTER to 0 rows (r3.4) — mutation-count form, never
+-- lives_ok (a silently filtered statement must FAIL here).
+WITH u AS (UPDATE auth_lockouts SET failed_count = 99
+           WHERE lockout_key = 'd2_ip:192.0.2.81'
+           RETURNING lockout_key)
+SELECT count(*)::int AS d2_app_updated FROM (SELECT lockout_key FROM u) s \gset
+SELECT is(:d2_app_updated, 0,
+    'd2: setjoin_app UPDATE matches 0 rows (USING filter, no 42501)');
+WITH d AS (DELETE FROM auth_lockouts WHERE lockout_key = 'd2_user:lockedvictim@example.test'
+           RETURNING lockout_key)
+SELECT count(*)::int AS d2_app_deleted FROM (SELECT lockout_key FROM d) s \gset
+SELECT is(:d2_app_deleted, 0,
+    'd2: setjoin_app DELETE matches 0 rows (USING filter, no 42501)');
+
+-- Accessor EXECUTE denial for the app role (the worker-only carve-out; the
+-- direct-table denials above are not enough — the choke point must hold too).
+SELECT throws_ok(
+  $$SELECT lockout_escalate('d2_evil', 5)$$,
+  '42501', NULL,
+  'd2: setjoin_app is denied EXECUTE on lockout_escalate (42501)');
+SELECT throws_ok(
+  $$SELECT * FROM push_lockout_acquire(900420)$$,
+  '42501', NULL,
+  'd2: setjoin_app is denied EXECUTE on push_lockout_acquire (42501)');
+SELECT throws_ok(
+  $$SELECT * FROM lockout_list(NULL, NULL, NULL)$$,
+  '42501', NULL,
+  'd2: setjoin_app is denied EXECUTE on lockout_list (the read accessor is worker-only)');
+SELECT throws_ok(
+  $$SELECT lockout_count(NULL)$$,
+  '42501', NULL,
+  'd2: setjoin_app is denied EXECUTE on lockout_count (the full-count accessor is worker-only)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 3 — worker BYPASSRLS control: the worker credential sees fixtures and
+-- writes under FORCE (the worker pool never strands).
+-- ══════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_worker;
+SELECT is((SELECT count(*)::int FROM auth_lockouts), 2,
+    'd2: setjoin_worker sees the fixture rows under FORCE (BYPASSRLS control)');
+SELECT lives_ok(
+  $$INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until)
+      VALUES ('d2_worker_direct', 9, now() + interval '10 minutes')$$,
+    'd2: setjoin_worker can write auth_lockouts under FORCE (BYPASSRLS control)');
+SELECT is((SELECT count(*)::int FROM auth_lockouts), 3,
+    'd2: the worker direct INSERT landed (3 rows under FORCE)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 4 — accessor behaviour as the worker role: the threat-pipeline paths
+-- (lockout_check / lockout_escalate / lockout_clear / lockout_arm /
+-- lockout_list — the store.go IsLocked, Escalate, Clear, LockIP shapes and
+-- the admin lockouts view).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT locked FROM lockout_check(
+             ARRAY['d2acc_ip:203.0.113.9','d2acc_user:v@example.test'])), FALSE,
+    'd2: lockout_check reports not-locked for fresh keys');
+SELECT is((SELECT remaining_seconds FROM lockout_check(
+             ARRAY['d2acc_ip:203.0.113.9','d2acc_user:v@example.test'])), 0::double precision,
+    'd2: lockout_check reports 0 remaining seconds for fresh keys');
+SELECT is(lockout_escalate('d2acc_ip:203.0.113.9', 5), 0,
+    'd2: accessor lockout_escalate insert branch lands level 0 (first failure)');
+SELECT is(lockout_escalate('d2acc_ip:203.0.113.9', 1), 1,
+    'd2: accessor lockout_escalate arms the lock across the threshold (level 1)');
+SELECT is((SELECT locked FROM lockout_check(ARRAY['d2acc_ip:203.0.113.9'])), TRUE,
+    'd2: lockout_check reports the armed lock through the same accessor set');
+SELECT is((SELECT remaining_seconds > 0 FROM lockout_check(ARRAY['d2acc_ip:203.0.113.9'])), TRUE,
+    'd2: lockout_check reports positive remaining seconds for the armed lock');
+SELECT is((SELECT failed_count::int FROM auth_lockouts
+            WHERE lockout_key = 'd2acc_ip:203.0.113.9'), 2,
+    'd2: the escalation bumped failed_count 1 → 2 (post-increment semantics)');
+SELECT is((SELECT count(*)::int FROM audit_log
+            WHERE event_type = 'lockout_escalate'
+              AND metadata->>'lockout_key' = 'd2acc_ip:203.0.113.9'), 1,
+    'd2: the arming escalation wrote its audit row atomically (worker definer)');
+SELECT is(lockout_clear(ARRAY['d2acc_ip:203.0.113.9','d2acc_user:missing']), 1,
+    'd2: lockout_clear deletes exactly the matching row (auth-success reset)');
+SELECT is((SELECT locked FROM lockout_check(ARRAY['d2acc_ip:203.0.113.9'])), FALSE,
+    'd2: the cleared key is no longer locked');
+SELECT lockout_arm('d2acc_armed_ip:198.51.100.7', 30);
+SELECT is((SELECT locked_until > now() + interval '29 minutes'
+             FROM auth_lockouts WHERE lockout_key = 'd2acc_armed_ip:198.51.100.7'), TRUE,
+    'd2: lockout_arm armed a ~30 minute IP lock (spray LockIP path)');
+SELECT is((SELECT locked FROM lockout_check(ARRAY['d2acc_armed_ip:198.51.100.7'])), TRUE,
+    'd2: lockout_check sees the spray-armed lock');
+SELECT is((SELECT count(*)::int FROM lockout_list(NULL, NULL, NULL)), 4,
+    'd2: lockout_list lists the live rows (fixtures + worker + armed = 4)');
+SELECT is((SELECT count(*)::int FROM lockout_list('lockedvictim', NULL, NULL)), 1,
+    'd2: lockout_list q-filter narrows to the ILIKE match (admin console filter)');
+SELECT is((SELECT count(*)::int FROM lockout_list(NULL, 2, NULL)), 2,
+    'd2: lockout_list limit clamps the page size');
+SELECT is(lockout_count(NULL), 4::bigint,
+    'd2: lockout_count matches the unfiltered lockout_list count on a small corpus');
+SELECT is(lockout_count('lockedvictim'), 1::bigint,
+    'd2: lockout_count applies the same ILIKE q-filter as lockout_list');
+
+-- ── Item 4b — Astra impl-r2 P2 regressions: FULL filtered count past the
+-- 500-row page ceiling, and validated sorting applied BEFORE pagination ────
+-- A deterministic 520-row corpus: failed_count = g (unique, 1..520),
+-- locked_until = now() + (1000-g) minutes (unique, strictly DECREASING in g),
+-- updated_at = now() - g seconds (unique, strictly DECREASING in g). Live
+-- locks (future locked_until, at-threshold counts) so Item 5's prune is
+-- untouched after the cleanup below.
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level, updated_at)
+SELECT 'd2_bulk_' || g, g, now() + make_interval(mins => 1000 - g), 1,
+       now() - make_interval(secs => g)
+  FROM generate_series(1, 520) g;
+
+-- P2 #1 — the count accessor reports the FULL filtered corpus (524 = 4 live
+-- + 520 bulk), NOT a page-capped 500; the page bound stays on lockout_list.
+SELECT is(lockout_count(NULL), 524::bigint,
+    'd2: lockout_count returns the FULL filtered count past 500 rows (524, was capped at the 500-row page ceiling)');
+SELECT is(lockout_count('d2_bulk'), 520::bigint,
+    'd2: lockout_count q-filter counts the full matching corpus (520)');
+SELECT is((SELECT count(*)::int FROM lockout_list(NULL, 500, 0)), 500,
+    'd2: lockout_list still bounds a max page at exactly 500 rows (the ceiling is page-only)');
+-- Pagination reaches past row 500: with the old capped total, the 25-per-page
+-- pager stopped at page 20 (row 500) and rows 501-524 were unreachable.
+SELECT is((SELECT count(*)::int FROM lockout_list(NULL, 25, 500, 'failed_count', 'asc')), 24,
+    'd2: offset 500 yields the trailing 24 rows (rows 501-524 are reachable through pagination)');
+SELECT is((SELECT lockout_key FROM lockout_list(NULL, 25, 500, 'failed_count', 'asc') LIMIT 1),
+    'd2_bulk_497',
+    'd2: the first row past the offset boundary is overall position 501 (page 21 exists; the 4 live fixtures at failed_count 1/6/7/9 displace the bulk sequence by 4)');
+
+-- P2 #2 — allow-listed sorting inside the accessor, BEFORE the page bounds,
+-- both directions, on every supported column (deterministic unique keys).
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'failed_count', 'asc')),
+    'd2_bulk_1',
+    'd2: failed_count ASC sorts inside the accessor (smallest first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'failed_count', 'desc')),
+    'd2_bulk_520',
+    'd2: failed_count DESC sorts inside the accessor (largest first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'locked_until', 'asc')),
+    'd2_bulk_520',
+    'd2: locked_until ASC sorts inside the accessor (earliest lock first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'locked_until', 'desc')),
+    'd2_bulk_1',
+    'd2: locked_until DESC sorts inside the accessor (latest lock first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'updated_at', 'asc')),
+    'd2_bulk_520',
+    'd2: updated_at ASC sorts inside the accessor (stalest first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'updated_at', 'desc')),
+    'd2_bulk_1',
+    'd2: updated_at DESC sorts inside the accessor (freshest first)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'failed_count', NULL)),
+    'd2_bulk_1',
+    'd2: a NULL dir defaults to ASC on a valid column (IS DISTINCT FROM branch)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, 'not_a_sort_column', 'asc')),
+    'd2_bulk_1',
+    'd2: a non-allow-listed sort falls back to the locked_until DESC default (no dynamic SQL)');
+SELECT is((SELECT lockout_key FROM lockout_list('d2_bulk', 1, 0, NULL, NULL)),
+    'd2_bulk_1',
+    'd2: absent sort keeps the locked_until DESC contract default');
+
+-- Cleanup restores the exact pre-bulk corpus so Item 5's prune counts and
+-- Item 6's push rows stay exact.
+DELETE FROM auth_lockouts WHERE lockout_key LIKE 'd2_bulk_%';
+SELECT is((SELECT count(*)::int FROM auth_lockouts), 4,
+    'd2: the bulk corpus is removed (prune + push arms see the original 4 rows)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 5 — prune_old_lockouts as the worker (the cron path, SQL unchanged:
+-- SELECT prune_old_lockouts()).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level, updated_at)
+VALUES ('d2_expired', 5, now() - interval '1 minute', 1, now() - interval '1 minute'),
+       ('d2_freshsub', 2, now() - interval '1 minute', 0, now()),
+       ('d2_stalesub', 2, now() - interval '1 minute', 0, now() - interval '25 hours'),
+       ('d2_overflow', 5, now() + interval '48 hours', 0, now());
+SELECT is(prune_old_lockouts(), 2,
+    'd2: prune_old_lockouts deleted exactly the expired-threshold + stale-subthreshold rows');
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key IN ('d2_expired','d2_stalesub')), 0,
+    'd2: the prunable rows are gone');
+SELECT is((SELECT count(*)::int FROM auth_lockouts WHERE lockout_key = 'd2_freshsub'), 1,
+    'd2: the fresh sub-threshold attacker history survives the prune cycle');
+SELECT is((SELECT locked_until > now()
+                   AND locked_until <= now() + interval '8 hours' + interval '5 seconds'
+             FROM auth_lockouts WHERE lockout_key = 'd2_overflow'), TRUE,
+    'd2: the far-future legacy lock is clamped to the 8h cap but stays locked');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 6 — the push-MFA recovery-lockout path (push_lockout_accessors.sql):
+-- the full lifecycle the Go seam drives — acquire sentinel, failure trip,
+-- count-only locked attempts, success reset, per-account isolation.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(900421)), 0,
+    'd2: push_lockout_acquire fresh account lands the count-0 row');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(900421)), FALSE,
+    'd2: the fresh acquire sentinel (locked_until = now) is not a lock');
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key = 'push_user:900421'), 1,
+    'd2: the accessor owns the push_user:{id} key convention (Go pushLockoutKey parity)');
+SELECT push_lockout_record(900421, 4, NULL);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(900421)), 4,
+    'd2: push_lockout_record stores the sub-threshold failure count');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(900421)), FALSE,
+    'd2: a NULL lock horizon keeps the account unlocked below the threshold');
+SELECT push_lockout_record(900421, 5, now() + interval '15 minutes');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(900421)), TRUE,
+    'd2: the threshold-crossing record trips the account lock');
+SELECT push_lockout_count_locked(900421);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(900421)), 6,
+    'd2: count_locked bumps the shared budget for a refused attempt');
+SELECT is((SELECT locked_until > now() + interval '14 minutes'
+             FROM push_lockout_acquire(900421)), TRUE,
+    'd2: the locked attempt did NOT extend the lock horizon (expires on schedule)');
+SELECT push_lockout_record(900421, 0, NULL);
+SELECT is((SELECT failed_count::int FROM push_lockout_acquire(900421)), 0,
+    'd2: the success reset zeroes the counter');
+SELECT is((SELECT locked_until > now() FROM push_lockout_acquire(900421)), FALSE,
+    'd2: the success reset re-arms the unlocked sentinel');
+SELECT push_lockout_acquire(900422);
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key LIKE 'push_user:90042%'), 2,
+    'd2: a second account acquires its own row (per-account isolation)');
+-- The prune cycle must not eat the fresh push rows (sentinel rows are
+-- sub-threshold with fresh updated_at).
+SELECT is((SELECT count(*)::int FROM auth_lockouts
+            WHERE lockout_key LIKE 'push_user:90042%'), 2,
+    'd2: the push sentinel rows survive a prune cycle (fresh sub-threshold retention)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 7 — migration bookkeeping.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 259), 1,
+    'd2: schema_migrations records version 259');
+
+SELECT * FROM finish();
+ROLLBACK;

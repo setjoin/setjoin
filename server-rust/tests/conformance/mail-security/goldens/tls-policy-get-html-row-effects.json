@@ -1,0 +1,49 @@
+{
+  "case": "html-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "outbound_tls_enforce_domains",
+            "value": [
+              "a&b<c>.test"
+            ]
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "outbound_tls_global_mode",
+            "value": "opportunistic"
+          }
+        ],
+        "files": []
+      },
+      "before": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "outbound_tls_enforce_domains",
+            "value": [
+              "a&b<c>.test"
+            ]
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "outbound_tls_global_mode",
+            "value": "opportunistic"
+          }
+        ],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/outbound-tls-policy"
+}

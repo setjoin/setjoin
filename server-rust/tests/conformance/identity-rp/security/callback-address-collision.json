@@ -1,0 +1,96 @@
+{
+  "case": "callback-address-collision",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "claims": null,
+    "effects": {
+      "after": {
+        "actor": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        },
+        "foreign": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        }
+      },
+      "before": {
+        "actor": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        },
+        "foreign": {
+          "anchors": 0,
+          "auth_events": [],
+          "department": null,
+          "enabled": true,
+          "issuer": null,
+          "sessions": 0,
+          "signins": [],
+          "subject": null
+        }
+      }
+    },
+    "notify": [],
+    "outbound": [
+      {
+        "authorization": "Basic c2V0am9pbi1jbGllbnQtMzQwOg==",
+        "form": {
+          "code": "_code",
+          "code_verifier": "_verifier",
+          "grant_type": "authorization_code",
+          "redirect_uri": "https://auth.idfed2.test/auth/oidc/callback"
+        },
+        "method": "POST",
+        "path": "/token"
+      },
+      {
+        "authorization": "",
+        "form": {},
+        "method": "GET",
+        "path": "/keys"
+      }
+    ],
+    "request": {
+      "cookie": "_bound-flow",
+      "method": "GET",
+      "path": "/auth/oidc/callback",
+      "query": "code=_code&state=_state"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"explicit account linking is required\",\"instance\":\"/auth/oidc/callback\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json",
+        "set-cookie": [
+          "oidc_state=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_verifier=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_nonce=; Max-Age=0; HttpOnly; SameSite=Lax",
+          "oidc_provider=; Max-Age=0; HttpOnly; SameSite=Lax"
+        ]
+      },
+      "status": 409
+    }
+  },
+  "route": "GET /auth/oidc/callback"
+}

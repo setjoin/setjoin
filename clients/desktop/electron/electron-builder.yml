@@ -1,0 +1,50 @@
+appId: com.setjoin.desktop
+productName: SetJoin
+directories:
+  output: release
+# asar + OnlyLoadAppFromAsar fuse work together (ADR-013): the app can only load
+# from the integrity-validated asar.
+asar: true
+files:
+  - dist/**/*
+  - package.json
+  # P2 Task 11 (C10): an explicit `files` list REPLACES electron-builder's
+  # default (which would otherwise ship node_modules for a plain dependency)
+  # — @parcel/watcher (the FolderMirror's real runtime dep, esbuild-external'd
+  # rather than inlined) must be added back explicitly or the packaged app
+  # 500s/throws on first watch() call with the module simply missing.
+  - node_modules/@parcel/watcher/**/*
+# @parcel/watcher ships a native .node binding — asar can't execute code
+# straight out of the archive, so unpack it (same pattern as the napi module
+# below, which ships outside the asar entirely as an extraResource instead).
+asarUnpack:
+  - node_modules/@parcel/watcher/**/*
+# The webmail static build + the napi native module (index.js + platform .node)
+# ship OUTSIDE the asar as resources; main.ts / native.ts resolve them from
+# process.resourcesPath when app.isPackaged. The native module must be built
+# (`napi build --platform --release` in clients/rust/desktop-native) before
+# packaging on each target arch — the release CI job does this per platform.
+extraResources:
+  - from: ../../../mailserver/webmail/build
+    to: webmail
+  - from: ../../rust/desktop-native
+    to: desktop-native
+    filter:
+      - index.js
+      - index.d.ts
+      - package.json
+      - '*.node'
+afterPack: scripts/flip-fuses.mjs
+publish: null
+mac:
+  target:
+    - dmg
+  # arch is selected on the electron-builder CLI (--arm64 / --x64) per release job.
+win:
+  target:
+    - msi
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm

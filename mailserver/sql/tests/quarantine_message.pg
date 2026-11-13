@@ -1,0 +1,144 @@
+-- pgTAP: quarantine_message.sql — atomic cross-group quarantine transition + audit
+-- + the named notify fix (Decision 3) + conflict-safe Quarantined tag seeding
+-- (med-shard2-002 item 3).
+--
+-- Divergent ids via mk_account (user 70000+ != mailbox 90000+, ADR-003): every
+-- assertion uses the MAILBOX id as the account slot. The Quarantined tag is NOT a
+-- create_system_tags default, so each mailbox gets it created with
+-- exclusive_group='quarantine' (matching schema/033_quarantine) — except the
+-- dedicated seeding mailbox (:smb), which proves the reducer seeds it itself,
+-- idempotently, without aborting repeated first-quarantines.
+BEGIN;
+SELECT plan(16);
+
+-- ── Fixtures: two mailboxes (one victim, one foreign for the R3 no-op) ──
+SELECT mk_account('quar')    AS mb \gset
+SELECT mk_account('quarfgn') AS fmb \gset
+
+-- Quarantined tag (quarantine exclusive-group) in each mailbox.
+INSERT INTO tags (mailbox_id, name, tag_type, exclusive_group)
+  VALUES (:mb,  'Quarantined', 'system', 'quarantine'),
+         (:fmb, 'Quarantined', 'system', 'quarantine');
+
+-- A message that starts in Inbox (the common case).
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8801, :mb, get_tag_id('Inbox', :mb), '<v1@quar.test>', 'Virus', 'attacker@ext.com', 100, 'thr-8801', 'raw-8801', now(), FALSE);
+SELECT tag_message(8801, (SELECT received_at FROM messages WHERE id = 8801), 'Inbox', :mb, 'deliver', TRUE);
+
+-- ── Test 1: the reducer runs ──
+SELECT lives_ok(
+  format($$ SELECT quarantine_message(8801, %s, 'Virus detected: EICAR', 'virus', 'Eicar-Test-Signature', FALSE) $$, :mb),
+  'quarantine_message succeeds (Inbox -> Quarantined)'
+);
+
+-- ── Test 2: exactly ONE quarantine-group tag remains, and it is Quarantined ──
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8801 AND t.exclusive_group = 'quarantine'),
+  1,
+  'exactly one quarantine-group tag after quarantine');
+
+-- ── Test 3: NO location-group tag remains (the message left Inbox) ──
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8801 AND t.exclusive_group = 'location'),
+  0,
+  'no location tag remains after quarantine (message left Inbox)');
+
+-- ── Test 4: exactly ONE audit row, with the right shape ──
+SELECT is(
+  (SELECT count(*)::INT FROM quarantined_messages WHERE message_id = 8801 AND mailbox_id = :mb),
+  1,
+  'exactly one quarantined_messages audit row written');
+SELECT is(
+  (SELECT virus_name FROM quarantined_messages WHERE message_id = 8801 AND mailbox_id = :mb),
+  'Eicar-Test-Signature',
+  'audit row records the virus name');
+SELECT is(
+  (SELECT reason_type FROM quarantined_messages WHERE message_id = 8801 AND mailbox_id = :mb),
+  'virus',
+  'audit row records reason_type');
+
+-- ── Test 5: original_tag reflects REALITY — a message a rule already moved OUT of
+-- Inbox (into Spam) records 'Spam', not the old hard-coded 'Inbox'. This is the
+-- latent-inaccuracy fix; a mutation that hard-codes 'Inbox' fails here. ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8802, :mb, get_tag_id('Spam', :mb), '<v2@quar.test>', 'Virus2', 'attacker@ext.com', 100, 'thr-8802', 'raw-8802', now(), FALSE);
+SELECT tag_message(8802, (SELECT received_at FROM messages WHERE id = 8802), 'Spam', :mb, 'rule', TRUE);
+SELECT quarantine_message(8802, :mb, 'Virus detected: X', 'virus', 'X', FALSE);
+SELECT is(
+  (SELECT original_tag FROM quarantined_messages WHERE message_id = 8802 AND mailbox_id = :mb),
+  'Spam',
+  'original_tag records the REAL current location (Spam), not a hard-coded Inbox');
+
+-- ── Test 6: foreign mailbox is a NO-OP — quarantining a message that belongs to
+-- :mb under the foreign mailbox :fmb raises BZ074 and mutates nothing (R3). ──
+SELECT throws_ok(
+  format($$ SELECT quarantine_message(8801, %s, 'x', 'virus', NULL, FALSE) $$, :fmb),
+  'BZ074', NULL,
+  'foreign mailbox cannot quarantine another mailbox''s message (BZ074)');
+-- and no stray audit row landed under the foreign mailbox.
+SELECT is(
+  (SELECT count(*)::INT FROM quarantined_messages WHERE message_id = 8801 AND mailbox_id = :fmb),
+  0,
+  'foreign-mailbox quarantine wrote no audit row (R3 no-op)');
+
+-- ── Test 7: an unknown message id raises BZ074 (not-found), nothing mutated ──
+SELECT throws_ok(
+  format($$ SELECT quarantine_message(999999, %s, 'x', 'virus', NULL, FALSE) $$, :mb),
+  'BZ074', NULL,
+  'unknown message id raises BZ074 (not-found)');
+
+-- ── Test 8: the named notify fix (Decision 3) — DEFAULT p_notify=TRUE pushes on
+-- tag:{mailbox} exactly once with state_change. A mutation that drops the notify
+-- (or omits the default) fails here. ──
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8803, :mb, get_tag_id('Inbox', :mb), '<v3@quar.test>', 'Virus3', 'attacker@ext.com', 100, 'thr-8803', 'raw-8803', now(), FALSE);
+SELECT tag_message(8803, (SELECT received_at FROM messages WHERE id = 8803), 'Inbox', :mb, 'deliver', TRUE);
+
+SET LOCAL app.capture_notify = 'on';
+-- default-notify call (5-arg: p_notify defaults TRUE).
+SELECT quarantine_message(8803, :mb, 'Virus detected: Y', 'virus', 'Y');
+SELECT is(notify_count('tag:' || :mb), 1,
+  'default p_notify=TRUE pushes on tag:{mailbox} exactly once');
+SELECT is(last_notify_event('tag:' || :mb), 'state_change',
+  'the quarantine push carries the state_change event');
+
+-- ── Test 9-12 (med-shard2-002 item 3): CONFLICT-SAFE self-seeding ──
+-- A mailbox WITHOUT a pre-created Quarantined tag exercises the seeding
+-- insert itself. The old INSERT … WHERE NOT EXISTS raced concurrent first
+-- quarantines into the unique (mailbox_id,name) constraint and aborted one
+-- transaction, leaving its message unquarantined; ON CONFLICT DO NOTHING must
+-- seed exactly one tag and let repeated/concurrent quarantines proceed.
+SELECT mk_account('quarseed') AS smb \gset
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8804, :smb, get_tag_id('Inbox', :smb), '<v4@quar.test>', 'Virus4', 'attacker@ext.com', 100, 'thr-8804', 'raw-8804', now(), FALSE);
+SELECT tag_message(8804, (SELECT received_at FROM messages WHERE id = 8804), 'Inbox', :smb, 'deliver', TRUE);
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+  VALUES (8805, :smb, get_tag_id('Inbox', :smb), '<v5@quar.test>', 'Virus5', 'attacker@ext.com', 100, 'thr-8805', 'raw-8805', now(), FALSE);
+SELECT tag_message(8805, (SELECT received_at FROM messages WHERE id = 8805), 'Inbox', :smb, 'deliver', TRUE);
+
+-- First quarantine in the mailbox: the reducer must seed the tag itself and succeed.
+SELECT lives_ok(
+  format($$ SELECT quarantine_message(8804, %s, 'Virus detected: S1', 'virus', 'S1', FALSE) $$, :smb),
+  'first quarantine self-seeds the Quarantined tag and succeeds (no pre-created tag)');
+-- Second quarantine in the SAME mailbox: the seeding insert now hits the
+-- (mailbox_id,name) conflict and must DO NOTHING — not abort (this shape is
+-- exactly what the lost concurrent race looked like).
+SELECT lives_ok(
+  format($$ SELECT quarantine_message(8805, %s, 'Virus detected: S2', 'virus', 'S2', FALSE) $$, :smb),
+  'second quarantine over the seeded tag succeeds (conflict path, no unique abort)');
+-- Exactly one tag row despite the two seeding attempts: idempotent, no duplicate.
+SELECT is(
+  (SELECT count(*)::INT FROM tags WHERE mailbox_id = :smb AND name = 'Quarantined'),
+  1,
+  'exactly one Quarantined tag after repeated quarantines (conflict-safe seeding)');
+-- Both messages are actually quarantined (the losing inserter was never aborted).
+SELECT is(
+  (SELECT count(*)::INT FROM quarantined_messages WHERE mailbox_id = :smb),
+  2,
+  'both first-quarantine messages carry an audit row (no transaction aborted)');
+
+SELECT * FROM finish();
+ROLLBACK;

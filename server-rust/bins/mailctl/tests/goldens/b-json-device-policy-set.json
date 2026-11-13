@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/mam/devices/d1/policy",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"policies\":{\"screen\":\"on\"}}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

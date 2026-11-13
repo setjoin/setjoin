@@ -1,0 +1,28 @@
+{
+  "case": "strict-unknown-public-key-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBrTCCAVOgAwIBAgIUTuQ6jw+e02xPBDwcnGc5XopjGA8wCgYIKoZIzj0EAwIw\nMjEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxFzAVBgNVBAMMDnNtaW1lLW9yYWNs\nZS1hMCAXDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAyMRcwFQYDVQQK\nDA5TZXRqb2luIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3JhY2xlLWEwSzAFBgMq\nAwQDQgAE+H2/SaYx/+9HzRpWnkrJX2YOQcnSFt//4BaBvezhIUFc83x+nwdJcBnw\n/GaRrll+W+P8jqfDz8ckC3HKUbdUhaNTMFEwHQYDVR0OBBYEFL91yPe4/R1WBaMn\nbeb+tDkdrrwlMB8GA1UdIwQYMBaAFL91yPe4/R1WBaMnbeb+tDkdrrwlMA8GA1Ud\nEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIgXDKS2J+IWyugx48E89XKfY/R\nJfvaztY0S2LjplziO+0CIQCzpL1t7+rOoCzNQMXAeGhXCtCPhEmA1eLscmM5SFWt\nAg==\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "6535a7179c25ddcc621367ca561f11d97f00a9d09102039b4e6df0c1c5815410",
+            "label": "imported",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          }
+        ]
+      },
+      "before": {
+        "anchors": []
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/smime/trust-anchors"
+}

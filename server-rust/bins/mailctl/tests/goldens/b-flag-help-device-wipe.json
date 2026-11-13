@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of device wipe:\n  -level string\n    \tWipe level: account or device (default \"account\")\n",
+  "exit": 0
+}

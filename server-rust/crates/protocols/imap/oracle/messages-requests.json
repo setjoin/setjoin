@@ -1,0 +1,1160 @@
+[
+ {
+  "name": "fetch-before-select",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "a1 FETCH 1 (FLAGS)\r\n",
+    "until": "a1"
+   },
+   {
+    "request": "a2 UID FETCH 1 (FLAGS)\r\n",
+    "until": "a2"
+   },
+   {
+    "request": "a3 SEARCH ALL\r\n",
+    "until": "a3"
+   },
+   {
+    "request": "a4 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "a4"
+   },
+   {
+    "request": "a5 UID SEARCH ALL\r\n",
+    "until": "a5"
+   },
+   {
+    "request": "a6 UID\r\n",
+    "until": "a6"
+   },
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "b1 FETCH 1:* (FLAGS)\r\n",
+    "until": "b1"
+   },
+   {
+    "request": "b2 SEARCH ALL\r\n",
+    "until": "b2"
+   },
+   {
+    "request": "b3 STORE 1 FLAGS ()\r\n",
+    "until": "b3"
+   },
+   {
+    "request": "b4 UID STORE 1 FLAGS ()\r\n",
+    "until": "b4"
+   },
+   {
+    "request": "b5 UID\r\n",
+    "until": "b5"
+   },
+   {
+    "request": "b6 UID FETCH 1\r\n",
+    "until": "b6"
+   },
+   {
+    "request": "c1 SELECT Nope\r\n",
+    "until": "c1"
+   },
+   {
+    "request": "c2 FETCH 1:*\r\n",
+    "until": "c2"
+   },
+   {
+    "request": "c3 SEARCH ALL\r\n",
+    "until": "c3"
+   },
+   {
+    "request": "c4 SELECT Inbox\r\n",
+    "until": "c4"
+   },
+   {
+    "request": "c5 UNSELECT\r\n",
+    "until": "c5"
+   },
+   {
+    "request": "c6 FETCH 1:*\r\n",
+    "until": "c6"
+   },
+   {
+    "request": "c7 UID SEARCH ALL\r\n",
+    "until": "c7"
+   }
+  ]
+ },
+ {
+  "name": "fetch-sequence-forms",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "f01 FETCH 1 (FLAGS)\r\n",
+    "until": "f01"
+   },
+   {
+    "request": "f02 FETCH 1:* (FLAGS UID)\r\n",
+    "until": "f02"
+   },
+   {
+    "request": "f03 FETCH * (FLAGS)\r\n",
+    "until": "f03"
+   },
+   {
+    "request": "f04 FETCH 2:3 (FLAGS)\r\n",
+    "until": "f04"
+   },
+   {
+    "request": "f05 FETCH 1,3,5 (UID)\r\n",
+    "until": "f05"
+   },
+   {
+    "request": "f06 FETCH 3:1 (UID)\r\n",
+    "until": "f06"
+   },
+   {
+    "request": "f07 FETCH 99 (UID)\r\n",
+    "until": "f07"
+   },
+   {
+    "request": "f08 FETCH 0 (UID)\r\n",
+    "until": "f08"
+   },
+   {
+    "request": "f09 FETCH abc (UID)\r\n",
+    "until": "f09"
+   },
+   {
+    "request": "f10 FETCH\r\n",
+    "until": "f10"
+   },
+   {
+    "request": "f11 FETCH 1:2(FLAGS)\r\n",
+    "until": "f11"
+   },
+   {
+    "request": "f12 FETCH (FLAGS)\r\n",
+    "until": "f12"
+   },
+   {
+    "request": "f13 FETCH 1:2,*:6 (UID)\r\n",
+    "until": "f13"
+   },
+   {
+    "request": "f14 FETCH 2,2,1:3 (UID)\r\n",
+    "until": "f14"
+   },
+   {
+    "request": "f15 FETCH 4:* BODY[]\r\n",
+    "until": "f15"
+   },
+   {
+    "request": "f16 fetch 1 (ENVELOPE)\r\n",
+    "until": "f16"
+   },
+   {
+    "request": "f17 FETCH 1:1,x,2 (UID)\r\n",
+    "until": "f17"
+   },
+   {
+    "request": "f18 FETCH +2 (UID)\r\n",
+    "until": "f18"
+   },
+   {
+    "request": "f19 FETCH -1 (UID)\r\n",
+    "until": "f19"
+   },
+   {
+    "request": "f20 FETCH 1:*:3 (UID)\r\n",
+    "until": "f20"
+   },
+   {
+    "request": "f21 FETCH 1: (UID)\r\n",
+    "until": "f21"
+   },
+   {
+    "request": "f22 FETCH :2 (UID)\r\n",
+    "until": "f22"
+   },
+   {
+    "request": "f23 FETCH *:* (UID)\r\n",
+    "until": "f23"
+   },
+   {
+    "request": "f24\tFETCH\t1\t(UID)\r\n",
+    "until": "f24"
+   }
+  ]
+ },
+ {
+  "name": "fetch-uid-forms",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "u01 UID FETCH 5 (FLAGS)\r\n",
+    "until": "u01"
+   },
+   {
+    "request": "u02 UID FETCH 3:* (UID)\r\n",
+    "until": "u02"
+   },
+   {
+    "request": "u03 UID FETCH 4 (UID)\r\n",
+    "until": "u03"
+   },
+   {
+    "request": "u04 UID FETCH * (UID)\r\n",
+    "until": "u04"
+   },
+   {
+    "request": "u05 UID FETCH 12:20 (UID)\r\n",
+    "until": "u05"
+   },
+   {
+    "request": "u06 UID FETCH 20:3 (UID)\r\n",
+    "until": "u06"
+   },
+   {
+    "request": "u07 UID FETCH 1,3,99 (UID)\r\n",
+    "until": "u07"
+   },
+   {
+    "request": "u08 UID FETCH\r\n",
+    "until": "u08"
+   },
+   {
+    "request": "u09 UID FETCH abc\r\n",
+    "until": "u09"
+   },
+   {
+    "request": "u10 UID FOO 1\r\n",
+    "until": "u10"
+   },
+   {
+    "request": "u11 uid fetch 11 (UID)\r\n",
+    "until": "u11"
+   },
+   {
+    "request": "u12 UID EXPUNGE 1\r\n",
+    "until": "u12"
+   },
+   {
+    "request": "u13 UID FETCH 8:9 (UID)\r\n",
+    "until": "u13"
+   },
+   {
+    "request": "u14 UID SEARCH ALL\r\n",
+    "until": "u14"
+   }
+  ]
+ },
+ {
+  "name": "fetch-other-tag",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Project\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "p1 FETCH 1:* (FLAGS)\r\n",
+    "until": "p1"
+   },
+   {
+    "request": "p2 UID FETCH 2 (UID)\r\n",
+    "until": "p2"
+   },
+   {
+    "request": "p3 SEARCH ALL\r\n",
+    "until": "p3"
+   },
+   {
+    "request": "p4 UID SEARCH UNSEEN\r\n",
+    "until": "p4"
+   },
+   {
+    "request": "p5 SELECT Label\r\n",
+    "until": "p5"
+   },
+   {
+    "request": "p6 FETCH 1:*\r\n",
+    "until": "p6"
+   },
+   {
+    "request": "p7 SEARCH ALL\r\n",
+    "until": "p7"
+   }
+  ]
+ },
+ {
+  "name": "search-flags-and-text",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "s01 SEARCH\r\n",
+    "until": "s01"
+   },
+   {
+    "request": "s02 SEARCH ALL\r\n",
+    "until": "s02"
+   },
+   {
+    "request": "s03 SEARCH SEEN\r\n",
+    "until": "s03"
+   },
+   {
+    "request": "s04 SEARCH UNSEEN\r\n",
+    "until": "s04"
+   },
+   {
+    "request": "s05 SEARCH DELETED\r\n",
+    "until": "s05"
+   },
+   {
+    "request": "s06 SEARCH UNDELETED\r\n",
+    "until": "s06"
+   },
+   {
+    "request": "s07 SEARCH ANSWERED\r\n",
+    "until": "s07"
+   },
+   {
+    "request": "s08 SEARCH UNANSWERED\r\n",
+    "until": "s08"
+   },
+   {
+    "request": "s09 SEARCH FLAGGED\r\n",
+    "until": "s09"
+   },
+   {
+    "request": "s10 SEARCH UNFLAGGED\r\n",
+    "until": "s10"
+   },
+   {
+    "request": "s11 SEARCH DRAFT\r\n",
+    "until": "s11"
+   },
+   {
+    "request": "s12 SEARCH UNDRAFT\r\n",
+    "until": "s12"
+   },
+   {
+    "request": "s13 SEARCH NEW\r\n",
+    "until": "s13"
+   },
+   {
+    "request": "s14 SEARCH RECENT\r\n",
+    "until": "s14"
+   },
+   {
+    "request": "s15 SEARCH seen flagged\r\n",
+    "until": "s15"
+   },
+   {
+    "request": "s16 SEARCH UNSEEN UNFLAGGED\r\n",
+    "until": "s16"
+   },
+   {
+    "request": "s17 SEARCH FROM bob\r\n",
+    "until": "s17"
+   },
+   {
+    "request": "s18 SEARCH FROM \"EXAMPLE.ORG\"\r\n",
+    "until": "s18"
+   },
+   {
+    "request": "s19 SEARCH SUBJECT hello\r\n",
+    "until": "s19"
+   },
+   {
+    "request": "s20 SEARCH SUBJECT \"needle\"\r\n",
+    "until": "s20"
+   },
+   {
+    "request": "s21 SEARCH TEXT needle\r\n",
+    "until": "s21"
+   },
+   {
+    "request": "s22 SEARCH BODY needle\r\n",
+    "until": "s22"
+   },
+   {
+    "request": "s23 SEARCH BODY 50%\r\n",
+    "until": "s23"
+   },
+   {
+    "request": "s24 SEARCH BODY off_and\r\n",
+    "until": "s24"
+   },
+   {
+    "request": "s25 SEARCH FROM\r\n",
+    "until": "s25"
+   },
+   {
+    "request": "s26 SEARCH SUBJECT\r\n",
+    "until": "s26"
+   },
+   {
+    "request": "s27 SEARCH SUBJECT \"Quote \\\"me\\\"\"\r\n",
+    "until": "s27"
+   },
+   {
+    "request": "s28 SEARCH SUBJECT Quote\r\n",
+    "until": "s28"
+   },
+   {
+    "request": "s29 SEARCH SUBJECT \"\"\"hello\"\"\"\r\n",
+    "until": "s29"
+   },
+   {
+    "request": "s30 SEARCH FROM x SUBJECT\r\n",
+    "until": "s30"
+   },
+   {
+    "request": "s31 SEARCH TEXT ''\r\n",
+    "until": "s31"
+   },
+   {
+    "request": "s32 SEARCH SUBJECT \"\"\r\n",
+    "until": "s32"
+   },
+   {
+    "request": "s33 search all\r\n",
+    "until": "s33"
+   },
+   {
+    "request": "s34 SEARCH FROM e%\r\n",
+    "until": "s34"
+   },
+   {
+    "request": "s35 SEARCH FROM _ob\r\n",
+    "until": "s35"
+   }
+  ]
+ },
+ {
+  "name": "search-header-keyword-unknown",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "h01 SEARCH HEADER Message-ID <mid-5@imap2.test>\r\n",
+    "until": "h01"
+   },
+   {
+    "request": "h02 SEARCH HEADER \"message-id\" \"<mid-3@imap2.test>\"\r\n",
+    "until": "h02"
+   },
+   {
+    "request": "h03 SEARCH HEADER Subject Hello\r\n",
+    "until": "h03"
+   },
+   {
+    "request": "h04 SEARCH HEADER Message-ID\r\n",
+    "until": "h04"
+   },
+   {
+    "request": "h05 SEARCH HEADER\r\n",
+    "until": "h05"
+   },
+   {
+    "request": "h06 SEARCH KEYWORD Label\r\n",
+    "until": "h06"
+   },
+   {
+    "request": "h07 SEARCH KEYWORD label\r\n",
+    "until": "h07"
+   },
+   {
+    "request": "h08 SEARCH KEYWORD Project\r\n",
+    "until": "h08"
+   },
+   {
+    "request": "h09 SEARCH KEYWORD \"Label\"\r\n",
+    "until": "h09"
+   },
+   {
+    "request": "h10 SEARCH KEYWORD\r\n",
+    "until": "h10"
+   },
+   {
+    "request": "h11 SEARCH KEYWORD Nope\r\n",
+    "until": "h11"
+   },
+   {
+    "request": "h12 SEARCH SINCE 1-Jan-2020\r\n",
+    "until": "h12"
+   },
+   {
+    "request": "h13 SEARCH OR SEEN FLAGGED\r\n",
+    "until": "h13"
+   },
+   {
+    "request": "h14 SEARCH NOT SEEN\r\n",
+    "until": "h14"
+   },
+   {
+    "request": "h15 SEARCH 1:3\r\n",
+    "until": "h15"
+   },
+   {
+    "request": "h16 SEARCH CHARSET UTF-8 SUBJECT hello\r\n",
+    "until": "h16"
+   },
+   {
+    "request": "h17 SEARCH UID 3:5\r\n",
+    "until": "h17"
+   },
+   {
+    "request": "h18 SEARCH KEYWORD Label UNSEEN\r\n",
+    "until": "h18"
+   },
+   {
+    "request": "h19 SEARCH LARGER 1000\r\n",
+    "until": "h19"
+   },
+   {
+    "request": "h20 SEARCH RETURN (ALL) SEEN\r\n",
+    "until": "h20"
+   },
+   {
+    "request": "h21 SEARCH (SEEN)\r\n",
+    "until": "h21"
+   },
+   {
+    "request": "h22 SEARCH HEADER Message-ID x y z\r\n",
+    "until": "h22"
+   }
+  ]
+ },
+ {
+  "name": "uid-search-forms",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "q1 UID SEARCH ALL\r\n",
+    "until": "q1"
+   },
+   {
+    "request": "q2 UID SEARCH UNSEEN\r\n",
+    "until": "q2"
+   },
+   {
+    "request": "q3 UID SEARCH FROM example\r\n",
+    "until": "q3"
+   },
+   {
+    "request": "q4 UID SEARCH SUBJECT nothingmatches\r\n",
+    "until": "q4"
+   },
+   {
+    "request": "q5 UID SEARCH\r\n",
+    "until": "q5"
+   },
+   {
+    "request": "q6 uid search deleted\r\n",
+    "until": "q6"
+   },
+   {
+    "request": "q7 UID SEARCH KEYWORD Label\r\n",
+    "until": "q7"
+   },
+   {
+    "request": "q8 SEARCH DELETED UNSEEN\r\n",
+    "until": "q8"
+   },
+   {
+    "request": "q9\tUID\tSEARCH\tSEEN\r\n",
+    "until": "q9"
+   },
+   {
+    "request": "q10 UID  SEARCH   FLAGGED\r\n",
+    "until": "q10"
+   }
+  ]
+ },
+ {
+  "name": "store-relative-flags",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "t01 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "t01"
+   },
+   {
+    "request": "t02 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "t02"
+   },
+   {
+    "request": "t03 STORE 2 -FLAGS (\\Flagged)\r\n",
+    "until": "t03"
+   },
+   {
+    "request": "t04 STORE 3 +FLAGS (\\Answered \\Draft)\r\n",
+    "until": "t04"
+   },
+   {
+    "request": "t05 STORE 1:2 -FLAGS (\\Seen \\Answered)\r\n",
+    "until": "t05"
+   },
+   {
+    "request": "t06 STORE 1 +FLAGS \\Seen\r\n",
+    "until": "t06"
+   },
+   {
+    "request": "t07 STORE 1 +FLAGS (\\seen \\FLAGGED)\r\n",
+    "until": "t07"
+   },
+   {
+    "request": "t08 STORE 1 +FLAGS (\\Unknown $custom)\r\n",
+    "until": "t08"
+   },
+   {
+    "request": "t09 STORE 1 +FLAGS ()\r\n",
+    "until": "t09"
+   },
+   {
+    "request": "t10 STORE 2 +flags (\\Seen)\r\n",
+    "until": "t10"
+   },
+   {
+    "request": "t11 STORE * -FLAGS (\\Seen)\r\n",
+    "until": "t11"
+   },
+   {
+    "request": "t12 STORE 99 +FLAGS (\\Seen)\r\n",
+    "until": "t12"
+   },
+   {
+    "request": "t13 STORE 1 +FLAGS (\\Seen\r\n",
+    "until": "t13"
+   },
+   {
+    "request": "t14 STORE 1 +FLAGS \\Seen \\Flagged\r\n",
+    "until": "t14"
+   },
+   {
+    "request": "t15 FETCH 1:* (FLAGS)\r\n",
+    "until": "t15"
+   },
+   {
+    "request": "t16 SEARCH UNSEEN\r\n",
+    "until": "t16"
+   }
+  ]
+ },
+ {
+  "name": "store-replace-and-silent",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "r01 STORE 1 FLAGS (\\Flagged)\r\n",
+    "until": "r01"
+   },
+   {
+    "request": "r02 STORE 2 FLAGS ()\r\n",
+    "until": "r02"
+   },
+   {
+    "request": "r03 STORE 1:3 FLAGS (\\Seen \\Draft)\r\n",
+    "until": "r03"
+   },
+   {
+    "request": "r04 STORE 1 FLAGS.SILENT (\\Answered)\r\n",
+    "until": "r04"
+   },
+   {
+    "request": "r05 STORE 2 +FLAGS.SILENT (\\Seen)\r\n",
+    "until": "r05"
+   },
+   {
+    "request": "r06 STORE 2 -FLAGS.SILENT (\\Seen)\r\n",
+    "until": "r06"
+   },
+   {
+    "request": "r07 STORE 1 flags.silent (\\Seen)\r\n",
+    "until": "r07"
+   },
+   {
+    "request": "r08 STORE 1 BOGUS (\\Seen)\r\n",
+    "until": "r08"
+   },
+   {
+    "request": "r09 STORE 1 FLAGS.SILENT\r\n",
+    "until": "r09"
+   },
+   {
+    "request": "r10 STORE 1 +FLAGS\r\n",
+    "until": "r10"
+   },
+   {
+    "request": "r11 STORE 1\r\n",
+    "until": "r11"
+   },
+   {
+    "request": "r12 STORE\r\n",
+    "until": "r12"
+   },
+   {
+    "request": "r13 STORE x +FLAGS (\\Seen)\r\n",
+    "until": "r13"
+   },
+   {
+    "request": "r14 STORE 0 +FLAGS (\\Seen)\r\n",
+    "until": "r14"
+   },
+   {
+    "request": "r15 STORE 1:* FLAGS.SILENT (\\Seen \\Flagged)\r\n",
+    "until": "r15"
+   },
+   {
+    "request": "r16 FETCH 1:* (FLAGS)\r\n",
+    "until": "r16"
+   }
+  ]
+ },
+ {
+  "name": "store-deleted-flag",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "d01 STORE 1 +FLAGS (\\Deleted)\r\n",
+    "until": "d01"
+   },
+   {
+    "request": "d02 SEARCH ALL\r\n",
+    "until": "d02"
+   },
+   {
+    "request": "d03 FETCH 1:* (FLAGS)\r\n",
+    "until": "d03"
+   },
+   {
+    "request": "d04 STORE 1 -FLAGS (\\Deleted)\r\n",
+    "until": "d04"
+   },
+   {
+    "request": "d05 SEARCH DELETED\r\n",
+    "until": "d05"
+   },
+   {
+    "request": "d06 STORE 4 -FLAGS (\\Deleted)\r\n",
+    "until": "d06"
+   },
+   {
+    "request": "d07 STORE 2 FLAGS (\\Deleted \\Seen)\r\n",
+    "until": "d07"
+   },
+   {
+    "request": "d08 STORE 1:* +FLAGS.SILENT (\\Deleted)\r\n",
+    "until": "d08"
+   },
+   {
+    "request": "d09 FETCH 1:*\r\n",
+    "until": "d09"
+   },
+   {
+    "request": "d10 SEARCH ALL\r\n",
+    "until": "d10"
+   },
+   {
+    "request": "d11 UID SEARCH DELETED\r\n",
+    "until": "d11"
+   },
+   {
+    "request": "d12 STORE 1:* -FLAGS.SILENT (\\Deleted)\r\n",
+    "until": "d12"
+   },
+   {
+    "request": "d13 SEARCH DELETED\r\n",
+    "until": "d13"
+   }
+  ]
+ },
+ {
+  "name": "uid-store-forms",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "w01 UID STORE 5 +FLAGS (\\Seen)\r\n",
+    "until": "w01"
+   },
+   {
+    "request": "w02 UID STORE 3:5 -FLAGS (\\Seen)\r\n",
+    "until": "w02"
+   },
+   {
+    "request": "w03 UID STORE 4 +FLAGS (\\Seen)\r\n",
+    "until": "w03"
+   },
+   {
+    "request": "w04 UID STORE 14:* FLAGS (\\Answered)\r\n",
+    "until": "w04"
+   },
+   {
+    "request": "w05 UID STORE * +FLAGS.SILENT (\\Flagged)\r\n",
+    "until": "w05"
+   },
+   {
+    "request": "w06 UID STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "w06"
+   },
+   {
+    "request": "w07 UID STORE 5\r\n",
+    "until": "w07"
+   },
+   {
+    "request": "w08 UID STORE\r\n",
+    "until": "w08"
+   },
+   {
+    "request": "w09 UID STORE x +FLAGS (\\Seen)\r\n",
+    "until": "w09"
+   },
+   {
+    "request": "w10 UID STORE 20:3 +FLAGS (\\Draft)\r\n",
+    "until": "w10"
+   },
+   {
+    "request": "w11 FETCH 1:* (FLAGS)\r\n",
+    "until": "w11"
+   }
+  ]
+ },
+ {
+  "name": "store-read-only-and-project",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "e0 EXAMINE Inbox\r\n",
+    "until": "e0"
+   },
+   {
+    "request": "e1 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "e1"
+   },
+   {
+    "request": "e2 UID STORE 3 +FLAGS (\\Seen)\r\n",
+    "until": "e2"
+   },
+   {
+    "request": "e3 STORE\r\n",
+    "until": "e3"
+   },
+   {
+    "request": "e4 STORE 1 BOGUS\r\n",
+    "until": "e4"
+   },
+   {
+    "request": "e5 FETCH 1:2 (FLAGS)\r\n",
+    "until": "e5"
+   },
+   {
+    "request": "e6 SEARCH ALL\r\n",
+    "until": "e6"
+   },
+   {
+    "request": "e7 SELECT Project\r\n",
+    "until": "e7"
+   },
+   {
+    "request": "e8 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "e8"
+   },
+   {
+    "request": "e9 STORE 2 -FLAGS (\\Seen)\r\n",
+    "until": "e9"
+   },
+   {
+    "request": "e10 UID STORE 1:2 FLAGS (\\Flagged)\r\n",
+    "until": "e10"
+   },
+   {
+    "request": "e11 FETCH 1:* (FLAGS)\r\n",
+    "until": "e11"
+   }
+  ]
+ },
+ {
+  "name": "cross-mailbox-isolation",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"bob@imap2.test\" \"imap2-app-token-bob\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "b1 FETCH 1:* (FLAGS)\r\n",
+    "until": "b1"
+   },
+   {
+    "request": "b2 UID FETCH 1:* (UID)\r\n",
+    "until": "b2"
+   },
+   {
+    "request": "b3 SEARCH ALL\r\n",
+    "until": "b3"
+   },
+   {
+    "request": "b4 SEARCH FROM example\r\n",
+    "until": "b4"
+   },
+   {
+    "request": "b5 UID SEARCH KEYWORD Label\r\n",
+    "until": "b5"
+   },
+   {
+    "request": "b6 STORE 1:* +FLAGS (\\Seen \\Deleted)\r\n",
+    "until": "b6"
+   },
+   {
+    "request": "b7 UID STORE 3:20 +FLAGS (\\Seen)\r\n",
+    "until": "b7"
+   },
+   {
+    "request": "b8 SEARCH DELETED\r\n",
+    "until": "b8"
+   },
+   {
+    "request": "b9 SELECT Project\r\n",
+    "until": "b9"
+   },
+   {
+    "request": "c1 FETCH 1:* (FLAGS)\r\n",
+    "until": "c1"
+   }
+  ]
+ },
+ {
+  "name": "pipelined-and-mixed",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "p0 SELECT Inbox\r\np1 FETCH 1 (FLAGS)\r\np2 STORE 1 +FLAGS (\\Seen)\r\np3 SEARCH SEEN\r\np4 UID FETCH 5 (UID)\r\np5 NOOP\r\n",
+    "until": "p5"
+   },
+   {
+    "request": "p6 STORE 2 +FLAGS (\\Seen)\r\n",
+    "until": "p6"
+   },
+   {
+    "request": "p7 SEARCH SEEN UNFLAGGED\r\n",
+    "until": "p7"
+   },
+   {
+    "request": "p8 LOGOUT\r\n",
+    "until": "p8"
+   }
+  ]
+ },
+ {
+  "name": "null-columns-fail-whole-command",
+  "transport": "plain",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "n0 FETCH 1:* (UID)\r\n",
+    "until": "n0"
+   },
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,to_addrs,cc_addrs,body_text,size_bytes,thread_id,imap_uid,raw_ref,received_at) VALUES (9344103,9344021,0,'<mid-8@imap2.test>',NULL,'dave@example.com','[\"alice@imap2.test\"]','[]','null subject row',300,'t3',8,'blob/3','2025-03-06 12:22:32+00');INSERT INTO message_tags(message_id,received_at,tag_id,is_primary,imap_uid) SELECT m.id,m.received_at,t.id,TRUE,m.imap_uid FROM messages m JOIN tags t ON t.mailbox_id=m.mailbox_id AND t.name='Inbox' WHERE m.id=9344103"
+    }
+   },
+   {
+    "request": "n1 FETCH 1:* (UID)\r\n",
+    "until": "n1"
+   },
+   {
+    "request": "n2 SEARCH ALL\r\n",
+    "until": "n2"
+   },
+   {
+    "request": "n3 UID FETCH 8 (UID)\r\n",
+    "until": "n3"
+   },
+   {
+    "request": "n4 STORE 1 +FLAGS (\\Seen)\r\n",
+    "until": "n4"
+   },
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,to_addrs,cc_addrs,body_text,size_bytes,thread_id,imap_uid,raw_ref,received_at) VALUES (9344104,9344021,0,'<mid-9@imap2.test>','null uid row','erin@example.com','[\"alice@imap2.test\"]','[]','null uid row',300,'t4',NULL,'blob/4','2025-03-07 13:23:33+00');INSERT INTO message_tags(message_id,received_at,tag_id,is_primary,imap_uid) SELECT m.id,m.received_at,t.id,TRUE,m.imap_uid FROM messages m JOIN tags t ON t.mailbox_id=m.mailbox_id AND t.name='Inbox' WHERE m.id=9344104"
+    }
+   },
+   {
+    "request": "n5 SEARCH ALL\r\n",
+    "until": "n5"
+   },
+   {
+    "request": "n6 UID SEARCH SEEN\r\n",
+    "until": "n6"
+   },
+   {
+    "request": "n7 STORE 1 +FLAGS (\\Flagged)\r\n",
+    "until": "n7"
+   },
+   {
+    "request": "n8 FETCH 1 (UID)\r\n",
+    "until": "n8"
+   },
+   {
+    "request": "n9 SEARCH SUBJECT Hello\r\n",
+    "until": "n9"
+   }
+  ]
+ },
+ {
+  "name": "membership-uid-mode",
+  "transport": "plain",
+  "steps": [
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO feature_toggles(key,enabled) VALUES ('feature.imap_membership_uid',true) ON CONFLICT (key) DO UPDATE SET enabled=true"
+    }
+   },
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "m1 FETCH 1:* (UID)\r\n",
+    "until": "m1"
+   },
+   {
+    "request": "m2 UID FETCH 8:11 (UID)\r\n",
+    "until": "m2"
+   },
+   {
+    "request": "m3 SEARCH ALL\r\n",
+    "until": "m3"
+   },
+   {
+    "request": "m4 UID SEARCH UNSEEN\r\n",
+    "until": "m4"
+   },
+   {
+    "request": "m5 UID STORE 9 +FLAGS (\\Seen)\r\n",
+    "until": "m5"
+   },
+   {
+    "request": "m6 STORE 5 +FLAGS (\\Flagged)\r\n",
+    "until": "m6"
+   },
+   {
+    "request": "m7 SELECT Label\r\n",
+    "until": "m7"
+   },
+   {
+    "request": "m8 FETCH 1:*\r\n",
+    "until": "m8"
+   },
+   {
+    "request": "m9 UID SEARCH ALL\r\n",
+    "until": "m9"
+   }
+  ]
+ }
+]

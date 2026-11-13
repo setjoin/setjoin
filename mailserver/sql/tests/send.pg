@@ -1,0 +1,362 @@
+-- pgTAP tests for send() reducer
+BEGIN;
+SELECT plan(28);
+
+-- Setup test fixtures (domain must be created before users)
+INSERT INTO domains (name, is_local) VALUES ('local.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('remote.test', FALSE);
+-- ADR-003: DIVERGENT user_id != mailbox_id (users 7xxx, mailboxes 9xxx) so a
+-- reducer that erroneously scopes by user_id = p_account_id (when the arg is a
+-- mailbox_id) is caught, not masked by coincident ids.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7001, 'alice', (SELECT id FROM domains WHERE name = 'local.test'),
+          'alice@local.test', 'Alice');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9001, 7001,
+          (SELECT id FROM domains WHERE name = 'local.test'),
+          'alice@local.test', 'Alice', 'personal', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7002, 'bob', (SELECT id FROM domains WHERE name = 'local.test'),
+          'bob@local.test', 'Bob');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9002, 7002,
+          (SELECT id FROM domains WHERE name = 'local.test'),
+          'bob@local.test', 'Bob', 'personal', TRUE);
+
+-- Test 1: send with empty recipients should not crash
+SELECT lives_ok(
+  $$ SELECT send(
+       (SELECT id FROM users WHERE email = 'alice@local.test'),
+       (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+       'ref1', '<msg1>', 'alice@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send with empty recipients should succeed (no outbound queue insert)'
+);
+
+-- Test 2: send to local recipient should deliver directly, not queue
+SELECT lives_ok(
+  $$ SELECT send(
+       (SELECT id FROM users WHERE email = 'alice@local.test'),
+       (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+       'ref2', '<msg2>', 'alice@local.test',
+       '[{"email":"bob@local.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject2', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send to local recipient should succeed'
+);
+
+-- Test 3: local recipient should have received message in inbox
+SELECT is(
+  (SELECT COUNT(*) FROM messages
+   WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'bob@local.test')),
+  1::BIGINT,
+  'bob should have 1 message in inbox after local delivery'
+);
+
+-- Test 4: outbound queue should be empty for pure-local send
+SELECT is(
+  (SELECT COUNT(*) FROM outbound_queue_hot),
+  0::BIGINT,
+  'outbound_queue_hot should be empty for pure-local send'
+);
+
+-- Test 5: send to external recipient should queue
+SELECT lives_ok(
+  $$ SELECT send(
+       (SELECT id FROM users WHERE email = 'alice@local.test'),
+       (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+       'ref3', '<msg3>', 'alice@local.test',
+       '[{"email":"ext@remote.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Subject3', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send to external recipient should succeed and queue'
+);
+
+-- Test 6: send_read_receipt succeeds for the account that owns the message.
+-- ADR-003: the account-slot arg is the MAILBOX id (parseAccountID), never users.id.
+-- After test 2, there is at least one message in alice's mailbox.
+SELECT lives_ok(
+  $$ SELECT send_read_receipt(
+       (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+       (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test') LIMIT 1),
+       'alice@local.test') $$,
+  'send_read_receipt succeeds for authorized account (message owner mailbox)'
+);
+
+-- Test 7: send_read_receipt rejects a non-owning account.
+-- Bob's mailbox tries to read-receipt alice's message — mb.id = bob != alice's mailbox,
+-- so ownership matches zero rows and BZ002 forbidden is raised.
+SELECT throws_ok(
+  $$ SELECT send_read_receipt(
+       (SELECT id FROM mailboxes WHERE email = 'bob@local.test'),
+       (SELECT id FROM messages WHERE mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test') LIMIT 1),
+       'bob@local.test') $$,
+  'BZ002',
+  NULL,
+  'send_read_receipt rejects a non-owning account (mailbox) with BZ002 forbidden'
+);
+
+-- notify_state_change adoption: send() bumps BOTH channels exactly once.
+-- Capture the alice mailbox state immediately before a fresh send, then assert
+-- exactly +1 on email AND +1 on tag (Sent tag membership changed).
+CREATE TEMP TABLE _send_base AS
+SELECT jmap_email_state AS e0, jmap_tag_state AS t0
+FROM mailboxes WHERE email = 'alice@local.test';
+
+SELECT send(
+  (SELECT id FROM users WHERE email = 'alice@local.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+  'ref8', '<msg8>', 'alice@local.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'Subject8', NULL, NULL, 'body', NULL, 100, FALSE, NULL);
+
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE email = 'alice@local.test'),
+  (SELECT e0 + 1 FROM _send_base),
+  'send bumps jmap_email_state exactly once (via notify_state_change)');
+
+SELECT is(
+  (SELECT jmap_tag_state FROM mailboxes WHERE email = 'alice@local.test'),
+  (SELECT t0 + 1 FROM _send_base),
+  'send bumps jmap_tag_state once — Sent tag membership changed');
+
+SELECT lives_ok(
+  $$ SELECT 1 WHERE has_function_privilege('notify_state_change(bigint,bigint,bigint,text)', 'execute') $$,
+  'send path depends on notify_state_change');
+
+-- ── REAL push assertion (WAVE 4 Phase 3): capture the app_notify tee and prove
+-- send() actually pushes on tag:{alice_mailbox} EXACTLY ONCE, on the right
+-- channel, with the state_change event shape. The capture side-channel is the
+-- only way to observe a push inside a BEGIN…ROLLBACK pgTAP txn (a real LISTEN
+-- never sees the rolled-back NOTIFY). SET LOCAL auto-resets at txn end. ──
+SET LOCAL app.capture_notify = 'on';
+
+SELECT send(
+  (SELECT id FROM users WHERE email = 'alice@local.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+  'refpush', '<msgpush>', 'alice@local.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'SubjectPush', NULL, NULL, 'body', NULL, 100, FALSE, NULL);
+
+-- (a) a push fired, (b) on the right channel, (c) EXACTLY once (single end-of-call
+-- notify; the Sent location swap ran p_notify=FALSE so there is no double-push).
+SELECT is(
+  notify_count('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  1,
+  'send pushes on tag:{alice_mailbox} exactly once (no double-push)');
+
+-- (d) the right event shape: notify_state_change emits {event:state_change,...}.
+SELECT is(
+  last_notify_event('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  'state_change',
+  'send push carries the state_change event');
+
+-- the captured payload is well-formed JSON carrying the bumped email-state token.
+SELECT cmp_ok(
+  ((SELECT notified_on FROM notified_on('tag:' || (SELECT id FROM mailboxes WHERE email = 'alice@local.test'))
+      LIMIT 1)::jsonb->>'state')::BIGINT,
+  '>', 0::BIGINT,
+  'send push payload carries a non-zero jmap_email_state token');
+
+-- no cross-channel leakage: nothing was pushed on a foreign mailbox's channel.
+SELECT is(
+  notify_count('tag:' || (SELECT id FROM mailboxes WHERE email = 'bob@local.test')),
+  0,
+  'send does NOT push on the unrelated recipient bob mailbox channel');
+
+-- ── Part 2 (seam adoption): DLP 'quarantine' moves the Sent copy to Spam via the
+-- location seam, with 'dlp' provenance, and send() still bumps state exactly ONCE
+-- (the quarantine swap passes p_notify=FALSE; send's single end-of-call notify is
+-- the only push). A unique keyword + highest precedence (lowest priority value)
+-- isolates this from any seeded default policy. ──
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, keywords, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'local.test'),
+        'quarantine-ztrigger', TRUE, -1, 'quarantine', ARRAY['ztriggerword'], TRUE);
+
+CREATE TEMP TABLE _dlp_base AS
+SELECT jmap_email_state AS e0 FROM mailboxes WHERE email = 'alice@local.test';
+
+SELECT send(
+  (SELECT id FROM users WHERE email = 'alice@local.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+  'refdlp', '<msgdlp>', 'alice@local.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'Subject DLP', NULL, NULL, 'this body has ztriggerword inside', NULL, 100, FALSE, NULL);
+
+-- Test 11: the quarantined Sent copy carries the Spam location tag.
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<msgdlp>'
+                              AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test'))
+       AND t.exclusive_group = 'location'),
+  'Spam',
+  'DLP quarantine moves the Sent copy to Spam via the location seam');
+
+-- Test 12: provenance 'dlp' was threaded through the seam.
+SELECT is(
+  (SELECT mt.added_by FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = (SELECT id FROM messages WHERE message_id = '<msgdlp>'
+                              AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test'))
+       AND t.name = 'Spam'),
+  'dlp',
+  'DLP quarantine preserves the dlp provenance on the Spam tag');
+
+-- Test 13: send still bumps jmap_email_state EXACTLY ONCE despite the quarantine
+-- swap (the swap used p_notify=FALSE → no double push).
+SELECT is(
+  (SELECT jmap_email_state FROM mailboxes WHERE email = 'alice@local.test'),
+  (SELECT e0 + 1 FROM _dlp_base),
+  'DLP-quarantine send bumps jmap_email_state exactly once (no double push)');
+
+-- (Worker-side S/MIME sign-flag threading removed in Phase D3 — signing is now
+-- done at submission in the EmailSubmission/set Go handler, not via a sign_smime
+-- column on the outbound queue.)
+
+-- ── Phase 3.3: encrypted-at-rest — p_is_encrypted nulls the Sent body columns ──
+-- send(... p_is_encrypted => TRUE): the Sent copy stores ONLY the ciphertext in
+-- raw_ref; body_text/body_html are NULL and the FTS trigger blanks body_tsv;
+-- subject + raw_ref are preserved. Use a unique message_id so the Sent row is
+-- isolable.
+SELECT send(
+  (SELECT id FROM users WHERE email = 'alice@local.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+  'enc/blob-ref', '<msg-enc-rest>', 'alice@local.test',
+  '[{"email":"ext@remote.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'EncSubject', NULL, NULL, 'cleartext body', '<p>cleartext</p>', 100, FALSE,
+  NULL, TRUE);
+
+SELECT is(
+  (SELECT (body_text IS NULL AND body_html IS NULL) FROM messages
+     WHERE message_id = '<msg-enc-rest>'
+       AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  TRUE,
+  'encrypted send: Sent copy body_text/body_html are NULL (encrypted-at-rest)');
+
+SELECT is(
+  (SELECT body_tsv IS NULL FROM messages
+     WHERE message_id = '<msg-enc-rest>'
+       AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  TRUE,
+  'encrypted send: Sent copy body_tsv is NULL (V029: genuinely no body index)');
+
+-- REGRESSION GUARD: the encrypted Sent copy MUST carry crypto_type='smime-encrypted'
+-- so decrypt-on-read fires for the sender's own (encrypt-to-self) copy.
+SELECT is(
+  (SELECT crypto_type FROM messages
+     WHERE message_id = '<msg-enc-rest>'
+       AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  'smime-encrypted',
+  'encrypted send: Sent copy crypto_type = smime-encrypted (decrypt-on-read fires)');
+
+SELECT is(
+  (SELECT (subject = 'EncSubject' AND raw_ref = 'enc/blob-ref') FROM messages
+     WHERE message_id = '<msg-enc-rest>'
+       AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  TRUE,
+  'encrypted send: subject + raw_ref (ciphertext) preserved');
+
+-- Control: p_is_encrypted default (FALSE) keeps cleartext bodies (Phase D invariant).
+SELECT send(
+  (SELECT id FROM users WHERE email = 'alice@local.test'),
+  (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+  'clear/blob-ref', '<msg-clear-rest>', 'alice@local.test',
+  '[{"email":"ext@remote.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+  'ClearSubject', NULL, NULL, 'cleartext body', '<p>cleartext</p>', 100, FALSE,
+  NULL);
+
+SELECT is(
+  (SELECT (body_text IS NOT NULL AND body_html IS NOT NULL) FROM messages
+     WHERE message_id = '<msg-clear-rest>'
+       AND mailbox_id = (SELECT id FROM mailboxes WHERE email = 'alice@local.test')),
+  TRUE,
+  'non-encrypted send: Sent copy bodies preserved (additivity / Phase D invariant)');
+
+-- ── Daily sending quota (BZ004): enforce / bump / reset ──────────────────────
+-- The cap-EXCEEDED path was untested (quota_floor.pg only covers the >=0 floor;
+-- mail_external_approval.pg only the held-send-no-bump). Boundary + idempotent
+-- counter bump + the daily-reset boundary.
+
+-- (a) At the cap, the next send is rejected with BZ004 (reset_at=today so the
+--     counter is NOT auto-reset first).
+UPDATE mailboxes SET sending_quota_day = 2, sending_sent_today = 2,
+       sending_quota_reset_at = CURRENT_DATE WHERE id = 9001;
+SELECT throws_ok(
+  $$ SELECT send(7001, 9001, 'refq1', '<msgq1>', 'alice@local.test',
+       '[{"email":"bob@local.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Quota', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'BZ004', NULL,
+  'send() throws BZ004 when sending_sent_today >= sending_quota_day');
+
+-- (b) Below the cap, a successful send bumps the counter by exactly 1.
+UPDATE mailboxes SET sending_quota_day = 10, sending_sent_today = 0,
+       sending_quota_reset_at = CURRENT_DATE WHERE id = 9001;
+SELECT lives_ok(
+  $$ SELECT send(7001, 9001, 'refq2', '<msgq2>', 'alice@local.test',
+       '[{"email":"bob@local.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Quota2', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send() below the daily quota succeeds');
+SELECT is(
+  (SELECT sending_sent_today FROM mailboxes WHERE id = 9001), 1,
+  'successful send bumps sending_sent_today by exactly 1 (set to 0, one send -> 1)');
+
+-- (c) A stale reset date zeroes the counter before the check, so a send the day
+--     after hitting the cap goes through, and the counter ends at 1 (not 100).
+UPDATE mailboxes SET sending_quota_day = 10, sending_sent_today = 99,
+       sending_quota_reset_at = CURRENT_DATE - 1 WHERE id = 9001;
+SELECT lives_ok(
+  $$ SELECT send(7001, 9001, 'refq3', '<msgq3>', 'alice@local.test',
+       '[{"email":"bob@local.test"}]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Quota3', NULL, NULL, 'body', NULL, 100, FALSE, NULL) $$,
+  'send() after the daily-reset boundary succeeds (counter was auto-reset)');
+SELECT is(
+  (SELECT sending_sent_today FROM mailboxes WHERE id = 9001), 1,
+  'daily reset zeroes the counter, then the send bumps it to 1');
+
+-- ── BUG FIX regression: send.sql 5a passed a hardcoded NULL for attachments
+-- into dlp_check, so blocked_file_types/max_attachment_size policies were DEAD
+-- at enforcement (dlp_check itself works — verified above via keyword/regex
+-- policies — only the attachment arm was starved of real data). The draft's
+-- real attachment metadata is available via p_source_message_id/received_at —
+-- the SAME lookup deliver_group_vacation.sql already uses (line ~304) to copy
+-- message_attachments onto a local-delivery copy. ──────────────────────────
+INSERT INTO dlp_policies (domain_id, name, enabled, priority, action, blocked_file_types, applies_to_all)
+VALUES ((SELECT id FROM domains WHERE name = 'local.test'),
+        'block-exe-attachment', TRUE, -2, 'block', ARRAY['exe'], TRUE);
+
+-- Draft (source) message owned by alice, carrying one attachment whose
+-- filename matches the policy's blocked_file_types.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, body_text, body_html, size_bytes, has_attachments,
+    thread_id, raw_ref, received_at)
+VALUES (9101001, (SELECT id FROM mailboxes WHERE email = 'alice@local.test'), 1,
+    '<attach-draft-1@local.test>', 'Attachment subject', 'alice@local.test', 'Alice',
+    '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'clean body text', NULL, 100, TRUE,
+    'thread-attach-1', 'raw/attach-draft-1', now())
+ON CONFLICT (id, received_at) DO NOTHING;
+
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+VALUES ('sendattachsha1', 'b/sendattachsha1', 100, 'application/octet-stream', 0)
+ON CONFLICT (sha256) DO NOTHING;
+
+INSERT INTO message_attachments (message_id, received_at, blob_sha256, content_type, filename, disposition, size_bytes)
+SELECT 9101001, m.received_at, 'sendattachsha1', 'application/octet-stream', 'malware.exe', 'attachment', 100
+FROM messages m WHERE m.id = 9101001;
+
+-- send() called with p_source_message_id/p_source_received_at pointing at the
+-- draft above — the same wiring jmap_email_submission.sql threads on every
+-- real send (p_source_message_id => v_email_id). Body/subject are clean (no
+-- keyword/regex trigger) so ONLY the attachment arm can explain a block.
+SELECT throws_ok(
+  $$ SELECT send(
+       (SELECT id FROM users WHERE email = 'alice@local.test'),
+       (SELECT id FROM mailboxes WHERE email = 'alice@local.test'),
+       'ref-attach-block', '<msg-attach-block>', 'alice@local.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+       'Attachment subject', NULL, NULL, 'clean body text', NULL, 100, TRUE,
+       NULL, FALSE, FALSE, 9101001, (SELECT received_at FROM messages WHERE id = 9101001)) $$,
+  'BZ005', NULL,
+  'send() now blocks on a real blocked_file_types attachment match (was dead when attachments were hardcoded NULL)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

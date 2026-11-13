@@ -1,0 +1,56 @@
+{
+  "format": 1,
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "rows": [
+    {
+      "endpoint": "https://route53.amazonaws.com",
+      "region": "us-east-1",
+      "signing_region": "us-east-1"
+    },
+    {
+      "endpoint": "https://route53.amazonaws.com",
+      "region": "us-west-2",
+      "signing_region": "us-east-1"
+    },
+    {
+      "endpoint": "https://route53.amazonaws.com",
+      "region": "eu-west-1",
+      "signing_region": "us-east-1"
+    },
+    {
+      "endpoint": "https://route53.amazonaws.com.cn",
+      "region": "cn-north-1",
+      "signing_region": "cn-northwest-1"
+    },
+    {
+      "endpoint": "https://route53.us-gov.amazonaws.com",
+      "region": "us-gov-east-1",
+      "signing_region": "us-gov-west-1"
+    },
+    {
+      "endpoint": "https://route53.c2s.ic.gov",
+      "region": "us-iso-west-1",
+      "signing_region": "us-iso-east-1"
+    },
+    {
+      "endpoint": "https://route53.sc2s.sgov.gov",
+      "region": "us-isob-east-1",
+      "signing_region": "us-isob-east-1"
+    },
+    {
+      "endpoint": "https://route53.cloud.adc-e.uk",
+      "region": "eu-isoe-west-1",
+      "signing_region": "eu-isoe-west-1"
+    },
+    {
+      "endpoint": "https://route53.csp.hci.ic.gov",
+      "region": "us-isof-east-1",
+      "signing_region": "us-isof-south-1"
+    },
+    {
+      "endpoint": "https://route53.amazonaws.eu",
+      "region": "eusc-de-east-1",
+      "signing_region": "eusc-de-east-1"
+    }
+  ]
+}

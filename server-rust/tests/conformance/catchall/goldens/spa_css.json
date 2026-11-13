@@ -1,0 +1,38 @@
+{
+  "case": "spa_css",
+  "format": 1,
+  "go_source": "f3ff02591aa3decdecec6e87f3c2ecf47df7e82e",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/",
+      "wire_method": "GET",
+      "wire_path": "/style.css"
+    },
+    "response": {
+      "body": "body {color: red}\n",
+      "body_sha256": "8afa2e353bdf8f15fb449f5db20f4c0120a3ad54df933b009e35a434b91329de",
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "public, max-age=3600",
+        "content-length": "18",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/css; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "etag": "\"sha256-8afa2e353bdf8f15fb449f5db20f4c0120a3ad54df933b009e35a434b91329de\"",
+        "last-modified": "Tue, 14 Nov 2023 22:13:20 GMT",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "catchall-test"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /"
+}

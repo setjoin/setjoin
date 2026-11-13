@@ -1,0 +1,210 @@
+-- chat_case_holds.pg — Chat A4b Task 2: chat_case_hold_set / chat_case_hold_release.
+-- Spec: retired-docs:superpowers/specs/2026-07-15-chat-A4b-oversight-design.md §6.1 rows 1-2,
+-- L3/L4/L5, §14 "Holds (pgTAP)".
+-- Genre: chat_hold.pg (A4a Task 5) + rls_chat_oversight.pg (A4b Task 1 fixture shape).
+BEGIN;
+SELECT plan(44);
+
+-- ── fixture: a real user for ediscovery_cases.created_by (FK'd), three cases,
+-- five channels ─────────────────────────────────────────────────────────────
+INSERT INTO domains (name, is_local) VALUES ('a4b-holds.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 93000, 'a4b-admin', id, 'a4b-admin@a4b-holds.test', 'a4b admin', 'x'
+    FROM domains WHERE name = 'a4b-holds.test';
+
+INSERT INTO ediscovery_cases (id, name, status, created_by) VALUES
+  (93100, 'case-A', 'active', 93000),
+  (93101, 'case-B', 'active', 93000),
+  (93102, 'case-closed', 'closed', 93000);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES
+  ('channel', 'holdset-ch1', 93000),
+  ('channel', 'holdset-ch2', 93000),
+  ('channel', 'holdset-ch3', 93000),
+  ('channel', 'holdset-ch4', 93000),
+  ('channel', 'holdset-ch5', 93000);
+SELECT id AS ch1 FROM chat_channels WHERE name = 'holdset-ch1' \gset
+SELECT id AS ch2 FROM chat_channels WHERE name = 'holdset-ch2' \gset
+SELECT id AS ch3 FROM chat_channels WHERE name = 'holdset-ch3' \gset
+SELECT id AS ch4 FROM chat_channels WHERE name = 'holdset-ch4' \gset
+SELECT id AS ch5 FROM chat_channels WHERE name = 'holdset-ch5' \gset
+
+-- custodian 93001 starts a member of ch1 + ch2 (NOT ch3 — joins later, trigger test)
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES
+  (:ch1, 93001, 'member'), (:ch2, 93001, 'member');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 9 — argument errors, independent of any hold state ─────────────
+SELECT throws_ok(
+  format($$ SELECT chat_case_hold_set(93000, %s, 93001, NULL, 'x') $$, 93102),
+  'BZ198', NULL, 'hold set against a closed case -> BZ198');
+SELECT throws_ok(
+  format($$ SELECT chat_case_hold_set(93000, 93100, 93001, %s, 'x') $$, :ch1),
+  'BZ197', NULL, 'both custodian AND channel scope given -> BZ197');
+SELECT throws_ok(
+  $$ SELECT chat_case_hold_set(93000, 93100, NULL, NULL, 'x') $$,
+  'BZ197', NULL, 'neither custodian NOR channel scope given -> BZ197');
+SELECT throws_ok(
+  format($$ SELECT chat_case_hold_set(93000, 93100, %s, NULL, '  ') $$, 93001),
+  'BZ197', NULL, 'blank reason -> BZ197');
+SELECT throws_ok(
+  $$ SELECT chat_case_hold_set(93000, 999999, 93001, NULL, 'x') $$,
+  'BZ197', NULL, 'unknown case id -> BZ197');
+SELECT throws_ok(
+  $$ SELECT chat_case_hold_set(93000, 93100, NULL, 999999, 'x') $$,
+  'BZ197', NULL, 'unknown channel id (channel scope) -> BZ197');
+SELECT throws_ok(
+  $$ SELECT chat_case_hold_release(93000, 999999, 'x') $$,
+  'BZ197', NULL, 'release of an unknown hold id -> BZ197');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 1 — snapshot coverage: custodian hold on 93001 (member of ch1,ch2) ─
+SELECT lives_ok(
+  format($$ SELECT chat_case_hold_set(93000, 93100, 93001, NULL, 'case-A custodian hold') $$),
+  'chat_case_hold_set succeeds for a custodian-scoped hold');
+SELECT chat_case_hold_set(93000, 93100, 93001, NULL, 'case-A custodian hold') AS hold1 \gset
+
+SELECT is((SELECT count(*) FROM chat_case_hold_channels
+            WHERE hold_id = :hold1 AND source = 'snapshot')::int, 2,
+  'snapshot covers exactly ch1+ch2 (the two current memberships)');
+SELECT is(chat_hold_active(:ch1), TRUE, 'chat_hold_active(ch1) true after snapshot');
+SELECT is(chat_hold_active(:ch2), TRUE, 'chat_hold_active(ch2) true after snapshot');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id IN (:ch1, :ch2) AND action = 'hold.set')::int, 2,
+  'one hold.set act per newly-covered channel (ch1+ch2)');
+SELECT is((SELECT after_state - '_checksum' FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'hold.set' ORDER BY id LIMIT 1),
+  jsonb_build_object('caseId', 93100, 'holdId', :hold1, 'scope', 'custodian'),
+  'hold.set payload on ch1 carries {caseId, holdId, scope:custodian}');
+
+-- ── idempotent re-set: same case/custodian/reason -> same id, no new acts ──
+SELECT is(chat_case_hold_set(93000, 93100, 93001, NULL, 'case-A custodian hold'), :hold1::bigint,
+  'idempotent re-set of an identical active hold returns the SAME id');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id IN (:ch1, :ch2) AND action = 'hold.set')::int, 2,
+  'idempotent re-set wrote no new hold.set acts');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 2 — destruction blocked live (the trigger, not a query predicate) ─
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch1, 1, 93001, 'held msg', now() - interval '2 days');
+SELECT id AS msg1 FROM chat_messages WHERE channel_id = :ch1 AND seq = 1 \gset
+SELECT throws_ok(format($$ DELETE FROM chat_messages WHERE id = %s $$, :msg1),
+  'BZ194', NULL, 'a direct DELETE on a case-held channel raises BZ194');
+
+-- ── group 3 (first half) — purge blocked while held ───────────────────────
+UPDATE chat_channels SET retention_days = 1 WHERE id = :ch1;
+SELECT is((SELECT count(*) FROM chat_purge_expired(1000, FALSE) WHERE channel_id = :ch1)::int, 0,
+  'chat_purge_expired skips ch1 entirely while case-held');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 4 — join-after-hold: the V127 trigger materializes new coverage ──
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch3, 93001, 'member');
+SELECT is((SELECT count(*) FROM chat_case_hold_channels
+            WHERE hold_id = :hold1 AND channel_id = :ch3 AND source = 'join')::int, 1,
+  'joining ch3 after the hold materializes a source=join coverage row');
+SELECT is(chat_hold_active(:ch3), TRUE, 'chat_hold_active(ch3) true after the join trigger');
+SELECT is((SELECT after_state - '_checksum' FROM chat_audit_log
+            WHERE channel_id = :ch3 AND action = 'hold.set' ORDER BY id LIMIT 1),
+  jsonb_build_object('caseId', 93100, 'holdId', :hold1, 'scope', 'custodian', 'source', 'join'),
+  'the join-trigger hold.set act on ch3 carries source:join');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 5 — leave-can't-expose: THE substrate test ──────────────────────
+DELETE FROM chat_channel_members WHERE channel_id = :ch1 AND user_id = 93001;
+SELECT is((SELECT count(*) FROM chat_case_hold_channels
+            WHERE hold_id = :hold1 AND channel_id = :ch1)::int, 1,
+  'the ch1 coverage row survives the custodian leaving the channel');
+SELECT is(chat_hold_active(:ch1), TRUE,
+  'chat_hold_active(ch1) still true after the custodian left (leave cannot expose)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 6 — pre-hold departure: the authored-message UNION leg ─────────
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch4, 93002, 'member');
+INSERT INTO chat_messages (channel_id, seq, author_id, body) VALUES (:ch4, 1, 93002, 'pre-hold msg');
+DELETE FROM chat_channel_members WHERE channel_id = :ch4 AND user_id = 93002;
+
+SELECT lives_ok(
+  $$ SELECT chat_case_hold_set(93000, 93100, 93002, NULL, 'pre-hold departure hold') $$,
+  'a custodian hold on a user who already left every channel still succeeds');
+SELECT chat_case_hold_set(93000, 93100, 93002, NULL, 'pre-hold departure hold') AS hold2 \gset
+SELECT is((SELECT count(*) FROM chat_case_hold_channels
+            WHERE hold_id = :hold2 AND channel_id = :ch4 AND source = 'snapshot')::int, 1,
+  'ch4 is covered via the authored-message UNION despite the pre-hold departure');
+SELECT is(chat_hold_active(:ch4), TRUE, 'chat_hold_active(ch4) true via the authored-message leg');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 10 — RESTRICT proof: coverage can never silently vanish ────────
+-- ch2 (not ch1): ch2 carries no messages, so this isolates the
+-- chat_case_hold_channels RESTRICT FK itself — ch1 has a held message and a
+-- DELETE there would hit the (also-correct) BZ194 message-CASCADE trigger
+-- first, proving a different thing.
+-- PG18 raises 23001 (restrict_violation) for a RESTRICT FK where PG15-17
+-- raise 23503 (foreign_key_violation) — same constraint, same semantics,
+-- version-dependent SQLSTATE. Pick the expected code off server_version_num
+-- rather than assert one and skip the other engine.
+SELECT throws_ok(format($$ DELETE FROM chat_channels WHERE id = %s $$, :ch2),
+  CASE WHEN current_setting('server_version_num')::int >= 180000 THEN '23001' ELSE '23503' END,
+  NULL, 'deleting a covered channel raises the FK RESTRICT violation, not a silent drop');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 7 — two cases, one channel: the BZ195 ceiling dissolves ────────
+SELECT lives_ok(
+  format($$ SELECT chat_case_hold_set(93000, 93101, NULL, %s, 'case-B channel hold') $$, :ch1),
+  'a SECOND case can channel-hold ch1 while case-A''s custodian hold already covers it (no BZ195)');
+SELECT chat_case_hold_set(93000, 93101, NULL, :ch1, 'case-B channel hold') AS holdb \gset
+
+SELECT lives_ok(format($$ SELECT chat_case_hold_release(93000, %s, 'release case-A custodian hold') $$, :hold1),
+  'releasing case-A''s hold succeeds');
+SELECT is(chat_hold_active(:ch1), TRUE,
+  'ch1 stays held after case-A''s release: case-B''s channel hold still covers it');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'hold.release')::int, 0,
+  'no hold.release act for ch1 — it did not lose its LAST coverage');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :ch2 AND action = 'hold.release')::int, 1,
+  'ch2 DID lose its last coverage on case-A''s release -> exactly one hold.release act');
+
+SELECT lives_ok(format($$ SELECT chat_case_hold_release(93000, %s, 'release case-B channel hold') $$, :holdb),
+  'releasing case-B''s hold succeeds');
+SELECT is(chat_hold_active(:ch1), FALSE,
+  'ch1 is finally unheld once BOTH cases release');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'hold.release')::int, 1,
+  'exactly ONE hold.release act lands for ch1, from the LAST release');
+
+-- ── group 3 (second half) — the destruction path resumes once fully released ─
+SELECT ok((SELECT count(*) FROM chat_purge_expired(1000, FALSE) WHERE channel_id = :ch1)::int > 0,
+  'ch1 purges once the last case hold is released');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 8 — boolean-arm coexistence: the A4a arm never overrides A4b's ──
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(93000, %s, true, 'matter-X') $$, :ch5),
+  'the A4a boolean arm sets independently of any case hold');
+SELECT lives_ok(
+  format($$ SELECT chat_case_hold_set(93000, 93100, NULL, %s, 'case hold on ch5') $$, :ch5),
+  'a case-scoped hold also lands on ch5 alongside the boolean arm');
+SELECT chat_case_hold_set(93000, 93100, NULL, :ch5, 'case hold on ch5') AS holdc \gset
+
+SELECT lives_ok(format($$ SELECT chat_channel_set_hold(93000, %s, false, 'matter-X') $$, :ch5),
+  'releasing the boolean arm succeeds');
+SELECT is(chat_hold_active(:ch5), TRUE,
+  'ch5 stays held after the boolean arm releases: the case hold still covers it');
+SELECT lives_ok(format($$ SELECT chat_case_hold_release(93000, %s, 'release case hold on ch5') $$, :holdc),
+  'releasing the case hold succeeds');
+SELECT is(chat_hold_active(:ch5), FALSE,
+  'ch5 is unheld only once the case hold ALSO releases');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── group 9 (cont'd) — release idempotence: BZ197, cleanly, no double-act ──
+SELECT (SELECT count(*) FROM chat_audit_log WHERE action = 'hold.release') AS releases_before \gset
+SELECT throws_ok(format($$ SELECT chat_case_hold_release(93000, %s, 'second release attempt') $$, :hold1),
+  'BZ197', NULL, 'a second release of an already-released hold raises BZ197');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE action = 'hold.release')::int, :releases_before,
+  'the rejected second release wrote no duplicate hold.release act');
+SELECT is(((SELECT released_at FROM chat_case_holds WHERE id = :hold1) IS NOT NULL), TRUE,
+  'hold1 remains released (no state change from the rejected second release)');
+
+SELECT * FROM finish(); ROLLBACK;

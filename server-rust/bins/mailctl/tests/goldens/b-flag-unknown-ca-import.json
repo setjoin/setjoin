@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of ca import:\n  -f string\n    \tPolicy document file\n  -mode string\n    \tImport mode: merge, replace, prune (default \"merge\")\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

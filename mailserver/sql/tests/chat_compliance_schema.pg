@@ -1,0 +1,69 @@
+-- chat_compliance_schema.pg — Chat A4a Task 1: V126 compliance substrate.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 1.
+BEGIN;
+SELECT plan(28);
+
+-- ── chat_channels compliance columns + defaults ──────────────────────────
+SELECT has_column('public', 'chat_channels', 'classification', 'classification column exists');
+SELECT has_column('public', 'chat_channels', 'retention_days', 'retention_days column exists');
+SELECT has_column('public', 'chat_channels', 'worm_mode', 'worm_mode column exists');
+SELECT has_column('public', 'chat_channels', 'legal_hold', 'legal_hold column exists');
+SELECT has_column('public', 'chat_channels', 'legal_hold_reason', 'legal_hold_reason column exists');
+SELECT has_column('public', 'chat_channels', 'last_purged_seq', 'last_purged_seq column exists');
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'v126-defaults', 90001);
+SELECT is((SELECT classification FROM chat_channels WHERE name = 'v126-defaults'), 'regular',
+  'classification defaults to regular');
+SELECT is((SELECT legal_hold FROM chat_channels WHERE name = 'v126-defaults'), false,
+  'legal_hold defaults to false');
+SELECT is((SELECT last_purged_seq FROM chat_channels WHERE name = 'v126-defaults'), 0::bigint,
+  'last_purged_seq defaults to 0');
+
+-- ── gxp knobs CHECK (chat_channels_gxp_knobs) ────────────────────────────
+SELECT throws_ok(
+  $$ UPDATE chat_channels SET classification = 'gxp' WHERE name = 'v126-defaults' $$,
+  NULL, NULL, 'gxp with NULL retention_days/worm_mode violates chat_channels_gxp_knobs');
+SELECT throws_ok(
+  $$ UPDATE chat_channels SET classification = 'gxp', retention_days = 90
+       WHERE name = 'v126-defaults' $$,
+  NULL, NULL, 'gxp with retention_days set but worm_mode NULL still violates the CHECK');
+SELECT lives_ok(
+  $$ UPDATE chat_channels SET classification = 'gxp', retention_days = 90, worm_mode = 'governance'
+       WHERE name = 'v126-defaults' $$,
+  'gxp with both knobs set is accepted');
+
+-- ── chat_audit_log: shape + FORCE RLS + zero policies ────────────────────
+SELECT has_table('public', 'chat_audit_log', 'chat_audit_log exists');
+SELECT col_is_pk('public', 'chat_audit_log', ARRAY['channel_id', 'id'], 'PK is (channel_id, id)');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_audit_log'::regclass),
+  TRUE, 'chat_audit_log RLS FORCED');
+SELECT is((SELECT count(*) FROM pg_policies WHERE tablename = 'chat_audit_log')::int, 0,
+  'chat_audit_log has zero policies (deny-all)');
+
+-- ── chat_retention_policies / chat_send_counters exist ───────────────────
+SELECT has_table('public', 'chat_retention_policies', 'chat_retention_policies exists');
+SELECT has_column('public', 'chat_retention_policies', 'effective_at', 'effective_at column exists');
+SELECT has_table('public', 'chat_send_counters', 'chat_send_counters exists');
+
+-- ── triggers ──────────────────────────────────────────────────────────────
+SELECT has_trigger('chat_channels', 'trg_chat_channel_no_downgrade', 'no-downgrade trigger exists');
+SELECT has_trigger('chat_messages', 'trg_chat_message_worm', 'message WORM trigger exists');
+SELECT has_trigger('chat_message_revisions', 'trg_chat_revision_worm', 'revision WORM trigger exists');
+SELECT has_trigger('chat_messages', 'trg_chat_message_hold', 'message hold trigger exists');
+
+-- ── chat_hold_active ──────────────────────────────────────────────────────
+SELECT has_function('chat_hold_active', ARRAY['bigint']);
+SELECT is(chat_hold_active((SELECT id FROM chat_channels WHERE name = 'v126-defaults')), false,
+  'chat_hold_active reads legal_hold (false by default)');
+
+-- ── toggle + perm seeds ───────────────────────────────────────────────────
+SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'feature.chat_compliance'), false,
+  'feature.chat_compliance seeded OFF');
+SELECT is((SELECT count(*) FROM admin_permissions
+            WHERE permission_key IN ('chat.compliance_view', 'chat.compliance_manage'))::int, 2,
+  'both chat compliance perms seeded');
+SELECT ok((SELECT 'chat.compliance_view' = ANY(permissions) AND 'chat.compliance_manage' = ANY(permissions)
+             FROM admin_role_groups WHERE id = 1),
+  'Super Admin (id=1) holds both new perms');
+
+SELECT * FROM finish(); ROLLBACK;

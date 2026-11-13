@@ -1,0 +1,86 @@
+-- chat_save.pg: personal saved-message bookmark reducer (Pillar A3 QoL
+-- Task 3). Requires: chat_channel.sql, notify_chat_state.sql,
+-- chat_message.sql, chat_save.sql. chat_channel_members has no FK to users
+-- (V119) so bare bigint ids suffice.
+BEGIN;
+SELECT plan(16);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: a channel with 931 (owner) and 932 (member); 933 never joins.
+SELECT chat_channel_create(931, 'save-general') AS ch_id \gset
+SELECT chat_member_add(931, :ch_id, 932);
+SELECT chat_message_send(931, :ch_id, 'save me') AS msg_json \gset
+SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS msg_id \gset
+
+-- ── BZ163: a non-member cannot save ───────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_save_toggle(933, %s) $$, :msg_id),
+  'BZ163', NULL, 'non-member cannot save (BZ163)');
+
+-- ── BZ169: saving a nonexistent message ──────────────────────────────────
+SELECT throws_ok($$ SELECT chat_save_toggle(931, 999999999) $$,
+  'BZ169', NULL, 'saving a nonexistent message raises BZ169');
+
+-- ── save toggles on/off, self-scoped ──────────────────────────────────────
+SELECT chat_save_toggle(931, :msg_id) AS saved \gset
+SELECT is(:'saved'::boolean, true, 'first toggle saves (returns true)');
+SELECT is((SELECT count(*)::int FROM chat_saved_messages
+            WHERE user_id = 931 AND message_id = :msg_id), 1, 'save row inserted');
+SELECT is(jsonb_array_length(chat_saves_list(931)), 1, 'saves_list returns the saved message');
+
+-- ── saves are PRIVATE: another member's save is invisible to me, and
+-- toggling my own save never fans out a notify (no other member is told) ──
+-- notify_count is captured BEFORE the save (932 already received the earlier
+-- chat_message_send's 'message_created' push) so this asserts the DELTA is
+-- zero, not that the log is empty.
+SELECT notify_count('chat:932') AS n_before \gset
+SELECT chat_save_toggle(932, :msg_id) AS saved2 \gset
+SELECT is(:'saved2'::boolean, true, 'a different member saves the same message independently');
+SELECT is(jsonb_array_length(chat_saves_list(931)), 1, '931''s save list is unaffected by 932''s save (self-scoped)');
+SELECT is(notify_count('chat:932'), :n_before, 'saving never fans out a notify to other members (self-only state)');
+
+-- ── un-save ────────────────────────────────────────────────────────────────
+SELECT chat_save_toggle(931, :msg_id) AS unsaved \gset
+SELECT is(:'unsaved'::boolean, false, 'second toggle un-saves (returns false)');
+SELECT is(jsonb_array_length(chat_saves_list(931)), 0, 'saves_list is now empty for 931');
+
+-- ── left-channel saves are HIDDEN (row kept, membership join in-SQL) ─────
+-- 932 still has the earlier save; remove 932 from the channel and confirm
+-- the save silently disappears from their list without deleting the row.
+SELECT chat_member_remove(931, :ch_id, 932);
+SELECT is(jsonb_array_length(chat_saves_list(932)), 0, 'a save in a channel the user has left is hidden from saves_list');
+SELECT is((SELECT count(*)::int FROM chat_saved_messages WHERE user_id = 932 AND message_id = :msg_id), 1,
+  'the save ROW is retained (not deleted) even though it''s hidden while not a member');
+
+-- ── review blocker: save-then-soft-delete must not permanently lock the
+-- entry into the user's saved list (chat_pin.pg's stuck-pin sibling) ────────
+-- Rejoin 932 first (left the channel above) so the fixture below is clean.
+SELECT chat_member_add(931, :ch_id, 932);
+SELECT chat_message_send(931, :ch_id, 'save me then delete me') AS del_msg_json \gset
+SELECT (:'del_msg_json'::jsonb ->> 'messageId')::bigint AS del_msg_id \gset
+SELECT chat_save_toggle(932, :del_msg_id) AS del_saved \gset
+SELECT is(:'del_saved'::boolean, true, 'save row exists before delete');
+
+SELECT chat_message_delete(931, :del_msg_id);
+
+-- The tombstone stays VISIBLE in the saves list (deletedAt set, body/payload
+-- blanked) — a save is a personal record, not purged by another user's
+-- moderation action (contrast chat_pin.sql, which purges the pin row
+-- outright since a pin is a channel-curation record, not personal).
+SELECT ok(
+  (SELECT bool_or((e ->> 'messageId')::bigint = :del_msg_id AND (e ->> 'deletedAt') IS NOT NULL)
+     FROM jsonb_array_elements(chat_saves_list(932)) e),
+  'chat_saves_list still shows the saved-then-deleted message as a visible tombstone');
+
+-- ...but it must be DISMISSABLE: unsave must succeed (not BZ169) even though
+-- the message is soft-deleted. Before the fix, chat_save_toggle's BZ169
+-- "message not found/deleted" guard fired before the DELETE branch could
+-- ever run, so this raised BZ169 and the entry was permanently unremovable.
+SELECT chat_save_toggle(932, :del_msg_id) AS del_unsaved \gset
+SELECT is(:'del_unsaved'::boolean, false, 'unsave on a saved-then-deleted message succeeds (dismissable, not BZ169-locked)');
+SELECT ok(
+  NOT (SELECT bool_or((e ->> 'messageId')::bigint = :del_msg_id)
+         FROM jsonb_array_elements(chat_saves_list(932)) e),
+  'saves_list no longer carries the dismissed tombstone (932''s other save is untouched)');
+
+SELECT * FROM finish();
+ROLLBACK;

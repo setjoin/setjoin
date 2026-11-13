@@ -1,0 +1,124 @@
+-- pgTAP: calendar_finalize_create_bookings.sql — the CalendarEvent/set create-path
+-- resource resolution + booking fan-out, moved from the Go gateway into a reducer.
+--
+-- DIVERGENT IDS (users 71001 != mailbox 91001, room mailboxes user_id IS NULL), so the
+-- ADR-003 guard is live: the booker passed to calendar_book_resource MUST be the caller's
+-- users.id (resolved via account_scope), NOT the mailbox id. calendar_book_resource records
+-- the booker's users.email as the booking event's organizer_email; a wrong mailbox-id booker
+-- would match zero users rows and leave it NULL — the regression assertion (test 6).
+BEGIN;
+SELECT plan(9);
+
+INSERT INTO domains (name, is_local) VALUES ('fin.test', TRUE);
+
+-- Booker user (71001) + primary mailbox (91001) — divergent by construction.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (71001, 'booker', (SELECT id FROM domains WHERE name='fin.test'), 'booker@fin.test', 'Booker');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary, resource_type) VALUES
+  (91001, 71001, (SELECT id FROM domains WHERE name='fin.test'), 'booker@fin.test', 'personal', 'Booker Mbox', TRUE, NULL),
+  -- Two room mailboxes (user_id IS NULL — the org-shared shape).
+  (91002, NULL,  (SELECT id FROM domains WHERE name='fin.test'), 'roomA@fin.test',  'personal', 'Room A', FALSE, 'room'),
+  (91003, NULL,  (SELECT id FROM domains WHERE name='fin.test'), 'roomB@fin.test',  'personal', 'Room B', FALSE, 'room');
+-- A second, FOREIGN account (different mailbox) whose event must be a no-op.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (71002, 'other', (SELECT id FROM domains WHERE name='fin.test'), 'other@fin.test', 'Other');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (91009, 71002, (SELECT id FROM domains WHERE name='fin.test'), 'other@fin.test', 'personal', 'Other Mbox', TRUE);
+
+-- Booker's personal calendar + two room calendars (roomA auto-accept, roomB decline-conflict)
+-- + the foreign account's calendar.
+INSERT INTO calendars (id, mailbox_id, name, is_default, resource_type, booking_policy, capacity) VALUES
+  (91001, 91001, 'Booker Cal', TRUE, 'personal',        NULL,               NULL),
+  (91002, 91002, 'Room A',     TRUE, 'room',            'auto-accept',      8),
+  (91003, 91003, 'Room B',     TRUE, 'room',            'decline-conflict', 12),
+  (91009, 91009, 'Other Cal',  TRUE, 'personal',        NULL,               NULL);
+
+-- The event to book (id 91001), with a non-resource attendee + roomA + roomB.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, status, etag, jmap_state)
+VALUES (91001, 91001, 'fin-evt-1', 'Workshop', '2026-08-01 10:00:00+00', '2026-08-01 11:00:00+00', 'confirmed', generate_etag(), 1);
+INSERT INTO event_attendees (event_id, email, name, role, status, rsvp) VALUES
+  (91001, 'booker@fin.test', 'Booker', 'required', 'accepted',     FALSE),
+  (91001, 'roomA@fin.test',  'Room A', 'resource', 'needs-action', FALSE),
+  (91001, 'roomB@fin.test',  'Room B', 'resource', 'needs-action', FALSE);
+
+-- Existing overlapping booking in Room B → forces decline-conflict.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, etag, jmap_state)
+VALUES (91002, 91003, 'roomB-held', 'Held', '2026-08-01 10:30:00+00', '2026-08-01 11:30:00+00', generate_etag(), 1);
+
+-- Foreign event (id 91009) owned by the OTHER account, with a roomA resource attendee.
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, etag, jmap_state)
+VALUES (91009, 91009, 'foreign-evt', 'Foreign', now(), now()+'1h'::INTERVAL, generate_etag(), 1);
+INSERT INTO event_attendees (event_id, email, role) VALUES (91009, 'roomA@fin.test', 'resource');
+
+-- An event with NO resource attendees (id 91003).
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, etag, jmap_state)
+VALUES (91003, 91001, 'no-res-evt', 'No Rooms', now(), now()+'1h'::INTERVAL, generate_etag(), 1);
+INSERT INTO event_attendees (event_id, email, role) VALUES (91003, 'booker@fin.test', 'required');
+
+-- ── Run the finalize reducer for the booker's event (91001) EXACTLY ONCE ─────
+-- (it inserts a booking row per resource, so calling it repeatedly would dup the uid —
+-- mirroring real usage where the gateway calls it once). Capture the result once.
+CREATE TEMP TABLE _r AS SELECT calendar_finalize_create_bookings(91001, ARRAY[91001]::bigint[]) AS j;
+
+-- (1) Result is keyed by the EVENT id (TEXT).
+SELECT ok(
+  (SELECT j FROM _r) ? '91001',
+  'bookings result is keyed by the created event id'
+);
+
+-- (2) roomA (resolved by email) booked → confirmed.
+SELECT is(
+  (SELECT j FROM _r) #>> '{91001,roomA@fin.test,status}',
+  'confirmed',
+  'roomA resolved by email and booked confirmed'
+);
+
+-- (3) roomB decline-conflict outcome surfaced (type=conflict).
+SELECT is(
+  (SELECT j FROM _r) #>> '{91001,roomB@fin.test,type}',
+  'conflict',
+  'roomB decline-conflict outcome surfaced'
+);
+
+-- (4) The non-resource (required) attendee is NOT booked.
+SELECT ok(
+  NOT ((SELECT j FROM _r) #> '{91001}') ? 'booker@fin.test',
+  'non-resource attendee is ignored (not booked)'
+);
+
+-- (5) Exactly the two resource rooms appear under the event.
+SELECT is(
+  (SELECT count(*)::int FROM jsonb_object_keys((SELECT j FROM _r) #> '{91001}')),
+  2,
+  'only the two resource rooms are booked'
+);
+
+-- (6) ADR-003 GUARD: the roomA booking event records the BOOKER's users.email as
+-- organizer_email — proving the booker passed to calendar_book_resource was the users.id
+-- (71001), not the mailbox id (91001). A mailbox-id booker finds no users row → NULL.
+SELECT is(
+  (SELECT organizer_email FROM calendar_events
+     WHERE calendar_id = 91002 AND uid LIKE 'fin-evt-1-resource-%' LIMIT 1),
+  'booker@fin.test',
+  'booking event organizer_email = booker users.email (booker is a users.id, ADR-003)'
+);
+
+-- (7) Divergence sanity: the booker user id != mailbox id (guard is meaningful).
+SELECT isnt(71001::text, 91001::text, 'fixture has divergent user/mailbox ids');
+
+-- (8) Foreign event is a no-op (not owned by the caller mailbox).
+SELECT is(
+  calendar_finalize_create_bookings(91001, ARRAY[91009]::bigint[]),
+  '{}'::jsonb,
+  'a foreign event id is a no-op'
+);
+
+-- (9) An event with no resource attendees books nothing.
+SELECT is(
+  calendar_finalize_create_bookings(91001, ARRAY[91003]::bigint[]),
+  '{}'::jsonb,
+  'an event with no resource attendees books nothing'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

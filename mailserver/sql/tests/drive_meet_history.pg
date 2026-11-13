@@ -1,0 +1,277 @@
+-- drive_meet_history.pg — the MEET Drive-History emitter (V269 +
+-- drive_meet_history_emit.sql): the named M4/M1 follow-up attaching meet
+-- semantic facts to the Drive §9.3 audit chain at exactly the three frozen
+-- lifecycle points.
+--
+-- Covers (the brief's test contract):
+--   · POSITIVE — each lifecycle point lands ONE chain entry
+--     (drive_access_audit discipline: checksum'd, target node, meet facts in
+--     after_state), in per-space chain order, and surfaces through the
+--     EXISTING drive_file_history_query read model (the audit source).
+--   · NEGATIVE — the closed source-kind catalog refuses unknown kinds
+--     (BZ276); unknown/foreign meet facts are the indistinguishable BZ272;
+--     a fact with NO Drive home (a stopped package that never exported) is
+--     receipted 'absent' and NEVER synthesized into a chain (non-Drive
+--     authority refused); the receipt ledger is reducer-only under FORCE
+--     RLS (direct-write 42501, cross-tenant isolation as setjoin_app).
+--   · RECOVERY — verify_drive_audit_chain passes across a space holding
+--     meet entries interleaved with native Drive entries; a replayed emit
+--     re-enters the committed receipt (replayed:true, same audit id, no
+--     second chain row).
+--
+-- The authority shape this file pins: the ONLY writer of the meet entries is
+-- the DRIVE-side ingest (drive_meet_history_emit, SECURITY DEFINER,
+-- worker-owned); meet contributes ordered human events and never touches
+-- Drive tables directly.
+BEGIN;
+SELECT plan(47);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures: tenant A — host + live meeting m1 + a Drive space with a
+-- presented file (node/ver) and a rendition output node (rnode/rver);
+-- a presented ACTIVE session with a committed annotation; a stopped
+-- semantic recording whose package exported ready onto rnode/rver; a
+-- second stopped recording (rec2) with NO export (the absent arm).
+-- Tenant B — owner2 + meeting m2 + its own space/node/version + a
+-- prepared session (the cross-tenant isolation set).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT mk_auth_user('dh-host@drive-meet-history.test') AS host \gset
+SELECT mk_auth_user('dh-member@drive-meet-history.test') AS member \gset
+SELECT mk_auth_user('dh-owner2@drive-meet-history.test') AS owner2 \gset
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('dh-a', :host, 'live')
+  RETURNING id AS m1 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :member, 'u:' || :member, 'member', now());
+
+SELECT drive_space_create(:host, 'dh-space', 'regular') AS space \gset
+SELECT drive_node_create(:host, :space, NULL, 'file', 'deck.pdf') AS node \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node, :space, repeat('ab', 32), 1, :host) RETURNING id AS ver \gset
+SELECT drive_node_create(:host, :space, NULL, 'file', 'rendition.mp4') AS rnode \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:rnode, :space, repeat('cd', 32), 1, :host) RETURNING id AS rver \gset
+
+-- The presented session: prepare → ready → start (ACTIVE; seq 2 is the
+-- commit's fenced current, the annotation writes checkpoint 3).
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid \gset
+SELECT meeting_presentation_ready(:host, :m1, :pid, NULL);
+SELECT meeting_presentation_start(:host, :m1, :pid, 1);
+-- The committed durable annotation (the real reducer path).
+SELECT meeting_presentation_annotation_commit(:host, :m1, :pid, 1, 2, false,
+  '{"dh":"tenant-a"}', octet_length('{"dh":"tenant-a"}')) AS ann \gset
+SELECT is(:'ann'::jsonb->'annotation'->>'snapshotRef',
+  'annotations/p' || :pid::text || '-s3.json',
+  'the fixture annotation committed (it is the emit subject)');
+
+-- The semantic recording arc: start → one verified segment → stop →
+-- export request → claim → complete ready onto rnode/rver.
+SELECT meeting_semantic_recording_start(:host, :m1, 'server_audio', NULL) AS rec \gset
+SELECT lives_ok(
+  format($$ SELECT meeting_semantic_segment_ingest(%s, 1, 'verified', repeat('12', 32), 48210,
+              'audio/webm', 'opus', 'webm', 0, 1000, 1000, 2000, NULL) $$, :rec),
+  'the fixture segment verifies with its full proof');
+SELECT meeting_semantic_recording_stop(:host, :m1);
+SELECT meeting_semantic_export_request(:host, :m1, :rec, NULL, NULL) AS ex \gset
+SELECT meeting_semantic_export_claim(:rec, (:'ex'::jsonb->>'generation')::bigint);
+SELECT meeting_semantic_export_complete(:rec, (:'ex'::jsonb->>'generation')::bigint,
+  true, :rnode, :rver, NULL);
+SELECT is((SELECT state FROM meeting_semantic_exports WHERE recording_id = :rec), 'ready',
+  'the fixture export is ready (the stop fact has a Drive home)');
+
+-- The NO-HOME recording: start → stop, never exported (the absent arm).
+SELECT meeting_semantic_recording_start(:host, :m1, 'server_audio', NULL) AS rec2 \gset
+SELECT meeting_semantic_recording_stop(:host, :m1);
+
+-- Tenant B: a second disjoint space + presented session (the isolation set).
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('dh-b', :owner2, 'live')
+  RETURNING id AS m2 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m2, :owner2, 'u:' || :owner2, 'host', now());
+SELECT drive_space_create(:owner2, 'dh-space-b', 'regular') AS space2 \gset
+SELECT drive_node_create(:owner2, :space2, NULL, 'file', 'other.pdf') AS node2 \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node2, :space2, repeat('34', 32), 1, :owner2) RETURNING id AS ver2b \gset
+SELECT meeting_presentation_prepare(:owner2, :m2, :node2, :ver2b, repeat('78', 32)) AS pid2 \gset
+
+-- The annotation ledger row the committed snapshot landed in.
+SELECT id AS annid FROM meeting_presentation_annotations
+ WHERE presentation_id = :pid \gset
+
+-- FORCE state, before anything else.
+SELECT is((SELECT relforcerowsecurity FROM pg_class
+            WHERE oid = 'public.drive_meet_history_events'::regclass),
+  TRUE, 'drive_meet_history_events RLS FORCED');
+SELECT is((SELECT count(*) FROM pg_policies
+            WHERE tablename = 'drive_meet_history_events' AND cmd = 'SELECT'), 1::bigint,
+  'exactly one SELECT policy (no write policies — the ingest is the only writer)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 — POSITIVE: the three lifecycle points, in the worker leg's order,
+-- each landing exactly one chain entry in :space.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT drive_meet_history_emit('recording.stopped', :rec) AS emit_rec \gset
+SELECT drive_meet_history_emit('annotation.committed', :annid) AS emit_ann \gset
+SELECT drive_meet_history_emit('presentation.pinned', :pid) AS emit_pin \gset
+SELECT is(:'emit_rec'::jsonb->>'status', 'emitted', 'the stopped package emits');
+SELECT is(:'emit_ann'::jsonb->>'status', 'emitted', 'the committed annotation emits');
+SELECT is(:'emit_pin'::jsonb->>'status', 'emitted', 'the pinned presentation emits');
+SELECT is(:'emit_ann'::jsonb->>'action', 'meet.annotation.committed',
+  'the ingest derives the closed audit action per kind (never request-owned)');
+
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.recording.stopped'
+              AND target_type = 'node' AND target_id = :rnode), 1::bigint,
+  'exactly one meet.recording.stopped chain entry, targeting the rendition node');
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.annotation.committed'
+              AND target_type = 'node' AND target_id = :node), 1::bigint,
+  'exactly one meet.annotation.committed chain entry, targeting the presented node');
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.presentation.pinned'
+              AND target_type = 'node' AND target_id = :node), 1::bigint,
+  'exactly one meet.presentation.pinned chain entry, targeting the presented node');
+
+SELECT is((SELECT after_state->>'recordingId' FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.recording.stopped'), :rec::text,
+  'the stop entry carries the meet recording id in after_state');
+SELECT is((SELECT after_state->>'checkpointSeq' FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.annotation.committed'), '3',
+  'the annotation entry carries its committed checkpoint');
+SELECT is((SELECT after_state->>'sessionStatus' FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.presentation.pinned'), 'ACTIVE',
+  'the pin entry carries the session status it pinned under');
+SELECT is((SELECT user_id FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.annotation.committed'), :host::bigint,
+  'the entry actor is the meet fact''s actor (started_by/actor/initiated_by), not the caller');
+
+-- Chain order: the three emits landed as consecutive per-space ids.
+SELECT audit_id AS aid1 FROM drive_meet_history_events
+ WHERE source_kind = 'recording.stopped' AND source_id = :rec \gset
+SELECT audit_id AS aid2 FROM drive_meet_history_events
+ WHERE source_kind = 'annotation.committed' AND source_id = :annid \gset
+SELECT audit_id AS aid3 FROM drive_meet_history_events
+ WHERE source_kind = 'presentation.pinned' AND source_id = :pid \gset
+SELECT is(:aid2::text, (:aid1::bigint + 1)::text,
+  'the annotation entry chained directly after the stop entry');
+SELECT is(:aid3::text, (:aid2::bigint + 1)::text,
+  'the pin entry chained directly after the annotation entry');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 — the entries SURFACE as Drive History (the existing read model's
+-- audit source; target_type='node' is what attaches them to the file).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT drive_file_history_query(:host, :rnode, 100) AS hist_rnode \gset
+SELECT drive_file_history_query(:host, :node, 100) AS hist_node \gset
+SELECT is((SELECT count(*) FROM jsonb_array_elements(:'hist_rnode'::jsonb->'items') e
+            WHERE e->>'kind' = 'meet.recording.stopped'), 1::bigint,
+  'the rendition node''s Drive History shows the meet stop fact');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(:'hist_node'::jsonb->'items') e
+            WHERE e->>'kind' = 'meet.annotation.committed'), 1::bigint,
+  'the presented node''s Drive History shows the annotation fact');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(:'hist_node'::jsonb->'items') e
+            WHERE e->>'kind' = 'meet.presentation.pinned'), 1::bigint,
+  'the presented node''s Drive History shows the pin fact');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 — RECOVERY, replay idempotence: a retried emit re-enters the
+-- committed receipt — same audit id, NO second chain row.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT drive_meet_history_emit('recording.stopped', :rec) AS replay \gset
+SELECT is(:'replay'::jsonb->>'replayed', 'true', 'the replayed emit answers replayed:true');
+SELECT is(:'replay'::jsonb->>'auditId', :aid1::text,
+  'the replay re-enters the SAME chain entry');
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.recording.stopped'), 1::bigint,
+  'the replay minted no second chain row');
+SELECT is((SELECT count(*) FROM drive_meet_history_events
+            WHERE space_id = :space), 3::bigint,
+  'one receipt per meet fact of THIS space, exactly (the ledger is shared; scope by space)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 — RECOVERY, chain integrity: meet entries verify as part of the
+-- §9.3 chain, including after a native Drive entry interleaves; tenant B's
+-- pin lands in ITS OWN space's chain.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT drive_access_audit(%s, %s, 'node.create', 'node', %s,
+                     NULL, '{"dh":"native"}'::jsonb, NULL, 'dh: native interleave') $$,
+         :host, :space, :node),
+  'a native Drive audit entry lands through the same chain writer');
+SELECT is((SELECT bool_and(valid) FROM verify_drive_audit_chain(:space)), TRUE,
+  'the space chain (3 meet entries + 1 native + the fixture entries) verifies end to end');
+SELECT is((SELECT count(*) FROM verify_drive_audit_chain(:space)
+            WHERE action LIKE 'meet.%'), 3::bigint,
+  'the chain holds exactly the three meet entries (plus the fixture/native ones)');
+SELECT drive_meet_history_emit('presentation.pinned', :pid2) AS emit_pin2 \gset
+SELECT is(:'emit_pin2'::jsonb->>'status', 'emitted', 'tenant B''s pin emits');
+SELECT is(:'emit_pin2'::jsonb->>'spaceId', :space2::text,
+  'the chain entry is owned by the ATTACHMENT node''s space, never the caller''s');
+SELECT is((SELECT bool_and(valid) FROM verify_drive_audit_chain(:space2)), TRUE,
+  'tenant B''s chain verifies with its meet entry');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 — NEGATIVE: the closed catalog, the indistinguishable not-found, and
+-- the no-Drive-home fact (non-Drive authority refused — never synthesized).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok($$ SELECT drive_meet_history_emit('recording.started', 1) $$,
+  'BZ276', NULL, 'an unknown source kind is BZ276 (the closed catalog, not the caller''s claim)');
+SELECT throws_ok($$ SELECT drive_meet_history_emit('recording.stopped', NULL) $$,
+  'BZ276', NULL, 'a NULL source id is BZ276');
+SELECT throws_ok($$ SELECT drive_meet_history_emit('presentation.pinned', 999999999) $$,
+  'BZ272', NULL, 'an unknown meet fact is the indistinguishable BZ272');
+SELECT meeting_semantic_recording_start(:host, :m1, 'server_audio', NULL) AS rec3 \gset
+SELECT throws_ok(
+  format($$ SELECT drive_meet_history_emit('recording.stopped', %s) $$, :rec3),
+  'BZ272', NULL, 'a fact not at the lifecycle point (still active) is BZ272');
+
+SELECT drive_meet_history_emit('recording.stopped', :rec2) AS absent \gset
+SELECT is(:'absent'::jsonb->>'status', 'absent',
+  'a stopped package with no Drive home receipts truthfully ABSENT');
+SELECT is((SELECT count(*) FROM drive_audit_log
+            WHERE space_id = :space AND action = 'meet.recording.stopped'), 1::bigint,
+  'the no-home fact minted NO chain entry (never synthesized into Drive history)');
+SELECT is((SELECT state FROM drive_meet_history_events
+            WHERE source_kind = 'recording.stopped' AND source_id = :rec2), 'absent',
+  'the absent receipt is committed (the leg converges, never retries forever)');
+SELECT drive_meet_history_emit('recording.stopped', :rec2) AS absent2 \gset
+SELECT is(:'absent2'::jsonb->>'replayed', 'true', 'the absent arm replays idempotently too');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — NEGATIVE, cross-tenant isolation as the constrained runtime role
+-- (the meet_*_rls.pg genre; BOTH tenants' receipts exist above). The
+-- ledger is reducer-only: SELECT is member-scoped, every write 42501s.
+-- ══════════════════════════════════════════════════════════════════════
+GRANT SELECT, INSERT, UPDATE ON public.drive_meet_history_events TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+SELECT set_config('app.current_user_id', :host::text, true);
+SELECT lives_ok($$ SELECT count(*) FROM drive_meet_history_events $$,
+  'the receipt policies do not recurse (the ARCH-018 dodge)');
+SELECT is((SELECT count(*)::int FROM drive_meet_history_events), 3,
+  'tenant A sees exactly its own emitted receipts (the absent row carries no space and stays internal)');
+SELECT is((SELECT count(*)::int FROM drive_meet_history_events
+            WHERE space_id = :space2), 0,
+  'tenant A sees NO receipt of tenant B''s chain (cross-tenant denial)');
+SELECT set_config('app.current_user_id', :owner2::text, true);
+SELECT is((SELECT count(*)::int FROM drive_meet_history_events
+            WHERE space_id = :space), 0,
+  'tenant B sees NO receipt of tenant A''s chain (cross-tenant denial)');
+SELECT is((SELECT count(*)::int FROM drive_meet_history_events), 1,
+  'tenant B sees exactly its own receipt');
+SELECT throws_ok($$ INSERT INTO drive_meet_history_events
+                    (source_kind, source_id, meeting_id) VALUES
+                    ('presentation.pinned', 1, 1) $$,
+  '42501', NULL,
+  'the ledger is reducer-only: a direct INSERT is a policy denial (no write policy exists)');
+SELECT is((SELECT count(*) FROM drive_meet_history_events
+            WHERE audit_id = 1), 0::bigint,
+  'a direct UPDATE no-ops under FORCE RLS (no row is visible to write — R3, settled history never rewrites)');
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM drive_meet_history_events), 0,
+  'no GUC ⇒ fail closed (zero rows)');
+
+SELECT * FROM finish();
+ROLLBACK;

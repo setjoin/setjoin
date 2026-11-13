@@ -1,0 +1,31 @@
+-- Frozen-Go MAM data-transaction seam: NULL-distinct global policy keys.
+BEGIN;
+SELECT plan(15);
+DELETE FROM device_policy;
+SELECT is(rust_mam_global_policy_set('{}'),0::bigint,'empty policy update reports the global row count');
+SELECT is(rust_mam_global_policy_set('{"require_pin":"true"}'),1::bigint,'first policy is inserted');
+SELECT is(rust_mam_global_policy_set('{"require_pin":"false"}'),2::bigint,'Go NULL-key upsert inserts a duplicate');
+SELECT is((SELECT array_agg(policy_value ORDER BY id) FROM device_policy WHERE device_id IS NULL),ARRAY['true','false'],'both values remain as in the Go recording');
+DELETE FROM device_policy_groups;
+SELECT ok(rust_mam_group_policy_set('role',5,'{"pin_length":"6"}'),'group policy is inserted');
+SELECT ok(rust_mam_group_policy_set('role',5,'{"pin_length":"8"}'),'group policy is updated');
+SELECT is((SELECT count(*) FROM device_policy_groups WHERE group_type='role' AND group_id=5),1::bigint,'group key updates one row');
+SELECT is((SELECT policy_value FROM device_policy_groups WHERE group_type='role' AND group_id=5 AND policy_key='pin_length'),'8','latest group value replaces the previous value');
+CREATE TEMP TABLE rust_mam_fixture AS SELECT mk_account('rust-mam-writer') AS mailbox;
+SELECT set_config('app.current_user_id',(SELECT user_id::text FROM account_scope((SELECT mailbox FROM rust_mam_fixture))),true);
+INSERT INTO admin_role_groups(name,permissions) VALUES('rust-mam-writer',ARRAY['mam.write']);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+SELECT current_setting('app.current_user_id')::bigint,id,current_setting('app.current_user_id')::bigint FROM admin_role_groups WHERE name='rust-mam-writer';
+INSERT INTO devices(id,user_id,fingerprint,hmac_secret) VALUES(985001,current_setting('app.current_user_id')::bigint,'rust-mam-writer','test-secret');
+CREATE TEMP TABLE rust_mam_domain AS SELECT domain_id FROM users WHERE id=current_setting('app.current_user_id')::bigint;
+SELECT ok(rust_mam_device_policy_set(985001,(SELECT domain_id FROM rust_mam_domain),'{"pin_length":"6","require_pin":"true"}'),'scoped map commits both own-device keys');
+SELECT is((SELECT count(*) FROM device_policy WHERE device_id=985001),2::bigint,'both policy keys are present');
+SELECT throws_ok($$SELECT rust_mam_device_policy_set(985001,999999999,'{"pin_length":"2","foreign":"no"}')$$,'BZ081',NULL,'out-of-scope map refuses atomically');
+SELECT is((SELECT policy_value FROM device_policy WHERE device_id=985001 AND policy_key='pin_length'),'6','refused scope left the prior value');
+SELECT is((SELECT count(*) FROM device_policy WHERE device_id=985001),2::bigint,'refused scope inserted no extra key');
+SELECT ok(rust_mam_device_policy_set(985001,999999999,'{}'),'Go empty data map does not mutate; later evidence enforces scope');
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok($$SELECT rust_mam_device_policy_set(985001,0,'{"pin_length":"8"}')$$,'verified writer GUC admits invoker under FORCE RLS');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

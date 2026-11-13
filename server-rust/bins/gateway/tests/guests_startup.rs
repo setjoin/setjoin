@@ -1,0 +1,322 @@
+//! Bundled F11 admission and both operator rollback switches through the executable.
+use crate::common::boot::CommandBootExt;
+use crate::common::boot::Child;
+mod common;
+use common::{body_bytes, full, send, BoxError};
+use hyper::{Request, Response};
+use setjoin_conformance::{fixture, harness::Db};
+use std::{
+    os::unix::process::CommandExt,
+    process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
+struct Process(Child);
+impl Drop for Process {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+struct Inventory(std::path::PathBuf);
+impl Drop for Inventory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+#[tokio::test]
+async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<(), BoxError> {
+    let Some(db) = Db::for_case("guests-executable") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "guests1-executable").await?;
+    let flags = owner
+        .query(
+            "SELECT key,enabled FROM feature_toggles WHERE key=ANY($1)",
+            &[&vec!["feature.guest_accounts", "approval.guest_invite"]],
+        )
+        .await?;
+    owner
+        .execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key=ANY($1)",
+            &[&vec!["feature.guest_accounts", "approval.guest_invite"]],
+        )
+        .await?;
+    let receipt_ids = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F11'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get::<_, String>(0))
+        .collect::<Vec<_>>();
+    let last: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let result = async {
+        let go_count = Arc::new(AtomicUsize::new(0));
+        let count = go_count.clone();
+        let go = common::fake_upstream(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async {
+                Response::builder()
+                    .status(218)
+                    .header("x-gofree-guests1-go", "yes")
+                    .body(full("frozen rollback sentinel"))
+                    .unwrap()
+            }
+        })
+        .await;
+        let keys = common::fake_upstream(|_| async {
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(full(
+                    include_bytes!("../../../tests/conformance/jmap/test-jwks.json").as_slice(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let cases = [
+            (
+                "DELETE",
+                "/api/admin/guest-invite-domains/outside.test",
+                "{}",
+                403,
+            ),
+            ("DELETE", "/api/admin/guest-profiles/1", "{}", 403),
+            ("DELETE", "/api/admin/guests/1/invite", "{}", 403),
+            ("GET", "/api/admin/guest-profile-domains", "{}", 403),
+            ("GET", "/api/admin/guest-profiles", "{}", 403),
+            ("GET", "/api/admin/guest-profiles/1", "{}", 403),
+            ("GET", "/api/admin/guests", "{}", 403),
+            ("GET", "/api/admin/guests/1", "{}", 403),
+            ("GET", "/api/admin/guests/1/sponsor-options", "{}", 403),
+            ("POST", "/api/admin/guest-invite-domains", "{}", 403),
+            ("POST", "/api/admin/guest-profiles", "{}", 403),
+            ("POST", "/api/admin/guests", "{}", 403),
+            ("POST", "/api/admin/guests/1/disable", "{}", 403),
+            ("POST", "/api/admin/guests/1/enable", "{}", 403),
+            ("POST", "/api/admin/guests/1/extend", "{}", 403),
+            ("POST", "/api/admin/guests/1/reinvite", "{}", 403),
+            ("POST", "/api/admin/guests/1/transfer", "{}", 403),
+            ("POST", "/api/me/guest-invites", "{}", 400),
+            ("PUT", "/api/admin/guest-profiles/1", "{}", 403),
+            ("PUT", "/api/admin/guests/1/profile", "{}", 403),
+        ];
+        for mode in ["native", "all-go", "routes-off"] {
+            let socket = setjoin_conformance::ports::listener().await;
+            let address = socket.local_addr()?;
+            drop(socket);
+            let inventory = Inventory(std::env::temp_dir().join(format!(
+                "gofree-guests1-inventory-{}-{mode}.json",
+                std::process::id()
+            )));
+            let mut config: serde_json::Value =
+                serde_json::from_str(include_str!("../route-inventory.json"))?;
+            if mode == "routes-off" {
+                for route in config["routes"].as_array_mut().ok_or("routes")? {
+                    if route["family"] == "F11" {
+                        route["state"] = "OFF".into();
+                        route["upstream"] = "go-mail".into();
+                    }
+                }
+            }
+            std::fs::write(&inventory.0, config.to_string())?;
+            if let Ok(path) = std::env::var("GOFREE_RESOURCE_LEDGER") {
+                use std::io::Write;
+                writeln!(
+                    std::fs::OpenOptions::new().append(true).open(path)?,
+                    "Planned owned gofree-guests1-gateway-{mode}; temporary inventory {}",
+                    inventory.0.display()
+                )?;
+            }
+            let mut process = Process(
+                Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+                    .arg0(format!("gofree-guests1-gateway-{mode}"))
+                    .env_clear()
+                    .env("GATEWAY_LISTEN", address.to_string())
+                    .env("GATEWAY_UPSTREAM", format!("http://{go}"))
+                    .env("GATEWAY_AUTH_UPSTREAM", format!("http://{go}"))
+                    .env(
+                        "GATEWAY_ENABLED",
+                        if mode == "all-go" { "false" } else { "true" },
+                    )
+                    .env("GATEWAY_ROUTE_INVENTORY", &inventory.0)
+                    .env("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn))
+                    .env("DB_WORKER_DSN", &db.dsn)
+                    .env("DB_DIRECT_DSN", &db.dsn)
+                    .env("DB_ENCRYPTION_KEY", "22".repeat(32))
+                    .env("JWT_SECRET", "blobs1-test-jwt-secret-for-recording")
+                    .env(
+                        "AUTHSERVER_JWKS_URL",
+                        format!("http://{keys}/.well-known/jwks.json"),
+                    )
+                    .env(
+                        "GO_WORKERS_OFF",
+                        if mode == "native" {
+                            "guest-lifecycle"
+                        } else {
+                            ""
+                        },
+                    )
+                    .env(
+                        "RUST_WORKERS_ON",
+                        if mode == "native" {
+                            "guest-lifecycle"
+                        } else {
+                            ""
+                        },
+                    )
+                    .env("CORE_RATE_LIMIT", "100000")
+                    .env("ADMIN_RATE_LIMIT", "100000")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn_boot()?,
+            );
+            let mut ready = false;
+            for _ in 0..6000 {
+                if tokio::net::TcpStream::connect(address).await.is_ok() {
+                    ready = true;
+                    break;
+                }
+                if let Some(status) = process.0.try_wait()? {
+                    return Err(format!("gateway {mode} exited {status}").into());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            if !ready {
+                return Err("gateway did not bind".into());
+            }
+            let before = go_count.load(Ordering::SeqCst);
+            for (method, path, body, native_status) in cases {
+                let response = send(
+                    address,
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header("host", "mail.test")
+                        .header("origin", "http://mail.test")
+                        .header("x-request-id", "gofree-guests1-startup")
+                        .header(
+                            "authorization",
+                            format!("Bearer {}", common::recovery_token(a.user)),
+                        )
+                        .body(full(body))?,
+                )
+                .await;
+                let status = response.status().as_u16();
+                let marker = response.headers().contains_key("x-gofree-guests1-go");
+                let bytes = body_bytes(response).await;
+                let expected = if mode == "native" { native_status } else { 218 };
+                if status != expected || marker != (mode != "native") {
+                    return Err(format!(
+                        "{mode}: {method} {path}: {status}, expected {expected}: {bytes:?}"
+                    )
+                    .into());
+                }
+            }
+            let forwarded = go_count.load(Ordering::SeqCst) - before;
+            if forwarded != if mode == "native" { 0 } else { 20 } {
+                return Err(format!("wrong Go forwarding count in {mode}: {forwarded}").into());
+            }
+            if mode == "native" {
+                let response =
+                    send(address, Request::get("/_gateway/metrics").body(full(""))?).await;
+                let metrics = String::from_utf8(body_bytes(response).await.to_vec())?;
+                if !metrics
+                    .contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F11\"} 0")
+                {
+                    return Err(metrics.into());
+                }
+            }
+            if mode == "routes-off" {
+                let response =
+                    send(address, Request::get("/_gateway/metrics").body(full(""))?).await;
+                let body = String::from_utf8(body_bytes(response).await.to_vec())?;
+                if !body
+                    .contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F11\"} 20")
+                {
+                    return Err(format!("rollback counter: {body}").into());
+                }
+            }
+            unsafe {
+                libc::kill(process.0.id() as i32, libc::SIGTERM);
+            }
+            let mut stopped = false;
+            for _ in 0..200 {
+                if let Some(status) = process.0.try_wait()? {
+                    if !status.success() {
+                        return Err(format!("gateway shutdown {status}").into());
+                    }
+                    stopped = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            if !stopped {
+                return Err("guest gateway did not drain".into());
+            }
+            drop(process);
+        }
+        Ok::<_, BoxError>(())
+    }
+    .await;
+    owner
+        .batch_execute("BEGIN; SET LOCAL session_replication_role=replica")
+        .await?;
+    owner.execute("DELETE FROM admin_audit_log WHERE id>$1 AND action='console.denied' AND notes LIKE '/admin/guest%'",&[&last]).await?;
+    owner.batch_execute("COMMIT").await?;
+    for row in owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F11'",
+            &[],
+        )
+        .await?
+    {
+        let id: String = row.get(0);
+        if !receipt_ids.contains(&id) {
+            owner
+                .execute(
+                    "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
+                    &[&id],
+                )
+                .await?;
+        }
+    }
+    for row in flags {
+        owner
+            .execute(
+                "UPDATE feature_toggles SET enabled=$2 WHERE key=$1",
+                &[&row.get::<_, String>(0), &row.get::<_, bool>(1)],
+            )
+            .await?;
+    }
+    common::remove_blob_account(&owner, &a).await?;
+    result
+}
+
+#[tokio::test]
+async fn guest_worker_requires_the_go_off_declaration() -> Result<(), BoxError> {
+    let Some(db) = Db::for_case("guests-worker-transfer") else {
+        return Ok(());
+    };
+    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg0("gofree-guests1-worker-transfer-denied")
+        .env_clear()
+        .env("DB_DSN", &db.dsn)
+        .env("RUST_WORKERS_ON", "guest-lifecycle")
+        .env("GATEWAY_ENABLED", "false")
+        .output_boot()?;
+    if output.status.success()
+        || !String::from_utf8_lossy(&output.stderr)
+            .contains("guest-lifecycle requires GO_WORKERS_OFF=guest-lifecycle")
+    {
+        return Err(format!("worker transfer was not refused: {:?}", output.status).into());
+    }
+    Ok(())
+}

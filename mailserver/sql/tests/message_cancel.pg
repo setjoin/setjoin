@@ -1,0 +1,54 @@
+-- message_cancel.pg: message_cancel (message_lifecycle.sql) cancels a pending
+-- scheduled send, removes the Scheduled tag, restores Drafts, AND advances
+-- mailboxes.jmap_email_state (the visibility-change token WS/IMAP consumers poll)
+-- — not only the per-tag counter trigger. The state-token bump is the red-mail
+-- finding under test (FAILS before the fix).
+--
+-- ADR-003: the account comes from mk_account(), so user_id != mailbox_id, and
+-- create_system_tags (Scheduled/Drafts) ran via the mailbox trigger.
+BEGIN;
+SELECT plan(4);
+
+CREATE TEMP TABLE _mc AS SELECT mk_account('mcA') AS mb;
+
+-- A draft in mailbox A.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (8701, (SELECT mb FROM _mc), get_tag_id('Drafts', (SELECT mb FROM _mc)),
+        '<mc1@mk.test>', 'Later', 'mcA@mk.test', 100, 'thr-8701', 'raw-8701', now(), TRUE);
+SELECT tag_message(8701, (SELECT received_at FROM messages WHERE id = 8701), 'Drafts', (SELECT mb FROM _mc), 'user', TRUE);
+
+-- Schedule it for the future → Drafts→Scheduled + enqueue a deferred `send`.
+SELECT message_schedule((SELECT mb FROM _mc), 8701, now() + interval '1 hour');
+
+-- Capture jmap_email_state AFTER scheduling; assert cancel's own bump on top.
+CREATE TEMP TABLE _mcs AS SELECT jmap_email_state AS e0 FROM mailboxes WHERE id = (SELECT mb FROM _mc);
+
+-- Test 1: cancel reports success.
+SELECT is(
+  (message_cancel((SELECT mb FROM _mc), 8701)->>'cancelled')::BOOLEAN,
+  TRUE,
+  'message_cancel reports cancelled=true');
+
+-- Test 2: the Scheduled tag was removed.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8701 AND t.name = 'Scheduled'),
+  0,
+  'message_cancel removes the Scheduled tag');
+
+-- Test 3: the Drafts tag was restored.
+SELECT is(
+  (SELECT count(*)::INT FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 8701 AND t.name = 'Drafts'),
+  1,
+  'message_cancel restores the Drafts tag');
+
+-- Test 4 (the finding): message_cancel advances mailboxes.jmap_email_state.
+SELECT cmp_ok(
+  (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb FROM _mc)),
+  '>',
+  (SELECT e0 FROM _mcs),
+  'message_cancel advances mailboxes.jmap_email_state (visibility change pushed)');
+
+SELECT * FROM finish();
+ROLLBACK;

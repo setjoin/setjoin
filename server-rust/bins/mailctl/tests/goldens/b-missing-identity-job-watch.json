@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl identity job watch UUID [--timeout DURATION]\n",
+  "exit": 1
+}

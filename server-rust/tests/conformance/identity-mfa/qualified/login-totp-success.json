@@ -1,0 +1,133 @@
+{
+  "case": "login-totp-success",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [],
+    "challenge_claims": {
+      "amr": [
+        "pwd"
+      ],
+      "aud": [
+        "mailserver-gateway"
+      ],
+      "credential_fence": "<credential-version>",
+      "email": "actor@idmfa1.test",
+      "exp": 300,
+      "iat": 0,
+      "iss": "mailserver",
+      "jti": "<pending-jti>",
+      "nbf": 0,
+      "sub": "<actor>",
+      "typ": "mfa_pending",
+      "uid": "<actor>"
+    },
+    "effects": {
+      "audit": [],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "token_stores": {
+        "auth_event_log": [],
+        "login_events": [],
+        "oauth_tokens": [],
+        "sessions": []
+      },
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": true,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": true,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": true,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      },
+      "foreign": {
+        "active_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        "enabled_at": true
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@idmfa1.test\",\"password\":\"Password1!\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    "response": {
+      "body": "{\"fallback\":[\"backup_codes\"],\"mfa_method\":\"totp\",\"mfa_required\":true,\"mfa_token\":\"<mfa_token>\",\"status\":\"mfa_required\"}\n",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "status": 202
+    }
+  },
+  "route": "POST /auth/login"
+}

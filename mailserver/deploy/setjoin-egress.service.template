@@ -1,0 +1,33 @@
+[Unit]
+Description=setjoin Meet Egress (LiveKit Egress, pinned container)
+Documentation=https://github.com/setjoin/setjoin
+# Ordering only (Wants, not Requires) — a dead egress degrades recording,
+# never meetings, never mail.
+After=network.target setjoin-valkey.service setjoin-sfu.service
+Wants=setjoin-valkey.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+# Root: the container runtime needs it for --cap-add=SYS_ADMIN (headless
+# Chromium's sandbox — the one capability egress is documented to require).
+# --network=host: egress must reach BOTH loopback-only services (Valkey
+# :6390, the SFU signal :7880) plus the local S3 endpoint.
+ExecStartPre=-{{CONTAINER_BIN}} rm -f setjoin-egress
+ExecStart={{CONTAINER_BIN}} run --rm --name setjoin-egress --network=host \
+  --cap-add=SYS_ADMIN \
+  -v /etc/setjoin/egress.yaml:/etc/egress.yaml:ro \
+  -e EGRESS_CONFIG_FILE=/etc/egress.yaml \
+  {{EGRESS_IMAGE}}
+ExecStop={{CONTAINER_BIN}} stop -t 30 setjoin-egress
+Restart=always
+RestartSec=10
+CPUQuota={{EGRESS_CPUQUOTA|400%}}
+MemoryMax=4G
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-egress
+
+[Install]
+WantedBy=multi-user.target

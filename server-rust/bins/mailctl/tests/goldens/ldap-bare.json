@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "Usage: mailctl ldap sync|sync-log|health\n  ldap sync                trigger an immediate LDAP sync (POST /admin/ldap/sync)\n  ldap sync-log            show recent sync log entries (GET /admin/ldap/sync-log)\n  ldap health              show connectivity + last-sync status (GET /admin/ldap/health)\n\nFlags (all subcommands): --json, --quiet, --yes/-y\n",
+  "stderr": "",
+  "exit": 0
+}

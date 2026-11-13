@@ -1,0 +1,67 @@
+# Ordering only (Wants, not Requires) — the SFU/valkey/egress rationale
+# extended: a dead captions bot degrades ONE optional feature (live
+# captions), never meetings, never mail. It needs the SFU (to join a room)
+# and the FunASR runtime (to stream PCM to) both up first, but neither
+# hard-fails this unit's own start if briefly unavailable — the bot's own
+# control API just answers 503/refuses /start until they are (asrbot's
+# server.go), and the worker's reconcile arm (internal/meet/worker.go)
+# heals a session that raced a slow dependency start.
+[Unit]
+Description=setjoin Meet Captions Bot (asrbot — B3 Task 16)
+Documentation=https://github.com/setjoin/setjoin
+After=network.target setjoin-funasr.service setjoin-sfu.service
+Wants=setjoin-funasr.service setjoin-sfu.service
+# StartLimit* live in [Unit] (systemd ignores them under [Service]) — the
+# 25bef473 lesson, applied to every native-binary unit in this program.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{INSTALL_DIR|/opt/mailserver}}
+# All runtime config arrives via asrbot.env (ASR_LISTEN/LIVEKIT_URL/
+# FUNASR_URL/ASR_MAX_MEETINGS/ASR_MAX_ACTIVE_TRACKS — asrbot/AGENTS.md's env
+# contract) — never config.env: this binary holds no DB/S3 credential and
+# must never be handed one (D4, asrbot/AGENTS.md).
+EnvironmentFile=/etc/setjoin/asrbot.env
+ExecStart={{INSTALL_DIR|/opt/mailserver}}/bin/asrbotd
+
+# Restart policy (StartLimit* are in [Unit], above)
+Restart=always
+RestartSec=5
+
+# Resource limits — a room-bot doing Opus decode + VAD + PCM streaming for
+# at most ASR_MAX_MEETINGS concurrent meetings (default 2), not a media
+# server; SFU-sized limits would be wasteful headroom nobody needs here.
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+LimitNOFILE=65536
+
+# Security hardening — the setjoin-sfu.service block verbatim (native Go
+# binary, no disk writes, loopback-only network).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# AF_NETLINK for the same reason as setjoin-sfu.service: asrbotd joins the
+# room over pion/WebRTC (lksdk), whose ICE agent enumerates interfaces via
+# netlink RIB — blocked, the join fails at /start (2026-07-16 fresh-VM gate).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-asr-bot
+
+[Install]
+WantedBy=multi-user.target

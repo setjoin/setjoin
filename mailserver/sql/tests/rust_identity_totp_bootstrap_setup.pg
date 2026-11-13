@@ -1,0 +1,13 @@
+BEGIN;
+SELECT plan(3);
+SELECT set_config('app.encryption_key','idmfa1-key',true);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-bootstrap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,mfa_exempt)
+VALUES('idmfa1-bootstrap','bootstrap@idmfa1-bootstrap.test','bootstrap',:dom,'x',false) RETURNING id AS uid \gset
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at)
+SELECT 'proof',:uid,'sid','bootstrap.totp.enroll','password',factor_generation,'mfa_pending',now()+interval '5 minutes' FROM users WHERE id=:uid;
+SELECT is(rust_identity_totp_bootstrap_setup(:uid,'{"jti":"sid"}','proof','STAGED')->>'status','created','bootstrap stages under pending grant');
+SELECT ok((SELECT NOT totp_enabled FROM users WHERE id=:uid),'bootstrap setup leaves factor disabled');
+SELECT is(rust_identity_totp_bootstrap_setup(:uid,'{"jti":"sid","credential_fence":"stale"}','proof','NEW')->>'status','credential_changed','stale first factor cannot resume');
+SELECT * FROM finish();
+ROLLBACK;

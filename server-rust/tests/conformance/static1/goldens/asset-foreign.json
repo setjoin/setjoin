@@ -1,0 +1,34 @@
+{
+  "case": "asset-foreign",
+  "format": 1,
+  "go_source": "26e3905a860693b88cebf007a4950a0756562c1e",
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "provider": [],
+    "request": {
+      "method": "GET",
+      "path": "/downloads/asset/{asset}"
+    },
+    "response": {
+      "body_length": 62,
+      "body_sha256": "946974750b8f20dcc5b41785acd8cd54be714886112f699cb2fb8eec5425b59f",
+      "body_text": "<a href=\"/updates/SetJoin_latest_macos-arm64.dmg\">Found</a>.\n\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "location": "/updates/SetJoin_latest_macos-arm64.dmg",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "static1-asset_foreign"
+      },
+      "status": 302
+    }
+  },
+  "route": "GET /downloads/asset/{asset}"
+}

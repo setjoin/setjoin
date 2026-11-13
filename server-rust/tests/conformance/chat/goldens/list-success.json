@@ -1,0 +1,76 @@
+{
+  "case": "list-success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture actor/channel IDs",
+    "audit chain checksum (verified independently)",
+    "generated timestamps"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "chat_channel_admin_list",
+        "after": null,
+        "before": null,
+        "ip": "127.0.0.1",
+        "notes": "",
+        "targetId": null,
+        "targetType": "chat_channel"
+      }
+    ],
+    "effects": {
+      "acts": [],
+      "chainValid": true,
+      "channel": {
+        "changeSeq": 0,
+        "classification": "regular",
+        "lastPurgedSeq": 0,
+        "legalHold": false,
+        "legalHoldReason": null,
+        "retentionDays": null,
+        "wormMode": null
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/admin/chat-channels"
+    },
+    "response": {
+      "body": [
+        {
+          "caseHoldCount": 0,
+          "classification": "regular",
+          "id": "<channel>",
+          "kind": "channel",
+          "lastPurgedSeq": 0,
+          "legalHold": false,
+          "memberCount": 1,
+          "name": "chat1-oracle",
+          "participants": [
+            {
+              "displayName": "chat1-foreign",
+              "email": "<channel-owner-email>",
+              "userId": "<channel-owner>"
+            }
+          ]
+        }
+      ],
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "chat1-oracle"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/chat-channels"
+}

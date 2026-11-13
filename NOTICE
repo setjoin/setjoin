@@ -1,0 +1,34 @@
+Setjoin
+Copyright 2026 The Setjoin Authors
+
+Required Notice: Copyright 2026 The Setjoin Authors
+
+Setjoin is source-available under the PolyForm Noncommercial License 1.0.0
+(see LICENSE, or https://polyformproject.org/licenses/noncommercial/1.0.0).
+Commercial use requires a separate license from the authors; see the
+"Licensing" section of README.md.
+
+This repository also contains third-party material that is NOT covered by
+the PolyForm license. Each item keeps its own license. THIRD_PARTY_LICENSES.md
+lists every item with its license, its source and the license texts:
+
+- Mozilla CA certificate bundle (MPL-2.0)
+    mailserver/internal/smime/cacert.pem
+    server-rust/crates/protocols/smtp/src/inbound/cacert.pem
+- Fonts shipped with Excalidraw 0.18.1 (OFL-1.1, MIT; some to verify)
+    mailserver/webmail/static/excalidraw/fonts/
+- IBM Plex Sans and IBM Plex Mono (OFL-1.1)
+    mailserver/webmail/static/fonts/ibm-plex-*.woff2
+    mailserver/api/ibm-plex-sans-*.woff2
+- Noto Sans SC (OFL-1.1)
+    mailserver/webmail/assets/fonts/source/
+    mailserver/webmail/static/fonts/noto-sans-sc-*.woff2
+- Redoc 2.5.3 standalone bundle (MIT, with bundled permissive components)
+    mailserver/api/redoc.standalone.js
+- IETF RFC texts (IETF Trust Legal Provisions)
+    docs/ref/rfc/*.txt, docs/ref/rfcs/*.txt
+- OpenHarmony documentation excerpts (CC-BY-4.0, to verify)
+    clients/harmonyos/refs/openharmony-docs/
+- Rust reference sources (MIT OR Apache-2.0)
+    clients/rust/refs/ios-security-framework/
+    clients/rust/refs/tauri-plugin-biometric/

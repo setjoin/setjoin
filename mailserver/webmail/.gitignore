@@ -1,0 +1,16 @@
+node_modules/
+build/
+.env
+playwright/.auth/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Vitest coverage output (vitest run --coverage)
+coverage/
+
+# Meet B1 Task 16b: self-hosted background-blur WASM + segmentation model,
+# vendored at build time by scripts/vendor-blur-assets.mjs (predev/prebuild) —
+# reproducible from node_modules + a pinned checksum, never committed.
+static/meet/mediapipe/

@@ -1,0 +1,58 @@
+-- approval_request_create.pg — pgTAP tests for the shared request creation reducer.
+-- Covers: returns a bigint ID, row exists in approval_requests, audit row written,
+-- domain_id population (TODOS.md "approval_requests.domain_id" follow-up, V093).
+BEGIN;
+SELECT plan(6);
+
+-- fixtures
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90902, 'appcreate.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (31, 'appcreate_req', 90902, 'req@appcreate.test', 'Requester', TRUE),
+  (32, 'appcreate_apr', 90902, 'apr@appcreate.test', 'Approver',  TRUE);
+
+-- happy path: create a request
+SELECT ok(
+  (SELECT approval_request_create('rbac.jit_activation', 31, 'test subject', '{}'::jsonb, NULL, 'user', 32, 60)) > 0,
+  'request_create returns positive id'
+);
+
+-- row exists in approval_requests
+SELECT ok(
+  (SELECT count(*) FROM approval_requests WHERE requester_user_id = 31 AND consumer_type = 'rbac.jit_activation') = 1,
+  'approval_request row inserted'
+);
+
+-- expires_at honors the 60-minute TTL
+SELECT ok(
+  (SELECT expires_at FROM approval_requests WHERE requester_user_id = 31 AND consumer_type = 'rbac.jit_activation')
+    BETWEEN now() + interval '55 minutes' AND now() + interval '65 minutes',
+  'expires_at honors the 60-minute ttl'
+);
+
+-- audit row written
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action = 'approval_created' AND user_id = 31) >= 1,
+  'audit written'
+);
+
+-- domain_id auto-derived from the requester's users.domain_id when no override is passed
+SELECT is(
+  (SELECT domain_id FROM approval_requests WHERE requester_user_id = 31 AND consumer_type = 'rbac.jit_activation'),
+  90902::bigint,
+  'domain_id auto-derived from requester domain when p_domain_id omitted'
+);
+
+-- explicit p_domain_id override wins (the group-moderation caller path: no
+-- requester, so it passes the target group's domain explicitly). The create
+-- call runs as its own statement — reading the row back in the SAME statement
+-- that creates it is not guaranteed to observe the write.
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90903, 'appcreate2.test', TRUE);
+SELECT approval_request_create('mail.group_moderation', NULL, 'override test', '{}'::jsonb, NULL, 'user', 32, 60, 90903);
+SELECT is(
+  (SELECT domain_id FROM approval_requests WHERE subject = 'override test'),
+  90903::bigint,
+  'explicit p_domain_id overrides requester-derived lookup (and works with a NULL requester)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

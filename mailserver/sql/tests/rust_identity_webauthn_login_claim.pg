@@ -1,0 +1,24 @@
+BEGIN;
+SELECT plan(12);
+INSERT INTO domains(name,is_local) VALUES('idmfa3-replay.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa3-replay-a','a@idmfa3-replay.test','a',:dom,'x') RETURNING id AS actor \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa3-replay-b','b@idmfa3-replay.test','b',:dom,'x') RETURNING id AS foreign_user \gset
+INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count)
+VALUES('\x01',:actor,'\xa0','none',0);
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',0,digest('first','sha256')),'accepted','counterless authenticator accepts its first verified assertion');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',0,digest('first','sha256')),'challenge already used','counterless replay is refused');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',0,digest('second','sha256')),'accepted','counterless authenticator accepts a fresh ceremony');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',8,digest('third','sha256')),'accepted','advancing signed counter is accepted');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',7,digest('fourth','sha256')),'invalid credential counter','decreasing counter is refused');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',0,digest('fourth','sha256')),'invalid credential counter','nonzero to zero is refused');
+SELECT is(rust_identity_webauthn_login_claim(:foreign_user,'\x01','\xa0',9,digest('fourth','sha256')),'credential unavailable','foreign actor cannot claim credential');
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa1',9,digest('fourth','sha256')),'credential unavailable','changed public key invalidates the verified snapshot');
+SELECT is((SELECT sign_count FROM passkey_credentials WHERE user_id=:actor AND id='\x01'),8,'refusals preserve counter');
+SELECT is((SELECT count(*) FROM webauthn_login_replays WHERE user_id=:actor),3::bigint,'only accepted challenges persist');
+UPDATE passkey_credentials SET revoked_at=now() WHERE user_id=:actor AND id='\x01';
+SELECT is(rust_identity_webauthn_login_claim(:actor,'\x01','\xa0',9,digest('fourth','sha256')),'credential unavailable','revoked live key cannot publish a proof');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='webauthn_login_replays'::regclass),'replay marker has forced per-user RLS');
+SELECT * FROM finish();
+ROLLBACK;

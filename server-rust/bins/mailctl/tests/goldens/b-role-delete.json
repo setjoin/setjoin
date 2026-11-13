@@ -1,0 +1,17 @@
+{
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/admin/roles/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "x-audit-reason": "operator request"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Role 7 deleted.\n",
+  "stderr": "",
+  "exit": 0
+}

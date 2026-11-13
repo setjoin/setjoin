@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: token creation failed: ERROR: SCIM token requires an active SCIM identity source (SQLSTATE BZ228)\n",
+  "exit": 1,
+  "database_effects": {
+    "tokens": [],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

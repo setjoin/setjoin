@@ -1,0 +1,41 @@
+{
+  "case": "empty-codes-row-effects",
+  "effects": [
+    {
+      "after": {
+        "oauth_tokens": [],
+        "revocations": [],
+        "sessions": [],
+        "users": [
+          {
+            "must_change_password": false,
+            "who": "actor"
+          },
+          {
+            "must_change_password": false,
+            "who": "other"
+          }
+        ]
+      },
+      "before": {
+        "oauth_tokens": [],
+        "revocations": [],
+        "sessions": [],
+        "users": [
+          {
+            "must_change_password": false,
+            "who": "actor"
+          },
+          {
+            "must_change_password": false,
+            "who": "other"
+          }
+        ]
+      },
+      "table": "user_settings"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /user/security-score"
+}

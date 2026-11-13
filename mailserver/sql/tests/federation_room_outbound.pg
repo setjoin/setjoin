@@ -1,0 +1,259 @@
+-- federation_room_outbound.pg — Pillar C2 Task 3: the outbound room arm in
+-- chat_message_send (three-way split: DM / SPOKE / HUB) + the promoted
+-- federation_room_fanout (5-arg, origin-stamped, lock-order-law snapshot).
+-- Requires: V140, federation_room_create.sql, federation_room_invite.sql,
+-- federation_room_fanout.sql (promoted), federation_room_enqueue_member.sql
+-- (Task 2), chat_message.sql's room arm (this task).
+--
+-- Folds the two surviving load-bearing assertions from the now-deleted C0
+-- spike test (federation_room.pg): atomic fan-out (a rollback leaves ZERO
+-- outbox rows behind) and independent per-peer seq assignment — both proven
+-- here against the PROMOTED fan-out with real scope-'room' allow-list
+-- fixtures (the spike fixture had none, which is exactly why the promotion
+-- broke it: every member parked/revoked instead of receiving).
+BEGIN;
+SELECT plan(35);
+
+INSERT INTO domains (name, is_local) VALUES ('alpha.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_id FROM domains WHERE name = 'alpha.test' \gset
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (96201, 'alice-out', :dom_id, 'alice-out@alpha.test', 'Alice', 'x')
+  ON CONFLICT (id) DO NOTHING;
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.federation';
+
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled) VALUES
+  ('bravo-out.test', 'test fixture anchor', 'room', true),
+  ('charlie-out.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 HUB arm: atomic fan-out (folded spike assertion), origin-stamped
+--    message rows, independent per-peer seqs (folded spike assertion)
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(96201, 'outbound-hub') AS ch_hub \gset
+SELECT federation_room_create(96201, :ch_hub, 'alpha.test') AS room_hub \gset
+SELECT federation_room_invite(96201, :ch_hub, 'bravo-out.test', 'b@bravo-out.test');
+SELECT federation_room_invite(96201, :ch_hub, 'charlie-out.test', 'c@charlie-out.test');
+
+-- baseline: each member already has ONE outbox row (its own invite/roster
+-- control op) before any message is sent.
+SELECT count(*)::int AS bravo_baseline FROM federation_outbox WHERE peer_domain = 'bravo-out.test' \gset
+SELECT count(*)::int AS charlie_baseline FROM federation_outbox WHERE peer_domain = 'charlie-out.test' \gset
+SELECT count(*)::int AS msgs_baseline FROM chat_messages WHERE channel_id = :ch_hub \gset
+
+-- atomicity: a rolled-back hub send leaves NEITHER the local message NOR
+-- any member's outbox touched (the folded spike assertion, now against the
+-- promoted, per-member-authorized fan-out).
+SAVEPOINT before_hub_send;
+SELECT chat_message_send(96201, :ch_hub, 'hi room');
+ROLLBACK TO SAVEPOINT before_hub_send;
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch_hub), :msgs_baseline,
+  'a rolled-back hub send leaves no local message row (atomic)');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo-out.test'), :bravo_baseline,
+  'a rolled-back hub send leaves bravo''s outbox untouched (atomic)');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'charlie-out.test'), :charlie_baseline,
+  'a rolled-back hub send leaves charlie''s outbox untouched (atomic)');
+
+-- the real send.
+SELECT chat_message_send(96201, :ch_hub, 'hi room') AS send_hub \gset
+SELECT (:'send_hub'::jsonb ->> 'messageId')::bigint AS msg_hub_id \gset
+
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 1,
+  'bravo-out.test received exactly one message-op outbox row from the hub send');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'charlie-out.test' AND payload ->> 'op' = 'message'), 1,
+  'charlie-out.test received exactly one message-op outbox row from the hub send');
+SELECT is((SELECT payload ->> 'roomId' FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), :'room_hub',
+  'the fanned message carries the roomId');
+SELECT is((SELECT payload ->> 'originDomain' FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 'alpha.test',
+  'the hub''s own send is origin-stamped with the hub''s own domain (Q2, p_origin_domain NULL -> hub_domain)');
+SELECT is((SELECT payload ->> 'fromAddr' FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 'alice-out@alpha.test',
+  'the fanned message carries the sender''s address');
+SELECT is((SELECT payload ->> 'clientMsgId' FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), :msg_hub_id::text,
+  'clientMsgId is the hub''s own local chat_messages.id');
+SELECT is((SELECT payload ->> 'body' FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 'hi room',
+  'the fanned payload carries the message body');
+
+-- independent per-peer seqs: a SECOND hub send bumps each member's seq
+-- independently (folded spike assertion — not a coincidence of both merely
+-- starting at the same value).
+SELECT peer_seq FROM federation_outbox WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message' \gset bravo_seq1_
+SELECT peer_seq FROM federation_outbox WHERE peer_domain = 'charlie-out.test' AND payload ->> 'op' = 'message' \gset charlie_seq1_
+SELECT chat_message_send(96201, :ch_hub, 'second message');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 2,
+  'bravo-out.test now has TWO message-op rows');
+SELECT ok((SELECT max(peer_seq) FROM federation_outbox WHERE peer_domain = 'bravo-out.test') > :bravo_seq1_peer_seq,
+  'bravo''s second message bumps its own peer_seq strictly higher (independent per-peer sequence space)');
+SELECT ok((SELECT max(peer_seq) FROM federation_outbox WHERE peer_domain = 'charlie-out.test') > :charlie_seq1_peer_seq,
+  'charlie''s second message ALSO bumps its own peer_seq strictly higher, independently');
+
+-- origin exclusion: neither send ever produced an outbox row for a peer
+-- named 'alpha.test' (the hub itself is never its own delivery target).
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'alpha.test'), 0,
+  'the hub never enqueues a fan-out row addressed to itself');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 SPOKE arm: exactly one outbox row to the bound hub, user-initiated
+--    (observable via the BZ205 depth-cap refusal)
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('alpha-hub.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO chat_channels (kind, name, created_by, federated_room_id, federated_peer_domain)
+  VALUES ('channel', 'spoke-mirror-out', 96201, 'roomY@alpha-hub.test', 'alpha-hub.test')
+  RETURNING id AS ch_spoke \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_spoke, 96201, 'owner');
+
+SELECT chat_message_send(96201, :ch_spoke, 'hi hub') AS send_spoke \gset
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'alpha-hub.test' AND payload ->> 'op' = 'message'), 1,
+  'a spoke send writes exactly one outbox row, addressed to the bound hub');
+SELECT is((SELECT payload ? 'originDomain' FROM federation_outbox
+            WHERE peer_domain = 'alpha-hub.test' AND payload ->> 'op' = 'message'), false,
+  'a spoke->hub message carries NO originDomain (the hub stamps it, Q2 — never trust the payload)');
+
+-- p_user_initiated=true is observable via BZ205: shrink the cap to below
+-- the current depth (1, from the send above) and prove the NEXT spoke send
+-- refuses.
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_cap', '0'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(96201, %s, 'over cap') $$, :ch_spoke),
+  'BZ205', NULL, 'a spoke send over the outbox cap refuses BZ205 (p_user_initiated=true protects the human sender)');
+DELETE FROM system_config WHERE key = 'federation.outbox_cap';
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 Q12 scope-downgrade REVOKE via a MESSAGE fan-out (not a control op) —
+--    same federation_room_enqueue_member choke as Task 2's control-op case.
+-- ══════════════════════════════════════════════════════════════════════
+UPDATE federation_allowlist SET scope = 'dm' WHERE peer_domain = 'bravo-out.test';
+
+SELECT chat_message_send(96201, :ch_hub, 'third message (revokes bravo)');
+
+SELECT is((SELECT left_reason FROM federation_room_members
+            WHERE room_id = :'room_hub' AND member_domain = 'bravo-out.test'), 'revoked',
+  'bravo-out.test is REVOKED (not parked) by the scope-downgrade at message fan-out');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND payload ->> 'op' = 'message'), 2,
+  'bravo-out.test gets ZERO new message rows from the revoking send (still 2, from before the downgrade)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND content_type = 'application/x-setjoin-advisory'), 1,
+  'bravo-out.test gets EXACTLY ONE room_revoked advisory row');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'charlie-out.test' AND payload ->> 'op' = 'message'
+              AND payload ->> 'body' = 'third message (revokes bravo)'), 1,
+  'charlie-out.test (still valid) still receives the message that revoked bravo');
+
+-- a LATER hub send emits no second advisory (bravo is left, skipped by the snapshot).
+SELECT chat_message_send(96201, :ch_hub, 'fourth message');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo-out.test' AND content_type = 'application/x-setjoin-advisory'), 1,
+  'a LATER hub send emits no second advisory to the already-revoked bravo (still exactly 1)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 backpressure park via message fan-out: the 80% pre-cap warn fires
+--    BEFORE the park lands, and a parked member is skipped on subsequent
+--    sends until an explicit re-invite resumes it.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(96201, 'outbound-warn') AS ch_warn \gset
+SELECT federation_room_create(96201, :ch_warn, 'alpha.test') AS room_warn \gset
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('delta-out.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT federation_room_invite(96201, :ch_warn, 'delta-out.test', 'd@delta-out.test');
+
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_cap', '5'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_warn_pct', '80'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+-- pre-seed delta's depth to 3 (its own invite already consumed seq 1, so
+-- bump straight to 3 -> the crossing send lands at depth 4, the 80% of 5).
+UPDATE federation_peers SET last_seq = 3, last_acked_seq = 0 WHERE peer_domain = 'delta-out.test';
+
+SELECT chat_message_send(96201, :ch_warn, 'crossing message');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_depth_warn'
+              AND after_state ->> 'memberDomain' = 'delta-out.test'
+              AND notes = :'room_warn'), 1,
+  'the depth_warn act fires exactly once on the crossing message send');
+SELECT is((SELECT last_seq FROM federation_peers WHERE peer_domain = 'delta-out.test'), 4::bigint,
+  'the crossing send still enqueues normally (warn is not a refusal)');
+
+-- push delta's backlog further over the cap (simulating it falling behind
+-- after the warn) and prove the NEXT send parks it rather than delivering.
+UPDATE federation_peers SET last_seq = 10, last_acked_seq = 0 WHERE peer_domain = 'delta-out.test';
+SELECT chat_message_send(96201, :ch_warn, 'over-cap message');
+SELECT is((SELECT parked_reason FROM federation_room_members
+            WHERE room_id = :'room_warn' AND member_domain = 'delta-out.test'), 'backpressure',
+  'delta-out.test is PARKED (backpressure) once the fan-out crosses the cap');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'delta-out.test' AND payload ->> 'body' = 'over-cap message'), 0,
+  'the over-cap message itself is NOT delivered to the parked member');
+
+-- a FURTHER send is skipped too (parked member is not re-tried per-send).
+SELECT chat_message_send(96201, :ch_warn, 'still parked message');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'delta-out.test' AND payload ->> 'body' = 'still parked message'), 0,
+  'a parked member is skipped on subsequent fan-outs too (no per-send re-try)');
+
+DELETE FROM system_config WHERE key IN ('federation.outbox_cap', 'federation.outbox_warn_pct');
+
+-- re-invite resumes: an explicit re-admit clears the park, and the NEXT
+-- hub send delivers to delta again.
+SELECT federation_room_invite(96201, :ch_warn, 'delta-out.test', 'd@delta-out.test');
+SELECT is((SELECT parked_at FROM federation_room_members
+            WHERE room_id = :'room_warn' AND member_domain = 'delta-out.test'), NULL::timestamptz,
+  're-invite clears delta''s park');
+SELECT chat_message_send(96201, :ch_warn, 'post-resume message');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'delta-out.test' AND payload ->> 'body' = 'post-resume message'), 1,
+  're-invite resumes delivery: the next hub send reaches the re-admitted member');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 BZ212 (content scope, Q11) + BZ213 (kicked/closed mirror) refusals +
+--    the BZ168 'system' forge refusal in a room context.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(96201, %s, 'with attachment', NULL, '{}'::bigint[], NULL,
+              '[{"sha256":"x","name":"f.txt","size":1}]'::jsonb) $$, :ch_hub),
+  'BZ212', NULL, 'an attachment on a federated-room send refuses BZ212 (Q11 content scope)');
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(96201, %s, 'voice note', NULL, '{}'::bigint[], NULL, '[]'::jsonb, 'voice') $$, :ch_hub),
+  'BZ212', NULL, 'a non-text msg_type on a federated-room send refuses BZ212 (Q11 content scope)');
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(96201, %s, 'forge', NULL, '{}'::bigint[], NULL, '[]'::jsonb, 'system') $$, :ch_hub),
+  'BZ168', NULL, 'msg_type=''system'' still refuses BZ168 (the forge guard) inside a federated room, not BZ212');
+
+UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = :ch_spoke;
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(96201, %s, 'straggler') $$, :ch_spoke),
+  'BZ213', NULL, 'a send into a kicked/closed spoke mirror refuses BZ213');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 DM sends are UNAFFECTED by the three-way split (the C1 arm still
+--    fires for a plain federated DM, which carries v_fed_domain but NO
+--    v_room_id).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('echo-out.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT federation_dm_ensure(96201, 'bob@echo-out.test') AS ch_dm \gset
+SELECT chat_message_send(96201, :ch_dm, 'hi bob (dm)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'echo-out.test' AND content_type = 'application/x-setjoin-chat'), 1,
+  'a federated DM send still enqueues exactly one application/x-setjoin-chat row (C1 unchanged)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'echo-out.test' AND content_type = 'application/x-setjoin-room'), 0,
+  'a federated DM send never enqueues a room-content row (the three-way split correctly excludes it)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,156 @@
+{
+  "case": "token-invalid-basic",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "acr": "aal2",
+            "amr": [
+              "pwd",
+              "user",
+              "swk"
+            ],
+            "auth_time": "2023-11-14T22:13:20+00:00",
+            "client_id": "idfed1-client",
+            "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "code_challenge_method": "S256",
+            "code_hash": "_code1-sha256",
+            "created_at": "_created",
+            "done": true,
+            "expires_at": "_created+600s",
+            "id": "_request1",
+            "nonce": "nonce-339",
+            "redirect_uri": "https://rp.idfed1.test/callback",
+            "scopes": [
+              "openid",
+              "email",
+              "profile",
+              "offline_access"
+            ],
+            "state": "state-339",
+            "user_id": "_actor"
+          }
+        ],
+        "before": [
+          {
+            "acr": "aal2",
+            "amr": [
+              "pwd",
+              "user",
+              "swk"
+            ],
+            "auth_time": "2023-11-14T22:13:20+00:00",
+            "client_id": "idfed1-client",
+            "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "code_challenge_method": "S256",
+            "code_hash": "_code1-sha256",
+            "created_at": "_created",
+            "done": true,
+            "expires_at": "_created+600s",
+            "id": "_request1",
+            "nonce": "nonce-339",
+            "redirect_uri": "https://rp.idfed1.test/callback",
+            "scopes": [
+              "openid",
+              "email",
+              "profile",
+              "offline_access"
+            ],
+            "state": "state-339",
+            "user_id": "_actor"
+          }
+        ],
+        "table": "oidc_auth_requests"
+      },
+      {
+        "after": [],
+        "before": [],
+        "table": "oidc_tokens"
+      },
+      {
+        "after": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt2",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt3",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "before": [
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt1",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          },
+          {
+            "device_fingerprint": "IDFED1 oracle|127.0.0.0",
+            "failure_reason": null,
+            "geo_country": "",
+            "id": "_attempt2",
+            "occurred_at": "_attempt-time",
+            "outcome": "failure",
+            "protocol": "http",
+            "source_ip": "127.0.0.1",
+            "target_username": ""
+          }
+        ],
+        "table": "auth_attempts"
+      }
+    ],
+    "issued": null,
+    "notify": [],
+    "request": {
+      "body": "grant_type=authorization_code&client_id=idfed1-client&code=_code1&redirect_uri=https%3A%2F%2Frp.idfed1.test%2Fcallback&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+      "method": "*",
+      "path": "/oauth/",
+      "wire_method": "POST",
+      "wire_path": "/oauth/token"
+    },
+    "response": {
+      "body": "{\"error\":\"invalid_client\",\"error_description\":\"invalid basic auth header\"}\n",
+      "headers": {
+        "content-type": "application/json",
+        "vary": "Origin"
+      },
+      "status": 401
+    }
+  },
+  "route": "* /oauth/ authorization-code"
+}

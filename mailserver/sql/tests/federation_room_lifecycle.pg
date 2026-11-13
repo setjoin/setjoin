@@ -1,0 +1,619 @@
+-- federation_room_lifecycle.pg — Pillar C2 Task 2: room lifecycle reducers
+-- (federation_room_create/federation_room_invite/federation_room_remove/
+-- federation_room_enqueue_member/federation_room_has_active_members) + the
+-- Q13 archive-refusal arm in chat_channel_update + the Q14 both-arms
+-- org-default refusal + the Q7 arm-2 gxp refusal.
+-- Requires: V140 (room binding, roster promotion), federation_peer_
+-- authorize.sql, federation_enqueue.sql (C0), chat_channel.sql,
+-- chat_channel_set_classification.sql, chat_org_defaults.sql.
+-- chat_channel_members/chat_channels have no FK to users (V119) so bare
+-- bigint ids suffice for created_by/member fixtures (the
+-- federation_rooms_schema.pg / chat_poll.pg precedent) EXCEPT
+-- chat_org_default_set's org-admin check, which needs a real users row
+-- (mk_auth_user, the chat_org_defaults.pg precedent).
+BEGIN;
+SELECT plan(98);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_room_create: happy path
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(96001, 'bind-happy') AS ch_bind \gset
+SELECT federation_room_create(96001, :ch_bind, ' Alpha.Test ') AS room_bind \gset
+
+SELECT is((SELECT count(*)::int FROM federation_rooms WHERE room_id = :'room_bind'), 1,
+  'federation_rooms row created for the new room');
+SELECT is((SELECT hub_domain FROM federation_rooms WHERE room_id = :'room_bind'), 'alpha.test',
+  'hub_domain is normalized (lower/btrim) from p_local_domain');
+SELECT is((SELECT channel_id FROM federation_rooms WHERE room_id = :'room_bind'), :ch_bind::bigint,
+  'federation_rooms.channel_id points back at the bound channel');
+SELECT is((SELECT federated_room_id FROM chat_channels WHERE id = :ch_bind), :'room_bind',
+  'chat_channels.federated_room_id is set to the new roomId');
+SELECT is(lower(split_part(:'room_bind', '@', 2)), 'alpha.test',
+  'roomId''s @-suffix is the normalized hub domain (the mint-side lower())');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_create' AND notes = :'room_bind'), 1,
+  'exactly one federation.room_create audit act was written');
+SELECT is((SELECT after_state ->> 'channelId' FROM admin_audit_log
+            WHERE action = 'federation.room_create' AND notes = :'room_bind')::bigint,
+  :ch_bind::bigint, 'the audit act after_state carries the channelId');
+
+SELECT set_config('app.capture_notify', 'on', true);
+SELECT chat_channel_create(96001, 'bind-notify') AS ch_bind_notify \gset
+SELECT federation_room_create(96001, :ch_bind_notify, 'alpha.test');
+SELECT is(last_notify_event(format('chat:%s', 96001)), 'federation_roster',
+  'federation_room_create notifies federation_roster on the channel');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 federation_room_create: refusals
+-- ══════════════════════════════════════════════════════════════════════
+-- R1: not a member at all -> BZ163.
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(99999901, %s, 'alpha.test') $$, :ch_bind),
+  'BZ163', NULL, 'a non-member of the channel cannot bind it (BZ163)');
+
+-- R1: member but not owner/admin -> BZ209.
+SELECT chat_channel_create(96001, 'bind-not-admin') AS ch_not_admin \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_not_admin, 96002, 'member');
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96002, %s, 'alpha.test') $$, :ch_not_admin),
+  'BZ209', NULL, 'a plain member (not owner/admin) cannot bind the channel (BZ209)');
+
+-- kind != 'channel'.
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('dm', NULL, 96001)
+  RETURNING id AS ch_dm_kind \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_dm_kind, 96001, 'owner');
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_dm_kind),
+  'BZ209', NULL, 'kind=dm channel cannot be bound to a federated room (BZ209)');
+
+-- already bound.
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_bind),
+  'BZ209', NULL, 'an already room-bound channel cannot be bound again (BZ209)');
+
+-- archived.
+SELECT chat_channel_create(96001, 'bind-archived') AS ch_archived_pre \gset
+SELECT chat_channel_update(96001, :ch_archived_pre, NULL, NULL, true);
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_archived_pre),
+  'BZ209', NULL, 'an archived channel cannot be bound to a federated room (BZ209)');
+
+-- federated-DM-shaped row (defense in depth, mirrors chat_channels_room_shape_ck).
+SELECT chat_channel_create(96001, 'bind-dm-shaped') AS ch_dm_shaped \gset
+UPDATE chat_channels SET federated_local_key = 'k-fake-dm' WHERE id = :ch_dm_shaped;
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_dm_shaped),
+  'BZ209', NULL, 'a federated-DM-shaped channel cannot be bound to a federated room (BZ209)');
+
+-- org-default channel (Q14 arm 1).
+SELECT chat_channel_create(96001, 'bind-org-default') AS ch_org_default \gset
+INSERT INTO org_default_channels (channel_id) VALUES (:ch_org_default);
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_org_default),
+  'BZ209', NULL, 'an org-default channel cannot be bound to a federated room (Q14 arm 1, BZ209)');
+
+-- gxp classification (Q7 arm 1).
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT chat_channel_create(96001, 'bind-gxp') AS ch_gxp \gset
+UPDATE chat_channels SET retention_days = 90, worm_mode = 'governance' WHERE id = :ch_gxp;
+SELECT chat_channel_set_classification(96001, :ch_gxp, 'gxp');
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, 'alpha.test') $$, :ch_gxp),
+  'BZ210', NULL, 'a gxp-classified channel cannot be bound to a federated room (Q7 arm 1, BZ210)');
+
+-- empty local domain.
+SELECT chat_channel_create(96001, 'bind-empty-domain') AS ch_empty_domain \gset
+SELECT throws_ok(
+  format($$ SELECT federation_room_create(96001, %s, '   ') $$, :ch_empty_domain),
+  'BZ209', NULL, 'an empty p_local_domain refuses (BZ209)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 Q7 arm 2 + Q14 arm 2: the reverse-direction refusals on an
+--    already-bound (room-bind wins first) channel.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT chat_channel_set_classification(96001, %s, 'gxp') $$, :ch_bind),
+  'BZ210', NULL, 'chat_channel_set_classification refuses gxp on a room-bound channel (Q7 arm 2, BZ210)');
+
+SELECT mk_auth_user('org-admin-c2@lifecycle.test') AS org_admin \gset
+UPDATE users SET is_local_admin = TRUE WHERE id = :org_admin;
+SELECT throws_ok(
+  format($$ SELECT chat_org_default_set(%s, %s, true) $$, :org_admin, :ch_bind),
+  'BZ209', NULL, 'chat_org_default_set refuses marking a room-bound channel org-default (Q14 arm 2, BZ209)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 Q13 archive matrix: hub shape refused while active members remain,
+--    allowed once the roster is empty; spoke shape refused while live,
+--    allowed once federated_room_removed_at is set.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('q13member.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT chat_channel_create(96001, 'archive-hub') AS ch_archive_hub \gset
+SELECT federation_room_create(96001, :ch_archive_hub, 'alpha.test') AS room_archive_hub \gset
+SELECT federation_room_invite(96001, :ch_archive_hub, 'q13member.test', 'x@q13member.test');
+
+SELECT is(federation_room_has_active_members(:'room_archive_hub'), true,
+  'the probe reports an active member exists');
+SELECT throws_ok(
+  format($$ SELECT chat_channel_update(96001, %s, NULL, NULL, true) $$, :ch_archive_hub),
+  'BZ209', NULL, 'a hub room cannot be archived while a member org remains (Q13, BZ209)');
+
+SELECT federation_room_remove(96001, :ch_archive_hub, 'q13member.test');
+SELECT is(federation_room_has_active_members(:'room_archive_hub'), false,
+  'the probe reports no active member remains after removal');
+SELECT lives_ok(
+  format($$ SELECT chat_channel_update(96001, %s, NULL, NULL, true) $$, :ch_archive_hub),
+  'a hub room CAN be archived once the roster is empty (Q13)');
+SELECT is((SELECT is_archived FROM chat_channels WHERE id = :ch_archive_hub), true,
+  'the hub channel is now archived');
+
+-- Task 2 review finding: an archived hub channel refuses re-invite (BZ211)
+-- — the Q13 close flow's own guard, so an owner can't silently re-open
+-- fan-out against a channel the archive flow just declared closed.
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(96001, %s, 'q13member.test', 'x@q13member.test') $$, :ch_archive_hub),
+  'BZ211', NULL, 'inviting into an archived hub channel refuses (BZ211, Task 2 review finding)');
+
+-- Spoke mirror shape, fabricated directly (Task 5 is the real constructor;
+-- this file only proves chat_channel_update's own Q13 arm).
+INSERT INTO chat_channels (kind, name, created_by, federated_room_id, federated_peer_domain)
+  VALUES ('channel', 'spoke-mirror', 96001, 'roomX@bravo.test', 'bravo.test')
+  RETURNING id AS ch_spoke \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_spoke, 96001, 'owner');
+SELECT throws_ok(
+  format($$ SELECT chat_channel_update(96001, %s, NULL, NULL, true) $$, :ch_spoke),
+  'BZ209', NULL, 'a live spoke room mirror cannot be archived (Q13, BZ209)');
+
+UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = :ch_spoke;
+SELECT lives_ok(
+  format($$ SELECT chat_channel_update(96001, %s, NULL, NULL, true) $$, :ch_spoke),
+  'a spoke mirror CAN be archived once federated_room_removed_at is set (Q13)');
+SELECT is((SELECT is_archived FROM chat_channels WHERE id = :ch_spoke), true,
+  'the spoke mirror channel is now archived');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 federation_room_invite: refusals
+-- ══════════════════════════════════════════════════════════════════════
+-- not owner/admin.
+SELECT chat_channel_create(97001, 'invite-happy') AS ch_room \gset
+SELECT federation_room_create(97001, :ch_room, 'alpha.test') AS room_id \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_room, 97002, 'member');
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(97002, %s, 'bravo.test', 'bob@bravo.test') $$, :ch_room),
+  'BZ211', NULL, 'a plain member cannot invite a federated room member (BZ211)');
+
+-- spoke may not invite.
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(96001, %s, 'zulu.test', 'z@zulu.test') $$, :ch_spoke),
+  'BZ211', NULL, 'a spoke mirror channel cannot originate an invite (BZ211)');
+
+-- target = hub's own domain.
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(97001, %s, 'ALPHA.TEST', 'x@alpha.test') $$, :ch_room),
+  'BZ211', NULL, 'inviting the room''s own hub domain refuses (BZ211)');
+
+-- contactAddr domain mismatch.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('bravo.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(97001, %s, 'bravo.test', 'bob@othersub.test') $$, :ch_room),
+  'BZ211', NULL, 'a contactAddr whose domain does not match the invited member domain refuses (BZ211)');
+
+-- peer not allow-listed at all.
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(97001, %s, 'unlisted.test', 'x@unlisted.test') $$, :ch_room),
+  'BZ211', NULL, 'an unlisted peer domain refuses (BZ211)');
+
+-- peer allow-listed at dm scope only (non-room-scope peer).
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('dmonly.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT throws_ok(
+  format($$ SELECT federation_room_invite(97001, %s, 'dmonly.test', 'x@dmonly.test') $$, :ch_room),
+  'BZ211', NULL, 'a peer allow-listed for dm scope only refuses room invite (BZ211)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 federation_room_invite: happy path + atomicity + roster fan-out
+-- ══════════════════════════════════════════════════════════════════════
+-- Atomicity: a rolled-back invite leaves neither the roster row nor any
+-- outbox row behind.
+SAVEPOINT before_invite;
+SELECT federation_room_invite(97001, :ch_room, 'bravo.test', 'bob@bravo.test');
+ROLLBACK TO SAVEPOINT before_invite;
+SELECT is((SELECT count(*)::int FROM federation_room_members WHERE room_id = :'room_id'), 0,
+  'a rolled-back invite leaves no roster row (atomic)');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 0,
+  'a rolled-back invite leaves no outbox row (atomic)');
+
+SELECT federation_room_invite(97001, :ch_room, 'bravo.test', 'bob@bravo.test');
+SELECT is((SELECT count(*)::int FROM federation_room_members
+            WHERE room_id = :'room_id' AND member_domain = 'bravo.test' AND left_at IS NULL), 1,
+  'bravo.test is now an active roster member');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 1,
+  'bravo.test received exactly one outbox row (the invite)');
+SELECT is((SELECT payload ->> 'op' FROM federation_outbox WHERE peer_domain = 'bravo.test'), 'invite',
+  'the row is an invite op');
+SELECT is((SELECT payload ->> 'roomId' FROM federation_outbox WHERE peer_domain = 'bravo.test'), :'room_id',
+  'the invite payload carries the roomId');
+SELECT is((SELECT payload ? 'gapFrom' FROM federation_outbox WHERE peer_domain = 'bravo.test'), false,
+  'a first-time invite carries NO gapFrom/gapTo keys');
+
+-- invite a second member: bravo (incumbent) gets a roster op, charlie gets
+-- an invite op, distinct stanza ids.
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('charlie.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT federation_room_invite(97001, :ch_room, 'charlie.test', 'carol@charlie.test');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 2,
+  'bravo.test (incumbent) received a SECOND outbox row (the roster update)');
+SELECT is((SELECT payload ->> 'op' FROM federation_outbox
+            WHERE peer_domain = 'bravo.test' ORDER BY peer_seq DESC LIMIT 1), 'roster',
+  'bravo''s second row is a roster op, not another invite');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'charlie.test'), 1,
+  'charlie.test (newcomer) received exactly one outbox row (the invite)');
+SELECT is((SELECT payload ->> 'op' FROM federation_outbox WHERE peer_domain = 'charlie.test'), 'invite',
+  'charlie''s row is an invite op');
+SELECT isnt(
+  (SELECT stanza_id FROM federation_outbox WHERE peer_domain = 'bravo.test' ORDER BY peer_seq DESC LIMIT 1),
+  (SELECT stanza_id FROM federation_outbox WHERE peer_domain = 'charlie.test'),
+  'the roster stanza and the invite stanza are distinct control stanza ids');
+SELECT is(jsonb_array_length((SELECT payload -> 'roster' FROM federation_outbox WHERE peer_domain = 'charlie.test')),
+  2, 'charlie''s invite carries a 2-member roster (bravo + charlie)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7 re-invite/re-admit: park then re-invite clears the park, closes the
+--    coverage epoch, and re-delivers a FRESH invite stanza carrying
+--    gapFrom/gapTo.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT stanza_id AS bravo_first_invite_stanza FROM federation_outbox
+  WHERE peer_domain = 'bravo.test' AND payload ->> 'op' = 'invite' \gset
+
+UPDATE federation_room_members
+   SET parked_at = now() - interval '1 hour', parked_reason = 'backpressure',
+       coverage_epochs = coverage_epochs || jsonb_build_object(
+         'parkedAt', (now() - interval '1 hour'), 'reason', 'backpressure')
+ WHERE room_id = :'room_id' AND member_domain = 'bravo.test';
+
+SELECT federation_room_invite(97001, :ch_room, 'bravo.test', 'bob@bravo.test');
+SELECT is((SELECT parked_at FROM federation_room_members
+            WHERE room_id = :'room_id' AND member_domain = 'bravo.test'), NULL::timestamptz,
+  're-invite clears the park');
+SELECT is(jsonb_array_length((SELECT coverage_epochs FROM federation_room_members
+            WHERE room_id = :'room_id' AND member_domain = 'bravo.test')), 1,
+  'exactly one coverage epoch recorded');
+SELECT isnt((SELECT coverage_epochs -> 0 ->> 'resumedAt' FROM federation_room_members
+              WHERE room_id = :'room_id' AND member_domain = 'bravo.test'), NULL,
+  'the coverage epoch is now CLOSED (resumedAt set)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'bravo.test' AND payload ->> 'op' = 'invite'), 2,
+  'bravo.test now has TWO invite-op rows (the original + the re-admit)');
+SELECT isnt(
+  (SELECT stanza_id FROM federation_outbox
+     WHERE peer_domain = 'bravo.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1),
+  :'bravo_first_invite_stanza',
+  'the re-admit invite is a FRESH stanza, not a dup of the first invite');
+SELECT is(
+  (SELECT payload ? 'gapFrom' FROM federation_outbox
+     WHERE peer_domain = 'bravo.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1),
+  true, 'the re-admit invite carries gapFrom');
+SELECT is(
+  (SELECT payload ->> 'gapFrom' FROM federation_outbox
+     WHERE peer_domain = 'bravo.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1)::timestamptz,
+  (SELECT coverage_epochs -> 0 ->> 'parkedAt' FROM federation_room_members
+     WHERE room_id = :'room_id' AND member_domain = 'bravo.test')::timestamptz,
+  'gapFrom matches the closed epoch''s parkedAt');
+-- er5-s12 (occ_90331fd14cba7e6aadc3bfd9): the hub's own audit trail now
+-- carries the closed gap window, independent of wire delivery to the spoke.
+SELECT is(
+  (SELECT after_state ? 'gapFrom' FROM admin_audit_log
+     WHERE action = 'federation.room_invite'
+       AND after_state ->> 'memberDomain' = 'bravo.test'
+       AND notes = :'room_id'
+     ORDER BY id DESC LIMIT 1),
+  true, 'the re-admit audit act carries gapFrom');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §7b er5-s12 (occ_90331fd14cba7e6aadc3bfd9, audit-integrity
+--    .federated-coverage-epochs): a park/repark run appends MULTIPLE open
+--    epochs; the Task 8 manifest reads these verbatim, so the re-admit must
+--    close the WHOLE trailing open run (earlier open entries must not dangle
+--    as perpetual "gap ongoing" rows) and the carried/audited gap window
+--    must span from the EARLIEST trailing parkedAt.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('q7bpeer.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+SELECT chat_channel_create(97101, 'q7b-room') AS ch_q7b \gset
+SELECT federation_room_create(97101, :ch_q7b, 'alpha.test') AS room_q7b \gset
+SELECT federation_room_invite(97101, :ch_q7b, 'q7bpeer.test', 'a@q7bpeer.test');
+
+-- Repark without resume (exactly what federation_room_enqueue_member's
+-- backpressure/revoked appends produce): two trailing OPEN epochs behind one
+-- already-closed epoch.
+UPDATE federation_room_members
+   SET coverage_epochs = jsonb_build_array(
+         jsonb_build_object('parkedAt', (now() - interval '3 hours'), 'reason', 'backpressure',
+                            'resumedAt', (now() - interval '2 hours')),
+         jsonb_build_object('parkedAt', (now() - interval '90 minutes'), 'reason', 'backpressure'),
+         jsonb_build_object('parkedAt', (now() - interval '30 minutes'), 'reason', 'backpressure'))
+ WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test';
+
+SELECT federation_room_invite(97101, :ch_q7b, 'q7bpeer.test', 'a@q7bpeer.test');
+SELECT is(jsonb_array_length((SELECT coverage_epochs FROM federation_room_members
+            WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test')), 3,
+  '§7b: still exactly three epochs (the closed run was closed in place, not truncated)');
+SELECT isnt((SELECT coverage_epochs -> 1 ->> 'resumedAt' FROM federation_room_members
+              WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test'), NULL,
+  '§7b: the FIRST trailing open epoch (repark) is closed');
+SELECT isnt((SELECT coverage_epochs -> 2 ->> 'resumedAt' FROM federation_room_members
+              WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test'), NULL,
+  '§7b: the LAST trailing open epoch is closed');
+SELECT is(
+  (SELECT payload ->> 'gapFrom' FROM federation_outbox
+     WHERE peer_domain = 'q7bpeer.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1)::timestamptz,
+  (SELECT coverage_epochs -> 1 ->> 'parkedAt' FROM federation_room_members
+     WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test')::timestamptz,
+  '§7b: the invite''s gapFrom spans from the EARLIEST trailing parkedAt (the repark), not just the last open epoch');
+SELECT is(
+  (SELECT after_state ->> 'gapFrom' FROM admin_audit_log
+     WHERE action = 'federation.room_invite'
+       AND after_state ->> 'memberDomain' = 'q7bpeer.test'
+       AND notes = :'room_q7b'
+     ORDER BY id DESC LIMIT 1)::timestamptz,
+  (SELECT coverage_epochs -> 1 ->> 'parkedAt' FROM federation_room_members
+     WHERE room_id = :'room_q7b' AND member_domain = 'q7bpeer.test')::timestamptz,
+  '§7b: the audit act''s gapFrom is the same earliest-trailing window');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log
+     WHERE action = 'federation.room_invite'
+       AND after_state ->> 'memberDomain' = 'q7bpeer.test'
+       AND NOT (after_state ? 'gapFrom')),
+  1,
+  '§7b: only the FIRST (brand-new, gapless) invite lacks a gap window in its audit act');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §8 the Q12 control-op case (Q9 split): a scope-downgraded incumbent is
+--    REVOKED (not parked) on the very next control-op fan-out, receives
+--    EXACTLY ONE application/x-setjoin-advisory row, and NO second advisory
+--    on a LATER fan-out (the row is left, skipped by the snapshot).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(97101, 'q12-room') AS ch_q12 \gset
+SELECT federation_room_create(97101, :ch_q12, 'alpha.test') AS room_q12 \gset
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('juliet.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('kilo.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('lima.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('mike.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT federation_room_invite(97101, :ch_q12, 'juliet.test', 'a@juliet.test');
+SELECT federation_room_invite(97101, :ch_q12, 'kilo.test', 'b@kilo.test');
+
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-room'), 2,
+  'juliet has 2 room-content rows before the downgrade (invite + roster from kilo''s invite)');
+
+-- the federation admin downgrades juliet's scope to dm-only.
+UPDATE federation_allowlist SET scope = 'dm' WHERE peer_domain = 'juliet.test';
+
+SELECT federation_room_invite(97101, :ch_q12, 'lima.test', 'c@lima.test');
+
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = :'room_q12' AND member_domain = 'juliet.test') IS NOT NULL, true,
+  'juliet is now left (revoked)');
+SELECT is((SELECT left_reason FROM federation_room_members
+            WHERE room_id = :'room_q12' AND member_domain = 'juliet.test'), 'revoked',
+  'juliet''s left_reason is revoked (never a park)');
+SELECT is((SELECT coverage_epochs -> -1 ->> 'reason' FROM federation_room_members
+            WHERE room_id = :'room_q12' AND member_domain = 'juliet.test'), 'revoked',
+  'the trailing coverage epoch reason is revoked');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_revoked'
+              AND after_state ->> 'memberDomain' = 'juliet.test'
+              AND notes = :'room_q12'), 1,
+  'exactly one federation.room_member_revoked audit act was written');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-room'), 2,
+  'juliet gets ZERO new room-content rows from the downgrading fan-out (still 2)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-advisory'), 1,
+  'juliet gets EXACTLY ONE application/x-setjoin-advisory row');
+SELECT is((SELECT payload ->> 'op' FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-advisory'),
+  'room_revoked', 'the advisory op is room_revoked');
+SELECT is((SELECT payload ->> 'reason' FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-advisory'),
+  'scope', 'the advisory reason is scope');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'kilo.test' AND content_type = 'application/x-setjoin-room'
+              AND payload ->> 'op' = 'roster'), 1,
+  'kilo (still valid) still receives its own roster op from the fan-out that revoked juliet');
+
+-- next fan-out: juliet is excluded from the snapshot entirely (left_at
+-- IS NOT NULL) — no second advisory.
+SELECT federation_room_invite(97101, :ch_q12, 'mike.test', 'd@mike.test');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'juliet.test' AND content_type = 'application/x-setjoin-advisory'), 1,
+  'a LATER fan-out emits NO second advisory to the already-revoked juliet (still exactly 1)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §9 federation_room_remove: happy path, refusals, and the remove-then-
+--    re-invite gap-marker chain (the kicked-gap manifest chain, end to end).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(98001, 'remove-room') AS ch_remove \gset
+SELECT federation_room_create(98001, :ch_remove, 'alpha.test') AS room_remove \gset
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('november.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('oscar.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT federation_room_invite(98001, :ch_remove, 'november.test', 'n@november.test');
+SELECT federation_room_invite(98001, :ch_remove, 'oscar.test', 'o@oscar.test');
+
+-- not owner/admin.
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_remove, 98002, 'member');
+SELECT throws_ok(
+  format($$ SELECT federation_room_remove(98002, %s, 'november.test') $$, :ch_remove),
+  'BZ211', NULL, 'a plain member cannot remove a federated room member (BZ211)');
+
+-- unknown / already-left member.
+SELECT throws_ok(
+  format($$ SELECT federation_room_remove(98001, %s, 'zulu.test') $$, :ch_remove),
+  'BZ211', NULL, 'removing a never-invited domain refuses (BZ211, unknown member)');
+
+SELECT federation_room_remove(98001, :ch_remove, 'november.test');
+SELECT is((SELECT left_reason FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test'), 'removed',
+  'november is left with reason removed');
+SELECT is((SELECT coverage_epochs -> -1 ->> 'reason' FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test'), 'removed',
+  'an open coverage epoch (reason removed) was appended');
+SELECT is((SELECT coverage_epochs -> -1 ? 'resumedAt' FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test'), false,
+  'the removed epoch is still OPEN (no resumedAt)');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'november.test' AND payload ->> 'op' = 'remove'), 1,
+  'november received exactly one remove-op row');
+SELECT is((SELECT count(*)::int FROM federation_outbox
+            WHERE peer_domain = 'oscar.test' AND payload ->> 'op' = 'roster'), 1,
+  'oscar received the roster-update op fanned by the removal');
+SELECT is(
+  (SELECT payload -> 'roster' FROM federation_outbox
+     WHERE peer_domain = 'oscar.test' AND payload ->> 'op' = 'roster') @>
+  '[{"domain":"oscar.test","state":"active"}]'::jsonb,
+  true, 'oscar''s post-removal roster still lists itself active');
+SELECT is(
+  (SELECT payload -> 'roster' FROM federation_outbox
+     WHERE peer_domain = 'oscar.test' AND payload ->> 'op' = 'roster')::text LIKE '%november.test%',
+  false, 'oscar''s post-removal roster does NOT list the just-removed november');
+
+-- unknown / already-left: removing november AGAIN now refuses too.
+SELECT throws_ok(
+  format($$ SELECT federation_room_remove(98001, %s, 'november.test') $$, :ch_remove),
+  'BZ211', NULL, 'removing an ALREADY-removed member refuses (BZ211)');
+
+-- the gap-marker chain: re-invite closes the 'removed' epoch and carries
+-- gapFrom/gapTo (feeds Task 5's local gap-marker message + Task 8's manifest).
+-- november has exactly ONE coverage epoch at this point (appended by the
+-- remove above) — the re-invite closes THAT epoch (index 0 == index -1).
+SELECT federation_room_invite(98001, :ch_remove, 'november.test', 'n@november.test');
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test'), NULL::timestamptz,
+  're-invite clears november''s left_at (re-admit)');
+SELECT is(jsonb_array_length((SELECT coverage_epochs FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test')), 1,
+  'november has exactly one coverage epoch (the removed-then-closed one)');
+SELECT isnt((SELECT coverage_epochs -> -1 ->> 'resumedAt' FROM federation_room_members
+              WHERE room_id = :'room_remove' AND member_domain = 'november.test'), NULL,
+  'the removed epoch is now CLOSED (resumedAt set) by the re-invite');
+SELECT is(
+  (SELECT payload ? 'gapFrom' FROM federation_outbox
+     WHERE peer_domain = 'november.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1),
+  true, 'the re-admit-after-removal invite carries gapFrom');
+SELECT is(
+  (SELECT payload ->> 'gapFrom' FROM federation_outbox
+     WHERE peer_domain = 'november.test' AND payload ->> 'op' = 'invite' ORDER BY peer_seq DESC LIMIT 1)::timestamptz,
+  (SELECT coverage_epochs -> -1 ->> 'parkedAt' FROM federation_room_members
+     WHERE room_id = :'room_remove' AND member_domain = 'november.test')::timestamptz,
+  'gapFrom matches the closed removed-reason epoch''s parkedAt');
+SELECT is((SELECT coverage_epochs -> -1 ->> 'reason' FROM federation_room_members
+            WHERE room_id = :'room_remove' AND member_domain = 'november.test'), 'removed',
+  'the closed epoch''s reason is still removed (the gap that matters for the manifest)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §10 the warn case (edge-triggered, fires exactly once at the crossing)
+--    and the park (backpressure cap) case, isolated with a shrunk cap so
+--    as not to disturb any earlier assertion (system_config is global).
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('foxtrot.test', 'test fixture anchor', 'room', true),
+         ('golf.test', 'test fixture anchor', 'room', true),
+         ('hotel.test', 'test fixture anchor', 'room', true),
+         ('india.test', 'test fixture anchor', 'room', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+SELECT chat_channel_create(96501, 'warn-room') AS ch_warn \gset
+SELECT federation_room_create(96501, :ch_warn, 'alpha.test') AS room_warn \gset
+SELECT federation_room_invite(96501, :ch_warn, 'foxtrot.test', 'x@foxtrot.test');
+
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_cap', '5'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_warn_pct', '80'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+-- pre-seed foxtrot's depth to 3 (below the cap of 5, at the 80% warn
+-- threshold of 4 once this next enqueue lands).
+UPDATE federation_peers SET last_seq = 3, last_acked_seq = 0 WHERE peer_domain = 'foxtrot.test';
+
+-- crossing enqueue: golf's invite fans a roster-op to foxtrot (depth 3->4).
+SELECT federation_room_invite(96501, :ch_warn, 'golf.test', 'y@golf.test');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_depth_warn'
+              AND after_state ->> 'memberDomain' = 'foxtrot.test'
+              AND notes = :'room_warn'), 1,
+  'the depth_warn act fires exactly once on the crossing enqueue');
+SELECT is((SELECT last_seq FROM federation_peers WHERE peer_domain = 'foxtrot.test'), 4::bigint,
+  'foxtrot''s depth advanced to 4 (the crossing send still enqueues normally, warn is not a refusal)');
+
+-- next enqueue: hotel's invite fans another roster-op to foxtrot (depth
+-- 4->5) — must NOT re-fire the warn (v_depth(4) < v_warn(4) is false).
+SELECT federation_room_invite(96501, :ch_warn, 'hotel.test', 'z@hotel.test');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_depth_warn'
+              AND after_state ->> 'memberDomain' = 'foxtrot.test'
+              AND notes = :'room_warn'), 1,
+  'the depth_warn act does NOT re-fire on the next enqueue (still exactly 1)');
+
+-- mutation-proofing the warn's lower-bound conjunct (v_depth < v_warn):
+-- golf.test and hotel.test each received exactly one control-op enqueue
+-- of their OWN (their own invite, at federation_peers depth 0->1 — nowhere
+-- near the 4/5 threshold foxtrot crossed) and were never independently
+-- pre-seeded to a high depth. A mutant that dropped or inverted the
+-- lower-bound half of the crossing conjunct (e.g. always firing once
+-- v_depth+1 >= v_warn, regardless of whether v_depth was already at/above
+-- it) would still pass every assertion above but would false-positive
+-- here.
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_depth_warn'
+              AND after_state ->> 'memberDomain' = 'golf.test'), 0,
+  'golf.test (its own depth is 1, nowhere near the warn threshold) has ZERO depth_warn acts (mutation-proofs the lower-bound conjunct)');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_depth_warn'
+              AND after_state ->> 'memberDomain' = 'hotel.test'), 0,
+  'hotel.test (its own depth is 1, nowhere near the warn threshold) has ZERO depth_warn acts (mutation-proofs the lower-bound conjunct)');
+
+-- the park (backpressure) case: india pre-seeded WAY over the cap before
+-- ever being invited — its own invite-enqueue must park it, not deliver it.
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq)
+  VALUES ('india.test', 10, 0)
+  ON CONFLICT (peer_domain) DO UPDATE SET last_seq = EXCLUDED.last_seq, last_acked_seq = EXCLUDED.last_acked_seq;
+SELECT federation_room_invite(96501, :ch_warn, 'india.test', 'w@india.test');
+SELECT is((SELECT parked_at FROM federation_room_members
+            WHERE room_id = :'room_warn' AND member_domain = 'india.test') IS NOT NULL, true,
+  'india is PARKED (over the backpressure cap) rather than delivered');
+SELECT is((SELECT parked_reason FROM federation_room_members
+            WHERE room_id = :'room_warn' AND member_domain = 'india.test'), 'backpressure',
+  'india''s parked_reason is backpressure');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'india.test'), 0,
+  'india received NO outbox row (parked before enqueue)');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+            WHERE action = 'federation.room_member_parked'
+              AND after_state ->> 'memberDomain' = 'india.test'
+              AND notes = :'room_warn'), 1,
+  'exactly one federation.room_member_parked audit act was written');
+SELECT is((SELECT left_at FROM federation_room_members
+            WHERE room_id = :'room_warn' AND member_domain = 'india.test'), NULL::timestamptz,
+  'a parked member is NOT left (parked != revoked/removed)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/domains",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"name\":\"example.test\"}"
+    }
+  ],
+  "stdout": "Domain example.test added (id 7).\n",
+  "stderr": "",
+  "exit": 0
+}

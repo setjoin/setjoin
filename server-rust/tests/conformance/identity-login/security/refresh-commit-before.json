@@ -1,0 +1,13 @@
+{
+  "case": "refresh-commit-before",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": 1,
+    "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"invalid or revoked refresh token\",\"instance\":\"/auth/refresh\"}\n",
+    "cookie": false,
+    "rows": 1,
+    "status": 401
+  },
+  "route": "POST /auth/refresh"
+}

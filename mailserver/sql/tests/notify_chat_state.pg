@@ -1,0 +1,55 @@
+-- notify_chat_state.pg: the chat push seam (drive-watch pattern) — per-member
+-- fan-out to each channel member's self-scoped chat:{user_id} channel via
+-- app_notify, carrying {event, channelId, messageId, seq}. Mirrors
+-- notify_calendar_state.pg's push-fires + capture-tee shape.
+-- Requires: notify_chat_state.
+BEGIN;
+SELECT plan(6);
+
+-- Fixture channel + two members (chat_channel_members has no FK to users —
+-- see V119 — so bare ids suffice here). chat_channels.id is a GENERATED
+-- ALWAYS identity, so every reference below looks the row up by its unique
+-- name rather than assuming a literal id.
+INSERT INTO chat_channels (kind, name, created_by)
+VALUES ('channel', 'ncs-general-notify-test', 501);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 501, 'owner' FROM chat_channels WHERE name = 'ncs-general-notify-test'
+  UNION ALL
+  SELECT id, 502, 'member' FROM chat_channels WHERE name = 'ncs-general-notify-test';
+
+-- Test 1: 4-arg function exists.
+SELECT has_function(
+  'notify_chat_state', ARRAY['bigint','text','bigint','bigint'],
+  'notify_chat_state(channel,event,message_id,seq) exists');
+
+-- Test 2: NULL channel raises BZ160.
+SELECT throws_ok(
+  $$ SELECT notify_chat_state(NULL, 'message_sent') $$,
+  'BZ160', NULL,
+  'NULL channel raises BZ160');
+
+-- Test 3: the call itself does not error for a 2-member channel (push-fires).
+SELECT lives_ok(
+  $$ SELECT notify_chat_state(
+       (SELECT id FROM chat_channels WHERE name = 'ncs-general-notify-test'),
+       'message_sent', 5001, 12) $$,
+  'notify_chat_state fans out without erroring');
+
+-- ── REAL push assertion: capture the app_notify tee and prove ONE push lands
+-- on EACH member's chat:{user_id} channel, carrying the seq-bearing payload. ──
+SET LOCAL app.capture_notify = 'on';
+SELECT notify_chat_state(
+  (SELECT id FROM chat_channels WHERE name = 'ncs-general-notify-test'),
+  'message_sent', 5001, 12);
+
+SELECT is(notify_count('chat:501'), 1, 'owner member gets exactly one push');
+SELECT is(notify_count('chat:502'), 1, 'other member gets exactly one push');
+SELECT is(
+  last_notify_payload('chat:502')::jsonb,
+  (SELECT jsonb_build_object('event','message_sent','channelId',id,
+                             'messageId',5001,'seq',12)
+     FROM chat_channels WHERE name = 'ncs-general-notify-test'),
+  'payload carries event/channelId/messageId/seq verbatim');
+
+SELECT * FROM finish();
+ROLLBACK;

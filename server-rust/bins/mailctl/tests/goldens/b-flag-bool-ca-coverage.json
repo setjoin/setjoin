@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -fail-on-gap: parse error\nUsage of ca coverage:\n  -fail-on-gap\n    \tExit non-zero if any gaps found\nError: invalid boolean value \"not-a-bool\" for -fail-on-gap: parse error\n",
+  "exit": 1
+}

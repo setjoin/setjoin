@@ -1,0 +1,108 @@
+-- pgTAP: read_receipt_backstop.pg
+-- Wave 8 — the read-receipt 'never' guard TRIGGER (V090) on read_receipts.
+--
+-- send_read_receipt() is the privacy gate, but a DIRECT INSERT INTO read_receipts
+-- bypasses it. The BEFORE INSERT trigger re-derives the recipient's policy via the
+-- MAILBOX chain (message_id → messages.mailbox_id → account_scope(mailbox_id).user_id
+-- → get_read_receipt_policy(user_id)) and RAISES (BZ073) ONLY when policy = 'never'
+-- — mailbox-keyed, alias-proof, consent-independent.
+--
+--   • never  → a direct INSERT is REJECTED (BZ073).
+--   • always → a direct INSERT is ALLOWED (trigger passes).
+--   • ask    → a direct INSERT is ALLOWED (the trigger cannot decide 'ask' — no
+--              consent column — so it must NOT over-block).
+--   • send_read_receipt() end-to-end for an 'always' user STILL works (the
+--     reducer's own INSERT passes the trigger, because the reducer never reaches
+--     the INSERT for a 'never' user).
+--   • FAIL-OPEN: a direct INSERT for an unresolvable message_id is ALLOWED.
+-- Divergent-id fixture via mk_account (user_id != mailbox_id by construction).
+BEGIN;
+SELECT plan(6);
+
+-- Account whose OWNING USER carries the recipient policy. Divergent ids.
+CREATE TEMP TABLE _rr AS SELECT mk_account('rr-backstop') AS mb_id;
+
+-- The inbound message that requested a read receipt, in the account's Inbox.
+DO $$
+DECLARE
+  v_mb       BIGINT := (SELECT mb_id FROM _rr);
+  v_inbox    BIGINT;
+  v_now      TIMESTAMPTZ := now();
+BEGIN
+  v_inbox := get_tag_id('Inbox', v_mb);
+  INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr,
+                        to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at,
+                        read_receipt_requested)
+    VALUES (v_mb, v_inbox, '<rr-orig@s>', 'hi', 'sender@ex.test',
+            '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'thread-rr', 'raw/rr', v_now, TRUE);
+END;
+$$;
+
+-- helper: the owning user id behind the account mailbox (for the policy row).
+CREATE TEMP TABLE _ids AS
+  SELECT (SELECT mb_id FROM _rr) AS mb_id,
+         (SELECT s.user_id FROM account_scope((SELECT mb_id FROM _rr)) s) AS user_id,
+         (SELECT m.id FROM messages m WHERE m.mailbox_id = (SELECT mb_id FROM _rr)
+            AND m.message_id = '<rr-orig@s>') AS msg_id;
+
+-- ── 1) policy = 'never' → a DIRECT INSERT is REJECTED by the trigger (BZ073) ──
+DELETE FROM user_notification_prefs WHERE user_id = (SELECT user_id FROM _ids);
+INSERT INTO user_notification_prefs (user_id, device_fingerprint, read_receipt_policy)
+  VALUES ((SELECT user_id FROM _ids), NULL, 'never');
+
+SELECT throws_ok(
+  format($q$INSERT INTO read_receipts (message_id, received_at, recipient_email, read_at)
+            VALUES (%s, now(), 'rcpt@ex.test', now())$q$, (SELECT msg_id FROM _ids)),
+  'BZ073',
+  NULL,
+  'direct INSERT for a never-policy reader is rejected by the never guard (BZ073)'
+);
+
+-- ── 2) policy = 'always' → a DIRECT INSERT is ALLOWED (trigger passes) ────────
+UPDATE user_notification_prefs SET read_receipt_policy = 'always'
+  WHERE user_id = (SELECT user_id FROM _ids);
+SELECT lives_ok(
+  format($q$INSERT INTO read_receipts (message_id, received_at, recipient_email, read_at)
+            VALUES (%s, now(), 'always@ex.test', now())$q$, (SELECT msg_id FROM _ids)),
+  'direct INSERT for an always-policy reader is allowed (trigger passes)'
+);
+
+-- ── 3) policy = 'ask' → a DIRECT INSERT is ALLOWED (trigger must NOT over-block) ─
+UPDATE user_notification_prefs SET read_receipt_policy = 'ask'
+  WHERE user_id = (SELECT user_id FROM _ids);
+SELECT lives_ok(
+  format($q$INSERT INTO read_receipts (message_id, received_at, recipient_email, read_at)
+            VALUES (%s, now(), 'ask@ex.test', now())$q$, (SELECT msg_id FROM _ids)),
+  'direct INSERT for an ask-policy reader is allowed (trigger cannot decide ask, must not over-block)'
+);
+
+-- ── 4) FAIL-OPEN: a direct INSERT for an unresolvable message_id is ALLOWED ────
+SELECT lives_ok(
+  $q$INSERT INTO read_receipts (message_id, received_at, recipient_email, read_at)
+     VALUES (999999999, now(), 'orphan@ex.test', now())$q$,
+  'direct INSERT for a missing message_id fails open (allowed; reducer is the primary gate)'
+);
+
+-- ── 5) send_read_receipt() end-to-end for an 'always' user STILL works ────────
+--     (the reducer's own INSERT passes the trigger). Use a fresh message so the
+--     dedup/already_sent path does not interfere.
+DELETE FROM read_receipts WHERE message_id = (SELECT msg_id FROM _ids);
+UPDATE user_notification_prefs SET read_receipt_policy = 'always'
+  WHERE user_id = (SELECT user_id FROM _ids);
+SELECT is(
+  (send_read_receipt((SELECT mb_id FROM _ids), (SELECT msg_id FROM _ids),
+                     'reducer@ex.test', FALSE)->>'status'),
+  'sent',
+  'send_read_receipt end-to-end still works for an always user (reducer INSERT passes the trigger)'
+);
+
+-- ── 6) and that reducer insert is recorded (the trigger did not block it) ─────
+SELECT is(
+  (SELECT count(*) FROM read_receipts
+     WHERE message_id = (SELECT msg_id FROM _ids) AND recipient_email = 'reducer@ex.test'),
+  1::BIGINT,
+  'the reducer-written read_receipt row is present (trigger passed the legitimate insert)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

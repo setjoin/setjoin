@@ -1,0 +1,89 @@
+-- pgTAP: V058__rbac_seed_data.pg — seed data verification
+BEGIN;
+SELECT plan(11);
+
+-- Verify permissions count after Exchange, Office, and managed-app authority extensions.
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions$$,
+    $$SELECT 56$$,
+    '56 permissions including Exchange, Office, mail.export, and managed-app authority'
+);
+
+-- Verify builtin roles count
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_role_groups WHERE is_builtin = true$$,
+    $$SELECT 11$$,
+    '11 builtin role groups created (6 baseline + 2 V010 + 3 等保 presets V013)'
+);
+
+-- Super Admin has 53 permissions: excludes audit.export (Audit Reader, 等保三级 SoD)
+-- and the two access.policy_* keys (least-privilege CA separation); excludes
+-- users.write + mail.write removed by V016; includes mail.offline_policy + scope_sets.manage
+-- (V041) + the 2 approvals perms (V073) + the 2 sharing perms (V089) + the 2
+-- drive perms (V114) + the 2 chat compliance perms (V126) + chat.ediscovery
+-- (V127) + federation.manage (V139) + the 2 guests perms (V143) +
+-- system.recovery (V181) + directory.groups.read/manage (V185) + all seven
+-- Exchange assessment permissions (V214), both Office permissions (V220), and
+-- apps.view/apps.manage (V224), all seeded directly to Super Admin.
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Super Admin'$$,
+    $$SELECT 53$$,
+    'Super Admin has 53 permissions including Exchange, Office, and managed-app authority'
+);
+
+-- User Admin has 6 permissions (5 original + users.create + users.suspend from V014 backfill − users.write removed by V016)
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'User Admin'$$,
+    $$SELECT 6$$,
+    'User Admin has 6 permissions'
+);
+
+-- Help Desk has 4 permissions
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Help Desk'$$,
+    $$SELECT 4$$,
+    'Help Desk has 4 permissions'
+);
+
+-- Audit Reader has 2 permissions
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Audit Reader'$$,
+    $$SELECT 2$$,
+    'Audit Reader has 2 permissions'
+);
+
+-- Security Admin has 5 permissions
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Security Admin'$$,
+    $$SELECT 5$$,
+    'Security Admin has 5 permissions'
+);
+
+-- Domain Admin has 7 permissions (6 original + users.create + users.suspend from V014 backfill − users.write removed by V016)
+SELECT results_eq(
+    $$SELECT array_length(permissions, 1)::int FROM admin_role_groups WHERE name = 'Domain Admin'$$,
+    $$SELECT 7$$,
+    'Domain Admin has 7 permissions'
+);
+
+-- Verify specific permissions exist
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions WHERE permission_key = 'users.read'$$,
+    $$SELECT 1$$,
+    'users.read exists'
+);
+
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions WHERE permission_key = 'security.write'$$,
+    $$SELECT 1$$,
+    'security.write exists'
+);
+
+SELECT results_eq(
+    $$SELECT count(*)::int FROM admin_permissions WHERE permission_key = 'system.config'$$,
+    $$SELECT 1$$,
+    'system.config exists'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,28 @@
+{
+  "case": "numeric",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "audit": [],
+    "dns": [
+      "MX:numeric.static2.test.",
+      "SRV:_jmap._tcp.numeric.static2.test."
+    ],
+    "effects": {},
+    "notify": [],
+    "peer": [],
+    "request": {
+      "method": "GET",
+      "path": "/api/discover"
+    },
+    "response": {
+      "body_text": "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"no server found for domain numeric.static2.test\",\"instance\":\"\"}\n",
+      "headers": {
+        "content-type": "application/problem+json"
+      },
+      "status": 404
+    },
+    "tcp_accepts": 0
+  },
+  "route": "GET /api/discover"
+}

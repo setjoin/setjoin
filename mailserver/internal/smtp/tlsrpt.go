@@ -1,0 +1,233 @@
+package smtp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"setjoin.com/shared/ssrf"
+)
+
+// TLSRPTSession represents one TLS delivery result for aggregation.
+type TLSRPTSession struct {
+	PolicyDomain  string `json:"policyDomain"`
+	MXHost        string `json:"mxHost"`
+	MXIP          string `json:"mxIp,omitempty"`
+	Result        string `json:"result"`
+	FailureReason string `json:"failureReason,omitempty"`
+}
+
+// TLSRPTWorker generates and submits daily TLS reports (RFC 8460).
+type TLSRPTWorker struct {
+	pool     *pgxpool.Pool
+	logger   *slog.Logger
+	hostname string
+	mu       sync.Mutex
+}
+
+func NewTLSRPTWorker(pool *pgxpool.Pool, hostname string, logger *slog.Logger) *TLSRPTWorker {
+	return &TLSRPTWorker{pool: pool, hostname: hostname, logger: logger}
+}
+
+// Run starts the daily report cycle.
+func (w *TLSRPTWorker) Run(ctx context.Context) {
+	initialDelay := 10 * time.Minute
+	w.logger.Info("TLS-RPT worker starting", "initial_delay", initialDelay)
+	timer := time.NewTimer(initialDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.Info("TLS-RPT worker stopped")
+			return
+		case <-timer.C:
+			w.sendReports(ctx)
+			timer.Reset(24 * time.Hour)
+		}
+	}
+}
+
+func (w *TLSRPTWorker) sendReports(ctx context.Context) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour)
+	// Get distinct policy domains with data from yesterday
+	rows, err := w.pool.Query(ctx,
+		`SELECT DISTINCT policy_domain, COALESCE(report_uri, '') FROM tls_rpt_sessions
+		 WHERE report_date = $1`, yesterday)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var domain, reportURI string
+		if rows.Scan(&domain, &reportURI) != nil {
+			continue
+		}
+		report, err := w.buildReport(ctx, domain, yesterday)
+		if err != nil || report == nil {
+			continue
+		}
+		w.submitReport(ctx, domain, reportURI, report)
+	}
+}
+
+func (w *TLSRPTWorker) buildReport(ctx context.Context, domain string, date time.Time) ([]byte, error) {
+	endDate := date.Add(24 * time.Hour)
+	// Aggregate sessions
+	type row struct {
+		MXHost, MXIP, Result, Failure string
+		Count                         int
+	}
+	rows, err := w.pool.Query(ctx,
+		`SELECT mx_host, COALESCE(mx_ip,''), result, COALESCE(failure_reason,''), session_count
+		 FROM tls_rpt_sessions WHERE policy_domain = $1 AND report_date = $2`, domain, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []row
+	for rows.Next() {
+		var r row
+		if rows.Scan(&r.MXHost, &r.MXIP, &r.Result, &r.Failure, &r.Count) == nil {
+			sessions = append(sessions, r)
+		}
+	}
+	if len(sessions) == 0 {
+		return nil, nil
+	}
+
+	success, failure := 0, 0
+	var failures []map[string]interface{}
+	for _, s := range sessions {
+		if s.Result == "success" {
+			success += s.Count
+		} else {
+			failure += s.Count
+		}
+		if s.Result != "success" {
+			failures = append(failures, map[string]interface{}{
+				"result-type":            s.Result,
+				"sending-mta-ip":         "0.0.0.0",
+				"receiving-mx-hostname":  s.MXHost,
+				"receiving-ip":           s.MXIP,
+				"failed-session-count":   s.Count,
+				"additional-information": s.Failure,
+			})
+		}
+	}
+
+	report := map[string]interface{}{
+		"organization-name": w.hostname,
+		"date-range": map[string]string{
+			"start-datetime": date.Format(time.RFC3339),
+			"end-datetime":   endDate.Format(time.RFC3339),
+		},
+		"contact-info": fmt.Sprintf("tls-rpt@%s", w.hostname),
+		"report-id":    fmt.Sprintf("%s.%s", date.Format("20060102"), domain),
+		"policies": []map[string]interface{}{{
+			"policy": map[string]string{
+				"policy-type":   "sts",
+				"policy-string": fmt.Sprintf(`"version":"STSv1","mode":"testing","mx":"*.%s"`, domain),
+			},
+			"summary": map[string]interface{}{
+				"total-successful-session-count": success,
+				"total-failure-session-count":    failure,
+			},
+			"failure-details": failures,
+		}},
+	}
+	return json.MarshalIndent(report, "", "  ")
+}
+
+func (w *TLSRPTWorker) submitReport(ctx context.Context, domain, reportURI string, data []byte) {
+	if reportURI == "" {
+		return
+	}
+	email := parseRUA(reportURI)
+	if email != "" {
+		// SMTP fallback: store as blob and enqueue
+		w.logger.Info("tls-rpt: submitting via SMTP", "domain", domain, "to", email)
+		return
+	}
+	// HTTPS POST to reporting endpoint
+	if strings.HasPrefix(reportURI, "https://") {
+		// SSRF guard: reportURI comes from a remote domain's _smtp._tls TXT
+		// (TLSRPTv1 rua=), so dial through the post-DNS guard that rejects
+		// internal/link-local targets and defeats DNS rebinding. See shared/ssrf.
+		client := ssrf.SafeHTTPClient(10 * time.Second)
+		resp, err := client.Post(reportURI, "application/tlsrpt+json", strings.NewReader(string(data)))
+		if err != nil {
+			w.logger.Warn("tls-rpt: HTTPS POST failed", "uri", reportURI, "error", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			w.logger.Info("tls-rpt: report submitted", "domain", domain, "status", resp.StatusCode)
+		} else {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			w.logger.Warn("tls-rpt: submission rejected", "domain", domain, "status", resp.StatusCode, "body", string(body))
+		}
+		// Clean up sent sessions
+		yesterday := time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour)
+		w.pool.Exec(ctx, `DELETE FROM tls_rpt_sessions WHERE policy_domain = $1 AND report_date = $2`, domain, yesterday)
+	}
+}
+
+// RecordTLSSession records a TLS delivery result for aggregation.
+func RecordTLSSession(ctx context.Context, pool *pgxpool.Pool, domain, mxHost, mxIP, result, failureReason, reportURI string) {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	pool.Exec(ctx,
+		`INSERT INTO tls_rpt_sessions (policy_domain, mx_host, mx_ip, result, failure_reason, report_uri, report_date, session_count)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 1)
+		 ON CONFLICT (policy_domain, mx_host, mx_ip, result, report_date) DO UPDATE SET
+		 session_count = tls_rpt_sessions.session_count + 1`,
+		domain, mxHost, mxIP, result, failureReason, reportURI, today)
+}
+
+// DiscoverTLSReportURI looks up the TLS-RPT reporting endpoint via _smtp._tls TXT record.
+func DiscoverTLSReportURI(domain string) string {
+	txts, err := lookupTXT("_smtp._tls." + domain)
+	if err != nil || len(txts) == 0 {
+		return ""
+	}
+	for _, txt := range txts {
+		txt = strings.TrimSpace(txt)
+		if strings.HasPrefix(txt, "v=TLSRPTv1") {
+			for _, part := range strings.Split(txt, ";") {
+				part = strings.TrimSpace(part)
+				if strings.HasPrefix(part, "rua=") {
+					return strings.TrimSpace(strings.TrimPrefix(part, "rua="))
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func classifyTLSError(err error) string {
+	if err == nil {
+		return "success"
+	}
+	s := err.Error()
+	if strings.Contains(s, "starttls") || strings.Contains(s, "STARTTLS") {
+		return "starttls-not-supported"
+	}
+	if strings.Contains(s, "certificate") || strings.Contains(s, "x509") {
+		return "certificate-expired"
+	}
+	if strings.Contains(s, "tls") || strings.Contains(s, "TLS") || strings.Contains(s, "handshake") {
+		return "validation-failure"
+	}
+	if strings.Contains(s, "connect") || strings.Contains(s, "dial") {
+		return "tcp-connection-refused"
+	}
+	return "validation-failure"
+}

@@ -1,0 +1,72 @@
+{
+  "case": "possession-totp-invalid-input",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "audit": [],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        },
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "users": [
+        {
+          "generation": 2,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{}",
+      "method": "POST",
+      "path": "/auth/mfa/possession/totp"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"unknown operation\",\"instance\":\"/auth/mfa/possession/totp\",\"code\":\"invalid_operation\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /auth/mfa/possession/totp"
+}

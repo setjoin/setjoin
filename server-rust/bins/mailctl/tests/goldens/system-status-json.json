@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/system/status",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"goroutines\": 12,\n  \"memory_mb\": 3,\n  \"pid\": 42,\n  \"started_at\": \"yesterday\",\n  \"status\": \"running\",\n  \"uptime_sec\": 10,\n  \"version\": \"test\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

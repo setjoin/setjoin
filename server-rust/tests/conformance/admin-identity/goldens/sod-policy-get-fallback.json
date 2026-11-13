@@ -1,0 +1,249 @@
+{
+  "case": "fallback",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "approval_requests": [],
+          "assignments": [
+            {
+              "activated_until": "2031-01-01T00:00:00.500000Z",
+              "eligible": true,
+              "expires_at": "2031-06-01T00:00:00.000000Z",
+              "granted_by": "<admin>",
+              "role": 940001,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": false,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940002,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": "2026-10-01T00:00:00.000000Z",
+              "granted_by": "<admin>",
+              "role": 940003,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<other>",
+              "role": 940004,
+              "user_id": "<other>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940005,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940006,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940008,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": false,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940010,
+              "user_id": "<admin>"
+            }
+          ],
+          "policies": [
+            {
+              "approver_spec": {
+                "kind": "named",
+                "user_id": "<other>"
+              },
+              "max_duration_minutes": 45,
+              "require_approval": true,
+              "require_justification": true,
+              "role_group_id": 940001
+            },
+            {
+              "approver_spec": null,
+              "max_duration_minutes": 60,
+              "require_approval": false,
+              "require_justification": false,
+              "role_group_id": 940005
+            },
+            {
+              "approver_spec": null,
+              "max_duration_minutes": 120,
+              "require_approval": false,
+              "require_justification": true,
+              "role_group_id": 940006
+            }
+          ]
+        },
+        "before": {
+          "approval_requests": [],
+          "assignments": [
+            {
+              "activated_until": "2031-01-01T00:00:00.500000Z",
+              "eligible": true,
+              "expires_at": "2031-06-01T00:00:00.000000Z",
+              "granted_by": "<admin>",
+              "role": 940001,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": false,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940002,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": "2026-10-01T00:00:00.000000Z",
+              "granted_by": "<admin>",
+              "role": 940003,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<other>",
+              "role": 940004,
+              "user_id": "<other>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940005,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940006,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": true,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940008,
+              "user_id": "<admin>"
+            },
+            {
+              "activated_until": null,
+              "eligible": false,
+              "expires_at": null,
+              "granted_by": "<admin>",
+              "role": 940010,
+              "user_id": "<admin>"
+            }
+          ],
+          "policies": [
+            {
+              "approver_spec": {
+                "kind": "named",
+                "user_id": "<other>"
+              },
+              "max_duration_minutes": 45,
+              "require_approval": true,
+              "require_justification": true,
+              "role_group_id": 940001
+            },
+            {
+              "approver_spec": null,
+              "max_duration_minutes": 60,
+              "require_approval": false,
+              "require_justification": false,
+              "role_group_id": 940005
+            },
+            {
+              "approver_spec": null,
+              "max_duration_minutes": 120,
+              "require_approval": false,
+              "require_justification": true,
+              "role_group_id": 940006
+            }
+          ]
+        },
+        "table": "admin_role_assignments"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/roles/{id}/activation-policy",
+      "method": "GET",
+      "path": "/admin/roles/{id}/activation-policy"
+    },
+    "response": {
+      "body": "{\"roleGroupId\":940009,\"maxDurationMinutes\":480,\"requireJustification\":false}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "77"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/roles/{id}/activation-policy"
+}

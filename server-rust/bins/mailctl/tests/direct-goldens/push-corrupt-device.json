@@ -1,0 +1,11 @@
+{
+  "stdout": "  SKIP device 9900302 (fcm): provider not configured here\nDone: 0 sent, 0 failed\n",
+  "stderr": "{LOG_TIME} ERROR push: push_devices rows could not be decrypted; tokens skipped user_id=9900201 skipped_rows=1 consequence=\"those devices will not receive this dispatch; check app.encryption_key at the connection pooler\"\nError: no test push delivered\n",
+  "exit": 1,
+  "database_effects": {
+    "outbound": [],
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

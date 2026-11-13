@@ -1,0 +1,130 @@
+-- message_snooze.pg: Tests for the B1 snooze set-path reducer.
+-- Requires: message_snooze, create_system_tags, message_tags, tags.
+BEGIN;
+SELECT plan(11);
+
+-- Fixtures: two separate mailboxes to prove cross-account rejection.
+INSERT INTO domains (name, is_local) VALUES ('snz.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- ADR-003: DIVERGENT ids (users 188001/188002 != mailboxes 88001/88002).
+-- message_snooze is mailbox-keyed; the cross-account rejection turns on mailbox
+-- ownership, so divergent ids keep a stray user_id = p_mailbox_id confusion observable.
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (188001, 'owner', (SELECT id FROM domains WHERE name = 'snz.test'),
+        'owner@snz.test', 'Owner', crypt('x', gen_salt('bf')), FALSE),
+       (188002, 'other', (SELECT id FROM domains WHERE name = 'snz.test'),
+        'other@snz.test', 'Other', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (88001, 188001, (SELECT id FROM domains WHERE name = 'snz.test'),
+        'owner@snz.test', 'Owner', 'personal', TRUE),
+       (88002, 188002, (SELECT id FROM domains WHERE name = 'snz.test'),
+        'other@snz.test', 'Other', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+SELECT create_system_tags(88001);
+SELECT create_system_tags(88002);
+
+-- A message owned by mailbox 88001, currently in Inbox.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+    to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+VALUES (88001, 88001,
+    (SELECT id FROM tags WHERE mailbox_id = 88001 AND name = 'Inbox'),
+    '<snz-1@snz.test>', 'Snooze me',
+    'sender@snz.test', 'Sender', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB,
+    'thread-snz-1', 'raw/88001', now() - interval '1 hour')
+ON CONFLICT (id, received_at) DO NOTHING;
+
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT 88001, m.received_at, t.id, 'test', TRUE
+FROM tags t, messages m
+WHERE m.id = 88001 AND t.mailbox_id = 88001 AND t.name = 'Inbox'
+  AND t.mailbox_id = m.mailbox_id
+ON CONFLICT DO NOTHING;
+
+-- Test 1: snooze returns snoozed=true.
+SELECT is(
+    (message_snooze(88001, 88001, now() + interval '2 hours')->>'snoozed')::BOOL,
+    TRUE,
+    'message_snooze returns snoozed=true');
+
+-- Test 2: the Snoozed tag is now applied with snooze_until set.
+SELECT is(
+    (SELECT count(*) FROM message_tags mt
+       JOIN tags t ON t.id = mt.tag_id
+      WHERE mt.message_id = 88001 AND t.name = 'Snoozed'
+        AND mt.snooze_until IS NOT NULL),
+    1::BIGINT,
+    'Snoozed tag applied with snooze_until populated');
+
+-- Test 3: snooze_until equals the requested time (to the second).
+SELECT is(
+    (SELECT date_trunc('second', mt.snooze_until) FROM message_tags mt
+       JOIN tags t ON t.id = mt.tag_id
+      WHERE mt.message_id = 88001 AND t.name = 'Snoozed'),
+    date_trunc('second', now() + interval '2 hours'),
+    'snooze_until matches requested time');
+
+-- Test 4: re-snoozing to a new time stays exclusive (still exactly one snooze tag).
+SELECT message_snooze(88001, 88001, now() + interval '5 hours');
+SELECT is(
+    (SELECT count(*) FROM message_tags mt
+       JOIN tags t ON t.id = mt.tag_id
+      WHERE mt.message_id = 88001 AND t.exclusive_group = 'snooze'),
+    1::BIGINT,
+    'exclusive snooze group keeps at most one snooze tag');
+
+-- Test 5: jmap_email_state was bumped.
+SELECT cmp_ok(
+    (SELECT jmap_email_state FROM mailboxes WHERE id = 88001),
+    '>',
+    0::BIGINT,
+    'jmap_email_state bumped above zero');
+
+-- Test 6: wrong account is rejected (message belongs to 88001, not 88002).
+SELECT throws_ok(
+    $$ SELECT message_snooze(88002, 88001, now() + interval '1 hour') $$,
+    'BZ030',
+    NULL,
+    'snooze from the wrong account raises BZ030');
+
+-- Test 7: a past timestamp is rejected.
+SELECT throws_ok(
+    $$ SELECT message_snooze(88001, 88001, now() - interval '1 minute') $$,
+    'BZ031',
+    NULL,
+    'past snooze time raises BZ031');
+
+-- Test 8 & 9 — notify_state_change adoption: a fresh snooze bumps email AND tag
+-- state exactly once each (the Snoozed tag membership changed), via the single
+-- reducer. Strict before/after delta on a re-snooze of the same message.
+CREATE TEMP TABLE _snz_base AS
+SELECT jmap_email_state AS e0, jmap_tag_state AS t0 FROM mailboxes WHERE id = 88001;
+SELECT message_snooze(88001, 88001, now() + interval '9 hours');
+SELECT is(
+    (SELECT jmap_email_state FROM mailboxes WHERE id = 88001),
+    (SELECT e0 + 1 FROM _snz_base),
+    'snooze bumps jmap_email_state exactly once');
+SELECT is(
+    (SELECT jmap_tag_state FROM mailboxes WHERE id = 88001),
+    (SELECT t0 + 1 FROM _snz_base),
+    'snooze bumps jmap_tag_state exactly once');
+
+-- Test 10 & 11 — the snooze ⇄ view contract: message 88001 is snoozed (test 1+),
+-- and snooze KEEPS the Inbox location tag (is_primary FALSE), so the Inbox view
+-- must EXCLUDE it while the Snoozed view INCLUDES it. Guards the regression where
+-- jmap_email_query's inMailbox path had no snooze-group exclusion and snoozed mail
+-- stayed visible in the inbox.
+SELECT ok(
+    NOT (jmap_email_query(88001, jsonb_build_object('inMailbox',
+         (SELECT id FROM tags WHERE mailbox_id = 88001 AND name = 'Inbox')))->'ids' ? '88001'),
+    'snoozed message is hidden from the Inbox location view');
+SELECT ok(
+    (jmap_email_query(88001, jsonb_build_object('inMailbox',
+         (SELECT id FROM tags WHERE mailbox_id = 88001 AND name = 'Snoozed')))->'ids' ? '88001'),
+    'snoozed message is visible in the Snoozed view');
+
+SELECT * FROM finish();
+ROLLBACK;

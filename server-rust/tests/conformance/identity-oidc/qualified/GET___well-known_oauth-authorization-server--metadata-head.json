@@ -1,0 +1,26 @@
+{
+  "case": "metadata-head",
+  "format": 1,
+  "go_source": "b012b530d7d039daa6f7523526685bbac7e66300",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "wire_method": "HEAD",
+      "wire_path": "/.well-known/oauth-authorization-server"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": "no-store",
+        "content-length": "997",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /.well-known/oauth-authorization-server"
+}

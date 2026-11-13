@@ -1,0 +1,154 @@
+{
+  "case": "go-json-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "action": "office.provider.activated",
+          "after_state": {
+            "generation": 3,
+            "qualificationId": "<qualification:0>",
+            "routeState": "active_for_scope",
+            "scope": {
+              "parity": true
+            }
+          },
+          "before_state": {
+            "generation": 2,
+            "routeState": "connected_inactive"
+          },
+          "id": "<audit:0>",
+          "ip": null,
+          "notes": "Office1 parity",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "office_provider",
+          "user_id": "<actor>"
+        }
+      ],
+      "before": [],
+      "table": "core_audit"
+    },
+    {
+      "after": [
+        {
+          "app_revision_id": null,
+          "capacity_state": "available",
+          "expires_at": "<timestamp>",
+          "facts": {},
+          "id": "<health:0>",
+          "observed_at": "<timestamp>",
+          "provider_generation": 2,
+          "provider_id": "office1",
+          "state": "healthy"
+        },
+        {
+          "app_revision_id": null,
+          "capacity_state": "available",
+          "expires_at": "<timestamp>",
+          "facts": {
+            "qualificationId": "<qualification:0>",
+            "source": "activation"
+          },
+          "id": "<health:1>",
+          "observed_at": "<timestamp>",
+          "provider_generation": 3,
+          "provider_id": "office1",
+          "state": "healthy"
+        }
+      ],
+      "before": [
+        {
+          "app_revision_id": null,
+          "capacity_state": "available",
+          "expires_at": "<timestamp>",
+          "facts": {},
+          "id": "<health:0>",
+          "observed_at": "<timestamp>",
+          "provider_generation": 2,
+          "provider_id": "office1",
+          "state": "healthy"
+        }
+      ],
+      "table": "health"
+    },
+    {
+      "after": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/launch",
+            "proofMode": "test_disabled",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {
+            "parity": true
+          },
+          "draining": false,
+          "enabled": true,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 3,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "active_for_scope",
+          "updated_at": "<timestamp>",
+          "updated_by": "<actor>"
+        }
+      ],
+      "before": [
+        {
+          "active_qualification_id": "<qualification:0>",
+          "allowed_classifications": [
+            "regular"
+          ],
+          "allowed_file_families": [
+            "word",
+            "sheet",
+            "presentation"
+          ],
+          "allowed_platforms": [
+            "web",
+            "electron"
+          ],
+          "build_id": "test-1",
+          "config": {
+            "editorUrl": "https://editor.test/launch",
+            "proofMode": "test_disabled",
+            "wopiPublicBaseUrl": "https://setjoin.test"
+          },
+          "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "default_modes": {},
+          "draining": false,
+          "enabled": false,
+          "entitlement_ref": null,
+          "entitlement_state": "valid",
+          "generation": 2,
+          "provider_id": "office1",
+          "removed_at": null,
+          "route_state": "connected_inactive",
+          "updated_at": "<timestamp>",
+          "updated_by": null
+        }
+      ],
+      "table": "providers"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /admin/office/providers/{providerId}/activate"
+}

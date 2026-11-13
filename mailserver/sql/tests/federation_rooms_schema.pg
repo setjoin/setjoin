@@ -1,0 +1,184 @@
+-- federation_rooms_schema.pg — Pillar C2 Task 1: V140 room binding, roster
+-- promotion, and THE DEDUP FIX (the stanza-dedup cross-org collision, seam
+-- map risk 1). Spec: retired-docs:superpowers/plans/archive/2026-07-17-pillar-C2-rooms-
+-- presence-federation.md Task 1.
+-- chat_channel_members/chat_channels have no FK to users (V119) so bare
+-- bigint ids suffice for created_by/member fixtures (the federation_schema.pg
+-- / chat_poll.pg precedent).
+BEGIN;
+SELECT plan(27);
+
+-- ── column existence ─────────────────────────────────────────────────────
+SELECT has_column('public', 'chat_channels', 'federated_room_id', 'chat_channels.federated_room_id exists');
+SELECT has_column('public', 'chat_channels', 'federated_room_removed_at', 'chat_channels.federated_room_removed_at exists');
+SELECT has_column('public', 'federation_rooms', 'channel_id', 'federation_rooms.channel_id exists');
+SELECT has_column('public', 'federation_room_members', 'coverage_epochs', 'federation_room_members.coverage_epochs exists');
+SELECT has_column('public', 'chat_messages', 'federated_origin_domain', 'chat_messages.federated_origin_domain exists');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- chat_channels_room_shape_ck: a room binding must be kind='channel' with
+-- no DM-shaped columns set — a federated-DM channel may never ALSO be a
+-- room mirror.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_peer_domain, federated_remote_id, federated_local_key, federated_room_id)
+       VALUES ('dm', NULL, 95001, 'bravo.test', 'bob@bravo.test', 'k-dm-room-mix', 'room1@alpha.test') $$,
+  NULL, NULL,
+  'chat_channels_room_shape_ck rejects a kind=dm channel with federated_room_id set');
+
+-- Task 1 review fold: the FIRST conjunct (kind='dm') above rejects for a
+-- reason that would ALSO reject on its own — prove the 2nd/3rd conjuncts
+-- (federated_local_key/federated_remote_id IS NULL) independently, with
+-- kind='channel' satisfying the 1st conjunct.
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_local_key, federated_room_id)
+       VALUES ('channel', 'bad-key', 95001, 'k-should-not-be-set', 'room-shape-key@alpha.test') $$,
+  NULL, NULL,
+  'chat_channels_room_shape_ck rejects kind=channel with federated_local_key set alongside federated_room_id (2nd conjunct)');
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_remote_id, federated_room_id)
+       VALUES ('channel', 'bad-remote', 95001, 'someone@bravo.test', 'room-shape-remote@alpha.test') $$,
+  NULL, NULL,
+  'chat_channels_room_shape_ck rejects kind=channel with federated_remote_id set alongside federated_room_id (3rd conjunct)');
+
+INSERT INTO chat_channels (kind, name, created_by, federated_room_id)
+  VALUES ('channel', 'room-mirror', 95001, 'room1@alpha.test');
+SELECT id AS mirror_ch FROM chat_channels WHERE federated_room_id = 'room1@alpha.test' \gset
+
+-- ══════════════════════════════════════════════════════════════════════
+-- chat_channels_federated_room_uk: one mirror per room per org.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_room_id)
+       VALUES ('channel', 'room-mirror-2', 95001, 'room1@alpha.test') $$,
+  NULL, NULL,
+  'chat_channels_federated_room_uk rejects a second channel bound to the same roomId');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- chat_channels_room_removed_ck: removed_at requires a room id.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_room_removed_at)
+       VALUES ('channel', 'not-a-room', 95001, now()) $$,
+  NULL, NULL,
+  'chat_channels_room_removed_ck rejects federated_room_removed_at without federated_room_id');
+
+SELECT lives_ok(
+  format($$ UPDATE chat_channels SET federated_room_removed_at = now() WHERE id = %s $$, :mirror_ch),
+  'federated_room_removed_at is settable on a real room-bound channel');
+UPDATE chat_channels SET federated_room_removed_at = NULL WHERE id = :mirror_ch;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- federation_rooms.channel_id: bound 1:1 to the local channel.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_rooms (room_id, hub_domain, channel_id) VALUES ('room1@alpha.test', 'alpha.test', :mirror_ch);
+SELECT is((SELECT channel_id FROM federation_rooms WHERE room_id = 'room1@alpha.test'), :mirror_ch::bigint,
+  'federation_rooms.channel_id binds to the local mirror channel row');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- federation_room_members: invited_at default, coverage_epochs default.
+-- ══════════════════════════════════════════════════════════════════════
+INSERT INTO federation_room_members (room_id, member_domain) VALUES ('room1@alpha.test', 'bravo.test');
+SELECT is((SELECT coverage_epochs FROM federation_room_members WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test'),
+  '[]'::jsonb, 'coverage_epochs defaults to the empty array');
+SELECT ok((SELECT invited_at FROM federation_room_members WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test') IS NOT NULL,
+  'invited_at defaults to now()');
+
+-- ── parked_reason CHECK: ONLY 'backpressure' — 'scope' is never a park
+--    reason (the ratified Q9 split: scope failure is visible REVOCATION).
+SELECT throws_ok(
+  $$ UPDATE federation_room_members SET parked_at = now(), parked_reason = 'scope'
+       WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test' $$,
+  NULL, NULL,
+  'parked_reason CHECK rejects ''scope'' — scope failure is a revocation, never a park');
+SELECT lives_ok(
+  $$ UPDATE federation_room_members SET parked_at = now(), parked_reason = 'backpressure'
+       WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test' $$,
+  'parked_reason CHECK accepts ''backpressure''');
+UPDATE federation_room_members SET parked_at = NULL, parked_reason = NULL
+  WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test';
+
+-- ── left_reason CHECK: only 'removed'/'revoked'.
+SELECT throws_ok(
+  $$ UPDATE federation_room_members SET left_at = now(), left_reason = 'quit'
+       WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test' $$,
+  NULL, NULL,
+  'left_reason CHECK rejects an unrecognized reason');
+SELECT lives_ok(
+  $$ UPDATE federation_room_members SET left_at = now(), left_reason = 'revoked'
+       WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test' $$,
+  'left_reason CHECK accepts ''revoked''');
+
+-- ── federation_room_members_left_ck: left_reason requires left_at.
+SELECT throws_ok(
+  $$ UPDATE federation_room_members SET left_at = NULL, left_reason = 'removed'
+       WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test' $$,
+  NULL, NULL,
+  'federation_room_members_left_ck rejects left_reason set without left_at');
+UPDATE federation_room_members SET left_at = NULL, left_reason = NULL
+  WHERE room_id = 'room1@alpha.test' AND member_domain = 'bravo.test';
+
+-- ══════════════════════════════════════════════════════════════════════
+-- msg_type widening: 'system' now valid (the federation gap marker,
+-- applier-inserted only), 'banana' still rejected.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ INSERT INTO chat_messages (channel_id, seq, author_id, msg_type, body)
+              VALUES (%s, 100, 95001, 'banana', 'x') $$, :mirror_ch),
+  NULL, NULL,
+  'chat_messages_msg_type_check still rejects an unknown msg_type');
+SELECT lives_ok(
+  format($$ INSERT INTO chat_messages (channel_id, seq, author_id, msg_type, body)
+              VALUES (%s, 100, 95001, 'system', 'federation gap marker') $$, :mirror_ch),
+  'chat_messages_msg_type_check now accepts ''system'' (V140 widening)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- THE DEDUP FIX: chat_messages_fed_origin_ck + the re-scoped 3-column
+-- partial unique index (channel_id, federated_origin_domain, federated_stanza_id).
+-- ══════════════════════════════════════════════════════════════════════
+
+-- CHECK rejects a stanza-bearing row with NULL origin.
+SELECT throws_ok(
+  format($$ INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+              VALUES (%s, 101, NULL, 'bob@bravo.test', NULL, 'msg-42', 'hi') $$, :mirror_ch),
+  NULL, NULL,
+  'chat_messages_fed_origin_ck rejects a stanza-bearing row with NULL origin');
+
+-- THE COLLISION FIX, positively asserted: bravo's clientMsgId=42 and
+-- charlie's clientMsgId=42 BOTH land in the SAME channel — the V139
+-- 2-column arbiter would have silently collided these; the V140 3-column
+-- (channel, origin, stanza) index admits both.
+INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+  VALUES (:mirror_ch, 102, NULL, 'bob@bravo.test', 'bravo.test', 'msg-42', 'from bravo');
+SELECT lives_ok(
+  format($$ INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+              VALUES (%s, 103, NULL, 'carol@charlie.test', 'charlie.test', 'msg-42', 'from charlie') $$, :mirror_ch),
+  'two DIFFERENT origins with the SAME (channel,stanza) clientMsgId=42 BOTH land — the cross-origin collision is fixed');
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :mirror_ch AND federated_stanza_id = 'msg-42'),
+  2, 'both origins'' msg-42 rows exist in the same channel');
+
+-- A SAME-origin dup of (channel, origin, stanza) is still rejected —
+-- the re-scoping did not disable dedup, only re-scope it.
+SELECT throws_ok(
+  format($$ INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+              VALUES (%s, 104, NULL, 'bob@bravo.test', 'bravo.test', 'msg-42', 'bravo resend') $$, :mirror_ch),
+  NULL, NULL,
+  'a same-origin (channel,origin,stanza) dup is still rejected by the re-scoped unique index');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- chat_message_send BZ168 forge guard: 'system' is reserved for the
+-- federation applier's local gap-marker insert — never user-settable
+-- through the ordinary send path (C2 Task 1, pulled forward from Task 3
+-- since it's required by the V140 CHECK widening above).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT chat_channel_create(95001, 'system-guard-test') AS forge_ch \gset
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(95001, %s, 'hi', NULL, '{}'::bigint[], NULL, '[]'::jsonb, 'system') $$, :forge_ch),
+  'BZ168', NULL,
+  'chat_message_send refuses p_msg_type=''system'' as user input (BZ168, the forge guard)');
+SELECT lives_ok(
+  format($$ SELECT chat_message_send(95001, %s, 'hi', NULL, '{}'::bigint[], NULL, '[]'::jsonb, 'text') $$, :forge_ch),
+  'chat_message_send with an ordinary msg_type is unaffected by the forge guard');
+
+SELECT * FROM finish();
+ROLLBACK;

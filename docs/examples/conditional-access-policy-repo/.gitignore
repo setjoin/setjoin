@@ -1,0 +1,4 @@
+# Ignore exported snapshots and local overrides
+*.export.json
+*.local.json
+/tmp/

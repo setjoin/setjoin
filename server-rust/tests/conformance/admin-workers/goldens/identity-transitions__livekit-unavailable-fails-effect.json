@@ -1,0 +1,55 @@
+{
+  "case": "livekit-unavailable-fails-effect",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "effects": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:failed:1:effect_failed:true:false"
+        ],
+        "events": [
+          "bbbbbbbb-0000-4000-8000-000000000001:transition_failed:identity transition effect failed"
+        ],
+        "intents": [],
+        "steps": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:failed:1:effect_failed"
+        ],
+        "targets": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:room-a|u:1:false:",
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:room-b|u:2:false:"
+        ],
+        "transitions": [
+          "bbbbbbbb-0000-4000-8000-000000000001:failed_recoverable:effect_failed"
+        ]
+      },
+      "sfu": [
+        "/twirp/livekit.RoomService/RemoveParticipant:room-a|u:1:auth=true"
+      ]
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "effects": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:pending:0::true:false"
+        ],
+        "events": [],
+        "intents": [],
+        "steps": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:pending:0:"
+        ],
+        "targets": [
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:room-a|u:1:false:",
+          "bbbbbbbb-0000-4000-8000-000000000001:livekit_sessions:room-b|u:2:false:"
+        ],
+        "transitions": [
+          "bbbbbbbb-0000-4000-8000-000000000001:effects_pending:"
+        ]
+      },
+      "sfu": []
+    },
+    "notifies": []
+  },
+  "worker": "identity-transitions"
+}

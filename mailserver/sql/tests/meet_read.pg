@@ -1,0 +1,301 @@
+-- meet_read.pg — Meet B1 Task 10: meeting_list / meeting_get /
+-- meeting_get_by_slug (the read-only jsonb projections). B2 Task 4 extends
+-- this with recordingActive (meeting_list + meeting_get) and
+-- recordings[]/attendance[] (meeting_get), gated by meeting_attendee_role.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 10;
+-- retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 4.
+BEGIN;
+SELECT plan(67);
+
+SELECT mk_auth_user('host@meet-read.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-read.test') AS member_id \gset
+SELECT mk_auth_user('stranger@meet-read.test') AS stranger_id \gset
+
+SELECT (meeting_create(:host_id, 'Read test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'slug') AS meeting_slug \gset
+SELECT (meeting_join(:member_id, :meeting_id)) AS ignore1 \gset
+
+-- ── meeting_list: owner-or-participant, excludes long-ended ─────────────
+SELECT is(jsonb_array_length(meeting_list(:host_id)), 1, 'owner sees the meeting in their list');
+SELECT is(jsonb_array_length(meeting_list(:member_id)), 1, 'a joined participant sees it too');
+SELECT is(jsonb_array_length(meeting_list(:stranger_id)), 0, 'a non-participant stranger sees nothing');
+SELECT is((meeting_list(:host_id) -> 0 ->> 'myRole'), 'host', 'list projects the caller''s own role');
+
+-- a meeting ended >24h ago drops out of the list
+SELECT (meeting_create(:host_id, 'Old ended meeting')) AS m_old \gset
+SELECT (:'m_old'::jsonb ->> 'meetingId')::bigint AS old_meeting_id \gset
+UPDATE meetings SET state = 'ended', ended_at = now() - interval '2 days' WHERE id = :old_meeting_id;
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(meeting_list(:host_id)) e
+     WHERE (e ->> 'meetingId')::bigint = :old_meeting_id
+  ), 'a meeting ended more than 24h ago is excluded from the list');
+-- a meeting ended RECENTLY still shows (so the client can render the Ended badge)
+UPDATE meetings SET ended_at = now() - interval '1 hour' WHERE id = :old_meeting_id;
+SELECT ok(EXISTS (
+    SELECT 1 FROM jsonb_array_elements(meeting_list(:host_id)) e
+     WHERE (e ->> 'meetingId')::bigint = :old_meeting_id AND e ->> 'state' = 'ended'
+  ), 'a meeting ended less than 24h ago still shows (state=ended)');
+
+-- ── meeting_get: org-open read (any authenticated user, not just members) ──
+SELECT is((meeting_get(:stranger_id, :meeting_id) ->> 'title'), 'Read test meeting',
+  'a non-participant org user can still read meeting detail (org-open posture)');
+SELECT is((meeting_get(:stranger_id, :meeting_id) ->> 'myRole'), NULL,
+  'a non-participant''s myRole is null');
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'myRole'), 'host', 'the owner''s myRole is host');
+SELECT throws_ok(
+  format($$ SELECT meeting_get(%s, 999999999) $$, :host_id),
+  'BZ185', NULL, 'meeting_get on a nonexistent id raises BZ185'
+);
+
+-- ── pendingJoinRequests: anti-oracle — empty array for non-host/cohost ──
+INSERT INTO meeting_join_requests (meeting_id, display_name, state)
+  VALUES (:meeting_id, 'Waiting Guest', 'pending');
+SELECT is(jsonb_array_length(meeting_get(:host_id, :meeting_id) -> 'pendingJoinRequests'), 1,
+  'the host sees the pending join request');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :meeting_id) -> 'pendingJoinRequests'), 0,
+  'a plain member sees an EMPTY array, not an error or omitted key (anti-oracle)');
+SELECT ok((meeting_get(:member_id, :meeting_id) ? 'pendingJoinRequests'),
+  'the key is present even when empty — absent-vs-empty is never a signal');
+
+-- ── meeting_get_by_slug: same projection, resolved by slug ──────────────
+SELECT is((meeting_get_by_slug(:stranger_id, :'meeting_slug') ->> 'meetingId')::bigint, :meeting_id::bigint,
+  'get_by_slug resolves to the same meeting');
+SELECT throws_ok(
+  format($$ SELECT meeting_get_by_slug(%s, 'nonexistent-slug-xyz') $$, :host_id),
+  'BZ185', NULL, 'get_by_slug on a nonexistent slug raises BZ185'
+);
+
+-- ── roomName rides the read projection (already exposed via the join grant) ──
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'roomName'),
+  (SELECT room_name::text FROM meetings WHERE id = :meeting_id), 'roomName is projected');
+
+-- ── B2 Task 10 step 0: recordingEnabled — the button-visibility signal ──
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'recordingEnabled')::boolean, false,
+  'recordingEnabled is false with both toggles at their DEFAULT OFF');
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.meet_recording';
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive';
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'recordingEnabled')::boolean, true,
+  'recordingEnabled is true once BOTH feature.meet_recording and feature.drive are ON');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- B2 Task 4: recordingActive (meeting_list + meeting_get) and
+-- recordings[]/attendance[] (meeting_get), gated by meeting_attendee_role
+-- (NOT meeting_member_role — dead post-end).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT mk_auth_user('banned@meet-read.test') AS banned_id \gset
+SELECT mk_auth_user('neverjoined@meet-read.test') AS never_joined_id \gset
+
+SELECT (meeting_create(:host_id, 'Recording read test', NULL, NULL, NULL, NULL, true)) AS rm \gset
+SELECT (:'rm'::jsonb ->> 'meetingId')::bigint AS rec_meeting_id \gset
+SELECT (:'rm'::jsonb ->> 'slug') AS rec_slug \gset
+SELECT room_name AS rec_room FROM meetings WHERE id = :rec_meeting_id \gset
+UPDATE meetings SET state = 'live' WHERE id = :rec_meeting_id;
+
+-- member: joins and actually attends (webhook-fed joined_at).
+SELECT (meeting_join(:member_id, :rec_meeting_id)) AS ignore_rm1 \gset
+SELECT meeting_participant_event(:'rec_room'::uuid, 'participant_joined', 'u:' || :member_id);
+
+-- banned_id: joined, attended, then kicked — an attendee-once-but-now-banned
+-- row must still read '[]' (banned_at excludes, per meeting_attendee_role).
+SELECT (meeting_join(:banned_id, :rec_meeting_id)) AS ignore_rm2 \gset
+SELECT meeting_participant_event(:'rec_room'::uuid, 'participant_joined', 'u:' || :banned_id);
+SELECT meeting_kick(:host_id, :rec_meeting_id, 'u:' || :banned_id);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- A/B leftover item 1: banned[] — the durable re-admit-list projection
+-- (5ae8e665's webmail fix had to fall back to a session-only push-built
+-- map for lack of this). Host/cohost only, same anti-oracle shape as
+-- recordings[]/attendance[]/pendingJoinRequests.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'banned'), 1,
+  'the host sees the freshly-kicked identity in banned[]');
+SELECT is((meeting_get(:host_id, :rec_meeting_id) -> 'banned' -> 0 ->> 'identity'), 'u:' || :banned_id,
+  'the banned[] row carries the kicked identity');
+SELECT ok((meeting_get(:host_id, :rec_meeting_id) -> 'banned' -> 0 ->> 'bannedAt') IS NOT NULL,
+  'the banned[] row carries a bannedAt timestamp');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :rec_meeting_id) -> 'banned'), 0,
+  'a plain member gets an EMPTY banned[] — no ban-list leak to non-hosts');
+SELECT ok((meeting_get(:stranger_id, :rec_meeting_id) ? 'banned'),
+  'the banned key is present even when empty for a non-participant — never an absent-key oracle');
+
+-- re-admit (meeting_set_role IS the re-admit path, gate-ratified) clears the
+-- projection durably — not just a client-side session map.
+SELECT meeting_set_role(:host_id, :rec_meeting_id, 'u:' || :banned_id, 'member');
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'banned'), 0,
+  'meeting_set_role re-admit clears banned[] durably');
+
+-- re-kick so the rest of this fixture (recordings[]/attendance[] below)
+-- still exercises a genuinely-banned former attendee.
+SELECT meeting_kick(:host_id, :rec_meeting_id, 'u:' || :banned_id);
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'banned'), 1,
+  're-kick restores the banned[] row');
+
+-- never_joined_id: a member-knock, admitted, but never actually joined
+-- (joined_at stays NULL) — the "admitted-never-joined member" anti-oracle.
+SELECT (meeting_join_request_create(:'rec_slug', 'Never Joined', :never_joined_id)) AS njr \gset
+SELECT (meeting_admit(:host_id, (:'njr'::jsonb ->> 'requestId')::bigint)) AS ignore_rm3 \gset
+
+-- a guest, admitted (never needs to actually join for the attendance row to
+-- exist — meeting_admit already inserts the participant row), then leaves
+-- (§8.2 arm 1 requires no admitted-and-present guest before a recording can
+-- start — the guest's historical attendance row survives the leave and
+-- still projects into attendance[] below).
+SELECT (meeting_join_request_create(:'rec_slug', 'Gary Attendee Guest')) AS grr \gset
+SELECT (:'grr'::jsonb ->> 'requestId')::bigint AS guest_req_id \gset
+SELECT (meeting_admit(:host_id, :guest_req_id)) AS ignore_rm4 \gset
+SELECT meeting_participant_event(:'rec_room'::uuid, 'participant_left', 'g:' || :guest_req_id);
+
+-- recordingActive: false with no recording at all.
+SELECT is((meeting_get(:host_id, :rec_meeting_id) ->> 'recordingActive')::boolean, false,
+  'recordingActive is false with no recording');
+
+-- start a recording: requested → recordingActive true (banner-before-frames),
+-- rides meeting_list too (the "one key" extension).
+SELECT (meeting_recording_start(:host_id, :rec_meeting_id)) AS rec_id \gset
+SELECT is((meeting_get(:host_id, :rec_meeting_id) ->> 'recordingActive')::boolean, true,
+  'recordingActive is true from requested onward (banner-before-frames)');
+SELECT is((
+    SELECT e ->> 'recordingActive' FROM jsonb_array_elements(meeting_list(:host_id)) e
+     WHERE (e ->> 'meetingId')::bigint = :rec_meeting_id
+  )::boolean, true, 'meeting_list items also carry recordingActive (the one-key extension)');
+
+-- recordings[]: host attendee sees it (state='requested'); an attended
+-- member sees it too; the admitted-never-joined member, the banned member,
+-- and a non-participant all get '[]' (anti-oracle: empty, never absent).
+SELECT is((meeting_get(:host_id, :rec_meeting_id) -> 'recordings' -> 0 ->> 'state'), 'requested',
+  'the host attendee sees the in-flight recording row');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :rec_meeting_id) -> 'recordings'), 1,
+  'an attended member also sees recordings[]');
+SELECT is(jsonb_array_length(meeting_get(:banned_id, :rec_meeting_id) -> 'recordings'), 0,
+  'a banned (kicked) former attendee gets an empty recordings[]');
+SELECT is(jsonb_array_length(meeting_get(:never_joined_id, :rec_meeting_id) -> 'recordings'), 0,
+  'an admitted-but-never-joined member gets an empty recordings[] (anti-oracle)');
+SELECT is(jsonb_array_length(meeting_get(:stranger_id, :rec_meeting_id) -> 'recordings'), 0,
+  'a non-participant gets an empty recordings[]');
+SELECT ok((meeting_get(:stranger_id, :rec_meeting_id) ? 'recordings'),
+  'the recordings key is present even when empty — absent-vs-empty is never a signal');
+
+-- drive the recording to a terminal (failed) state: recordingActive flips
+-- false, and the failed row's state is readable (the RecordingsList chip).
+SELECT meeting_recording_bind_egress(:rec_id, 'EG_read1', 'meet/read1.mp4', true, NULL);
+SELECT meeting_recording_stop(:host_id, :rec_meeting_id);
+SELECT meeting_recording_event(:'rec_room'::uuid, 'EG_read1', 'egress_ended',
+  '{"status":"EGRESS_FAILED","error":"read-test induced failure"}'::jsonb);
+SELECT is((meeting_get(:host_id, :rec_meeting_id) ->> 'recordingActive')::boolean, false,
+  'recordingActive is false once the recording has settled into a terminal state');
+SELECT is((meeting_get(:host_id, :rec_meeting_id) -> 'recordings' -> 0 ->> 'state'), 'failed',
+  'a failed recording row appears with its state (the RecordingsList failed chip)');
+
+-- meeting-end mass-stamps left_at for every open participant; recordings[]
+-- must STILL be visible to the host AND the attended member afterward — the
+-- §B2 proof at the projection level (meeting_member_role would be dead here).
+SELECT meeting_end(:host_id, :rec_meeting_id);
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'recordings'), 1,
+  'the host STILL sees recordings[] after the meeting-end left_at mass-stamp');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :rec_meeting_id) -> 'recordings'), 1,
+  'the attended member STILL sees recordings[] after the meeting-end left_at mass-stamp');
+
+-- attendance[]: host/cohost only (post-end included); a plain member gets
+-- '[]' — the §9 wire assertion: a non-host member receives none of the
+-- other participants' timestamps. A guest row carries isGuest true + name.
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'attendance'), 5,
+  'the host sees every attendance row post-end (host+member+banned+never_joined+guest)');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :rec_meeting_id) -> 'attendance'), 0,
+  'a plain member gets an EMPTY attendance[] — no other participant''s timestamps (§9)');
+SELECT ok(EXISTS (
+    SELECT 1 FROM jsonb_array_elements(meeting_get(:host_id, :rec_meeting_id) -> 'attendance') e
+     WHERE (e ->> 'identity') LIKE 'g:%' AND (e ->> 'isGuest')::boolean = true
+       AND (e ->> 'displayName') = 'Gary Attendee Guest'
+  ), 'the guest attendance row carries isGuest=true and its display name');
+
+-- banned[] survives the meeting-end left_at mass-stamp too — the same
+-- durability proof as recordings[]/attendance[] above (gated by
+-- meeting_attendee_role, not meeting_member_role, which is dead post-end).
+SELECT is(jsonb_array_length(meeting_get(:host_id, :rec_meeting_id) -> 'banned'), 1,
+  'the host STILL sees banned[] after the meeting-end left_at mass-stamp');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :rec_meeting_id) -> 'banned'), 0,
+  'a plain member still gets an EMPTY banned[] post-end — no ban-list leak');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- B3 Task 7 step 0: breakoutsEnabled / breakouts[] / myBreakoutId. Reuses
+-- the top-of-file meeting (:meeting_id / :host_id / :member_id /
+-- :stranger_id) — it is still 'created', never ended.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'breakoutsEnabled')::boolean, false,
+  'breakoutsEnabled is false with feature.meet_breakouts at its DEFAULT OFF');
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.meet_breakouts';
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'breakoutsEnabled')::boolean, true,
+  'breakoutsEnabled is true once feature.meet_breakouts is ON');
+
+SELECT is((meeting_get(:host_id, :meeting_id) -> 'breakouts'), '[]'::jsonb,
+  'breakouts is an empty array before any are opened');
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'myBreakoutId'), NULL,
+  'myBreakoutId is null before any assignment');
+
+SELECT (meeting_breakout_open(:host_id, :meeting_id, 2, ARRAY['Room A', NULL]::text[])) AS bo \gset
+SELECT (:'bo'::jsonb -> 0 ->> 'breakoutId')::bigint AS room1_id \gset
+SELECT (:'bo'::jsonb -> 1 ->> 'breakoutId')::bigint AS room2_id \gset
+SELECT (meeting_breakout_assign(:host_id, :meeting_id, :member_id, :room1_id)) AS ignore_assign \gset
+
+-- ── breakouts[]: present for any participant, empty for a stranger ──────
+SELECT is(jsonb_array_length(meeting_get(:host_id, :meeting_id) -> 'breakouts'), 2,
+  'the host sees both open breakout rows');
+SELECT is(jsonb_array_length(meeting_get(:member_id, :meeting_id) -> 'breakouts'), 2,
+  'a plain member also sees the open breakout rows');
+SELECT is(jsonb_array_length(meeting_get(:stranger_id, :meeting_id) -> 'breakouts'), 0,
+  'a non-participant gets an EMPTY breakouts array (anti-oracle)');
+SELECT ok((meeting_get(:stranger_id, :meeting_id) ? 'breakouts'),
+  'the breakouts key is present even when empty — absent-vs-empty is never a signal');
+
+SELECT is((meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 0 ->> 'title'), 'Room A',
+  'a host-supplied title is projected verbatim');
+SELECT is((meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 1 ->> 'title'), NULL,
+  'an omitted title projects as NULL (client renders meet.breakouts.defaultName)');
+
+-- ── assignees: present ONLY on the host/cohost projection ───────────────
+SELECT ok(NOT ((meeting_get(:member_id, :meeting_id) -> 'breakouts' -> 0) ? 'assignees'),
+  'a plain member''s breakout row carries no assignees key at all');
+SELECT ok(((meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 0) ? 'assignees'),
+  'the host''s breakout row carries an assignees key');
+SELECT is(jsonb_array_length(meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 0 -> 'assignees'), 1,
+  'the host sees the one member assigned to room 1');
+SELECT is((meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 0 -> 'assignees' -> 0 ->> 'identity'),
+  'u:' || :member_id, 'the assignee row identifies the assigned member');
+SELECT is(jsonb_array_length(meeting_get(:host_id, :meeting_id) -> 'breakouts' -> 1 -> 'assignees'), 0,
+  'room 2 has no assignees yet');
+
+-- ── myBreakoutId: the caller's own assignment ────────────────────────────
+SELECT is((meeting_get(:member_id, :meeting_id) ->> 'myBreakoutId')::bigint, :room1_id::bigint,
+  'the assigned member sees their own breakout id');
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'myBreakoutId'), NULL,
+  'the roaming host''s myBreakoutId stays null (D7 — host/cohost are never assigned)');
+SELECT is((meeting_get(:stranger_id, :meeting_id) ->> 'myBreakoutId'), NULL,
+  'a non-participant''s myBreakoutId is null');
+
+-- ── chatChannelMember (pipeline review fix): true on the meeting-provisioned
+-- channel path — everyone who's ever joined this ad-hoc meeting is a member
+-- of its bound (freshly-created-for-it) channel ─────────────────────────
+SELECT is((meeting_get(:host_id, :meeting_id) ->> 'chatChannelMember')::boolean, true,
+  'the host is a member of the meeting-provisioned chat channel');
+SELECT is((meeting_get(:member_id, :meeting_id) ->> 'chatChannelMember')::boolean, true,
+  'a joined participant is also a member of the meeting-provisioned chat channel');
+SELECT is((meeting_get(:stranger_id, :meeting_id) ->> 'chatChannelMember')::boolean, false,
+  'a non-participant is not a member of the chat channel either');
+
+-- ── huddle Slack semantics (V131): chatChannelMember is false for a
+-- non-member joiner of a huddle bound to a PRE-EXISTING channel, even
+-- though chatChannelId is still present ─────────────────────────────────
+SELECT chat_channel_create(:host_id, 'meet-read-huddle-origin') AS mr_origin_ch \gset
+SELECT (meeting_create(:host_id, 'Read huddle test', NULL, NULL, :mr_origin_ch)) AS mr_hm \gset
+SELECT (:'mr_hm'::jsonb ->> 'meetingId')::bigint AS mr_huddle_id \gset
+SELECT (meeting_join(:member_id, :mr_huddle_id)) AS mr_ignore \gset
+SELECT ok((meeting_get(:member_id, :mr_huddle_id) ->> 'chatChannelId') IS NOT NULL,
+  'the huddle meeting still carries a chatChannelId (the bound origin channel)');
+SELECT is((meeting_get(:member_id, :mr_huddle_id) ->> 'chatChannelMember')::boolean, false,
+  'a non-member joiner of a huddle-bound meeting has chatChannelMember=false (V131)');
+SELECT is((meeting_get(:host_id, :mr_huddle_id) ->> 'chatChannelMember')::boolean, true,
+  'the huddle LAUNCHER (already a channel member) has chatChannelMember=true');
+
+SELECT * FROM finish();
+ROLLBACK;

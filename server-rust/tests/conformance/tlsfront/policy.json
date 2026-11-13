@@ -1,0 +1,252 @@
+{
+  "format": 1,
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "rows": [
+    {
+      "aes": true,
+      "case": "tls12-aes128",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_2"
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls12-chacha-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls12-server-order",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_2"
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls13-server-order",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls13-client-chacha-preference",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_CHACHA20_POLY1305_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls13-hardware-preference",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls12-p384-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls13-p384-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "unmatched-alpn-refused",
+      "observation": [
+        {
+          "alert": 120
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "cold-certificate-alert",
+      "observation": [
+        {
+          "alert": 112
+        }
+      ]
+    },
+    {
+      "aes": true,
+      "case": "tls13-same-hash-cipher-resumption",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        },
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_CHACHA20_POLY1305_SHA256",
+          "resumed": true,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls12-aes128",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_2"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls12-chacha-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls12-server-order",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_2"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls13-server-order",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls13-client-chacha-preference",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_CHACHA20_POLY1305_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls13-hardware-preference",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_CHACHA20_POLY1305_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls12-p384-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls13-p384-refused",
+      "observation": [
+        {
+          "alert": 40
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "unmatched-alpn-refused",
+      "observation": [
+        {
+          "alert": 120
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "cold-certificate-alert",
+      "observation": [
+        {
+          "alert": 112
+        }
+      ]
+    },
+    {
+      "aes": false,
+      "case": "tls13-same-hash-cipher-resumption",
+      "observation": [
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_AES_128_GCM_SHA256",
+          "resumed": false,
+          "version": "TLSv1_3"
+        },
+        {
+          "alpn": "h2",
+          "cipher": "TLS13_CHACHA20_POLY1305_SHA256",
+          "resumed": true,
+          "version": "TLSv1_3"
+        }
+      ]
+    }
+  ]
+}

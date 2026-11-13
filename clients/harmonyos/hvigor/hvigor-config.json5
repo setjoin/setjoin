@@ -1,0 +1,10 @@
+{
+  "modelVersion": "6.0.0",
+  // Supply-chain pin: the plugin executed by hvigorfile.ts is resolved to this
+  // exact version instead of floating with the registry/toolchain. Keep in sync
+  // with the DevEco hvigor toolchain version (currently 6.24.2, matching the
+  // toolchain cache's hvigorVersion) and bump both together on upgrade.
+  "dependencies": {
+    "@ohos/hvigor-ohos-plugin": "6.24.2"
+  }
+}

@@ -1,0 +1,81 @@
+-- device_nonce_claim.pg: pgTAP for device_nonce_claim (med-shard2-006, BZ095).
+-- Tests: a claim inserts exactly one row with the requested window; a second
+--        claim of the same (device_id, nonce) raises BZ095 (nonce_replay);
+--        claims are keyed per device; unknown device / empty nonce / non-
+--        positive window raise BZ095; expired rows for the device are purged
+--        by the next claim.
+BEGIN;
+SELECT plan(11);
+
+-- Fixture: domain + user + two devices (distinct ids from other suites).
+INSERT INTO domains (name, is_local) VALUES ('nonce-claim.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 90101, 'nonce_claim_actor',
+    (SELECT id FROM domains WHERE name = 'nonce-claim.test'),
+    'nonce@nonce-claim.test', 'Nonce Claim Actor', 'x'
+  WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = 90101);
+INSERT INTO devices (id, user_id, fingerprint, hmac_secret)
+  VALUES (90101, 90101, repeat('b', 40), 'feedface1'),
+         (90102, 90101, repeat('c', 40), 'feedface2')
+  ON CONFLICT (id) DO NOTHING;
+
+-- 1) A fresh claim succeeds...
+SELECT lives_ok(
+  $$ SELECT device_nonce_claim(90101, 'nonce-alpha', 600) $$,
+  'first claim of a nonce succeeds');
+-- ...and stores the row with a future expiry inside the requested window.
+SELECT is(
+  (SELECT count(*)::int FROM device_auth_nonces
+    WHERE device_id = 90101 AND nonce = 'nonce-alpha'
+      AND expires_at BETWEEN now() + interval '599 seconds'
+                         AND now() + interval '601 seconds'),
+  1::int, 'claim row stored with expires_at ≈ now + window');
+
+-- 2) THE replay: the same (device_id, nonce) claimed again raises BZ095.
+SELECT throws_ok(
+  $$ SELECT device_nonce_claim(90101, 'nonce-alpha', 600) $$,
+  'BZ095', NULL, 're-claiming a live nonce raises BZ095 (nonce_replay)');
+SELECT is(
+  (SELECT count(*)::int FROM device_auth_nonces
+    WHERE device_id = 90101 AND nonce = 'nonce-alpha'),
+  1::int, 'replayed claim inserted no second row');
+
+-- 3) A different nonce on the same device claims fine (per-request nonces).
+SELECT lives_ok(
+  $$ SELECT device_nonce_claim(90101, 'nonce-beta', 600) $$,
+  'second distinct nonce on the same device claims');
+
+-- 4) Claims are keyed PER DEVICE: device B may hold the same nonce value.
+SELECT lives_ok(
+  $$ SELECT device_nonce_claim(90102, 'nonce-alpha', 600) $$,
+  'the same nonce value claims for a different device');
+
+-- 5) Unknown device raises BZ095.
+SELECT throws_ok(
+  $$ SELECT device_nonce_claim(424242, 'nonce-gamma', 600) $$,
+  'BZ095', NULL, 'claim for an unknown device raises BZ095 (device_not_found)');
+
+-- 6) Empty nonce raises BZ095.
+SELECT throws_ok(
+  $$ SELECT device_nonce_claim(90101, '', 600) $$,
+  'BZ095', NULL, 'empty nonce raises BZ095 (invalidArguments)');
+
+-- 7) Non-positive window raises BZ095.
+SELECT throws_ok(
+  $$ SELECT device_nonce_claim(90101, 'nonce-delta', 0) $$,
+  'BZ095', NULL, 'non-positive window raises BZ095 (invalidArguments)');
+
+-- 8) Expiry: an expired claim is purged by the next claim for that device.
+UPDATE device_auth_nonces SET expires_at = now() - interval '1 second'
+  WHERE device_id = 90101 AND nonce = 'nonce-beta';
+SELECT lives_ok(
+  $$ SELECT device_nonce_claim(90101, 'nonce-epsilon', 600) $$,
+  'claim after expiry succeeds');
+SELECT is(
+  (SELECT count(*)::int FROM device_auth_nonces
+    WHERE device_id = 90101 AND nonce = 'nonce-beta'),
+  0::int, 'expired claim row was purged by the next claim');
+
+SELECT * FROM finish();
+ROLLBACK;

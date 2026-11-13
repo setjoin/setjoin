@@ -1,0 +1,59 @@
+-- federation_schema.pg — Pillar C1 Task 1: V139 chat<->federation binding.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-17-pillar-C1-dm-federation.md Task 1.
+BEGIN;
+SELECT plan(14);
+
+-- ── chat_channels: federated columns + dedup guard ───────────────────────
+SELECT has_column('public', 'chat_channels', 'federated_peer_domain', 'federated_peer_domain column exists');
+SELECT has_column('public', 'chat_channels', 'federated_remote_id', 'federated_remote_id column exists');
+SELECT has_column('public', 'chat_channels', 'federated_local_key', 'federated_local_key column exists');
+
+INSERT INTO chat_channels (kind, name, created_by, federated_peer_domain, federated_remote_id, federated_local_key)
+  VALUES ('dm', NULL, 90001, 'bravo.test', 'bob@bravo.test', 'k-alice-bob');
+SELECT throws_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_peer_domain, federated_remote_id, federated_local_key)
+       VALUES ('dm', NULL, 90002, 'bravo.test', 'bob@bravo.test', 'k-alice-bob') $$,
+  NULL, NULL,
+  'chat_channels_federated_key_uk rejects a second channel with the same (peer_domain, local_key)');
+
+-- a second federated channel with the SAME peer but a DIFFERENT local_key is fine
+SELECT lives_ok(
+  $$ INSERT INTO chat_channels (kind, name, created_by, federated_peer_domain, federated_remote_id, federated_local_key)
+       VALUES ('dm', NULL, 90001, 'bravo.test', 'carol@bravo.test', 'k-alice-carol') $$,
+  'a different local_key on the same peer_domain is not blocked by the partial UNIQUE');
+
+-- ── chat_messages: nullable author_id + CHECK + federated columns ───────
+SELECT has_column('public', 'chat_messages', 'federated_sender_addr', 'federated_sender_addr column exists');
+SELECT has_column('public', 'chat_messages', 'delivered_at', 'delivered_at column exists');
+SELECT has_column('public', 'chat_messages', 'federated_stanza_id', 'federated_stanza_id column exists');
+SELECT has_column('public', 'chat_messages', 'spam_quarantined', 'spam_quarantined column exists');
+SELECT has_column('public', 'chat_messages', 'spam_reason', 'spam_reason column exists');
+
+SELECT throws_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, body)
+       VALUES ((SELECT id FROM chat_channels WHERE federated_local_key = 'k-alice-bob'), 1, NULL, NULL, 'hi') $$,
+  NULL, NULL,
+  'chat_messages_author_or_federated_ck rejects a row with both author_id and federated_sender_addr NULL');
+
+-- the common (non-federated) path: author_id set, federated_sender_addr NULL — still works
+SELECT lives_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, body)
+       VALUES ((SELECT id FROM chat_channels WHERE federated_local_key = 'k-alice-bob'), 1, 90001, 'hello from a local user') $$,
+  'a normal chat_messages insert with author_id set still works (author_id nullability did not break it)');
+
+-- the federated inbound shape: author_id NULL, federated_sender_addr set,
+-- dedup'd by (channel,origin,stanza) — V140 (C2 Task 1) re-scopes the
+-- arbiter to include federated_origin_domain; for a DM the origin IS the peer.
+INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+  VALUES ((SELECT id FROM chat_channels WHERE federated_local_key = 'k-alice-bob'), 2, NULL, 'bob@bravo.test', 'bravo.test', 'stanza-1', 'hi back');
+SELECT throws_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, federated_sender_addr, federated_origin_domain, federated_stanza_id, body)
+       VALUES ((SELECT id FROM chat_channels WHERE federated_local_key = 'k-alice-bob'), 3, NULL, 'bob@bravo.test', 'bravo.test', 'stanza-1', 'replay') $$,
+  NULL, NULL,
+  'chat_messages_fed_stanza_uk rejects a re-applied (channel_id, federated_origin_domain, federated_stanza_id)');
+
+-- ── federation.manage perm seed ──────────────────────────────────────────
+SELECT is((SELECT count(*) FROM admin_permissions WHERE permission_key = 'federation.manage')::int, 1,
+  'federation.manage perm seeded exactly once');
+
+SELECT * FROM finish(); ROLLBACK;

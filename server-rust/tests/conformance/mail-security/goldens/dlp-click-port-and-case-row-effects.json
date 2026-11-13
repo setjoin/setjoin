@@ -1,0 +1,23 @@
+{
+  "case": "port-and-case-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "client_ip": "127.0.0.1",
+          "created_recent": true,
+          "mailbox": "<mailbox-actor>",
+          "message_resolved": false,
+          "scanner": "spamhaus",
+          "url_hash": "7c6ec2694ddc584179531041be17baf539983183a7a8c6942b2bbe70b45ab410",
+          "verdict": "malicious"
+        }
+      ],
+      "before": [],
+      "table": "link_protect_audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /link-protect"
+}

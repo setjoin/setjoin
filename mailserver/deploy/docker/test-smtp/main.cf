@@ -1,0 +1,26 @@
+# Minimal Postfix config for E2E SMTP testing.
+# Accepts all mail for @test.local, no TLS, no auth on port 25.
+
+myhostname = smtp.test.local
+mydomain = test.local
+myorigin = $mydomain
+inet_interfaces = all
+inet_protocols = all
+mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
+
+# Disable TLS for testing
+smtp_use_tls = no
+smtpd_use_tls = no
+
+# Permit relay only from loopback and RFC1918 private ranges — the Docker
+# compose networks and the host-published (127.0.0.1) gateway all fall inside
+# these, while public-internet sources stay rejected. NEVER widen this back to
+# 0.0.0.0/0: it is only safe at all because every compose file that publishes
+# this fixture pins the mapping to 127.0.0.1 (deploy/docker-compose.test.yml and
+# the per-suite files in deploy/docker/).
+mynetworks = 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+
+# Minimal queue / bounce settings
+maximal_queue_lifetime = 1d
+bounce_queue_lifetime = 1d

@@ -1,0 +1,26 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "action": "sensitive_action.reason_missing",
+          "after_state": null,
+          "before_state": null,
+          "id": "<audit:0>",
+          "ip": "127.0.0.1",
+          "notes": "office.manage",
+          "occurred_at": "<timestamp>",
+          "target_id": null,
+          "target_type": "",
+          "user_id": "<actor>"
+        }
+      ],
+      "before": [],
+      "table": "core_audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "DELETE /admin/office/providers/{providerId}"
+}

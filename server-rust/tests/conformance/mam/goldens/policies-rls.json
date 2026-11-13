@@ -1,0 +1,99 @@
+{
+  "case": "rls",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "events": [],
+          "groups": [
+            {
+              "group_id": 5,
+              "group_type": "role",
+              "policy_key": "pin_length",
+              "policy_value": "6",
+              "touched": false
+            }
+          ],
+          "policies": [
+            {
+              "device_id": null,
+              "policy_key": "require_pin",
+              "policy_value": "true",
+              "touched": false
+            }
+          ]
+        },
+        "before": {
+          "events": [],
+          "groups": [
+            {
+              "group_id": 5,
+              "group_type": "role",
+              "policy_key": "pin_length",
+              "policy_value": "6",
+              "touched": false
+            }
+          ],
+          "policies": [
+            {
+              "device_id": null,
+              "policy_key": "require_pin",
+              "policy_value": "true",
+              "touched": false
+            }
+          ]
+        },
+        "table": "device_policy+device_policy_groups+device_events"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/mam/policies",
+      "method": "GET",
+      "path": "/admin/mam/policies"
+    },
+    "response": {
+      "body": "{\"global\":[{\"id\":981001,\"policy_key\":\"require_pin\",\"policy_value\":\"true\",\"updated_at\":\"<timestamp>\"}],\"groups\":[{\"group_id\":5,\"group_type\":\"role\",\"id\":982001,\"policy_key\":\"pin_length\",\"policy_value\":\"6\",\"updated_at\":\"<timestamp>\"}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "233"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-devices2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/mam/policies"
+}

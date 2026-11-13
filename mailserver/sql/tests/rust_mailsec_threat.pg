@@ -1,0 +1,15 @@
+-- pgTAP: rust_mailsec_threat.sql (F06 slice threat) -- IP-rule create and delete.
+BEGIN;
+SELECT plan(9);
+CREATE TEMP TABLE made AS SELECT rust_mailsec_ip_rule_create(NULL, '203.0.113.0/24', 'block', 'probe', NULL, '198.51.100.1') AS id;
+SELECT is((SELECT count(*)::int FROM ip_rules WHERE id = (SELECT id FROM made) AND cidr = '203.0.113.0/24'::inet AND action = 'block' AND expires_at IS NULL), 1, 'rule stored');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action = 'ip_rule_create' AND target_id = (SELECT id FROM made)), 1, 'one create audit row');
+SELECT is((SELECT before_state->>'action_value' FROM admin_audit_log WHERE action = 'ip_rule_create' AND target_id = (SELECT id FROM made)), 'block', 'audit carries the action');
+SELECT throws_ok($$SELECT rust_mailsec_ip_rule_create(NULL, '203.0.113.0/24', 'block', 'probe', '', NULL)$$, '22007', NULL, 'an empty expiry is refused like Go');
+SELECT is(rust_mailsec_ip_rule_delete(NULL, (SELECT id FROM made), '198.51.100.1'), true, 'delete reports the row');
+SELECT is((SELECT count(*)::int FROM ip_rules WHERE id = (SELECT id FROM made)), 0, 'rule gone');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action = 'ip_rule_delete' AND target_id = (SELECT id FROM made)), 1, 'one delete audit row');
+SELECT is(rust_mailsec_ip_rule_delete(NULL, (SELECT id FROM made), NULL), false, 'a second delete finds nothing');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action = 'ip_rule_delete' AND target_id = (SELECT id FROM made)), 1, 'a miss writes no audit row');
+SELECT * FROM finish();
+ROLLBACK;

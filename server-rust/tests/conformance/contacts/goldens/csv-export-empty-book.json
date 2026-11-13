@@ -1,0 +1,238 @@
+{
+  "case": "empty-book",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "addressbooks": [
+            {
+              "name": "cal2-a-book",
+              "owner": "a",
+              "state": 0
+            },
+            {
+              "name": "cal2-b-book",
+              "owner": "b",
+              "state": 0
+            }
+          ],
+          "contacts": [
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "b",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Carol Other",
+              "emails": [],
+              "etag_set": false,
+              "first": "Carol",
+              "impps": [],
+              "last": "Other",
+              "notes": null,
+              "phones": [],
+              "title": null,
+              "uid": "cal2-other-1",
+              "urls": []
+            }
+          ],
+          "journal": [
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": null
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 2,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "destroyed",
+              "owner": "a",
+              "state": 3,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "destroyed",
+              "owner": "a",
+              "state": 4,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": "cal2-other-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": null
+            }
+          ]
+        },
+        "before": {
+          "addressbooks": [
+            {
+              "name": "cal2-a-book",
+              "owner": "a",
+              "state": 0
+            },
+            {
+              "name": "cal2-b-book",
+              "owner": "b",
+              "state": 0
+            }
+          ],
+          "contacts": [
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "b",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Carol Other",
+              "emails": [],
+              "etag_set": false,
+              "first": "Carol",
+              "impps": [],
+              "last": "Other",
+              "notes": null,
+              "phones": [],
+              "title": null,
+              "uid": "cal2-other-1",
+              "urls": []
+            }
+          ],
+          "journal": [
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": null
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 2,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "destroyed",
+              "owner": "a",
+              "state": 3,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "destroyed",
+              "owner": "a",
+              "state": 4,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": "cal2-other-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": null
+            }
+          ]
+        },
+        "table": "f17-contacts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "concrete_method": "GET",
+      "external_path": "/api/contacts/export/csv",
+      "method": "*",
+      "path": "/contacts/export/",
+      "query": "?addressBookId=<book-a>"
+    },
+    "response": {
+      "body": "First Name,Last Name,Display Name,E-mail Address,Company,Job Title,Mobile Phone,Notes\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"contacts.csv\""
+        ],
+        "content-length": [
+          "86"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/csv; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-cal2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "* /contacts/export/ csv-export"
+}

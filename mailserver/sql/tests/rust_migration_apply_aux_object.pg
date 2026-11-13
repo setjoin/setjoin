@@ -1,0 +1,28 @@
+BEGIN;
+SELECT plan(15);
+SELECT mk_account('m7-aux') AS mailbox_id \gset
+SELECT user_id AS user_id FROM mailboxes WHERE id=:mailbox_id \gset
+INSERT INTO calendars(mailbox_id,name,is_default) VALUES(:mailbox_id,'Migration',true);
+INSERT INTO addressbooks(mailbox_id,name,is_default) VALUES(:mailbox_id,'Migration',true);
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status) VALUES(99646,:user_id,'ews',:mailbox_id,'pending');
+SELECT migration_source_bind(99646,'ews','ews:fixture',repeat('a',64));
+-- Parity: Go createdProjectionID expects created{}, but calendar_import_ics returns
+-- imported/skipped/errors. The entire projection transaction therefore rolls back.
+SELECT throws_ok($$SELECT rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000001','calendar','event','v1','calendar','upsert',repeat('a',64),'[{"uid":"m7-event","title":"Migrated","start":"2026-11-07T10:00:00Z","end":"2026-11-07T11:00:00Z"}]',NULL)$$,'BZ265','projection reducer did not create an object','calendar summary mismatch mirrors Go');
+SELECT is((SELECT count(*)::int FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE c.mailbox_id=:mailbox_id),0,'failed event projection leaves no event');
+SELECT is((SELECT count(*)::int FROM migration_object_operations WHERE job_id=99646),0,'failed projection leaves no accepted operation');
+SELECT is((SELECT jmap_state FROM calendars WHERE mailbox_id=:mailbox_id),0::bigint,'failed projection rolls back state bump');
+SELECT is(rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000004','contact','contact','v1','contacts','upsert',repeat('c',64),'[{"uid":"m7-contact","displayName":"Migrated contact","emails":[]}]',NULL)->>'outcome','imported','contact projection imports');
+SELECT is((SELECT count(*)::int FROM contacts c JOIN addressbooks a ON a.id=c.addressbook_id WHERE a.mailbox_id=:mailbox_id),1,'one owned contact');
+SELECT is(rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000004','contact','contact','v1','contacts','upsert',repeat('c',64),'[]','malformed')->>'outcome','replay','replay precedes parsing');
+SELECT is(rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000002','contact','contact','v1','contacts','upsert',repeat('c',64),'[]','malformed')->>'outcome','unchanged','same-version projection is unchanged');
+SELECT throws_ok($$SELECT rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000003','contact','contact','v2','contacts','upsert',repeat('b',64),'[]','contact source object must contain exactly one valid vCard')$$,'BZ265','contact source object must contain exactly one valid vCard','invalid replacement rolls back destruction');
+SELECT is((SELECT display_name FROM contacts WHERE vcard_uid='m7-contact'),'Migrated contact','failed replacement retained original');
+SELECT is(rust_migration_apply_aux_object(99646,'00000000-0000-5000-8000-000000000005','contact','contact','v2','contacts','delete',NULL,'[]',NULL)->>'outcome','deleted','contact tombstone commits atomically');
+SELECT is((SELECT count(*)::int FROM contacts c JOIN addressbooks a ON a.id=c.addressbook_id WHERE a.mailbox_id=:mailbox_id),0,'tombstone deleted contact');
+SELECT throws_ok($$SELECT rust_migration_apply_aux_object(999999999,'00000000-0000-5000-8000-000000000006','calendar','event','v1','calendar','upsert',repeat('a',64),'[]',NULL)$$,'BZ265','Migration source instance is not bound','unknown job grants no target authority');
+-- #536: the definer projection takes a caller-chosen job id; only the worker credential runs it.
+SELECT is((SELECT bool_or(has_function_privilege(r,f::regprocedure,'EXECUTE')) FROM unnest(ARRAY['setjoin_app','public']) r,unnest(ARRAY['rust_migration_apply_aux_object(bigint,uuid,text,text,text,text,text,text,jsonb,text)','migration_aux_object_begin(bigint,uuid,text,text,text,text,text,text)','migration_aux_object_complete(bigint,uuid,text,text,bigint)']) f),false,'aux-object reducers are not executable by the app or PUBLIC roles');
+SELECT is((SELECT bool_and(has_function_privilege('setjoin_worker',f::regprocedure,'EXECUTE')) FROM unnest(ARRAY['rust_migration_apply_aux_object(bigint,uuid,text,text,text,text,text,text,jsonb,text)','migration_aux_object_begin(bigint,uuid,text,text,text,text,text,text)','migration_aux_object_complete(bigint,uuid,text,text,bigint)']) f),true,'aux-object reducers are executable by the worker role');
+SELECT * FROM finish();
+ROLLBACK;

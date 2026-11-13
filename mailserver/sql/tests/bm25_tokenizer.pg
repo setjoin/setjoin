@@ -1,0 +1,40 @@
+-- pgTAP test: BM25 index uses ICU tokenizer for CJK support.
+BEGIN;
+SELECT plan(2);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
+        RAISE NOTICE 'pg_search/ParadeDB not installed — skipping BM25 tokenizer checks';
+    END IF;
+END;
+$$;
+
+-- Test 1: BM25 index exists on messages table (skip if pg_search absent)
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search')
+    THEN skip('pg_search/ParadeDB not installed', 1)
+    ELSE (
+        SELECT CASE
+            WHEN EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'messages' AND indexname = 'idx_messages_bm25')
+            THEN pass('BM25 index idx_messages_bm25 exists')
+            ELSE fail('BM25 index idx_messages_bm25 should exist')
+        END
+    )
+END;
+
+-- Test 2: BM25 index includes ICU tokenizer for CJK support.
+SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search')
+    THEN skip('pg_search/ParadeDB not installed', 1)
+    ELSE (
+        SELECT CASE
+            WHEN (SELECT indexdef FROM pg_indexes WHERE tablename = 'messages' AND indexname = 'idx_messages_bm25') LIKE '%tokenizer%icu%'
+            THEN pass('BM25 index specifies tokenizer=icu for CJK support')
+            ELSE fail('BM25 index should specify tokenizer=icu for CJK support')
+        END
+    )
+END;
+
+SELECT * FROM finish();
+ROLLBACK;

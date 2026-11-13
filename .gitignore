@@ -1,0 +1,53 @@
+.DS_Store
+node_modules/
+# Keep shared harness hooks/settings and selected skill links; local settings stay personal.
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/design-taste-frontend
+!.claude/skills/impeccable
+.env
+.env.*
+!.env.sample
+.opencode/
+# Machine-local executable path hook config.
+.codex/hooks.json
+.worktrees/
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json
+/mailserver/cmd/mailctl/mailctl
+/build/xinchuang/
+/authserver/authserver
+/mailserver/gateway/gateway
+/mailctl/mailctl
+/mailserver/gateway
+/authserver/authserver
+.superpowers/
+.playwright-mcp/
+.hvigor/
+gateway
+# The Rust front-door gateway crate is source, not a build output (#220).
+!/server-rust/bins/gateway/
+/authserver/authserverd
+/mailserver/mailserverd
+/mailserver/setjoin-updater
+/mailserver/setjoin-recovery
+/mailserverd
+/asrbot/asrbotd
+/mailserver/unit-catalog-gen
+/tools/setjoin-release/setjoin-release
+/server-rust/asrbotd
+
+# subagent-driven-development scratch (process artifacts, not source)
+/sdd/
+test-results/
+.stylelintcache
+__pycache__/
+*.pyc
+.zcode-security-deep/
+.glm-plan-review/
+.claire/

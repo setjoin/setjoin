@@ -1,0 +1,185 @@
+-- pgTAP: ad_principal_set.pg — the single sanctioned krb5_principal writer.
+--
+-- Proves, at the reducer layer:
+--   * the mutation, the audit old→new record, and the admin:alert notify commit
+--     in ONE transaction (notify asserted via the app_notify capture tee);
+--   * a stale caller observation of the old principal is a 'stale' no-op —
+--     nothing written, nothing audited (R3 compare-and-swap);
+--   * authority is evaluated LIVE inside the target-row lock: once the actor's
+--     assignment is expired/revoked the reducer raises BZ061 and changes nothing;
+--   * Round-4 Astra correction: reach alone is NOT authority. The reducer
+--     requires ONE current assignment granting BOTH identity.write AND target
+--     reach — an actor with a reachable directory.read assignment but no live
+--     identity.write is denied BZ061 (partial permission revocation), and
+--     identity.write scoped to a DIFFERENT branch than the target is equally
+--     insufficient (both axes must come from the same persisted assignment).
+--   * missing target → BZ060; blank principal backstop → BZ040.
+-- The blocked-row revocation race itself (revoke committed WHILE the mutation
+-- transaction waits on the row lock) is pinned by the Go test
+-- TestSetPrincipal_RevokedWhileWaitingOnRowLock; here the post-revocation state
+-- the in-lock re-check must observe is exercised directly.
+BEGIN;
+SELECT plan(18);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95760, 'principal-set.test', TRUE);
+
+INSERT INTO departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95761, 'Engineering', '/eng',   'ou=eng,dc=principal-set,dc=test'),
+  (95762, 'Sales',       '/sales', 'ou=sales,dc=principal-set,dc=test');
+
+INSERT INTO users (
+  id, username, domain_id, department_id, email, display_name, enabled, krb5_principal
+) OVERRIDING SYSTEM VALUE VALUES
+  (95761, 'ps_actor',      95760, NULL,   'actor@principal-set.test', 'PS Actor', TRUE, NULL),
+  (95762, 'ps_target_eng', 95760, 95761,  'eng@principal-set.test',   'PS Eng',   TRUE, 'eng-old@LEGACY.REALM'),
+  (95763, 'ps_target_sales', 95760, 95762, 'sales@principal-set.test', 'PS Sales', TRUE, NULL);
+
+-- Start in the exact Round-4 Astra finding state: the actor's only /eng-reaching
+-- assignment carries directory.read but NOT identity.write. identity.write exists
+-- in the world, but only on a /sales-scoped assignment that cannot reach /eng.
+INSERT INTO admin_role_groups (
+  id, name, permissions, domain_scope
+) OVERRIDING SYSTEM VALUE VALUES
+  (95761, 'principal-set-directory-reader', ARRAY['directory.read'], NULL),
+  (95762, 'principal-set-identity-sales',   ARRAY['identity.write'], NULL);
+
+INSERT INTO admin_role_assignments (
+  user_id, role_group_id, scope_type, scope_id, granted_by
+) VALUES
+  (95761, 95761, 'ou', 95761, 95761),
+  (95761, 95762, 'ou', 95762, 95761);
+
+-- The capture tee runs inside the SECURITY DEFINER reducer (owner setjoin_worker);
+-- make sure the fixture table accepts the tee regardless of grant ordering.
+GRANT INSERT ON _test_notify_log TO setjoin_worker, setjoin_app;
+
+-- ── 1. Precondition for the finding state: reach alone holds, permission doesn't
+SELECT ok(
+  admin_can_reach(95761, 95762),
+  'actor has live /eng reach on the target (directory.read assignment)'
+);
+SELECT ok(
+  NOT admin_can_manage_with_permission(95761, 95762, 'identity.write'),
+  'reach does NOT imply identity.write: no current assignment grants it over the target'
+);
+
+-- ── 2-3. Partial permission revocation: reach + directory.read, NO identity.write
+-- (the exact Astra r13 HOLD state) → BZ061, nothing written.
+SELECT throws_ok(
+  $$SELECT ad_principal_set(95761, 95762, 'eng-noperm@REALM', 'eng-old@LEGACY.REALM', NULL)$$,
+  'BZ061', NULL,
+  'reachable directory.read assignment without identity.write is denied (partial revocation)'
+);
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE id = 95762),
+  'eng-old@LEGACY.REALM',
+  'permission-denial leaves the principal unchanged'
+);
+
+-- ── 4-5. identity.write exists but is scoped to /sales; reach comes from a
+-- different assignment → still BZ061: BOTH axes must come from the SAME
+-- current assignment (the cross-assignment union is not authority).
+SELECT throws_ok(
+  $$SELECT ad_principal_set(95761, 95762, 'eng-cross@REALM', 'eng-old@LEGACY.REALM', NULL)$$,
+  'BZ061', NULL,
+  'identity.write on a non-reaching assignment does not authorize the /eng target'
+);
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE id = 95762),
+  'eng-old@LEGACY.REALM',
+  'cross-assignment denial leaves the principal unchanged'
+);
+
+-- ── 6-10. Granting identity.write on the SAME reaching assignment → proceeds ──
+UPDATE admin_role_groups
+   SET permissions = ARRAY['directory.read','identity.write']
+ WHERE id = 95761;
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+  ad_principal_set(95761, 95762, 'eng-new@REALM', 'eng-old@LEGACY.REALM', NULL),
+  'applied',
+  'identity.write + reach on one current assignment commits through setjoin_app'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE id = 95762),
+  'eng-new@REALM',
+  'successful reducer writes the new principal'
+);
+SELECT is(
+  (SELECT COALESCE(before_state->>'krb5_principal','') FROM admin_audit_log
+    WHERE action = 'ad_krb5_principal_change' AND user_id = 95761 AND target_id = 95762
+    ORDER BY id DESC LIMIT 1),
+  'eng-old@LEGACY.REALM',
+  'audit row captures the OLD principal'
+);
+SELECT is(
+  (SELECT COALESCE(after_state->>'krb5_principal','') FROM admin_audit_log
+    WHERE action = 'ad_krb5_principal_change' AND user_id = 95761 AND target_id = 95762
+    ORDER BY id DESC LIMIT 1),
+  'eng-new@REALM',
+  'audit row captures the NEW principal'
+);
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM _test_notify_log
+     WHERE channel = 'admin:alert'
+       AND payload::jsonb->>'kind' = 'ad_krb5_principal_change'
+       AND payload::jsonb->>'user_id' = '95762'
+  ),
+  'admin:alert notify fired in the mutation transaction (capture tee)'
+);
+
+-- ── 11-13. Stale caller observation is a no-op, never an overwrite ────────────
+SELECT is(
+  ad_principal_set(95761, 95762, 'eng-raced@REALM', 'no-longer-current@GHOST', NULL),
+  'stale',
+  'stale old-principal observation is reported stale (compare-and-swap miss)'
+);
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE id = 95762),
+  'eng-new@REALM',
+  'stale observation leaves the principal unchanged'
+);
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log
+    WHERE action = 'ad_krb5_principal_change' AND user_id = 95761 AND target_id = 95762),
+  1,
+  'stale no-op writes no audit row'
+);
+
+-- ── 14-15. Authority must be LIVE at mutation time ────────────────────────────
+-- Expire the actor's assignments in the past (the committed state a revocation
+-- race leaves behind); the in-lock re-check must observe it. A past expiry is
+-- unambiguous for any reader, including one whose transaction clock is frozen
+-- at an earlier start.
+UPDATE admin_role_assignments SET expires_at = now() - interval '1 hour' WHERE user_id = 95761;
+SELECT throws_ok(
+  $$SELECT ad_principal_set(95761, 95762, 'eng-revoked@REALM', 'eng-new@REALM', NULL)$$,
+  'BZ061', NULL,
+  'revoked authority is rejected inside the reducer'
+);
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE id = 95762),
+  'eng-new@REALM',
+  'revoked-authority denial leaves the principal unchanged'
+);
+
+-- ── 16. Unknown target ────────────────────────────────────────────────────────
+SELECT throws_ok(
+  $$SELECT ad_principal_set(95761, 999999, 'x@REALM', NULL, NULL)$$,
+  'BZ060', NULL,
+  'unknown target user raises BZ060'
+);
+
+-- ── 17. Blank principal backstop ──────────────────────────────────────────────
+SELECT throws_ok(
+  $$SELECT ad_principal_set(95761, 95762, '', NULL, NULL)$$,
+  'BZ040', NULL,
+  'blank new principal raises BZ040 (defensive backstop)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

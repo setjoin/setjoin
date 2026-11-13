@@ -1,0 +1,70 @@
+// Recording-only process adapter. Production Go files are never edited.
+// Calls the frozen exported boot seams in runGateway order, preserving its
+// caller-level exit codes. No expected result or startup logic lives here.
+package startup_test
+
+import (
+ "context"
+ "encoding/json"
+ "fmt"
+ "log/slog"
+ "os"
+ "strings"
+ "testing"
+
+ "github.com/jackc/pgx/v5/pgxpool"
+ "setjoin.com/mailserver/internal/admin"
+ "setjoin.com/mailserver/internal/config"
+ "setjoin.com/mailserver/internal/blob"
+ "setjoin.com/mailserver/internal/geoip"
+ "setjoin.com/mailserver/internal/startup"
+ "setjoin.com/mailserver/sql/dbschema"
+ "setjoin.com/shared/pgxutil"
+ "setjoin.com/shared/toggle"
+)
+
+func TestBOOTRecord(t *testing.T) {
+ if os.Getenv("BOOT_RECORD_CHILD") != "1" { t.Fatal("recording-only adapter"); }
+ ctx:=context.Background()
+ log:=slog.New(slog.NewJSONHandler(os.Stderr,nil))
+ cfg,err:=config.Load(); if err!=nil { panic(err) }
+ if os.Getenv("BOOT_GEOIP_SOURCE")=="cache" {
+  geoip.EnsureGeoIPDBWithLogging(ctx,os.Getenv("GEOIP_DB_PATH"),os.Getenv("GEOIP_DB_SHA256"),log)
+  r,e:=geoip.OpenValidatedFor(geoip.SourceDownloadCache,os.Getenv("GEOIP_DB_PATH"),os.Getenv("GEOIP_DB_SHA256"))
+  if e!=nil {log.Error("geoip: country resolution NOT armed — GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire");for _,cc:=range strings.Split(os.Getenv("GEO_BLOCK_COUNTRIES"),",") {if strings.TrimSpace(cc)!="" {log.Error("geoip: GEO_BLOCK_COUNTRIES is configured but non-enforcing without a valid database — supply a validated database at the path above or unset GEO_BLOCK_COUNTRIES to acknowledge the gap");break}}} else {r.Close();log.Info("geoip: country resolution armed")};os.Exit(0)
+ }
+ // Test fixture always supplies an operator GeoIP path; the separate topology
+ // recordings exercise the downloader through its public seam.
+ geoip.EnsureOperatorGeoIPDBWithLogging(os.Getenv("GEOIP_DB_PATH"),os.Getenv("GEOIP_DB_SHA256"),log)
+ r,err:=geoip.OpenValidatedFor(geoip.SourceOperatorFile,os.Getenv("GEOIP_DB_PATH"),os.Getenv("GEOIP_DB_SHA256"))
+ if err!=nil { log.Error("geoip: country resolution NOT armed — GEO_BLOCK_COUNTRIES and country conditional-access conditions cannot fire");for _,cc:=range strings.Split(os.Getenv("GEO_BLOCK_COUNTRIES"),",") {if strings.TrimSpace(cc)!="" {log.Error("geoip: GEO_BLOCK_COUNTRIES is configured but non-enforcing without a valid database — supply a validated database at the path above or unset GEO_BLOCK_COUNTRIES to acknowledge the gap");break}} } else { r.Close();log.Info("geoip: country resolution armed") }
+ open:=func(dsn string,message string)*pgxpool.Pool { p,e:=pgxutil.OpenPool(ctx,dsn,cfg.DBMaxConns,cfg.DBEncryptionKey,cfg.AuditHMACKey);if e!=nil { log.Error(message);os.Exit(0) };return p }
+ p:=open(cfg.DatabaseDSN,"database pool failed");defer p.Close()
+ worker:=open(cfg.DatabaseWorker,"worker database pool failed");defer worker.Close()
+ owner:=open(cfg.DatabaseOwner,"owner database pool failed");defer owner.Close()
+ expected:=dbschema.ExpectedVersion(); actual,e:=dbschema.ReadCurrentVersion(ctx,p)
+ if e!=nil { log.Error("schema-version probe failed — cannot verify the database schema");os.Exit(1) }
+ if actual<expected { if actual==0 {log.Error("database has no schema — refusing to start")} else {log.Error("database schema is behind this binary — refusing to start")};os.Exit(1) }
+ log.Info("database schema version verified")
+ mc,e:=blob.NewMinIOClient(cfg);if e!=nil {log.Error("object storage client init failed");os.Exit(0)}
+ _,e=startup.RunStartupChecks(ctx,cfg,p,pgxutil.WorkerPool{Pool:worker},owner,mc,log);if e!=nil {os.Exit(0)}
+ toggles,e:=toggle.New(ctx,p,nil);if e!=nil {log.Error("toggle init failed");os.Exit(0)}
+ if e=toggles.RequireSeeded(toggle.SecuritySeededKeys...);e!=nil {log.Error("security toggle seed check failed");os.Exit(0)}
+ var dep string
+ if e=p.QueryRow(ctx,`SELECT value #>> '{}' FROM system_config WHERE key='identity.deployment_id'`).Scan(&dep);e!=nil {log.Error("identity connector secret startup validation failed");os.Exit(1)}
+ key:=cfg.IdentityConfigSecretKey;if key=="" {key=cfg.DBEncryptionKey}
+ retiring,e:=admin.ParseConfigSecretRetiringKeys(cfg.IdentityConfigSecretRetiringKeys);if e!=nil {log.Error("identity connector secret startup validation failed");os.Exit(1)}
+ codec,e:=admin.NewConfigSecretCodec(admin.ConfigSecretKeyring{DeploymentID:dep,ActiveVersion:uint32(cfg.IdentityConfigSecretKeyVersion),ActiveKey:[]byte(key),ActiveProfile:cfg.CryptoProfile,RetiringKeys:retiring});if e!=nil {log.Error("identity connector secret startup validation failed");os.Exit(1)}
+ store:=admin.NewConfigStore(p,nil,codec)
+ n,e:=store.EnsureSecretEncryption(ctx,"ad_sync_","ldap_sync_");if e!=nil {log.Error("identity connector secret startup validation failed");os.Exit(1)}
+ n2,e:=store.EnsureNamedSecretEncryption(ctx);if e!=nil {log.Error("identity connector secret startup validation failed");os.Exit(1)}
+ if n+n2>0 {log.Info("legacy identity connector secrets encrypted at rest")}
+ if os.Getenv("BOOT_INSPECT_SECRETS")=="1" {
+  rows,e:=p.Query(ctx,`SELECT key,value FROM system_config WHERE key IN ('ad_sync_password_enc','ldap_sync_boot_enc','assist.api_key') ORDER BY key`);if e!=nil {panic(e)}
+  values:=map[string]json.RawMessage{}
+  for rows.Next() {var key string;var stored []byte;if e=rows.Scan(&key,&stored);e!=nil {panic(e)};plain,e:=codec.Decrypt(key,stored);if e!=nil {panic(e)};values[key]=plain};rows.Close();if e=rows.Err();e!=nil {panic(e)}
+  b,e:=json.Marshal(values);if e!=nil {panic(e)};fmt.Printf("BOOT_DECRYPT %s\n",b)
+ }
+ log.Info("server boot checks completed")
+ os.Exit(0)
+}

@@ -1,0 +1,37 @@
+{
+  "case": "spa_manifest",
+  "format": 1,
+  "go_source": "f3ff02591aa3decdecec6e87f3c2ecf47df7e82e",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/",
+      "wire_method": "GET",
+      "wire_path": "/static-representations.v1.json"
+    },
+    "response": {
+      "body": "{\"assets\":[{\"identityBytes\":1040,\"identitySha256\":\"48ab6b4a279eb6ecfb4eed0376a15e855e26ed225c19178d807ff55212ecee71\",\"path\":\"/index.html\",\"representations\":{}},{\"identityBytes\":26,\"identitySha256\":\"78a6d7eae87961e578152265a4cd8d62345e14e3726afffb658c7bf0a9cad2fb\",\"path\":\"/_app/version.json\",\"representations\":{}},{\"identityBytes\":2500,\"identitySha256\":\"adbf7debd827c4cc15d8551133cec802f2cdb4feb460ea8bbb48b8078a277d44\",\"path\":\"/_app/immutable/app.js\",\"representations\":{\"br\":{\"bytes\":35,\"path\":\"/_app/immutable/app.js.br\",\"sha256\":\"264772d4260996784d80e0cab0beab5d35494c41c3ef665f7c6061ea53c0fd61\"},\"gzip\":{\"bytes\":69,\"path\":\"/_app/immutable/app.js.gz\",\"sha256\":\"feb9f71a382b84e968d6d884ddf6e0d199c9f4014c3ed71ec8fdb02d853b9136\"}}},{\"identityBytes\":18,\"identitySha256\":\"8afa2e353bdf8f15fb449f5db20f4c0120a3ad54df933b009e35a434b91329de\",\"path\":\"/style.css\",\"representations\":{}},{\"identityBytes\":3,\"identitySha256\":\"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356\",\"path\":\"/manifest.webmanifest\",\"representations\":{}},{\"identityBytes\":5,\"identitySha256\":\"ff5d8507b6a72bee2debce2c0054798deaccdc5d8a1b945b6280ce8aa9cba52e\",\"path\":\"/meet/mediapipe/model.tflite\",\"representations\":{}},{\"identityBytes\":14,\"identitySha256\":\"81f665776079ce40d07caddb40cf3e4f97ec4cefe6012c91f3f9ce1e6fdfc3e4\",\"path\":\"/plain.txt\",\"representations\":{}}],\"buildId\":\"catchall-v1\",\"schemaVersion\":1}",
+      "body_sha256": "fd9ead7dd74d7029ce6e5d83fda3b8f53d82760ca9ee383783ef6b6184db7947",
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "no-cache",
+        "content-length": "1387",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "last-modified": "Tue, 14 Nov 2023 22:13:20 GMT",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "vary": "Accept-Encoding",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "catchall-test"
+      },
+      "status": 200
+    }
+  },
+  "route": "* /"
+}

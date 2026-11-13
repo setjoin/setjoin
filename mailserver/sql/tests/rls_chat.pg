@@ -1,0 +1,168 @@
+-- mailserver/sql/tests/rls_chat.pg — Task 1: V119 chat core schema + FORCE-RLS
+-- membership-recursion pin. Spec: retired-docs:superpowers/plans/archive/2026-07-11-chat-A1-core-messaging.md Task 1.
+-- Task 17 gate: also the COVERED denial proof scripts/rls-denial-allowlist.txt
+-- points at for chat_channels/chat_channel_members/chat_messages/
+-- chat_message_reactions/chat_mentions/chat_message_revisions.
+-- V134 (native-RLS W4 write-policy wave) extends this file with the full
+-- message-rail flow AS setjoin_app under FORCE (send → edit → react →
+-- read-watermark → soft-delete — the change_seq send rail the B1 live gate
+-- found denied), the DM-open + owner-succession DEFINER-conversion proofs,
+-- the public-channel roster-read breadth arm, and the write negatives.
+BEGIN;
+SELECT plan(46);
+SELECT has_table('public','chat_channels','chat_channels exists');
+SELECT has_table('public','chat_channel_members','chat_channel_members exists');
+SELECT has_table('public','chat_messages','chat_messages exists');
+SELECT has_table('public','chat_message_revisions','chat_message_revisions exists');
+SELECT col_default_is('public','chat_channels','visibility','public','channels default public');
+SELECT has_function('chat_member_role', ARRAY['bigint','bigint'], 'DEFINER scope helper exists');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_channels'::regclass), TRUE, 'channels RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_channel_members'::regclass), TRUE, 'members RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_messages'::regclass), TRUE, 'messages RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_message_reactions'::regclass), TRUE, 'reactions RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_mentions'::regclass), TRUE, 'mentions RLS FORCED');
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid='public.chat_message_revisions'::regclass), TRUE, 'revisions RLS FORCED');
+-- chat_dm_open now validates its target member id against `users` (BZ170);
+-- 43 is used as a chat_dm_open target below, so it needs a real row (every
+-- other id in this file stays a bare id, per the file's usual RLS-fixture
+-- posture). Inserted here, as superuser, before the SET LOCAL ROLE switch.
+INSERT INTO domains (id, name, is_local) VALUES (429900, 'rls-chat.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (43, 'rlschat43', 429900, 'rlschat43@rls-chat.test', 'RLS Chat 43')
+  ON CONFLICT (id) DO NOTHING;
+-- fixtures as superuser: 'eng' is a private members-only channel, 'town-hall'
+-- is a public channel neither 42 nor 99 has joined.
+INSERT INTO chat_channels (kind, name, visibility, created_by) VALUES ('channel','eng','private',1);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 42, 'owner' FROM chat_channels WHERE name='eng';
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 43, 'member' FROM chat_channels WHERE name='eng';
+INSERT INTO chat_channels (kind, name, visibility, created_by) VALUES ('channel','town-hall','public',1);
+INSERT INTO chat_messages (channel_id, seq, author_id, body)
+  SELECT id, 1, 42, 'hello' FROM chat_channels WHERE name='eng';
+INSERT INTO chat_message_reactions (message_id, user_id, emoji)
+  SELECT m.id, 42, '+1' FROM chat_messages m JOIN chat_channels c ON c.id=m.channel_id WHERE c.name='eng';
+INSERT INTO chat_mentions (message_id, mentioned_user_id)
+  SELECT m.id, 43 FROM chat_messages m JOIN chat_channels c ON c.id=m.channel_id WHERE c.name='eng';
+-- one edit to seed a chat_message_revisions row (denial coverage for that
+-- table too — the reducer captures the pre-edit body as the revision).
+SELECT chat_message_edit(42, (SELECT m.id FROM chat_messages m JOIN chat_channels c ON c.id=m.channel_id WHERE c.name='eng'), 'hello (edited)');
+GRANT SELECT, INSERT ON public.chat_channels, public.chat_channel_members, public.chat_messages,
+  public.chat_message_reactions, public.chat_mentions, public.chat_message_revisions TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '42', true);
+-- the load-bearing assertion: policy MUST NOT recurse (a literal membership
+-- subquery raises 'infinite recursion detected in policy' here)
+SELECT lives_ok($$ SELECT count(*) FROM chat_channel_members $$, 'membership policy does not recurse');
+SELECT is((SELECT count(*) FROM chat_channel_members)::INT, 2, 'member sees the roster of their channel');
+SELECT is((SELECT count(*) FROM chat_message_reactions)::INT, 1, 'member sees reactions on their channel');
+SELECT is((SELECT count(*) FROM chat_mentions)::INT, 1, 'member sees mentions on their channel');
+SELECT is((SELECT count(*) FROM chat_messages)::INT, 1, 'member sees messages on their channel');
+SELECT is((SELECT count(*) FROM chat_message_revisions)::INT, 1, 'member sees revisions on their channel');
+SELECT set_config('app.current_user_id', '99', true);
+SELECT is((SELECT count(*) FROM chat_channel_members)::INT, 0, 'non-member sees nothing');
+-- R4 fix: non-member of 'eng' (private) can't read its row, but public
+-- 'town-hall' stays discoverable; reactions/mentions on 'eng' are hidden too.
+SELECT is((SELECT count(*) FROM chat_channels WHERE name='eng')::INT, 0, 'non-member cannot read private channel row');
+SELECT is((SELECT count(*) FROM chat_channels WHERE name='town-hall')::INT, 1, 'public channel stays discoverable to non-members');
+SELECT is((SELECT count(*) FROM chat_message_reactions)::INT, 0, 'non-member sees no reactions on a channel they are not in');
+SELECT is((SELECT count(*) FROM chat_mentions)::INT, 0, 'non-member sees no mentions on a channel they are not in');
+SELECT is((SELECT count(*) FROM chat_messages)::INT, 0, 'non-member sees no messages on a channel they are not in');
+SELECT is((SELECT count(*) FROM chat_message_revisions)::INT, 0, 'non-member sees no revisions on a channel they are not in');
+RESET ROLE;
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.chat'), FALSE, 'feature.chat seeded OFF');
+-- ── INSERT..RETURNING-under-FORCE-RLS regression (B1 webmail-UI gate) ──────
+-- A fresh non-public channel has NO member row at RETURNING time, so
+-- INSERT..RETURNING failed chat_channels' membership-scoped SELECT policy for
+-- every non-BYPASSRLS caller — chat_channel_create/chat_dm_open now
+-- pre-allocate the id (nextval) instead of RETURNING. Proven here as the real
+-- runtime role, not the table owner.
+GRANT USAGE, SELECT ON SEQUENCE public.chat_channels_id_seq TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '42', true);
+SELECT lives_ok(
+  $$ SELECT chat_channel_create(42, 'rls-create-proof', NULL, 'private', false) $$,
+  'app role can create a PRIVATE channel under FORCE-RLS (no RETURNING trap)');
+SELECT is((SELECT count(*) FROM chat_channels WHERE name='rls-create-proof')::INT, 1,
+  'creator immediately reads the fresh private channel back (founding membership)');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- V134 write-rail flow — the full message lifecycle AS setjoin_app under
+-- FORCE. 'eng' starts at change_seq=1 (the superuser fixture edit above).
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT id AS engid FROM chat_channels WHERE name = 'eng' \gset
+-- a town-hall member for the public roster-read breadth proof below.
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 43, 'member' FROM chat_channels WHERE name = 'town-hall';
+GRANT UPDATE ON public.chat_channels, public.chat_messages, public.chat_channel_members TO setjoin_app;
+GRANT DELETE ON public.chat_channel_members, public.chat_message_reactions, public.chat_message_pins TO setjoin_app;
+GRANT SELECT, INSERT, UPDATE ON public.chat_send_counters TO setjoin_app;
+GRANT SELECT, INSERT ON public.chat_message_reactions, public.chat_message_revisions,
+  public.chat_mentions, public.chat_message_pins TO setjoin_app;
+GRANT SELECT ON public.system_config, public.org_default_channels, public.feature_toggles TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '42', true);
+SELECT ((chat_message_send(42, :engid, 'w4 send rail')) ->> 'messageId')::bigint AS w4msg \gset
+SELECT is((SELECT change_seq FROM chat_channels WHERE id = :engid), 2::bigint,
+  'the send rail bumps change_seq as setjoin_app (chat_channels UPDATE policy — the live-gate denial)');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :w4msg)::INT, 1,
+  'the sender reads the fresh message back');
+SELECT lives_ok($$ SELECT chat_message_edit(42, $$ || :w4msg || $$, 'w4 edited') $$,
+  'author edits under FORCE (revision INSERT + seq re-stamp)');
+SELECT is((SELECT count(*) FROM chat_message_revisions WHERE message_id = :w4msg)::INT, 1,
+  'the edit captured a revision row (member-scoped INSERT)');
+SELECT set_config('app.current_user_id', '43', true);
+SELECT lives_ok($$ SELECT chat_reaction_toggle(43, $$ || :w4msg || $$, '+1') $$,
+  'a member reacts under FORCE');
+SELECT lives_ok($$ SELECT chat_mark_read(43, $$ || :engid || $$, 999) $$,
+  'read-watermark advances under FORCE (own-membership UPDATE)');
+SELECT is((SELECT last_read_seq FROM chat_channel_members
+            WHERE channel_id = :engid AND user_id = 43), 3::bigint,
+  'watermark clamped to the channel''s real change_seq');
+SELECT set_config('app.current_user_id', '42', true);
+SELECT lives_ok($$ SELECT chat_message_delete(42, $$ || :w4msg || $$) $$,
+  'author soft-deletes under FORCE (seq re-stamp + tombstone)');
+SELECT is((SELECT deleted_at IS NOT NULL FROM chat_messages WHERE id = :w4msg), TRUE,
+  'the tombstone is readable back (body-retaining soft delete)');
+
+-- DM open: the V134 DEFINER conversion (peer founding rows are cross-member
+-- inserts no invoker-rights WITH CHECK admits).
+SELECT chat_dm_open(42, ARRAY[43]::bigint[]) AS dmid \gset
+SELECT is((SELECT count(*) FROM chat_channel_members WHERE channel_id = :dmid)::INT, 2,
+  'chat_dm_open seeds BOTH founding member rows as setjoin_app (DEFINER, V134)');
+
+-- Owner succession: the V134 DEFINER conversion (the promote runs after the
+-- leaver''s own membership row is gone).
+SELECT chat_channel_create(42, 'w4-succession', NULL, 'private', false) AS succch \gset
+SELECT lives_ok($$ SELECT chat_member_add(42, $$ || :succch || $$, 43) $$,
+  'owner adds a member (owner/admin WITH CHECK arm)');
+SELECT lives_ok($$ SELECT chat_member_remove(42, $$ || :succch || $$, 42) $$,
+  'last owner self-leaves (DEFINER — succession must not silently no-op)');
+SELECT set_config('app.current_user_id', '43', true);
+SELECT is((SELECT role FROM chat_channel_members
+            WHERE channel_id = :succch AND user_id = 43), 'owner',
+  'succession promoted the remaining member to owner (chat_member_remove DEFINER, V134)');
+
+-- Negatives + breadth as a stranger (99).
+SELECT set_config('app.current_user_id', '99', true);
+UPDATE chat_channels SET name = 'pwn' WHERE id = :engid;           -- invisible: no-op
+UPDATE chat_channels SET name = 'pwn' WHERE name = 'town-hall';     -- visible, not member: no-op
+SELECT is((SELECT count(*) FROM chat_channels WHERE name = 'town-hall')::INT, 1,
+  'non-member direct UPDATE of a public channel is a no-op (member-only UPDATE policy)');
+SELECT is((SELECT count(*) FROM chat_channel_members WHERE channel_id = :engid)::INT, 0,
+  'private-channel roster stays invisible to a stranger');
+SELECT is((SELECT count(*) FROM chat_channel_members
+            WHERE channel_id = (SELECT id FROM chat_channels WHERE name = 'town-hall'))::INT, 1,
+  'public-channel roster is discoverable (chat_members_public_read — browse memberCount breadth)');
+SELECT throws_ok($$ SELECT chat_message_send(99, $$ || :engid || $$, 'nope') $$,
+  'BZ163', NULL, 'non-member send is denied (reducer BZ163)');
+SELECT set_config('app.current_user_id', '42', true);
+SELECT is((SELECT name FROM chat_channels WHERE id = :engid), 'eng',
+  'stranger''s direct rename of an invisible private channel was a no-op');
+
+RESET ROLE;
+SELECT finish();
+ROLLBACK;

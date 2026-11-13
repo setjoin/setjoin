@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "registry_version": 1,
+  "program": "architecture-deepening-round-3",
+  "authority": "docs/superpowers/plans/2026-08-13-architecture-deepening-round-3.md",
+  "cases": [
+    {
+      "case_id": "ARCH-R3-R1-FRESH-AAL2",
+      "workstream": "R1",
+      "owner": "shared/jwtutil",
+      "command": "bash scripts/verify-architecture-r3.sh aal2",
+      "required_environment": "any-host-go",
+      "mutation_boundary": "ignored-test-evidence-only",
+      "timeout_seconds": 90,
+      "required_artifacts": ["lanes/aal2/manifest.json", "lanes/aal2/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R2-AUTH-COMPLETION",
+      "workstream": "R2",
+      "owner": "authserver/internal/handlers",
+      "command": "bash scripts/verify-architecture-r3.sh auth-completion",
+      "required_environment": "go-with-disposable-postgresql",
+      "mutation_boundary": "isolated-test-database-and-ignored-evidence",
+      "timeout_seconds": 180,
+      "required_artifacts": ["lanes/auth-completion/manifest.json", "lanes/auth-completion/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R3-CHECKPOINT",
+      "workstream": "R3",
+      "owner": "mailserver/internal/migration",
+      "command": "bash scripts/verify-architecture-r3.sh migration-checkpoint",
+      "required_environment": "go-pgtap-disposable-postgresql",
+      "mutation_boundary": "isolated-test-database-reducer-reload-and-ignored-evidence",
+      "timeout_seconds": 180,
+      "required_artifacts": ["lanes/migration-checkpoint/manifest.json", "lanes/migration-checkpoint/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R3-PREVIOUS-BINARY",
+      "workstream": "R3",
+      "owner": "transactional-upgrade-evidence",
+      "command": "bash scripts/verify-architecture-r3.sh compatibility",
+      "required_environment": "retained-n-minus-one-binary-and-additive-schema",
+      "mutation_boundary": "disposable-upgrade-rehearsal",
+      "timeout_seconds": 900,
+      "required_artifacts": ["compatibility/previous-binary-evidence.json", "compatibility/legacy-projection.json"],
+      "release_gate": "release"
+    },
+    {
+      "case_id": "ARCH-R3-R4-WEBHOOK-OUTBOX",
+      "workstream": "R4",
+      "owner": "mailserver/internal/webhook",
+      "command": "bash scripts/verify-architecture-r3.sh webhook-outbox",
+      "required_environment": "linux-go-pgtap-disposable-postgresql",
+      "mutation_boundary": "isolated-test-database-and-loopback-http-spy",
+      "timeout_seconds": 180,
+      "required_artifacts": ["lanes/webhook-outbox/manifest.json", "lanes/webhook-outbox/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R4-RESIDUE-COMPATIBILITY",
+      "workstream": "R4",
+      "owner": "transactional-upgrade-evidence",
+      "command": "bash scripts/verify-architecture-r3.sh compatibility",
+      "required_environment": "retained-n-minus-one-binary-and-additive-schema",
+      "mutation_boundary": "disposable-upgrade-rehearsal",
+      "timeout_seconds": 900,
+      "required_artifacts": ["compatibility/previous-binary-evidence.json", "compatibility/residue-drain.json"],
+      "release_gate": "release"
+    },
+    {
+      "case_id": "ARCH-R3-R5-MAM-CONFORMANCE",
+      "workstream": "R5",
+      "owner": "clients/mam",
+      "command": "bash scripts/verify-architecture-r3.sh mam-lifecycle",
+      "required_environment": "electron-rust-harmony-build-toolchains",
+      "mutation_boundary": "ignored-test-evidence-only",
+      "timeout_seconds": 180,
+      "required_artifacts": ["lanes/mam-lifecycle/manifest.json", "lanes/mam-lifecycle/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R5-PHYSICAL-IOS",
+      "workstream": "R5",
+      "owner": "clients/ios",
+      "command": "bash scripts/verify-architecture-r3.sh devices",
+      "required_environment": "physical-ios-device",
+      "mutation_boundary": "isolated-test-account-device-enrollment-and-wipe",
+      "timeout_seconds": 1200,
+      "required_artifacts": ["devices/ios/device-receipt.json", "devices/ios/visible-readiness.png"],
+      "release_gate": "release"
+    },
+    {
+      "case_id": "ARCH-R3-R5-PHYSICAL-ANDROID",
+      "workstream": "R5",
+      "owner": "clients/android",
+      "command": "bash scripts/verify-architecture-r3.sh devices",
+      "required_environment": "physical-android-device",
+      "mutation_boundary": "isolated-test-account-device-enrollment-and-wipe",
+      "timeout_seconds": 1200,
+      "required_artifacts": ["devices/android/device-receipt.json", "devices/android/visible-readiness.png"],
+      "release_gate": "release"
+    },
+    {
+      "case_id": "ARCH-R3-R5-PHYSICAL-HARMONY",
+      "workstream": "R5",
+      "owner": "clients/harmonyos",
+      "command": "bash scripts/verify-architecture-r3.sh devices",
+      "required_environment": "physical-harmonyos-device",
+      "mutation_boundary": "isolated-test-account-device-enrollment-and-wipe",
+      "timeout_seconds": 1200,
+      "required_artifacts": ["devices/harmonyos/device-receipt.json", "devices/harmonyos/visible-readiness.png"],
+      "release_gate": "release"
+    },
+    {
+      "case_id": "ARCH-R3-R6-CHAT-RECONCILE",
+      "workstream": "R6",
+      "owner": "mailserver/webmail/chat",
+      "command": "bash scripts/verify-architecture-r3.sh chat-reconcile",
+      "required_environment": "node-vitest-supported-host",
+      "mutation_boundary": "ignored-test-evidence-only",
+      "timeout_seconds": 90,
+      "required_artifacts": ["lanes/chat-reconcile/manifest.json", "lanes/chat-reconcile/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R7-COMPOSE-STATE",
+      "workstream": "R7",
+      "owner": "mailserver/webmail/compose",
+      "command": "bash scripts/verify-architecture-r3.sh compose-state",
+      "required_environment": "node-vitest-supported-host",
+      "mutation_boundary": "ignored-test-evidence-only",
+      "timeout_seconds": 90,
+      "required_artifacts": ["lanes/compose-state/manifest.json", "lanes/compose-state/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R8-CAPTION-HERMETIC",
+      "workstream": "R8",
+      "owner": "asrbot/internal/bot",
+      "command": "bash scripts/verify-architecture-r3.sh caption-pipeline",
+      "required_environment": "go-race-libopus",
+      "mutation_boundary": "ignored-test-evidence-only",
+      "timeout_seconds": 180,
+      "required_artifacts": ["lanes/caption-pipeline/manifest.json", "lanes/caption-pipeline/output.log"],
+      "release_gate": "merge"
+    },
+    {
+      "case_id": "ARCH-R3-R8-LIVE-MEDIA",
+      "workstream": "R8",
+      "owner": "asrbot-live-adapters",
+      "command": "bash scripts/verify-architecture-r3.sh live-media",
+      "required_environment": "pinned-livekit-opus-funasr-stack",
+      "mutation_boundary": "isolated-live-media-test-room",
+      "timeout_seconds": 900,
+      "required_artifacts": ["live-media/live-media-receipt.json", "live-media/output.log"],
+      "release_gate": "release"
+    }
+  ]
+}

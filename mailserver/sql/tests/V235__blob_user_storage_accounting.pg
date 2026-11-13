@@ -1,0 +1,90 @@
+-- pgTAP: V235__blob_user_storage_accounting.pg — per-user blob storage
+-- accounting ledger + aggregate (D-MAILSERVER-INTERNAL-BLOB-002 remediation).
+-- Charges FK to blobs ON DELETE CASCADE so EVERY deletion path (reclamation
+-- sweeper, admin tooling) credits the uploader; the inc/dec ref triggers keep
+-- blob_user_usage exact and never negative. No users FK (V048 login_events
+-- posture) and no RLS (blob family posture — gateway-only writer binding
+-- user_id from auth context; see the V235 header).
+BEGIN;
+SELECT plan(20);
+
+-- ── Shape ────────────────────────────────────────────────────────────────────
+SELECT has_table('blob_user_charges');
+SELECT has_table('blob_user_usage');
+SELECT has_column('blob_user_charges', 'blob_sha256');
+SELECT has_column('blob_user_charges', 'user_id');
+SELECT has_column('blob_user_charges', 'size_bytes');
+SELECT has_column('blob_user_charges', 'charged_at');
+SELECT has_column('blob_user_usage', 'user_id');
+SELECT has_column('blob_user_usage', 'charged_bytes');
+SELECT has_column('blob_user_usage', 'updated_at');
+
+-- One charge per blob, ever (fresh inserts only; dedup re-uploads conflict).
+SELECT col_is_pk('blob_user_charges', 'blob_sha256');
+
+-- Charges share the blob's lifetime: ON DELETE CASCADE is the credit path.
+SELECT is(
+  (SELECT confdeltype FROM pg_constraint WHERE conname = 'blob_user_charges_blob_sha256_fkey'),
+  'c', 'blob_user_charges.blob_sha256 cascades on blob deletion (reclamation credit)');
+
+-- ── Fixtures: four fresh blobs, four charges across three users ─────────────
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count) VALUES
+  ('v235tap-blob-a', 'blobs/v235tap-blob-a', 100, 'application/octet-stream', 0),
+  ('v235tap-blob-b', 'blobs/v235tap-blob-b',  40, 'application/octet-stream', 0),
+  ('v235tap-blob-c', 'blobs/v235tap-blob-c',   7, 'application/octet-stream', 0),
+  ('v235tap-blob-d', 'blobs/v235tap-blob-d',   5, 'application/octet-stream', 0);
+
+INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes) VALUES
+  ('v235tap-blob-a', 4242, 100),
+  ('v235tap-blob-b', 4242,  40),
+  ('v235tap-blob-c', 5252,   7),
+  ('v235tap-blob-d', 9999,   5);
+
+SELECT isnt(
+  (SELECT charged_at FROM blob_user_charges WHERE blob_sha256 = 'v235tap-blob-a'),
+  NULL::timestamptz, 'charged_at defaults to statement_timestamp()');
+
+-- ── Inc trigger: the aggregate is the exact sum of a user's charges ─────────
+SELECT is(
+  (SELECT charged_bytes FROM blob_user_usage WHERE user_id = 4242),
+  140::bigint, 'inc trigger sums multiple charges into the user aggregate');
+SELECT is(
+  (SELECT charged_bytes FROM blob_user_usage WHERE user_id = 5252),
+  7::bigint, 'inc trigger mints the aggregate row on the first charge');
+
+-- ── Negative charge rejected by CHECK ───────────────────────────────────────
+SELECT throws_ok(
+  $f$INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes)
+     VALUES ('v235tap-negative', 4242, -1)$f$,
+  '23514', NULL, 'negative size_bytes is rejected by the CHECK constraint');
+
+-- ── Dec trigger: reclamation (blob delete) cascades + credits the user ─────
+DELETE FROM blobs WHERE sha256 = 'v235tap-blob-a';
+SELECT is(
+  (SELECT count(*)::int FROM blob_user_charges WHERE blob_sha256 = 'v235tap-blob-a'),
+  0, 'blob deletion cascades the charge row away');
+SELECT is(
+  (SELECT charged_bytes FROM blob_user_usage WHERE user_id = 4242),
+  40::bigint, 'dec trigger credits the aggregate when a blob is reclaimed');
+
+-- ── Dec trigger safety: charge deletion without a usage row is a no-op ──────
+-- (a user purged while their blobs still exist must not break reclamation).
+DELETE FROM blob_user_usage WHERE user_id = 9999;
+SELECT lives_ok(
+  $f$DELETE FROM blobs WHERE sha256 = 'v235tap-blob-d'$f$,
+  'crediting a user whose aggregate row is already gone does not error');
+
+-- ── Dec trigger safety: the aggregate never goes negative ───────────────────
+UPDATE blob_user_usage SET charged_bytes = 0 WHERE user_id = 4242;
+DELETE FROM blobs WHERE sha256 = 'v235tap-blob-b';
+SELECT is(
+  (SELECT charged_bytes FROM blob_user_usage WHERE user_id = 4242),
+  0::bigint, 'dec trigger never drives the aggregate negative');
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is(
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 235),
+  1, 'schema_migrations records version 235');
+
+SELECT * FROM finish();
+ROLLBACK;

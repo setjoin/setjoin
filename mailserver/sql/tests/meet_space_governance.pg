@@ -1,0 +1,160 @@
+-- mailserver/sql/tests/meet_space_governance.pg
+-- Meet B2 Task 3: meeting_space_ensure (no upload cap, quota NULL) + the
+-- drive_member_role arm-3 attendance-derivation matrix + DES-009-parity
+-- governance guards (BZ175 on ad-hoc grants; immutable capability caps on
+-- trash/move/rename/put_version,
+-- worker-only node create, destroy_hard/prune record backstops).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 3.
+BEGIN;
+SELECT plan(25);
+
+INSERT INTO domains (id, name, created_at) VALUES (7802, 'b2-space-gov.example', now())
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (97001, 'b2host', 7802, 'b2host@b2-space-gov.example', 'B2 Host'),
+  (97002, 'b2mem2', 7802, 'b2mem2@b2-space-gov.example', 'B2 Member Two'),
+  (97003, 'b2mem3', 7802, 'b2mem3@b2-space-gov.example', 'B2 Member Three'),
+  (97004, 'b2mem4', 7802, 'b2mem4@b2-space-gov.example', 'B2 Member Four'),
+  (97005, 'b2mem5', 7802, 'b2mem5@b2-space-gov.example', 'B2 Member Five'),
+  (97006, 'b2mem6', 7802, 'b2mem6@b2-space-gov.example', 'B2 Non-Participant')
+  ON CONFLICT DO NOTHING;
+
+-- Fixture meeting: host 97001, attended member 97002 (joined_at stamped),
+-- admitted-never-joined member 97003, banned member 97004, left-after-end
+-- member 97005 (joined_at + left_at BOTH stamped — the meeting-end
+-- mass-stamp case), non-participant 97006 (no participant row at all).
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('B2 space governance', 97001, 'live')
+  RETURNING id AS meeting_id \gset
+
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 97001, 'u:97001', 'host', NULL);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 97002, 'u:97002', 'member', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 97003, 'u:97003', 'member', NULL);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at, banned_at)
+  VALUES (:meeting_id, 97004, 'u:97004', 'member', now(), now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at, left_at)
+  VALUES (:meeting_id, 97005, 'u:97005', 'member', now(), now());
+
+-- Guest G4 recording-file posture: authenticated guest attendance is a real
+-- u: participant row and retains viewer/preview authority independently of the
+-- profile's allow_download flag. The separate content gate owns raw bytes.
+INSERT INTO users (id, username, domain_id, email, display_name)
+SELECT 97007, 'g3-space-guest@ext.example', d.id,
+       'g3-space-guest@ext.example', 'G3 Space Guest'
+  FROM domains d WHERE d.name = 'guest.invalid';
+INSERT INTO guest_profiles (host_domain_id, name, allow_download, apps)
+VALUES (7802, 'b2-space-g3-download', false, ARRAY['drive','meet']::text[])
+RETURNING id AS guest_profile_id \gset
+INSERT INTO guest_accounts (
+    user_id, invited_email, invited_by_email, host_domain_id, profile_id, status
+) VALUES (
+    97007, 'g3-space-guest@ext.example', 'b2host@b2-space-gov.example',
+    7802, :guest_profile_id, 'active'
+);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:meeting_id, 97007, 'u:97007', 'member', now());
+
+SELECT meeting_space_ensure(:meeting_id) AS space_id \gset
+
+-- ── Arm-3 derivation matrix (D2) ─────────────────────────────────────────
+SELECT is(drive_member_role(:space_id, 97001), 'manager',
+  'host derives manager (no joined_at needed — plan delta 7)');
+SELECT is(drive_member_role(:space_id, 97002), 'viewer', 'attended member derives viewer');
+SELECT is(drive_member_role(:space_id, 97003), NULL,
+  'admitted-never-joined member derives no role (admitted != attended)');
+SELECT is(drive_member_role(:space_id, 97004), NULL, 'banned member derives no role');
+SELECT is(drive_member_role(:space_id, 97005), 'viewer',
+  'left-after-end member still derives viewer (NO left_at filter — the mass-stamp case)');
+SELECT is(drive_member_role(:space_id, 97006), NULL, 'non-participant derives no role');
+SELECT is(drive_member_role(:space_id, 97007), 'viewer',
+  'attended guest with allow_download=false retains meeting preview authority');
+UPDATE guest_profiles SET allow_download = true WHERE id = :guest_profile_id;
+SELECT is(drive_member_role(:space_id, 97007), 'viewer',
+  'allow_download=true changes raw-byte authority, not the attended viewer role');
+
+-- arm-2 no-op proof: a plain non-meeting space is unaffected by the new arm.
+SELECT drive_space_create(97001, 'plain space regression', 'regular') AS plain_space_id \gset
+SELECT is(drive_member_role(:plain_space_id, 97001), 'manager',
+  'a plain non-meeting space''s role is unchanged (owner via arm 1, the meeting arm is a no-op)');
+
+-- ── meeting_space_ensure idempotence + shape ─────────────────────────────
+SELECT is(meeting_space_ensure(:meeting_id), :space_id::bigint,
+  'meeting_space_ensure is idempotent (same id twice)');
+SELECT is((SELECT classification FROM drive_spaces WHERE id = :space_id), 'regular',
+  'classification is regular');
+SELECT is((SELECT quota_bytes FROM drive_spaces WHERE id = :space_id), NULL,
+  'quota_bytes is NULL (server-governed content, not user quota)');
+SELECT is((SELECT COALESCE(export_policy->>'upload_max_bytes', 'absent') FROM drive_spaces WHERE id = :space_id),
+  'absent',
+  'NO upload_max_bytes cap — the chat_space_ensure 100 MiB clone-trap (BZ148), deliberately not cloned');
+SELECT is((SELECT action FROM drive_audit_log WHERE space_id = :space_id ORDER BY id LIMIT 1),
+  'space.create', 'a space.create audit row exists');
+
+-- ── Governance (DES-009 parity) ──────────────────────────────────────────
+-- owner-read arm inert on a meeting-bound space: a role-less caller
+-- (non-participant 97006) sees zero rows through drive_spaces_read — the
+-- self-seed clause can never fire on a bound space (meeting_id IS NOT
+-- NULL), so visibility is gated by the derived-role arm alone.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '97006', true);
+SELECT is((SELECT count(*) FROM drive_spaces WHERE id = :space_id)::int, 0,
+  'meeting space is invisible to a role-less (non-participant) caller');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT throws_ok(
+  format($$ SELECT drive_member_grant(97001, %s, 97002, 'viewer') $$, :space_id),
+  'BZ175', NULL, 'drive_member_grant on a meeting-bound space is rejected (ad-hoc grants blocked)');
+
+-- ── §E immutability: a recording-referenced node + a NON-head version ────
+-- (the non-head version isolates the new meeting_recordings prune-exclusion
+-- arm from the pre-existing head_version_id exclusion, which would
+-- otherwise mask it).
+SELECT drive_node_create(97001, :space_id, NULL, 'file', 'recording.mp4') AS rec_node \gset
+SELECT drive_chunk_register(97001, :space_id, repeat('c', 64), 10);
+SELECT (drive_file_put_version(97001, :rec_node, repeat('c', 64), 10, NULL, NULL,
+    ('[{"sha256":"' || repeat('c', 64) || '","size":10}]')::jsonb, NULL, 'meet-ingest')
+    ->>'versionId')::bigint AS rec_v1 \gset
+SELECT drive_chunk_register(97001, :space_id, repeat('d', 64), 10);
+SELECT (drive_file_put_version(97001, :rec_node, repeat('d', 64), 10, NULL, :rec_v1,
+    ('[{"sha256":"' || repeat('d', 64) || '","size":10}]')::jsonb, NULL, 'meet-ingest')
+    ->>'versionId')::bigint AS rec_v2 \gset
+
+INSERT INTO meeting_recordings (meeting_id, started_by, state, file_node_id, version_id)
+  VALUES (:meeting_id, 97001, 'ready', :rec_node, :rec_v1);
+
+SELECT throws_ok(format($$ SELECT drive_node_trash(97001, %s) $$, :rec_node),
+  'BZ140', NULL, 'recording node has no Drive delete capability');
+SELECT drive_node_create(97001, :space_id, NULL, 'folder', 'dest') AS dest_folder \gset
+SELECT throws_ok(format($$ SELECT drive_node_move(97001, %s, %s) $$, :rec_node, :dest_folder),
+  'BZ140', NULL, 'recording node has no Drive move capability');
+SELECT throws_ok(format($$ SELECT drive_node_rename(97001, %s, 'renamed.mp4') $$, :rec_node),
+  'BZ140', NULL, 'recording node has no Drive rename capability');
+SELECT drive_chunk_register(97001, :space_id, repeat('e', 64), 10);
+SELECT throws_ok(format($$ SELECT drive_file_put_version(97001, %s, %L, 10, NULL, NULL,
+    '[{"sha256":"%s","size":10}]', NULL, 'meet-ingest') $$, :rec_node, repeat('f', 64), repeat('e', 64)),
+  'BZ140', NULL, 'recording node has no Drive modify-content capability');
+
+-- ── worker-only node create (plan delta 8), proven both ways ────────────
+SELECT set_config('app.current_user_id', '97001', true);
+SELECT throws_ok(format($$ SELECT drive_node_create(97001, %s, NULL, 'file', 'user-write.mp4') $$, :space_id),
+  'BZ175', NULL, 'user-plane (GUC set) node create in a meeting-bound space → BZ175');
+SELECT set_config('app.current_user_id', '', true);
+SELECT lives_ok(format($$ SELECT drive_node_create(97001, %s, NULL, 'file', 'worker-write.mp4') $$, :space_id),
+  'worker-plane (GUC unset) node create in a meeting-bound space succeeds');
+
+-- ── §E backstops ─────────────────────────────────────────────────────────
+UPDATE drive_nodes SET deleted_at = now(), purged_at = now() WHERE id = :rec_node;
+SELECT is(drive_node_destroy_hard(:rec_node), false,
+  'drive_node_destroy_hard on a recording-referenced node returns false (skip, never destroyed)');
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :rec_v1)::int, 1,
+  'the recording-referenced version still exists after the destroy_hard skip');
+
+SELECT drive_version_prune(:space_id, 0);
+SELECT is((SELECT count(*) FROM drive_file_versions WHERE id = :rec_v1)::int, 1,
+  'drive_version_prune(space, 0) leaves the recording-referenced (non-head) version in place');
+
+SELECT finish();
+ROLLBACK;

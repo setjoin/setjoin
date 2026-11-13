@@ -1,0 +1,23 @@
+{
+  "case": "ws-controls",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"error\"}",
+        "{\"@type\":\"error\",\"type\":\"urn:ietf:params:jmap:error:unknownType\",\"status\":400,\"detail\":\"unknown @type\"}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

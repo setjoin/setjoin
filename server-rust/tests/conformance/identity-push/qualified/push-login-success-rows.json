@@ -1,0 +1,134 @@
+{
+  "case": "push-login-success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [],
+        "challenges": [
+          {
+            "approved": false,
+            "bound": true,
+            "code": "<out-of-band-code>",
+            "failures": 0,
+            "live": true,
+            "nonce": "<nonce>",
+            "owner": "actor",
+            "verified": false
+          }
+        ],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "challenges": [],
+        "grants": [
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "idmfa3-actor",
+            "live": true,
+            "method": "password",
+            "operation": "recovery.regenerate",
+            "owner": "actor",
+            "scope": "session",
+            "target": null
+          },
+          {
+            "factor": null,
+            "family": null,
+            "generation": 2,
+            "jti": "prior",
+            "live": true,
+            "method": "password",
+            "operation": "totp.enroll",
+            "owner": "foreign",
+            "scope": "session",
+            "target": null
+          }
+        ],
+        "token_stores": {
+          "auth_event_log": [],
+          "login_events": [],
+          "oauth_tokens": [],
+          "sessions": []
+        },
+        "users": [
+          {
+            "generation": 2,
+            "owner": "actor",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          },
+          {
+            "generation": 2,
+            "owner": "foreign",
+            "password_failures": 0,
+            "password_locked": false,
+            "totp_failures": 0,
+            "totp_locked": false,
+            "totp_used": false
+          }
+        ]
+      },
+      "table": "possession"
+    }
+  ],
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "route": "POST /auth/login"
+}

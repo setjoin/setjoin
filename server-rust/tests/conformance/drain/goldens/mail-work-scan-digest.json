@@ -1,0 +1,111 @@
+{
+  "case": "mail-work-scan-digest",
+  "format": 1,
+  "go_source": "09ee09c13808cb7fe0cb3d956a8db2adc27810c8",
+  "observation": {
+    "deliveries": [
+      [
+        "breach",
+        "digest",
+        "queued",
+        "digest_preference"
+      ],
+      [
+        "breach",
+        "realtime",
+        "suppressed",
+        "preference_digest"
+      ]
+    ],
+    "digest": [
+      [
+        "assignment",
+        true
+      ],
+      [
+        "breach",
+        false
+      ]
+    ],
+    "metrics": [
+      [
+        1,
+        1,
+        0
+      ]
+    ],
+    "notices": [
+      {
+        "counts": {
+          "breached": 1,
+          "dueSoon": 0,
+          "mine": 1,
+          "priorityUnread": 0,
+          "unassigned": 0
+        },
+        "mailboxId": "<mailbox>",
+        "reasons": {
+          "assignment": 1
+        },
+        "type": "mailWorkDailyReset",
+        "why": "scheduled_digest"
+      }
+    ],
+    "outbox": [
+      [
+        "digest",
+        "completed",
+        1,
+        null,
+        {
+          "delivered": 0,
+          "queued": 1,
+          "replayed": false,
+          "suppressed": 0
+        }
+      ],
+      [
+        "metric",
+        "completed",
+        1,
+        null,
+        {
+          "outcome": "projected",
+          "replayed": false
+        }
+      ],
+      [
+        "push",
+        "completed",
+        1,
+        null,
+        {
+          "delivered": 0,
+          "queued": 0,
+          "replayed": false,
+          "suppressed": 1
+        }
+      ]
+    ],
+    "state": [
+      1
+    ],
+    "tags": [
+      {
+        "accountId": "<mailbox>",
+        "objectId": "due-thread",
+        "objectKind": "work",
+        "op": "updated",
+        "state": "1",
+        "type": "MailWorkEvent"
+      }
+    ],
+    "work": [
+      [
+        "due-thread",
+        2,
+        true
+      ]
+    ]
+  }
+}

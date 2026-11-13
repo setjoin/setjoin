@@ -1,0 +1,102 @@
+-- notify_calendar_state.pg: the calendar secondary seam (bump calendars.jmap_state
+-- for the owner mailbox + push on calendar:{owner_mailbox_id}). Mirrors
+-- notify_state_change.pg: bump-once, push-fires (call lives), NULL-safe, and the
+-- owner-mailbox scope (a foreign owner bumps nothing).
+-- Requires: notify_calendar_state.
+BEGIN;
+SELECT plan(9);
+
+INSERT INTO domains (name, is_local) VALUES ('ncs.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- DIVERGENT ids (ADR-003): user 290101 != mailbox 90201. The seam takes the
+-- OWNER MAILBOX id (90201) throughout.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (290101, 'ncs', (SELECT id FROM domains WHERE name = 'ncs.test'),
+        'ncs@ncs.test', 'NCS')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (90201, 290101, (SELECT id FROM domains WHERE name = 'ncs.test'),
+        'ncs@ncs.test', 'NCS', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- A second, foreign mailbox for the owner-scope isolation check.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (290102, 'ncs2', (SELECT id FROM domains WHERE name = 'ncs.test'),
+        'ncs2@ncs.test', 'NCS2')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (90202, 290102, (SELECT id FROM domains WHERE name = 'ncs.test'),
+        'ncs2@ncs.test', 'NCS2', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO calendars (id, mailbox_id, name, is_default, jmap_state)
+VALUES (90211, 90201, 'Cal', TRUE, 5)
+ON CONFLICT (id) DO NOTHING;
+
+-- Listen so we can assert the push fired (delivered before COMMIT is not visible,
+-- but the seam call must at least not error and must bump exactly once).
+LISTEN "calendar:90201";
+
+-- Test 1: returns the new calendars.jmap_state (= old + 1 = 6).
+SELECT is(
+  notify_calendar_state(90201, 9999, 90211, 'event_updated'),
+  6::BIGINT,
+  'returns new calendars.jmap_state (old + 1)');
+
+-- Test 2: the calendar's jmap_state bumped exactly once.
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 90211),
+  6::BIGINT,
+  'calendars.jmap_state bumped exactly once');
+
+-- Test 3: the push call itself does not error (push-fires).
+SELECT lives_ok(
+  $$ SELECT notify_calendar_state(90201, 9999, 90211, 'event_created') $$,
+  'push call lives (pg_notify on calendar:{owner})');
+
+-- Test 4: that second call bumped again (now 7).
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 90211),
+  7::BIGINT,
+  'second call bumps once more');
+
+-- Test 5: owner-scope — passing the FOREIGN owner mailbox bumps nothing (the
+-- WHERE mailbox_id guard matches no row), so the state is unchanged.
+SELECT notify_calendar_state(90202, 9999, 90211, 'event_updated');
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 90211),
+  7::BIGINT,
+  'foreign owner mailbox bumps nothing (owner-scoped, R1)');
+
+-- Test 6: a NULL owner mailbox raises BZ034 (NULL-safe).
+SELECT throws_ok(
+  $$ SELECT notify_calendar_state(NULL, 9999, 90211, 'event_updated') $$,
+  'BZ034', NULL,
+  'NULL owner mailbox raises BZ034');
+
+-- Test 7: a NULL owner returns BEFORE any bump (state still 7).
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 90211),
+  7::BIGINT,
+  'BZ034 path leaves calendars.jmap_state untouched');
+
+-- ── REAL push assertion (WAVE 4 Phase 3): a LISTEN inside a pgTAP txn can never
+-- observe the rolled-back NOTIFY, so capture the app_notify tee and prove the seam
+-- actually pushes on calendar:{owner_mailbox} carrying the verbatim event name +
+-- calendar_id (the WS consumer keys on these substrings). ──
+SET LOCAL app.capture_notify = 'on';
+SELECT notify_calendar_state(90201, 9999, 90211, 'event_updated');
+
+SELECT is(
+  notify_count('calendar:90201'),
+  1,
+  'notify_calendar_state pushes once on calendar:{owner_mailbox}');
+SELECT is(
+  last_notify_event('calendar:90201'),
+  'event_updated',
+  'the calendar push carries the verbatim event name in its payload');
+
+SELECT * FROM finish();
+ROLLBACK;

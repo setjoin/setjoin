@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -enabled: parse error\nUsage of approval create:\n  -approver-spec string\n    \tApprover spec JSON object (default \"{}\")\n  -conditions string\n    \tConditions JSON object (default \"{}\")\n  -consumer-type string\n    \tConsumer type: rbac.jit_activation, mail.external_send, mail.group_moderation (required)\n  -enabled\n    \tEnable policy (default true)\n  -name string\n    \tPolicy name (required)\n  -requires-approval\n    \tRequire approval (false = auto-allow on match) (default true)\n",
+  "exit": 2
+}

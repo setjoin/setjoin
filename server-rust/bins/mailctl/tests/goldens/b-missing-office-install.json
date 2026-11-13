@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl office install --generation N --profile managed-customer-proxy --ingress JSON --reason TEXT --yes\n",
+  "exit": 1
+}

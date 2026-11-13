@@ -1,0 +1,95 @@
+-- notify_task_state.pg: the task secondary seam (PUSH-ONLY — push on
+-- task:{mailbox_id} with the verbatim event; reads but does NOT bump the per-row
+-- tasks.jmap_state, which jmap_task.sql owns). Mirrors notify_contact_state.pg:
+-- returns the current MAX(tasks.jmap_state); foreign mailbox untouched; NULL-safe
+-- (BZ034); the REAL push captured via the app_notify tee (app.capture_notify GUC),
+-- fired once with the verbatim event.
+-- Requires: notify_task_state, app_notify, _fixtures (capture helpers).
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (name, is_local) VALUES ('ntsk.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- DIVERGENT ids (ADR-003): user 292101 != mailbox 92201.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (292101, 'ntsk', (SELECT id FROM domains WHERE name = 'ntsk.test'),
+        'ntsk@ntsk.test', 'NTSK')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (92201, 292101, (SELECT id FROM domains WHERE name = 'ntsk.test'),
+        'ntsk@ntsk.test', 'NTSK', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- A second, foreign mailbox for the mailbox-scope isolation check.
+INSERT INTO users (id, username, domain_id, email, display_name)
+VALUES (292102, 'ntsk2', (SELECT id FROM domains WHERE name = 'ntsk.test'),
+        'ntsk2@ntsk.test', 'NTSK2')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+VALUES (92202, 292102, (SELECT id FROM domains WHERE name = 'ntsk.test'),
+        'ntsk2@ntsk.test', 'NTSK2', 'personal', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- Owner tasks: the Task/changes token is MAX(tasks.jmap_state) over the mailbox.
+INSERT INTO tasks (id, mailbox_id, title, jmap_state)
+VALUES (92211, 92201, 'Buy milk', 4),
+       (92212, 92201, 'Mow lawn', 2)
+ON CONFLICT (id) DO NOTHING;
+-- A foreign task whose state must NOT be read by an owner-scoped call.
+INSERT INTO tasks (id, mailbox_id, title, jmap_state)
+VALUES (92221, 92202, 'Foreign', 9)
+ON CONFLICT (id) DO NOTHING;
+
+-- Test 1: PUSH-ONLY — returns the CURRENT MAX(tasks.jmap_state) for the mailbox
+-- (= 4), and does NOT advance it (the seam never bumps).
+SELECT is(
+  notify_task_state(92201, 'task_created', 92211),
+  4::BIGINT,
+  'returns current MAX(tasks.jmap_state), push-only');
+
+-- Test 2: the per-row state is untouched by the seam (no double-count).
+SELECT is(
+  (SELECT MAX(jmap_state) FROM tasks WHERE mailbox_id = 92201),
+  4::BIGINT,
+  'push-only seam does NOT bump tasks.jmap_state');
+SELECT is(
+  (SELECT jmap_state FROM tasks WHERE id = 92212),
+  2::BIGINT,
+  'the non-max owner task is untouched');
+
+-- Test 3: the foreign mailbox's task is mailbox-scoped (R1) — never read/moved.
+SELECT is(
+  (SELECT jmap_state FROM tasks WHERE id = 92221),
+  9::BIGINT,
+  'foreign mailbox task untouched (mailbox-scoped)');
+
+-- Test 4: a NULL mailbox raises BZ034 (NULL-safe).
+SELECT throws_ok(
+  $$ SELECT notify_task_state(NULL, 'task_created', 1) $$,
+  'BZ034', NULL,
+  'NULL mailbox raises BZ034');
+
+-- Test 5: a mailbox with no tasks returns 0 (e.g. after a destroy emptied it).
+SELECT is(
+  notify_task_state(92202 + 999, 'task_destroyed', NULL),
+  0::BIGINT,
+  'empty mailbox returns 0 (COALESCE)');
+
+-- ── REAL push assertion: capture the app_notify tee and prove the task seam
+-- pushes on task:{mailbox} with the verbatim event name (the rolled-back NOTIFY
+-- can never be observed by a LISTEN). ──
+SET LOCAL app.capture_notify = 'on';
+SELECT notify_task_state(92201, 'task_updated', 92211);
+
+SELECT is(
+  notify_count('task:92201'),
+  1,
+  'notify_task_state pushes once on task:{mailbox}');
+SELECT is(
+  last_notify_event('task:92201'),
+  'task_updated',
+  'the task push carries the verbatim event name');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,50 @@
+[
+  {
+    "method": "GET",
+    "uri": "/mailblobs/?location=",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  },
+  {
+    "method": "DELETE",
+    "uri": "/mailblobs/recovery-quarantine/a/b",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  },
+  {
+    "method": "GET",
+    "uri": "/mailblobs/?location=",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  },
+  {
+    "method": "DELETE",
+    "uri": "/mailblobs/recovery-quarantine/a/b",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  },
+  {
+    "method": "GET",
+    "uri": "/mailblobs/?location=",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  },
+  {
+    "method": "DELETE",
+    "uri": "/mailblobs/recovery-quarantine/a/b",
+    "body": "",
+    "authorization": false,
+    "date": false,
+    "sha256": false
+  }
+]

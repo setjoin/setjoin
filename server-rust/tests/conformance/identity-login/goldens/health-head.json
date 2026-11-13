@@ -1,0 +1,29 @@
+{
+  "case": "health-head",
+  "format": 1,
+  "go_source": "fd31a1de4f07c4766d6c08bcc852ba7d5b6b0892",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [],
+      "sessions": [],
+      "signins": []
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "HEAD",
+      "path": "/health"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "content-length": "15",
+        "content-type": "application/json"
+      },
+      "status": 200,
+      "tokens": []
+    }
+  },
+  "route": "HEAD /health"
+}

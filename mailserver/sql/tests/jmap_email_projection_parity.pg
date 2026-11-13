@@ -1,0 +1,100 @@
+-- pgTAP: message_to_jmap_email — projection parity between the two full-Email
+-- emitters. jmap_email_get (Email/get) and jmap_email_query_deleted (which embeds
+-- full Email objects inline in its `list`) both route their row-derived fields
+-- through message_to_jmap_email, so they cannot re-drift. This test is the guard
+-- that kills the re-drift class: the deleted projection had silently DROPPED 7
+-- row-derived badge keys (pinnedAt, isExternal, senderDisplayName, isNameSpoof,
+-- isFirstTime, flagDueAt, flagReminderAt), so a message showed spoof/flag/pin
+-- badges while live and lost them the moment it entered the trash listing.
+--
+-- ADR-003: mk_account() gives a DIVERGENT user_id/mailbox_id.
+BEGIN;
+SELECT plan(10);
+
+CREATE TEMP TABLE _p AS SELECT mk_account('parity') AS mb_id;
+
+-- One fully-populated message: every row-derived badge field set, so a dropped
+-- key surfaces as a real hole. In Inbox (so Email/get returns it live).
+INSERT INTO messages (
+  id, mailbox_id, folder_id, message_id, subject, from_addr, from_name,
+  to_addrs, size_bytes, thread_id, raw_ref, received_at, is_read,
+  pinned_at, is_external, sender_display_name, is_name_spoof, is_first_time,
+  flag_due_at, flag_reminder_at, crypto_type, smime_status, smime_signer_email,
+  smime_signer_cn, smime_issuer_cn)
+VALUES (
+  770001, (SELECT mb_id FROM _p), get_tag_id('Inbox', (SELECT mb_id FROM _p)),
+  '<parity@eml.test>', 'Parity subject', 'sender@ext.com', 'Sender Name',
+  '[{"email":"me@mk.test"}]'::jsonb, 100, 'thr-770001', 's3://raw-770001', now(), FALSE,
+  now(), TRUE, 'Sender Display', TRUE, TRUE,
+  now() + interval '1 day', now() + interval '2 hours', 'smime-signed', 'valid',
+  'sender@trust.example', 'Sender CN', 'Issuer CN');
+SELECT tag_message(770001, (SELECT received_at FROM messages WHERE id = 770001),
+                   'Inbox', (SELECT mb_id FROM _p), 'deliver', TRUE);
+
+-- Capture the live projections (Email/get + the shared fn) while the message is
+-- live, then soft-delete and capture the deletedQuery projection.
+CREATE TEMP TABLE _proj AS
+SELECT
+  jmap_email_get((SELECT mb_id FROM _p), ARRAY[770001::BIGINT])->'list'->0        AS get_obj,
+  message_to_jmap_email((SELECT m FROM messages m WHERE id = 770001))             AS shared_obj,
+  NULL::JSONB                                                                     AS del_obj;
+
+UPDATE messages SET is_deleted = TRUE, deleted_at = now() WHERE id = 770001;
+UPDATE _proj SET del_obj = jmap_email_query_deleted((SELECT mb_id FROM _p))->'list'->0;
+
+-- Sorted key sets for the three objects.
+CREATE TEMP TABLE _keys AS
+SELECT
+  ARRAY(SELECT jsonb_object_keys(get_obj)    ORDER BY 1) AS gk,
+  ARRAY(SELECT jsonb_object_keys(del_obj)    ORDER BY 1) AS dk,
+  ARRAY(SELECT jsonb_object_keys(shared_obj) ORDER BY 1) AS sk
+FROM _proj;
+
+-- 1: every shared-projection key is emitted by Email/get.
+SELECT ok((SELECT sk <@ gk FROM _keys),
+  'every message_to_jmap_email key is present in Email/get');
+
+-- 2: THE DRIFT KILLER — every shared-projection key is emitted by deletedQuery.
+-- Before single-sourcing, deleted was missing 7 of these → this went RED.
+SELECT ok((SELECT sk <@ dk FROM _keys),
+  'every message_to_jmap_email key is present in Email/deletedQuery (kills the re-drift class)');
+
+-- 3: Email/get-only keys are EXACTLY the request-guarded extras (cross-table /
+-- p_properties-dependent) that legitimately stay caller-local.
+SELECT is(
+  (SELECT array_agg(x ORDER BY x)
+     FROM (SELECT unnest(gk) FROM _keys EXCEPT SELECT unnest(dk) FROM _keys) t(x)),
+  ARRAY['attachments','inlineImages'],
+  'Email/get-only keys are exactly the request-guarded {attachments, inlineImages}');
+
+-- 4: deletedQuery-only key is EXACTLY deletedAt (the intentional overlay).
+SELECT is(
+  (SELECT array_agg(x ORDER BY x)
+     FROM (SELECT unnest(dk) FROM _keys EXCEPT SELECT unnest(gk) FROM _keys) t(x)),
+  ARRAY['deletedAt'],
+  'Email/deletedQuery-only key is exactly {deletedAt}');
+
+-- 5: the 7 row-derived badge keys the deleted projection had DROPPED are all back.
+SELECT is(
+  (SELECT array_agg(k ORDER BY k)
+     FROM unnest(ARRAY['pinnedAt','isExternal','senderDisplayName','isNameSpoof',
+                       'isFirstTime','flagDueAt','flagReminderAt']) k
+    WHERE (SELECT del_obj FROM _proj) ? k),
+  ARRAY['flagDueAt','flagReminderAt','isExternal','isFirstTime','isNameSpoof',
+        'pinnedAt','senderDisplayName'],
+  'the 7 row-derived badge keys the trash listing had dropped are present again');
+
+-- 6-9: values (not just keys) carry through into the deleted projection.
+SELECT is((SELECT del_obj->>'isNameSpoof'      FROM _proj), 'true',            'deletedQuery carries isNameSpoof value');
+SELECT ok((SELECT del_obj->>'pinnedAt' IS NOT NULL FROM _proj),                'deletedQuery carries pinnedAt value');
+SELECT is((SELECT del_obj->>'smimeStatus'      FROM _proj), 'valid',           'deletedQuery carries smimeStatus value');
+SELECT is((SELECT del_obj->>'senderDisplayName' FROM _proj), 'Sender Display', 'deletedQuery carries senderDisplayName value');
+
+-- 10: the two projections agree on a shared value (single source ⇒ identical).
+SELECT is(
+  (SELECT get_obj->>'subject' FROM _proj),
+  (SELECT del_obj->>'subject' FROM _proj),
+  'Email/get and Email/deletedQuery agree on the shared subject value');
+
+SELECT * FROM finish();
+ROLLBACK;

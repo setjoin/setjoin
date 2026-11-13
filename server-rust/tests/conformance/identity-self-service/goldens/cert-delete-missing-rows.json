@@ -1,0 +1,88 @@
+{
+  "case": "missing-row-effects",
+  "effects": [
+    {
+      "after": {
+        "app_passwords": [],
+        "recipient_smime_certs": [],
+        "user_smime_certs": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-a>",
+            "is_default": true,
+            "issued_at": null,
+            "label": "cert-a",
+            "private_key_enc": null,
+            "user_id": "<a>"
+          },
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-b>",
+            "is_default": true,
+            "issued_at": null,
+            "label": "cert-b",
+            "private_key_enc": null,
+            "user_id": "<b>"
+          },
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T11:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-survivor>",
+            "is_default": false,
+            "issued_at": null,
+            "label": "survivor",
+            "private_key_enc": null,
+            "user_id": "<a>"
+          }
+        ]
+      },
+      "before": {
+        "app_passwords": [],
+        "recipient_smime_certs": [],
+        "user_smime_certs": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-a>",
+            "is_default": true,
+            "issued_at": null,
+            "label": "cert-a",
+            "private_key_enc": null,
+            "user_id": "<a>"
+          },
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T10:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-b>",
+            "is_default": true,
+            "issued_at": null,
+            "label": "cert-b",
+            "private_key_enc": null,
+            "user_id": "<b>"
+          },
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIDCDCCAfCgAwIBAgIDAMD5MA0GCSqGSIb3DQEBCwUAMCwxFzAVBgNVBAoMDlNl\ndGpvaW4gT3JhY2xlMREwDwYDVQQDDAhJRExPR0lONDAgFw0yNjEwMDEwMDAwMDBa\nGA8yMDk1MTAwMTAwMDAwMFowLDEXMBUGA1UECgwOU2V0am9pbiBPcmFjbGUxETAP\nBgNVBAMMCElETE9HSU40MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\nhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177j/RGWikSd2jQ0OnG\nUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzIFvAPiLh0SVY/KhlO\nDI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDzcCFL00HxQUkR3wq+\n0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoRIVcDVKKaBmPpmg9K\nnl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hGq4LWah/5mAlY+hHR\nQMGebZfadTudxom9yenX7QIDAQABozEwLzAdBgNVHREEFjAUgRJQZXJzb25ARVhB\nTVBMRS5ORVQwDgYDVR0PAQH/BAQDAgWgMA0GCSqGSIb3DQEBCwUAA4IBAQA1kj/s\nhpbzrC04cZlgEmsnkR0/S2pzNB+GlN3wHoV2yjERXQcXTm6IaI1CcMlaj1ABYXHi\ncsrwsGLfd/y/+qLYyrUaymKTX4gDGFOEokl0Flla5nP4FlBuNlwRWSVRuFP6cSZW\n0+j4W+WdcT+LbMs1Q+PCXk91j5zJtA3qE1n6Vqo391+Cvm2GRj4mFFKr/Pm8jr8F\nuI4F9r6ESCoSZYD8+DqfID3lsVV/8HcAXV73Zuk6CMpw3aagNG8uKiLJi7tVB7AR\nXAmGu4piZTgNBt57ib7CTOeg5p7dxg4c3yFhi4Awm9nNkLA/Cg3//DgLqhwQPIpu\neKupXBQt1V3QF72L\n-----END CERTIFICATE-----\n",
+            "created_at": "2026-10-01T11:00:00+00:00",
+            "expires_at": null,
+            "id": "<cert-survivor>",
+            "is_default": false,
+            "issued_at": null,
+            "label": "survivor",
+            "private_key_enc": null,
+            "user_id": "<a>"
+          }
+        ]
+      }
+    }
+  ],
+  "format": 1,
+  "go_source": "955e0ee3061fe4e6b823978336e5a514b9eca7e3",
+  "route": "DELETE /auth/me/smime/certs/{id}"
+}

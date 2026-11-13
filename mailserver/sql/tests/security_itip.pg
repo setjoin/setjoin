@@ -1,0 +1,41 @@
+-- pgTAP: security_itip.pg — Authorization checks for calendar iTIP and free/busy functions.
+BEGIN;
+SELECT plan(4);
+
+-- Test 1: calendar_process_itip_reply raises BZ001 when p_account_id is set and event not found.
+-- This confirms the ownership check raises rather than silently returning notFound.
+SELECT throws_ok(
+  $$SELECT calendar_process_itip_reply('nonexistent-uid', 'a@b.com', 'A', 'accepted', 0, 999999)$$,
+  'BZ001',
+  NULL,
+  'itip_reply raises BZ001 when account_id set and event not found'
+);
+
+-- Test 2: calendar_process_itip_cancel raises BZ001 when p_account_id is set and event not found.
+SELECT throws_ok(
+  $$SELECT calendar_process_itip_cancel('nonexistent-uid', 999999)$$,
+  'BZ001',
+  NULL,
+  'itip_cancel raises BZ001 when account_id set and event not found'
+);
+
+-- Test 3: calendar_send_invite with invalid event_id returns notFound JSON.
+-- Signature: (p_event_id bigint, p_organizer_email text, p_account_id bigint DEFAULT NULL)
+SELECT results_eq(
+  $$SELECT calendar_send_invite(999999, NULL::TEXT)::jsonb->>'type'$$,
+  $$SELECT 'notFound'::text$$,
+  'send_invite with invalid event_id returns notFound'
+);
+
+-- Test 4: calendar_check_conflict raises BZ001 when calendar not found for given account.
+-- Signature: (p_account_id bigint, p_calendar_id bigint, p_start tstz, p_end tstz,
+--             p_exclude_event_id bigint DEFAULT NULL, p_mailbox_id bigint DEFAULT NULL)
+SELECT throws_ok(
+  $$SELECT calendar_check_conflict(999999::bigint, 1::bigint, now(), now() + '1 hour'::interval, NULL::bigint)$$,
+  'BZ001',
+  NULL,
+  'check_conflict raises BZ001 when calendar not found for account'
+);
+
+SELECT finish();
+ROLLBACK;

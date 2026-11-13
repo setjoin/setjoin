@@ -1,0 +1,49 @@
+{
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "approver_kind": "user",
+        "approver_ref": "<approver>",
+        "consumer_type": "hr.leave",
+        "created_at": "<timestamp>",
+        "decided_at": "<timestamp>",
+        "decided_by_user_id": "<requester>",
+        "decision_comment": null,
+        "domain_id": "<requester-domain>",
+        "expires_at": "2099-11-01T12:00:00+00:00",
+        "id": "<request>",
+        "payload": {
+          "reason": "trip"
+        },
+        "policy_id": null,
+        "requester_user_id": "<requester>",
+        "status": "cancelled",
+        "subject": "Leave <one>"
+      },
+      "before": {
+        "approver_kind": "user",
+        "approver_ref": "<approver>",
+        "consumer_type": "hr.leave",
+        "created_at": "<timestamp>",
+        "decided_at": null,
+        "decided_by_user_id": null,
+        "decision_comment": null,
+        "domain_id": "<requester-domain>",
+        "expires_at": "2099-11-01T12:00:00+00:00",
+        "id": "<request>",
+        "payload": {
+          "reason": "trip"
+        },
+        "policy_id": null,
+        "requester_user_id": "<requester>",
+        "status": "pending",
+        "subject": "Leave <one>"
+      },
+      "table": "approval_requests"
+    }
+  ],
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "route": "POST /me/approvals/{id}/cancel"
+}

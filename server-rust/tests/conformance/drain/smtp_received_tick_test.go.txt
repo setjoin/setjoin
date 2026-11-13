@@ -1,0 +1,79 @@
+// Recording-only socket oracle: real frozen-Go SMTP + real Dispatcher.
+package smtp
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"io"
+	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"setjoin.com/mailserver/internal/webhook"
+	"setjoin.com/shared/pgxutil"
+	"setjoin.com/shared/toggle"
+	"testing"
+	"time"
+)
+
+func TestGoFreeSMTPReceived(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool, err := pgxpool.New(ctx, os.Getenv("GOFREE_DRAIN_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	d := webhook.GoFreeDispatcher(ctx, pool)
+	defer webhook.GoFreeSettle(d, cancel)
+	raw, err := os.ReadFile(filepath.Join(os.Getenv("SMTP_ORACLE_DIR"), "delivery-go.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Steps []struct {
+			Send  string `json:"send"`
+			Lines int    `json:"lines"`
+		} `json:"steps"`
+	}
+	if err = json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string]bool{}
+	for _, key := range toggle.Keys() {
+		flags[key] = false
+	}
+	s := NewInboundServer(pgxutil.WorkerPool{Pool: pool}, "127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), toggle.NewStatic(flags), d)
+	if err = s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c, err := net.Dial("tcp", s.listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	r := bufio.NewReader(c)
+	for _, step := range cases[0].Steps {
+		if err = c.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if step.Send != "" {
+			if _, err = io.WriteString(c, step.Send); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if step.Lines == 0 {
+			if _, err = io.ReadAll(r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := 0; i < step.Lines; i++ {
+			if _, err = r.ReadString('\n'); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	webhook.GoFreeWait(d)
+}

@@ -1,0 +1,38 @@
+{
+  "case": "telemetry-proof-legacy-valid-row-effects",
+  "effects": [
+    {
+      "rows": [
+        {
+          "app_version": "",
+          "crash_count": 0,
+          "feature_usage": {},
+          "os_version": "",
+          "uptime_hours": 0
+        }
+      ],
+      "table": "device_telemetry"
+    },
+    {
+      "rows": [
+        {
+          "lifetime": 660.0,
+          "nonce": "static2-telemetry_proof_legacy_valid"
+        }
+      ],
+      "table": "device_auth_nonces"
+    },
+    {
+      "rows": [
+        {
+          "key_id": "v1",
+          "opens": true,
+          "plaintext": false,
+          "sealed": true
+        }
+      ],
+      "table": "devices"
+    }
+  ],
+  "format": 1
+}

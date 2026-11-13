@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity transition deny:\n  -approval-request int\n    \tapproved independent request id\n  -elevation string\n    \tone-use transition elevation UUID\n  -id string\n    \ttransition UUID\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -preview-digest string\n    \texact preview digest\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

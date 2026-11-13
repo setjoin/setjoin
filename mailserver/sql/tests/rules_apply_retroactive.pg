@@ -1,0 +1,147 @@
+-- rules_apply_retroactive.pg: QoL #5 — apply a rule to existing mail.
+-- Covers: enqueue + dedup, the LOAD-BEARING organize-only guard (a forward_to rule
+-- swept retroactively must NOT queue outbound — no mass re-send), organize actions
+-- still run, the window filter, the single-rule (p_rule_id) filter, the cap +
+-- truncation flag, and R1 cross-mailbox rejection.
+--
+-- Window comparisons are absolute-instant (received_at vs now()-interval), so this
+-- test is timezone-independent (no wall-clock string assertions).
+BEGIN;
+SELECT plan(14);
+
+INSERT INTO domains (name, is_local, is_primary) VALUES ('rar.test', TRUE, TRUE)
+  ON CONFLICT (name) DO NOTHING;
+
+-- Two mailboxes: MB1 (95050) organize-only+window, MB2 (95051) single-rule filter,
+-- MB3 (95052) cap. ADR-003: user id != mailbox id.
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password) VALUES
+  (195050,'rar1',(SELECT id FROM domains WHERE name='rar.test'),'rar1@rar.test','R1',crypt('x',gen_salt('bf')),FALSE),
+  (195051,'rar2',(SELECT id FROM domains WHERE name='rar.test'),'rar2@rar.test','R2',crypt('x',gen_salt('bf')),FALSE),
+  (195052,'rar3',(SELECT id FROM domains WHERE name='rar.test'),'rar3@rar.test','R3',crypt('x',gen_salt('bf')),FALSE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES
+  (95050,195050,(SELECT id FROM domains WHERE name='rar.test'),'rar1@rar.test','R1','personal',TRUE),
+  (95051,195051,(SELECT id FROM domains WHERE name='rar.test'),'rar2@rar.test','R2','personal',TRUE),
+  (95052,195052,(SELECT id FROM domains WHERE name='rar.test'),'rar3@rar.test','R3','personal',TRUE)
+  ON CONFLICT (id) DO NOTHING;
+SELECT create_system_tags(95050);
+SELECT create_system_tags(95051);
+SELECT create_system_tags(95052);
+
+-- MB1 rules: a forward_to (send-time) rule + a move_to Trash (organize) rule, both
+-- matching subjects containing 'sweep'.
+INSERT INTO rules (id, mailbox_id, name, enabled, priority, run_on, is_transport_rule, conditions, actions, stop_processing) VALUES
+  (95070, 95050, 'fwd', TRUE, 5, 'server', FALSE,
+   '[{"field":"subject","op":"contains","value":"sweep"}]'::jsonb,
+   '[{"type":"forward_to","params":{"address":"ext@x.test"}}]'::jsonb, FALSE),
+  (95071, 95050, 'move', TRUE, 10, 'server', FALSE,
+   '[{"field":"subject","op":"contains","value":"sweep"}]'::jsonb,
+   '[{"type":"move_to","params":{"folder":"Trash"}}]'::jsonb, FALSE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- MB2 rules: two move_to rules to DIFFERENT locations (Trash vs Spam), both matching
+-- 'multi'. A single-rule sweep of only the Trash rule must not fire the Spam rule.
+INSERT INTO rules (id, mailbox_id, name, enabled, priority, run_on, is_transport_rule, conditions, actions, stop_processing) VALUES
+  (95073, 95051, 'to-trash', TRUE, 10, 'server', FALSE,
+   '[{"field":"subject","op":"contains","value":"multi"}]'::jsonb,
+   '[{"type":"move_to","params":{"folder":"Trash"}}]'::jsonb, FALSE),
+  (95074, 95051, 'to-spam', TRUE, 20, 'server', FALSE,
+   '[{"field":"subject","op":"contains","value":"multi"}]'::jsonb,
+   '[{"type":"move_to","params":{"folder":"Spam"}}]'::jsonb, FALSE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Helper to drop a message into Inbox with a message_tags Inbox link.
+-- MB1 messages: one in-window (matches both rules), one older-than-window.
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at) VALUES
+  (95060, 95050, (SELECT id FROM tags WHERE mailbox_id=95050 AND name='Inbox'),
+   '<rar-60@rar.test>', 'sweep me now', 'snd@rar.test', '[]','[]','[]', 'thr-60', 'raw/60', now() - interval '10 days'),
+  (95061, 95050, (SELECT id FROM tags WHERE mailbox_id=95050 AND name='Inbox'),
+   '<rar-61@rar.test>', 'sweep me old', 'snd@rar.test', '[]','[]','[]', 'thr-61', 'raw/61', now() - interval '400 days'),
+  (95065, 95051, (SELECT id FROM tags WHERE mailbox_id=95051 AND name='Inbox'),
+   '<rar-65@rar.test>', 'multi me', 'snd@rar.test', '[]','[]','[]', 'thr-65', 'raw/65', now() - interval '5 days')
+  ON CONFLICT (id, received_at) DO NOTHING;
+INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+SELECT m.id, m.received_at, t.id, 'test', TRUE
+FROM messages m JOIN tags t ON t.mailbox_id=m.mailbox_id AND t.name='Inbox'
+WHERE m.id IN (95060,95061,95065) ON CONFLICT DO NOTHING;
+
+-- ── Scenario 1: all-rule sweep over MB1 within 90d ──────────────────────────────
+SELECT isnt(
+  (SELECT rules_apply_retroactive(95050, NULL, '90d')), NULL,
+  'rules_apply_retroactive enqueues an action and returns its id');
+
+-- Dedup: a second call while pending returns the SAME action id.
+SELECT is(
+  (SELECT count(DISTINCT id) FROM scheduled_actions WHERE action_kind='rules_retro' AND mailbox_id=95050),
+  1::BIGINT, 'dedup: repeat enqueue does not stack a second pending sweep');
+SELECT is(
+  (SELECT rules_apply_retroactive(95050, NULL, '90d')),
+  (SELECT id FROM scheduled_actions WHERE action_kind='rules_retro' AND mailbox_id=95050),
+  'dedup: second enqueue returns the existing pending action id');
+
+-- Fire the MB1 handler.
+SELECT is(
+  (SELECT scheduled_action_rules_retro(sa)->>'status' FROM scheduled_actions sa
+   WHERE action_kind='rules_retro' AND mailbox_id=95050),
+  'ok', 'rules_retro handler reports ok');
+
+-- LOAD-BEARING: the forward_to rule was swept organize-only → NOTHING queued outbound.
+SELECT is(
+  (SELECT count(*) FROM outbound_queue WHERE 'ext@x.test' = ANY(rcpt_addrs)),
+  0::BIGINT, 'organize-only: forward_to rule did NOT re-send historical mail');
+
+-- Organize action DID run: the in-window message moved to Trash.
+SELECT is(
+  (SELECT count(*) FROM message_tags mt JOIN tags t ON t.id=mt.tag_id
+   WHERE mt.message_id=95060 AND t.mailbox_id=95050 AND t.name='Trash'),
+  1::BIGINT, 'organize action ran: in-window message moved to Trash');
+
+-- Window filter: the 400-day-old message is OUTSIDE the 90d window → untouched (still Inbox).
+SELECT is(
+  (SELECT count(*) FROM message_tags mt JOIN tags t ON t.id=mt.tag_id
+   WHERE mt.message_id=95061 AND t.mailbox_id=95050 AND t.name='Inbox'),
+  1::BIGINT, 'window filter: out-of-window message left in Inbox');
+SELECT is(
+  (SELECT (payload->>'processed')::INT FROM scheduled_actions WHERE action_kind='rules_retro' AND mailbox_id=95050),
+  1, 'processed count reflects only in-window messages');
+
+-- ── Scenario 2: single-rule sweep over MB2 (only the Trash rule) ────────────────
+SELECT lives_ok($$ SELECT rules_apply_retroactive(95051, 95073, '90d') $$,
+  'single-rule apply enqueues for the owning mailbox');
+SELECT scheduled_action_rules_retro(sa) FROM scheduled_actions sa
+  WHERE action_kind='rules_retro' AND mailbox_id=95051;
+SELECT is(
+  (SELECT count(*) FROM message_tags mt JOIN tags t ON t.id=mt.tag_id
+   WHERE mt.message_id=95065 AND t.mailbox_id=95051 AND t.name='Spam'),
+  0::BIGINT, 'single-rule filter: the non-selected (Spam) rule did NOT run');
+
+-- ── R1: cannot retro-apply a rule owned by another mailbox ──────────────────────
+SELECT throws_ok($$ SELECT rules_apply_retroactive(95050, 95073, '90d') $$,
+  'BZ121', NULL, 'R1: applying MB2''s rule under MB1 is rejected (BZ121)');
+
+-- ── Cap + truncation flag: 5001 messages, cap 5000 ─────────────────────────────
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, cc_addrs, bcc_addrs, thread_id, raw_ref, received_at)
+SELECT 96000 + g, 95052, (SELECT id FROM tags WHERE mailbox_id=95052 AND name='Inbox'),
+       '<cap-'||g||'@rar.test>', 'bulk', 'snd@rar.test', '[]','[]','[]', 'thr-cap-'||g, 'raw/cap/'||g,
+       now() - (g || ' seconds')::interval
+FROM generate_series(1, 5001) g
+ON CONFLICT (id, received_at) DO NOTHING;
+SELECT rules_apply_retroactive(95052, NULL, 'all');
+SELECT scheduled_action_rules_retro(sa) FROM scheduled_actions sa
+  WHERE action_kind='rules_retro' AND mailbox_id=95052;
+SELECT is(
+  (SELECT (payload->>'truncated')::BOOLEAN FROM scheduled_actions WHERE action_kind='rules_retro' AND mailbox_id=95052),
+  TRUE, 'cap: truncation flag set when the window exceeds the cap');
+
+-- BZ120 coverage: the reducer's two argument guards (mailbox required, valid
+-- retro window) both RAISE BZ120 — without them a NULL mailbox or bogus window
+-- would hit an unguarded path.
+SELECT throws_ok(
+  $$ SELECT rules_apply_retroactive(NULL, NULL, '90d') $$,
+  'BZ120', NULL, 'BZ120: a NULL mailbox is rejected');
+SELECT throws_ok(
+  $$ SELECT rules_apply_retroactive(95052, NULL, 'bogus-window') $$,
+  'BZ120', NULL, 'BZ120: an invalid retro window is rejected');
+
+SELECT * FROM finish();
+ROLLBACK;

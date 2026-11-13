@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/ldap/sync-log",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "SyncedAt             Checked Created Updated Disabled Skipped Errors Duration(s)\n2026-10-31           2       1       0       0        0       0      3\n",
+  "stderr": "",
+  "exit": 0
+}

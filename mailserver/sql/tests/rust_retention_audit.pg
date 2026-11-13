@@ -1,0 +1,41 @@
+-- Public reducer seam: authenticated domain ownership and transaction outcomes.
+BEGIN;
+SELECT plan(20);
+CREATE TEMP TABLE compl2_actor(mailbox_id bigint,user_id bigint,domain_id bigint);
+INSERT INTO compl2_actor(mailbox_id) VALUES(mk_account('compl2-sql-a')),(mk_account('compl2-sql-b'));
+UPDATE compl2_actor a SET user_id=m.user_id,domain_id=m.domain_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE compl2_ids AS SELECT user_id actor,domain_id scope FROM compl2_actor ORDER BY mailbox_id LIMIT 1;
+CREATE TEMP TABLE compl2_other AS WITH inserted AS (INSERT INTO domains(name,is_local) VALUES('compl2-sql-other.test',true) RETURNING id) SELECT id scope FROM inserted;
+CREATE TEMP TABLE compl2_policy AS SELECT rust_compliance_retention_create(actor,scope,
+ '{"name":"compl2 scoped","description":"before","retainDays":null,"action":"hold","isDefault":false,"domainId":null}','127.0.0.1') id FROM compl2_ids;
+SELECT is((SELECT domain_id FROM retention_policies WHERE id=(SELECT id FROM compl2_policy)),(SELECT scope FROM compl2_ids),'creation owns the authenticated domain');
+SELECT is((SELECT user_id FROM admin_audit_log WHERE action='retention_policy_create' AND target_id=(SELECT id FROM compl2_policy)),(SELECT actor FROM compl2_ids),'audit actor is the authenticated actor');
+SELECT ok(NOT rust_compliance_retention_update((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_other),(SELECT id FROM compl2_policy),'{"name":"foreign"}','127.0.0.1'),'foreign domain cannot update');
+SELECT ok(NOT rust_compliance_retention_delete((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_other),(SELECT id FROM compl2_policy),'127.0.0.1'),'foreign domain cannot delete');
+SELECT ok(NOT rust_compliance_retention_update((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),(SELECT id FROM compl2_policy),jsonb_build_object('domainId',(SELECT scope FROM compl2_other)),'127.0.0.1'),'scope cannot retarget its policy');
+SELECT ok(rust_compliance_retention_update((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),(SELECT id FROM compl2_policy),'{"description":"after"}','127.0.0.1'),'owning domain can update');
+SELECT ok(rust_compliance_retention_delete((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),(SELECT id FROM compl2_policy),'127.0.0.1'),'owning domain can delete');
+SELECT is(rust_compliance_retention_create(0,(SELECT scope FROM compl2_ids),'{"name":"absent actor"}','127.0.0.1'),NULL::bigint,'absent actor cannot create');
+SELECT is(rust_compliance_retention_create((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),jsonb_build_object('name','wrong domain','domainId',(SELECT scope FROM compl2_other)),'127.0.0.1'),NULL::bigint,'request identity cannot override domain');
+CREATE TEMP TABLE compl2_global AS SELECT rust_compliance_retention_create(actor,0,
+ '{"name":"compl2 global","description":"global","retainDays":null,"action":"hold","isDefault":false,"domainId":null}','127.0.0.1') id FROM compl2_ids;
+SELECT ok(NOT rust_compliance_retention_update((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),(SELECT id FROM compl2_global),'{"name":"forbidden"}','127.0.0.1'),'global tier is immutable to a scoped actor');
+SELECT ok(NOT rust_compliance_retention_delete((SELECT actor FROM compl2_ids),(SELECT scope FROM compl2_ids),(SELECT id FROM compl2_global),'127.0.0.1'),'scoped actor cannot delete global tier');
+CREATE FUNCTION gofree_compl2_tap_audit_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'compl2 tap audit fault';END;$$;
+CREATE TRIGGER gofree_compl2_tap_audit_fault BEFORE INSERT ON admin_audit_log FOR EACH ROW EXECUTE FUNCTION gofree_compl2_tap_audit_fault();
+SELECT throws_ok(format($q$SELECT rust_compliance_retention_create(%s,0,'{"name":"compl2 unaudited","description":"","action":"delete","isDefault":false}','127.0.0.1')$q$,(SELECT actor FROM compl2_ids)),'P0001','compl2 tap audit fault','mandatory policy audit failure propagates');
+SELECT is((SELECT count(*)::int FROM retention_policies WHERE name='compl2 unaudited'),0,'mandatory audit rolls data back');
+SELECT ok(rust_compliance_audit_policy_set((SELECT actor FROM compl2_ids),'full',ARRAY['audit'],'reason','127.0.0.1'),'audit-policy update preserves Go best-effort audit');
+SELECT is((SELECT level FROM audit_policy WHERE id=1),'full','audit-policy data survives audit failure');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='audit_policy_change' AND user_id=(SELECT actor FROM compl2_ids)),0,'failed best-effort audit leaves no row');
+CREATE TEMP TABLE compl2_config_before AS SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY key),'[]') value FROM system_config t WHERE key LIKE 'log_retention_%';
+SELECT rust_compliance_log_retention_set(0,ARRAY[7,8,9,10]::bigint[]);
+SELECT is((SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY key),'[]') FROM system_config t WHERE key LIKE 'log_retention_%'),(SELECT value FROM compl2_config_before),'absent actor cannot alter global settings');
+CREATE FUNCTION gofree_compl2_tap_config_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.key='log_retention_auth_event_days' THEN RAISE EXCEPTION 'compl2 tap config fault';END IF;RETURN NEW;END;$$;
+CREATE TRIGGER gofree_compl2_tap_config_fault BEFORE INSERT OR UPDATE ON system_config FOR EACH ROW EXECUTE FUNCTION gofree_compl2_tap_config_fault();
+SELECT throws_ok(format('SELECT rust_compliance_log_retention_set(%s,ARRAY[7,8,9,10]::bigint[])',(SELECT actor FROM compl2_ids)),'P0001','compl2 tap config fault','later config failure aborts all four writes');
+SELECT is((SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY key),'[]') FROM system_config t WHERE key LIKE 'log_retention_%'),(SELECT value FROM compl2_config_before),'earlier config writes rolled back');
+INSERT INTO system_config(key,value) VALUES('log_retention_message_trace_days','"bad"'::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value;
+SELECT is((SELECT count(*)::int FROM rust_compliance_log_prune((SELECT actor FROM compl2_ids))),0,'prune runtime failure preserves Go empty result');
+SELECT * FROM finish();
+ROLLBACK;

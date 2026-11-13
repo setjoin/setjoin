@@ -1,0 +1,29 @@
+{
+  "case": "ws-requests",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"RequestError\",\"requestId\":\"no-using\",\"type\":\"urn:ietf:params:jmap:error:notRequest\",\"status\":400,\"detail\":\"'using' array must not be empty\"}",
+        "{\"@type\":\"RequestError\",\"requestId\":\"mail-cap\",\"type\":\"urn:ietf:params:jmap:error:unknownCapability\",\"status\":400,\"detail\":\"Capability not declared in 'using': urn:ietf:params:jmap:mail\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:unknownMethod\",\"status\":400},\"u\"]],\"requestId\":\"unknown\"}",
+        "{\"@type\":\"RequestError\",\"requestId\":\"core-cap\",\"type\":\"urn:ietf:params:jmap:error:unknownCapability\",\"status\":400,\"detail\":\"Capability not declared in 'using': urn:ietf:params:jmap:core\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"requestId\":\"empty\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:invalidArguments\",\"status\":400,\"detail\":\"args must be a JSON object\"},\"a\"]],\"requestId\":\"array\"}",
+        "{\"@type\":\"Response\",\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Core/echo\",{\"rows\":[{\"ids\":[\"x\",\"y\"]},{\"ids\":[\"z\"]}]},\"a\"],[\"Core/echo\",{\"ids\":[\"x\",\"y\",\"z\"]},\"b\"],[\"error\",{\"type\":\"urn:ietf:params:jmap:error:invalidResultReference\",\"status\":400,\"detail\":\"#x: no prior response with resultOf \\\"missing\\\"\"},\"c\"],[\"error\",{\"type\":\"urn:ietf:params:jmap:error:invalidArguments\",\"status\":400,\"detail\":\"argument \\\"ids\\\" given in both plain and referenced (#ids) form\"},\"d\"],[\"error\",{\"type\":\"urn:ietf:params:jmap:error:invalidResultReference\",\"status\":400,\"detail\":\"#x: response name \\\"Core/echo\\\" does not match referenced name \\\"Wrong\\\"\"},\"e\"]],\"requestId\":\"chain\"}",
+        "{\"@type\":\"RequestError\",\"requestId\":\"many\",\"type\":\"urn:ietf:params:jmap:error:requestTooLarge\",\"status\":400,\"detail\":\"maxCallsInRequest of 32 exceeded (33 calls)\"}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

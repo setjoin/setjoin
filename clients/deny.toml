@@ -1,0 +1,53 @@
+# Third-party licence policy for the clients Rust workspaces (clients/Cargo.toml
+# and clients/desktop/src-tauri/Cargo.toml). Same allow-list as
+# server-rust/deny.toml plus CDLA-Permissive-2.0, the permissive data licence of
+# webpki-roots / webpki-root-certs (Mozilla CA roots), which only the clients
+# graphs pull in. Setjoin's own crates are PolyForm-Noncommercial-1.0.0 (root
+# LICENSE); they set `publish = false`, so [licenses.private] skips them.
+# Enforced by scripts/check-clients-licenses.sh (drift vs server-rust + cargo-deny).
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+]
+# MPL-2.0 dependencies must remain unmodified; modified files must be published.
+[licenses.private]
+ignore = true
+
+# Cargo supply-chain registry policy for the clients workspace
+# (D-CLIENTS--CARGO-002, CWE-494). Enforced by `cargo deny check sources`
+# where cargo-deny is available, and validated byte-for-byte against
+# scripts/cargo-lock-pins.json by scripts/check-cargo-supply-chain.sh
+# (which runs in every run-guards.sh lane, including xinchuang CI).
+#
+# Policy: the ONLY permitted dependency source is crates.io. Git dependencies,
+# alternative registries, and any mirror are denied. If a mirror is ever
+# sanctioned, add it to allow-registry here, to `registries` in
+# scripts/cargo-lock-pins.json, and document it in clients/.cargo/config.toml
+# in the same change — the guard fails any drift between the three.
+[sources]
+# Unknown registries (anything not in allow-registry) fail the check.
+unknown-registry = "deny"
+# Git dependencies are denied outright: every dependency must be a
+# checksum-pinned crates.io package recorded in Cargo.lock.
+unknown-git = "deny"
+# The same canonical registry in both accepted spellings: the sparse index
+# endpoint (transport used by modern cargo) and the legacy git-protocol
+# identifier (the form recorded as `source` in Cargo.lock and understood by
+# older cargo-deny versions). They are one registry, not two sources.
+allow-registry = [
+    "sparse+https://index.crates.io/",
+    "https://github.com/rust-lang/crates.io-index",
+]

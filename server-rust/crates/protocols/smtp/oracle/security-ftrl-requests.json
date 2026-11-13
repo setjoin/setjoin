@@ -1,0 +1,308 @@
+[
+  {
+    "name": "ftrl-trained-spam",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-trained-spam@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "train_models": [
+      {
+        "user": 9348011,
+        "raw": "From: Visitor <visitor@external.test>\nTo: alias@smtp1.test\nMessage-ID: <ftrl-trained-spam@smtp6.test>\nSubject: Ordinary message\n\nhello\n",
+        "spam": true,
+        "steps": 100
+      }
+    ]
+  },
+  {
+    "name": "ftrl-cold",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-cold@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true
+  },
+  {
+    "name": "ftrl-disabled",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-disabled@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "setup_sql": "INSERT INTO user_spam_model(user_id,model_bytes,disabled) VALUES(9348011,''::bytea,true)"
+  },
+  {
+    "name": "ftrl-corrupt",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-corrupt@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "setup_sql": "INSERT INTO user_spam_model(user_id,model_bytes) VALUES(9348011,'bad'::bytea)"
+  },
+  {
+    "name": "ftrl-direct-skips-model",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alice@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alice@smtp1.test\r\nMessage-ID: <ftrl-direct-skips-model@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "train_models": [
+      {
+        "user": 9348011,
+        "raw": "From: Visitor <visitor@external.test>\nTo: alice@smtp1.test\nMessage-ID: <ftrl-direct-skips-model@smtp6.test>\nSubject: Ordinary message\n\nhello\n",
+        "spam": true,
+        "steps": 100
+      }
+    ]
+  },
+  {
+    "name": "ftrl-foreign-model",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-foreign-model@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "train_models": [
+      {
+        "user": 9348012,
+        "raw": "From: Visitor <visitor@external.test>\nTo: alias@smtp1.test\nMessage-ID: <ftrl-foreign-model@smtp6.test>\nSubject: Ordinary message\n\nhello\n",
+        "spam": true,
+        "steps": 100
+      }
+    ]
+  },
+  {
+    "name": "ftrl-batch-reuse",
+    "mail_auth": {
+      "feature.ml_spam": true,
+      "feature.spam_model_batch_load": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-batch-reuse@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <ftrl-batch-reuse@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "observe_batch": true
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "spam_store": true,
+    "train_models": [
+      {
+        "user": 9348011,
+        "raw": "From: Visitor <visitor@external.test>\nTo: alias@smtp1.test\nMessage-ID: <ftrl-batch-reuse@smtp6.test>\nSubject: Ordinary message\n\nhello\n",
+        "spam": true,
+        "steps": 100
+      }
+    ]
+  }
+]

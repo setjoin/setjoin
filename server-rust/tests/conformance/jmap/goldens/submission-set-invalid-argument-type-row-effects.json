@@ -1,0 +1,12 @@
+{
+  "case": "submission-set-invalid-argument-type-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "838cfaaf6859831bcdf9ca09a8a7ec3b3461de69",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap EmailSubmission/set"
+}

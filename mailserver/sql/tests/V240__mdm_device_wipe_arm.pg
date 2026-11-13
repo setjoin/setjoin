@@ -1,0 +1,48 @@
+-- pgTAP: V240__mdm_device_wipe_arm.pg — the forward-migration install record
+-- for the mdm_device_wipe_arm reducer (med-shard3-014). Post-ARCH-007 the
+-- reducer file stays the live CREATE OR REPLACE source (reload-reducers
+-- re-applies it after migrations on every test load); this migration is the
+-- deployment install record, mirroring how V222/V227 registered their
+-- reducer-owned functions. Proves: the deployed signature exists, it runs
+-- INVOKER-rights (the RLS posture the arm's R1/R3 scoping relies on), the
+-- arm behavior works end-to-end from the migration-installed shape, and the
+-- schema_migrations ledger advanced to 240.
+BEGIN;
+SELECT plan(5);
+
+-- ── Shape ────────────────────────────────────────────────────────────────────
+SELECT has_function('public', 'mdm_device_wipe_arm',
+                    ARRAY['uuid', 'text', 'bigint', 'bigint', 'inet'],
+                    'V240 installed mdm_device_wipe_arm(uuid,text,bigint,bigint,inet)');
+
+SELECT is((SELECT prosecdef FROM pg_proc
+            WHERE oid = 'mdm_device_wipe_arm(uuid,text,bigint,bigint,inet)'::regprocedure),
+          FALSE, 'the arm runs SECURITY INVOKER (scope predicates evaluate as the caller)');
+
+-- ── Behavior: the installed function arms a device end-to-end ────────────────
+INSERT INTO domains (name, is_local) VALUES ('mdm-v240.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (94101,'mdm-v240-owner',(SELECT id FROM domains WHERE name='mdm-v240.test'),
+        'v240-owner@mdm-v240.test','V240 Owner',crypt('x',gen_salt('bf')),FALSE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mdm_device_state (device_id, user_id, platform, device_name, os_version, app_version,
+                              compliance_status, wipe_requested, wipe_level)
+VALUES ('43111111-1111-1111-1111-111111111111'::uuid, 94101, 'ios', 'V240', '17.0', '1.0',
+        'compliant', 'none', NULL);
+
+SELECT is((mdm_device_wipe_arm('43111111-1111-1111-1111-111111111111'::uuid, 'account', 0, 94101))
+          ->>'result',
+          'armed', 'the migration-installed arm transitions none → armed');
+
+SELECT is((SELECT count(*) FROM admin_audit_log
+            WHERE action = 'mdm_device_wipe_arm'
+              AND notes = '43111111-1111-1111-1111-111111111111'),
+          1::bigint, 'the arm wrote its durable core audit row');
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 240),
+          1, 'schema_migrations records version 240');
+
+SELECT * FROM finish();
+ROLLBACK;

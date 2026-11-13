@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: create new output $HOME/registry.json: publish new private artifact: link $HOME/.mailctl-private-artifact-$TEMP $HOME/registry.json: file exists\n",
+  "exit": 1,
+  "files": {
+    "registry.json": {
+      "body": "unchanged",
+      "mode": 384
+    }
+  }
+}

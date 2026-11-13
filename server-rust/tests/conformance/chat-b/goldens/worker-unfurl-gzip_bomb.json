@@ -1,0 +1,25 @@
+{
+  "case": "worker-unfurl-gzip_bomb",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "http": [
+      {
+        "method": "GET",
+        "uri": "/gzip_bomb/<actor>"
+      }
+    ],
+    "notify": [],
+    "preview": {
+      "description": null,
+      "image": null,
+      "status": "error",
+      "title": null
+    },
+    "row": {
+      "changeSeq": 1,
+      "payload": null,
+      "seq": 1
+    }
+  }
+}

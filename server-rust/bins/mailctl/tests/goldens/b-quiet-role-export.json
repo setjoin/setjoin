@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/roles/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"roles\": [\n    {\n      \"name\": \"Reader\",\n      \"description\": \"\",\n      \"permissions\": [\n        \"mail.read\"\n      ],\n      \"members\": [\n        \"a@example.test\",\n        \"z@example.test\"\n      ]\n    }\n  ]\n}\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,44 @@
+-- #340: public SSO settlement/mint effect seams, no HTTP-owned principal.
+BEGIN;
+SELECT plan(24);
+INSERT INTO domains(name,is_local) VALUES('rust-idfed2-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,domain_id,display_name,password_hash,enabled) VALUES('rp-actor','rp-actor@rust-idfed2-pgtap.test',:dom,'rp test','x',true) RETURNING id AS actor \gset
+INSERT INTO users(username,email,domain_id,display_name,password_hash,enabled) VALUES('rp-other','rp-other@rust-idfed2-pgtap.test',:dom,'rp test','x',true) RETURNING id AS other \gset
+SELECT is(rust_identity_rp_settle(:actor,'rp-updated@rust-idfed2-pgtap.test','oidc:pgtap',NULL,'[]',false,false)->>'status','settled','profile transaction commits');
+SELECT is((SELECT email FROM users WHERE id=:actor),'rp-actor@rust-idfed2-pgtap.test','settlement never rewrites the account address to the IdP-asserted one (#547)');
+SELECT is((SELECT email FROM users WHERE id=:other),'rp-other@rust-idfed2-pgtap.test','foreign profile untouched');
+SELECT is(rust_identity_rp_mint(:actor,NULL,digest('rp-refresh','sha256'),3600,'34000000-0000-4000-8000-000000000001')->>'status','minted','local fence and anchor');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:actor),1::bigint,'one owned anchor');
+UPDATE users SET enabled=false WHERE id=:actor;
+SELECT is(rust_identity_rp_mint(:actor,NULL,digest('rp-refused','sha256'),3600,'34000000-0000-4000-8000-000000000002')->>'status','identity_failed','disable fence refuses mint');
+SELECT is((SELECT count(*) FROM oauth_tokens WHERE user_id=:other),0::bigint,'foreign anchor untouched');
+UPDATE users SET enabled=true WHERE id=:actor;
+INSERT INTO mailboxes(user_id,domain_id,email,display_name,type,is_primary) VALUES(:actor,:dom,'rp-updated@rust-idfed2-pgtap.test','rp','personal',true) RETURNING id AS mailbox \gset
+INSERT INTO mailboxes(user_id,domain_id,email,display_name,type,is_primary) VALUES(:other,:dom,'rp-group@rust-idfed2-pgtap.test','rp-group','personal',true) RETURNING id AS group_mailbox \gset
+INSERT INTO distribution_groups(mailbox_id) VALUES(:group_mailbox) RETURNING id AS dg \gset
+SELECT is(rust_identity_rp_settle(:actor,'rp-updated@rust-idfed2-pgtap.test','oidc:pgtap','["engineering"]',jsonb_build_array(jsonb_build_object('idp_group','engineering','distribution_group_id',:dg)),false,false)->>'status','settled','strict distribution mapping succeeds');
+SELECT is((SELECT count(*) FROM distribution_group_members WHERE mailbox_id=:mailbox AND group_id=:dg),1::bigint,'owned membership created');
+SELECT is((SELECT count(*) FROM sso_distribution_group_provenance WHERE mailbox_id=:mailbox AND group_id=:dg),1::bigint,'first grant records provider provenance (#530)');
+SELECT is(rust_identity_rp_settle(:actor,'rp-rollback@rust-idfed2-pgtap.test','oidc:pgtap','["engineering"]','[{"idp_group":"engineering","department_id":-1}]',false,false)->>'status','mapping_failed','bad mapping rolls back profile transaction');
+SELECT is((SELECT email FROM users WHERE id=:actor),'rp-actor@rust-idfed2-pgtap.test','address untouched when mapping fails');
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method) VALUES('rp-session-340',:actor,digest('rp-session','sha256'),now()+interval '1 hour','totp');
+SELECT set_config('app.rust_operation_id','34000000-0000-4000-8000-000000000101',true);
+SELECT ok((rust_identity_rp_link_begin(:actor,'34000000-0000-4000-8000-000000000201','rp-session-340',digest('rp-session','sha256'),'oidc:pgtap-link',extract(epoch FROM now())::bigint+500)->>'started')::boolean,'fresh live session authorizes one-use elevation');
+SELECT set_config('app.rust_operation_id','34000000-0000-4000-8000-000000000102',true);
+SELECT is(rust_identity_rp_link_finish(:actor,'https://idp.pgtap-idfed2.test','subject-pgtap','oidc:pgtap-link','34000000-0000-4000-8000-000000000201',digest('rp-session','sha256'),NULL,'[]',false)->>'status','linked','authorized link and entitlements settle atomically');
+SELECT is((SELECT count(*) FROM user_identity_links WHERE user_id=:actor AND external_subject='subject-pgtap'),1::bigint,'link belongs only to authorized actor');
+SELECT ok((SELECT consumed_at IS NOT NULL FROM identity_auth_link_elevations WHERE flow_id='34000000-0000-4000-8000-000000000201' AND user_id=:actor),'elevation spent with committed link');
+SELECT set_config('app.rust_operation_id','34000000-0000-4000-8000-000000000103',true);
+SELECT rust_identity_rp_link_begin(:actor,'34000000-0000-4000-8000-000000000202','rp-session-340',digest('rp-session','sha256'),'oidc:pgtap-failure',extract(epoch FROM now())::bigint+500);
+SELECT set_config('app.rust_operation_id','34000000-0000-4000-8000-000000000104',true);
+SELECT is(rust_identity_rp_link_finish(:actor,'https://failure.pgtap-idfed2.test','failed','oidc:pgtap-failure','34000000-0000-4000-8000-000000000202',digest('rp-session','sha256'),'["engineering"]','[{"idp_group":"engineering","department_id":-1}]',false)->>'status','mapping_failed','mapping failure aborts authorized linking');
+SELECT is((SELECT count(*) FROM user_identity_links WHERE user_id=:actor AND external_subject='failed'),0::bigint,'failed mapping leaves no durable link');
+SELECT ok((SELECT consumed_at IS NULL FROM identity_auth_link_elevations WHERE flow_id='34000000-0000-4000-8000-000000000202' AND user_id=:actor),'failed mapping preserves elevation');
+INSERT INTO system_config(key,value,encrypted) VALUES('oidc_provider_idfed2_pgtap_config','{"client_secret":"plain","extra":true}',false);
+SELECT is(rust_identity_rp_reseal('[{"key":"oidc_provider_idfed2_pgtap_config","before":{"client_secret":"plain","extra":true},"encrypted":false,"sealed":"sealed"}]'),1,'startup apply changes one locked provider');
+SELECT is((SELECT value FROM system_config WHERE key='oidc_provider_idfed2_pgtap_config'),'{"client_secret":"sealed","extra":true}'::jsonb,'startup preserves unrelated members');
+SELECT ok((SELECT encrypted FROM system_config WHERE key='oidc_provider_idfed2_pgtap_config'),'startup marks sealed row encrypted');
+SELECT throws_ok($q$SELECT rust_identity_rp_reseal('[{"key":"oidc_provider_idfed2_pgtap_config","before":{"client_secret":"plain","extra":true},"encrypted":false,"sealed":"bad"}]')$q$,'BZ228','OIDC startup configuration changed during reseal','changed snapshot refuses apply');
+SELECT is((SELECT value->>'client_secret' FROM system_config WHERE key='oidc_provider_idfed2_pgtap_config'),'sealed','refused startup apply changes nothing');
+SELECT * FROM finish();
+ROLLBACK;

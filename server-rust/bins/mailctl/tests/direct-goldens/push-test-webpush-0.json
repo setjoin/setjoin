@@ -1,0 +1,40 @@
+{
+  "stdout": "  SENT device 9900305 (webpush)\nDone: 1 sent, 0 failed\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "outbound": [
+      {
+        "method": "POST",
+        "path": "/webpush/capability",
+        "content_type": "application/octet-stream",
+        "authorization": "{VERIFIED_VAPID}",
+        "body": {
+          "payload": {
+            "body": "SetJoin mailctl push test",
+            "type": "test"
+          },
+          "record_size": 4096,
+          "body_length": 4096,
+          "padding_length": 3943,
+          "vapid": {
+            "header": {
+              "alg": "ES256",
+              "typ": "JWT"
+            },
+            "claims": {
+              "aud": "{HTTP}",
+              "exp": "{EXPIRY}",
+              "sub": "mailto:mailto:admin@localhost"
+            },
+            "public_key": "",
+            "signature_verified": true
+          }
+        }
+      }
+    ],
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

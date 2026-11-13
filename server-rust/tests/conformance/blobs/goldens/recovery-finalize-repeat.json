@@ -1,0 +1,142 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "206f9b0aa6c6aff8dc867ab84a6b6789aa940a6d",
+  "observation": {
+    "audit": [
+      {
+        "action": "mail_recovery_artifact_offer",
+        "actor": "<actor>",
+        "state": {
+          "artifactIdentity": "<identity>",
+          "incidentId": "<incident>",
+          "mailboxId": "<mailbox>",
+          "status": "quarantined"
+        }
+      }
+    ],
+    "effects": [
+      {
+        "change": "update",
+        "columns": {
+          "status": {
+            "after": "quarantined",
+            "before": "uploading"
+          },
+          "updated_at": {
+            "after": "<timestamp>",
+            "before": "<timestamp>"
+          }
+        },
+        "row": 0,
+        "table": "mail_recovery_upload_sessions"
+      },
+      {
+        "after": {
+          "artifact_identity": "<identity>",
+          "blob_inventory": [],
+          "created_at": "<timestamp>",
+          "device_id": "<device>",
+          "fork_consented_at": null,
+          "fork_consented_by": null,
+          "id": "<artifact>",
+          "incident_id": "<incident>",
+          "lineage_sha256": "<lineage>",
+          "mailbox_id": "<mailbox>",
+          "malware_status": "clean",
+          "parsed_headers": {
+            "bccAddrs": [],
+            "bodyHtml": "",
+            "bodyText": "Recovered body\r\n\r\nSecond paragraph.",
+            "ccAddrs": [],
+            "eligibility": "received",
+            "fromAddr": "sender@example.test",
+            "fromName": "Sender",
+            "inReplyTo": "",
+            "messageId": "<blobs1-recovered@example.test>",
+            "receivedAt": "2026-10-30T12:00:00Z",
+            "references": "",
+            "subject": "recovered message",
+            "toAddrs": [
+              {
+                "email": "recipient@example.test"
+              }
+            ]
+          },
+          "raw_mime_sha256": "\\x6d24e135773a39235ee530b567e9acb7da25b66da9ea98b528a4b1977b7ef1a6",
+          "raw_mime_size": 256,
+          "raw_ref": "6d24e135773a39235ee530b567e9acb7da25b66da9ea98b528a4b1977b7ef1a6",
+          "receipt": "<receipt>",
+          "rejection_reason": null,
+          "session_id": "<session>",
+          "signed_boot_epoch": "<boot>",
+          "signed_timeline": 1,
+          "status": "quarantined",
+          "terminal_at": null,
+          "uploading_user_id": "<actor>"
+        },
+        "table": "mail_recovery_quarantine_artifacts"
+      }
+    ],
+    "notify": [
+      "{\"status\": \"quarantined\", \"incident_id\": \"<incident>\"}"
+    ],
+    "reads": [
+      {
+        "key": "<raw-hash>",
+        "length": 256
+      }
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/recovery/uploads/{sessionId}/finalize"
+    },
+    "response": {
+      "body": "{\"id\":\"<artifact>\",\"replayed\":true,\"status\":\"quarantined\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "59"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-finalize-oracle"
+        ]
+      },
+      "status": 201
+    },
+    "scans": [
+      {
+        "command": "nINSTREAM",
+        "length": 256,
+        "sha256": "6d24e135773a39235ee530b567e9acb7da25b66da9ea98b528a4b1977b7ef1a6"
+      }
+    ]
+  },
+  "route": "POST /recovery/uploads/{sessionId}/finalize"
+}

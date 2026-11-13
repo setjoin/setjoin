@@ -1,0 +1,75 @@
+-- pgTAP test for audit_log immutability trigger
+BEGIN;
+SELECT plan(6);
+
+DO $$
+DECLARE
+    v_id BIGINT;
+BEGIN
+    -- Insert a test audit event
+    INSERT INTO audit_log (source_ip, event_type, metadata)
+    VALUES ('10.0.0.1', 'test_event', '{"test": true}')
+    RETURNING id INTO v_id;
+
+    -- Verify insert works
+    PERFORM 1 FROM audit_log WHERE id = v_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'audit_log insert should succeed';
+    END IF;
+
+    -- Verify NOTIFY trigger fires (we don't verify the payload, just coverage)
+    -- The trigger is tested by the insertion above
+END;
+$$;
+
+SELECT pass('audit_log insert succeeds');
+
+-- throws_ok asserts the immutability trigger actually fires. The previous
+-- DO/WHEN-OTHERS+pass() form was tautological: the inner sentinel RAISE ("should
+-- have been blocked") was caught by the same WHEN OTHERS, so pass() fired whether
+-- or not the trigger existed — a security test that could never fail.
+-- (D-AUTHSERVER-SQL-TESTS-004): both throws_ok now pin the trigger's exact
+-- SQLSTATE (P0001) AND its exact error message, so the block can no longer be
+-- satisfied by an incidental error source (e.g. a permission failure) instead
+-- of the immutability trigger.
+SELECT throws_ok(
+    $$UPDATE audit_log SET metadata = '{}' WHERE event_type = 'test_event'$$,
+    'P0001', 'audit_log is append-only: cannot UPDATE or DELETE',
+    'audit_log UPDATE is blocked by the immutability trigger (P0001, exact message)'
+);
+
+SELECT throws_ok(
+    $$DELETE FROM audit_log WHERE event_type = 'test_event'$$,
+    'P0001', 'audit_log is append-only: cannot UPDATE or DELETE',
+    'audit_log DELETE is blocked by the immutability trigger (P0001, exact message)'
+);
+
+-- The block must come from the trigger machinery, not an incidental error
+-- source: pin that the enforcing trigger exists on audit_log and is bound to
+-- the immutability function (D-AUTHSERVER-SQL-TESTS-004).
+SELECT trigger_is(
+    'audit_log', 'trg_audit_log_no_update', 'trg_audit_log_immutable',
+    'UPDATE/DELETE block is enforced by trg_audit_log_no_update'
+);
+
+-- NOTIFY stream coverage (D-AUTHSERVER-SQL-TESTS-004): the 'audit:*' NOTIFY
+-- half of the audit contract is pinned structurally — the AFTER INSERT trigger
+-- exists, is bound to trg_audit_log_notify, and that function still emits on
+-- the 'audit:' channel. (pgTAP cannot read NOTIFY payloads from SQL, so
+-- end-to-end payload delivery stays with the admin dashboard integration;
+-- this pins the stream wiring itself.)
+SELECT trigger_is(
+    'audit_log', 'trg_audit_log_notify', 'trg_audit_log_notify',
+    'INSERT fan-out is wired via trg_audit_log_notify'
+);
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE proname = 'trg_audit_log_notify'
+          AND prosrc LIKE '%pg_notify(''audit:''%'
+    ),
+    'audit NOTIFY trigger emits on the audit: channel'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

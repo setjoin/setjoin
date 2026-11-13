@@ -1,0 +1,22 @@
+-- #274: combined rename/move is one public mutation, including rollback.
+BEGIN;
+SELECT plan(4);
+SELECT mk_account('drive2-patch-owner') AS mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:mb \gset
+SELECT mk_account('drive2-patch-foreign') AS other_mb \gset
+SELECT user_id AS foreign_actor FROM mailboxes WHERE id=:other_mb \gset
+SELECT drive_space_create(:actor,'Project','regular') AS space \gset
+SELECT drive_node_create(:actor,:space,NULL,'folder','Parent') AS parent \gset
+SELECT drive_node_create(:actor,:space,NULL,'file','Original') AS node \gset
+SELECT set_config('app.current_user_id',:actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(format($$SELECT drive_rust_node_patch(%s,%s,true,'Renamed',true,%s)$$,:actor,:node,:parent),'rename and move succeed together');
+SELECT throws_ok(format($$SELECT drive_rust_node_patch(%s,%s,true,'Must roll back',true,-1)$$,:actor,:node),'BZ139',NULL,'failed move rejects combined mutation');
+RESET ROLE;
+SELECT is((SELECT name FROM drive_nodes WHERE id=:node AND space_id=:space),'Renamed','failed move rolls back earlier rename');
+SELECT set_config('app.current_user_id',:foreign_actor::text,true);
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(format($$SELECT drive_rust_node_patch(%s,%s,true,'Foreign',false,NULL)$$,:foreign_actor,:node),'BZ139',NULL,'foreign caller cannot rename');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

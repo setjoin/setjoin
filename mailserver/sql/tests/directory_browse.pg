@@ -1,0 +1,153 @@
+-- pgTAP: directory_browse.sql — department tree + members + search
+--
+-- ORG-WIDE (ADR-004, docs/adr/ARCH-004-directory-org-scope.md): a deployment is
+-- ONE organization. directory_members / directory_search / directory_tree span
+-- ALL domains/forests via the shared directory_visible_users(p_mailbox_id) seam —
+-- there is NO home-domain filter. These tests put the caller and a colleague on
+-- DIFFERENT domains and assert both are listed (the home-domain filter ADR-004
+-- removes would have hidden the colleague).
+--
+-- DIVERGENT IDS (ADR-003): user ids (74xx/75xx) != mailbox ids (94xx) by
+-- construction, so an account-scope confusion cannot pass by accident.
+BEGIN;
+SELECT plan(12);
+
+-- Two domains in the SAME org. Caller on dir.browse.test; colleague on a sister.
+INSERT INTO domains (name, is_local) VALUES ('dir.browse.test', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('dir.sister.test', TRUE);
+
+-- Caller (user 7411 / mailbox 9411).
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (7411, 'dirbrowse1', (SELECT id FROM domains WHERE name='dir.browse.test'), 'dirbrowse1@dir.browse.test', 'Browse User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name)
+  VALUES (9411, 7411, (SELECT id FROM domains WHERE name='dir.browse.test'), 'dirbrowse1@dir.browse.test', 'personal', TRUE, 'Browse User');
+
+-- Department hierarchy: Engineering > Platform > Backend, plus Marketing.
+INSERT INTO departments (name, path, ldap_ou) VALUES ('Engineering', '/Engineering', 'ou=Engineering,dc=dir,dc=browse,dc=test');
+INSERT INTO departments (name, parent_id, path, ldap_ou)
+  VALUES ('Platform', (SELECT id FROM departments WHERE name = 'Engineering'), '/Engineering/Platform', 'ou=Platform,ou=Engineering,dc=dir,dc=browse,dc=test');
+INSERT INTO departments (name, parent_id, path, ldap_ou)
+  VALUES ('Backend', (SELECT id FROM departments WHERE name = 'Platform'), '/Engineering/Platform/Backend', 'ou=Backend,ou=Platform,ou=Engineering,dc=dir,dc=browse,dc=test');
+INSERT INTO departments (name, path, ldap_ou) VALUES ('Marketing', '/Marketing', 'ou=Marketing,dc=dir,dc=browse,dc=test');
+
+-- Two people in Engineering on DIFFERENT domains of the one org:
+--   - dana on the caller's home domain
+--   - evan on the sister domain (the home-domain filter would have hidden him)
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, department_id) VALUES
+  (7412, 'dana-eng', (SELECT id FROM domains WHERE name='dir.browse.test'), 'dana@dir.browse.test', 'Dana Eng', TRUE, (SELECT id FROM departments WHERE name='Engineering')),
+  (7512, 'evan-eng', (SELECT id FROM domains WHERE name='dir.sister.test'), 'evan@dir.sister.test', 'Evan Eng', TRUE, (SELECT id FROM departments WHERE name='Engineering'));
+
+-- Guest P7: all guest lifecycle states stay out of the org directory. Keep
+-- users.enabled=TRUE even for disabled/expired fixtures so this specifically
+-- proves the guest discriminator exclusion rather than the generic enabled
+-- filter. Guests are mailbox-less by invariant.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, department_id) VALUES
+  (7612, 'dirguest-invited',  (SELECT id FROM domains WHERE name='guest.invalid'), 'dirguest-invited@external.test',  'Invited Guest',  TRUE, (SELECT id FROM departments WHERE name='Engineering')),
+  (7613, 'dirguest-active',   (SELECT id FROM domains WHERE name='guest.invalid'), 'dirguest-active@external.test',   'Active Guest',   TRUE, (SELECT id FROM departments WHERE name='Engineering')),
+  (7614, 'dirguest-disabled', (SELECT id FROM domains WHERE name='guest.invalid'), 'dirguest-disabled@external.test', 'Disabled Guest', TRUE, (SELECT id FROM departments WHERE name='Engineering')),
+  (7615, 'dirguest-expired',  (SELECT id FROM domains WHERE name='guest.invalid'), 'dirguest-expired@external.test',  'Expired Guest',  TRUE, (SELECT id FROM departments WHERE name='Engineering'));
+INSERT INTO guest_accounts (user_id, invited_email, invited_by, invited_by_email, host_domain_id, status)
+SELECT u.id, u.email, 7411, 'dirbrowse1@dir.browse.test',
+       (SELECT id FROM domains WHERE name='dir.browse.test'),
+       split_part(u.username, '-', 2)
+  FROM users u
+ WHERE u.id BETWEEN 7612 AND 7615;
+
+-- Test 1: directory_tree runs (was a known product bug; departments has no
+-- domain_id, the tree is org-wide and correct under one-org — ADR-004).
+SELECT lives_ok(
+  $$ SELECT directory_tree(9411) $$,
+  'directory_tree returns result without error'
+);
+
+-- Test 2: members of Engineering returns a list array.
+SELECT ok(
+  (SELECT jsonb_typeof(directory_members(9411, (SELECT id FROM departments WHERE name='Engineering'), 0, 50) -> 'list') = 'array'),
+  'directory members returns list array'
+);
+
+-- Test 3 (ORG-WIDE): Engineering members include BOTH the home-domain and the
+-- sister-domain person — proves there is no home-domain filter (ADR-004).
+SELECT is(
+  (SELECT (directory_members(9411, (SELECT id FROM departments WHERE name='Engineering'), 0, 50) ->> 'total')::INT),
+  2,
+  'directory_members lists colleagues across all org domains (no home-domain filter)'
+);
+
+-- Test 4: the sister-domain colleague is specifically present in the member list.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements(directory_members(9411, (SELECT id FROM departments WHERE name='Engineering'), 0, 50) -> 'list') r
+   WHERE r->>'email' = 'evan@dir.sister.test'),
+  1,
+  'directory_members includes the sister-domain colleague (org-wide, ADR-004)'
+);
+
+-- Test 5: search by name returns a list array.
+SELECT ok(
+  (SELECT jsonb_typeof(directory_search(9411, 'Platform', 50) -> 'list') = 'array'),
+  'directory search returns list array'
+);
+
+-- Test 6 (ORG-WIDE search): searching the sister-domain colleague's email finds
+-- them — the directory search spans domains.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM jsonb_array_elements(directory_search(9411, 'evan@dir.sister.test', 50) -> 'list') r
+   WHERE r->>'email' = 'evan@dir.sister.test'),
+  1,
+  'directory_search finds a sister-domain colleague by email (org-wide, ADR-004)'
+);
+
+-- Test 7: a member card carries the structured address set (address-aware).
+SELECT is(
+  (SELECT jsonb_typeof(r->'addresses')
+   FROM jsonb_array_elements(directory_members(9411, (SELECT id FROM departments WHERE name='Engineering'), 0, 50) -> 'list') r
+   WHERE r->>'email' = 'dana@dir.browse.test'),
+  'array',
+  'directory_members card includes the address set'
+);
+
+-- Test 8: search no match returns empty list.
+SELECT is(
+  jsonb_array_length(directory_search(9411, 'Nonexistent', 50) -> 'list'),
+  0,
+  'no match returns empty list array'
+);
+
+-- Test 9: the shared visibility seam excludes every guest lifecycle state.
+SELECT is(
+  (SELECT COUNT(*)::INT FROM directory_visible_users(9411) v
+    WHERE v.id BETWEEN 7612 AND 7615),
+  0,
+  'directory_visible_users excludes invited, active, disabled, and expired guests'
+);
+
+-- Test 10: exact guest email still returns no fuzzy-directory result.
+SELECT is(
+  jsonb_array_length(directory_search(9411, 'dirguest-active@external.test', 50) -> 'list'),
+  0,
+  'directory_search never reveals a guest by exact email'
+);
+
+-- Test 11: tree counts inherit the same seam and count only two employees.
+SELECT is(
+  (SELECT (node->>'memberCount')::INT
+     FROM jsonb_array_elements(directory_tree(9411) -> 'list') node
+    WHERE node->>'name' = 'Engineering'),
+  2,
+  'directory_tree member counts exclude guests'
+);
+
+-- Test 12: prove the exclusion under the real constrained app role. A raw
+-- NOT EXISTS against guest_accounts would see no foreign guest rows through
+-- its self-read-only FORCE-RLS policy and incorrectly return this guest.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '7411', TRUE);
+SELECT is(
+  jsonb_array_length(directory_search(9411, 'dirguest-active@external.test', 50) -> 'list'),
+  0,
+  'guest exclusion remains fail-closed under setjoin_app FORCE-RLS'
+);
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

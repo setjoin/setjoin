@@ -1,0 +1,343 @@
+-- pgTAP: gal_visibility_journal (V262, CARDDAV-V-002) — the per-mailbox GAL
+-- visibility journal + its trusted seams (gal_visibility_record,
+-- gal_journal_seen) + the gal_changes removal-axis change.
+--
+-- The three load-bearing behaviors (the triage's fix contract):
+--   * record: gal_visibility_record journals ONLY ids the ADR-004 seam
+--     actually shows the caller (never-visible ids are never journaled), and
+--     re-recording is a no-op;
+--   * removal after visibility: a journaled member that goes invisible IS
+--     reported in the sync delta's removed set;
+--   * no false positive for never-visible: a member that was NEVER visible
+--     (hidden_from_gal) whose updated_at bumps inside the token window is NOT
+--     reported as removed — even though the count equation balances (this is
+--     exactly the id-and-timing residual the pre-V262 removed-set leaked).
+--
+-- All timestamps are explicit literals (NOT now()) — the whole pgTAP file
+-- runs inside one outer transaction where now() is frozen at transaction
+-- start (see gal_changes.pg).
+BEGIN;
+SELECT plan(50);
+
+INSERT INTO domains (name, is_local) VALUES ('galvj.test', TRUE);
+
+-- ── Fixtures ─────────────────────────────────────────────────────────────────
+-- caller (7841/9841); A visible (7842/9842); H hidden_from_gal (7843/9843);
+-- D disabled (7844/9844). F (7851/9851) + A2 (7852/9852) + H2 hidden
+-- (7853/9853): the no-false-positive scenario. F3 (7861/9861) + A3 visible
+-- (7862/9862) + X3 hidden (7863/9863): the hard-delete race scenario.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, created_at, updated_at) VALUES
+  (7841, 'galvj_caller', (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_caller@galvj.test', 'Caller', TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7842, 'galvj_a',      (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a@galvj.test',      'Ann',   TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7843, 'galvj_h',      (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_h@galvj.test',      'Hank',  TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7844, 'galvj_d',      (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_d@galvj.test',      'Dee',   FALSE, '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7851, 'galvj_f',      (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_f@galvj.test',      'Fay',   TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7852, 'galvj_a2',     (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a2@galvj.test',     'Abe',   TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7853, 'galvj_h2',     (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_h2@galvj.test',     'Hugo',  TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7861, 'galvj_f3',     (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_f3@galvj.test',     'F3',    TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7862, 'galvj_a3',     (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a3@galvj.test',     'A3',    TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  (7863, 'galvj_x3',     (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_x3@galvj.test',     'X3',    TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00'),
+  -- r3 guest fixture: a real, ENABLED, active guest (guest.invalid routing
+  -- domain, mailbox-less by invariant). Org-invisible by the P7 guest
+  -- discriminator — directory_visible_users excludes it via is_guest_account —
+  -- so no section above or below may journal it. Section 10b replays the
+  -- planted-TEMP-shadow attack against exactly this classification.
+  (7871, 'galvj_g',      (SELECT id FROM domains WHERE name='guest.invalid'), 'galvj_g@external.test', 'Gus', TRUE,  '2020-01-01+00', '2026-01-01 00:00:00+00');
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, is_primary, display_name, hidden_from_gal) VALUES
+  (9841, 7841, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_caller@galvj.test', 'personal', TRUE, 'Caller', FALSE),
+  (9842, 7842, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a@galvj.test',      'personal', TRUE, 'Ann',    FALSE),
+  (9843, 7843, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_h@galvj.test',      'personal', TRUE, 'Hank',   TRUE),
+  (9844, 7844, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_d@galvj.test',      'personal', TRUE, 'Dee',    FALSE),
+  (9851, 7851, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_f@galvj.test',      'personal', TRUE, 'Fay',    FALSE),
+  (9852, 7852, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a2@galvj.test',     'personal', TRUE, 'Abe',    FALSE),
+  (9853, 7853, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_h2@galvj.test',     'personal', TRUE, 'Hugo',   TRUE),
+  (9861, 7861, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_f3@galvj.test',     'personal', TRUE, 'F3',     FALSE),
+  (9862, 7862, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_a3@galvj.test',     'personal', TRUE, 'A3',     FALSE),
+  (9863, 7863, (SELECT id FROM domains WHERE name='galvj.test'), 'galvj_x3@galvj.test',     'personal', TRUE, 'X3',     TRUE);
+
+-- The r3 guest's discriminator row (the REAL table is_guest_account answers
+-- from; no mailbox — guests are mailbox-less by invariant).
+INSERT INTO guest_accounts (user_id, invited_email, invited_by, invited_by_email, sponsor_user_id, host_domain_id, status)
+VALUES (7871, 'galvj_g@external.test', 7841, 'galvj_caller@galvj.test', 7841,
+        (SELECT id FROM domains WHERE name='galvj.test'), 'active');
+
+-- ── 1. Isolation posture (V246/V249/V253 deny-all form) ─────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'gal_visibility_journal'::regclass),
+  true, 'V262: gal_visibility_journal has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'gal_visibility_journal'::regclass),
+  true, 'V262: gal_visibility_journal RLS is FORCEd (owner included)');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'gal_visibility_journal'),
+  0, 'V262: ZERO permissive policies — deny-all to every runtime role');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE tablename = 'gal_visibility_journal'),
+  'setjoin_owner', 'V262: table ownership sits with setjoin_owner (DDL owner)');
+
+-- ── 2. Function ACLs — app-invokable trusted seams (V254 mdm form) ──────────
+SELECT is(
+  has_function_privilege('setjoin_app', 'gal_visibility_record(bigint,bigint[])', 'EXECUTE'),
+  true, 'V262: setjoin_app holds EXECUTE on gal_visibility_record (gateway render path calls it)');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'gal_visibility_record(bigint,bigint[])', 'EXECUTE'),
+  true, 'V262: setjoin_worker holds EXECUTE on gal_visibility_record (the definer)');
+SELECT is(
+  has_function_privilege('setjoin_app', 'gal_journal_seen(bigint,bigint)', 'EXECUTE'),
+  true, 'V262: setjoin_app holds EXECUTE on gal_journal_seen (gal_changes removal filter)');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'gal_journal_seen(bigint,bigint)', 'EXECUTE'),
+  true, 'V262: setjoin_worker holds EXECUTE on gal_journal_seen');
+
+-- ── 3. gal_visibility_record behavior ───────────────────────────────────────
+SELECT throws_ok(
+  $$ SELECT gal_visibility_record(999999999, ARRAY[7842]::BIGINT[]) $$,
+  'BZ001', NULL,
+  'unknown caller mailbox raises BZ001');
+
+-- record {A, H, bogus}: ONLY A is seam-visible to the caller — H (hidden) and
+-- the unknown id journal nothing (R1 by resolution: the seam filters).
+SELECT is(
+  gal_visibility_record(9841, ARRAY[7842, 7843, 999999999]::BIGINT[])->>'recorded',
+  '1', 'record journals only the seam-visible subset of the id array');
+SELECT is(
+  (SELECT count(*)::int FROM gal_visibility_journal WHERE mailbox_id = 9841),
+  1, 'exactly one journal row exists for the caller');
+SELECT is(
+  (SELECT user_id FROM gal_visibility_journal WHERE mailbox_id = 9841),
+  7842::BIGINT, 'the journaled member is the visible one — the hidden member was never journaled');
+
+-- Membership predicate reads the same truth.
+SELECT is(gal_journal_seen(9841, 7842), true,  'gal_journal_seen: journaled member is seen');
+SELECT is(gal_journal_seen(9841, 7843), false, 'gal_journal_seen: never-visible member is NOT seen');
+
+-- Idempotent re-record: no duplicate row, recorded=0.
+SELECT is(
+  gal_visibility_record(9841, ARRAY[7842]::BIGINT[])->>'recorded',
+  '0', 're-recording a journaled member is a no-op');
+SELECT is(
+  (SELECT count(*)::int FROM gal_visibility_journal WHERE mailbox_id = 9841),
+  1, 're-record inserts nothing (one row per member per mailbox)');
+
+-- ── 4. Initial sync primes the journal with the disclosed set ───────────────
+-- The ADR-004 seam is ORG-WIDE, so the caller's disclosed set includes the
+-- visible members of EVERY scenario fixture in this file (7841, 7842, 7851,
+-- 7852, 7861, 7862) — the hidden (7843, 7853, 7863) and disabled (7844) rows
+-- stay out. Org-wide counts are the guard's own arithmetic.
+SELECT is(gal_changes(9841, 0, 0)->>'resync', 'false', 'initial sync is not a resync');
+SELECT is(gal_changes(9841, 0, 0)->>'removed', '[]', 'initial sync has no removals');
+SELECT is(
+  (SELECT count(*)::int FROM gal_visibility_journal WHERE mailbox_id = 9841),
+  6, 'initial sync journals the whole ORG-WIDE disclosed set (6 visible; hidden/disabled stay out)');
+SELECT (gal_changes(9841, 0, 0)->>'newMicros') AS micros0 \gset
+SELECT (gal_changes(9841, 0, 0)->>'newCount')  AS count0  \gset
+
+-- ── 5. Removal after visibility IS detected ─────────────────────────────────
+UPDATE users SET enabled = FALSE, updated_at = '2026-01-01 00:00:01+00' WHERE id = 7842;
+SELECT ok(
+  gal_changes(9841, :micros0, :count0)->'removed' @> jsonb_build_array(jsonb_build_object('id', 7842)),
+  'disabling a previously-visible journaled member surfaces it in removed');
+SELECT is(gal_changes(9841, :micros0, :count0)->>'resync', 'false',
+  'the journaled removal balances the count equation (a real delta, not a resync)');
+SELECT is((gal_changes(9841, :micros0, :count0)->>'newCount')::BIGINT, 5::BIGINT,
+  'newCount drops by one after the journaled removal (org-wide 6 → 5)');
+SELECT is(
+  (SELECT count(*)::int FROM gal_visibility_journal WHERE mailbox_id = 9841 AND user_id = 7842),
+  1, 'the journal row persists after the removal (first_seen is the record of past disclosure)');
+SELECT (gal_changes(9841, :micros0, :count0)->>'newMicros') AS micros1 \gset
+SELECT (gal_changes(9841, :micros0, :count0)->>'newCount')  AS count1  \gset
+
+-- ── 6. Hide + re-show inside ONE token window: net visible → changed entry ──
+-- Ann is in BOTH endpoint counts (visible at token issue and now), so the
+-- equation balances and the delta carries her as a changed card — not a
+-- removal, not a resync. (A removal REPORTED to the client followed by a
+-- re-show legitimately forces a resync: the re-shown member was absent from
+-- the token's count basis, and the count guard never guesses.)
+UPDATE users SET enabled = FALSE, updated_at = '2026-01-01 00:00:01.000005+00' WHERE id = 7842;
+UPDATE users SET enabled = TRUE,  updated_at = '2026-01-01 00:00:01.000010+00' WHERE id = 7842;
+SELECT ok(
+  gal_changes(9841, :micros0, :count0)->'changed' @> jsonb_build_array(jsonb_build_object('id', 7842)),
+  'a member hidden and re-shown inside one window surfaces as changed');
+SELECT is(gal_changes(9841, :micros0, :count0)->>'removed', '[]',
+  'a currently-visible member is never in removed');
+SELECT is(gal_changes(9841, :micros0, :count0)->>'resync', 'false',
+  'the same-window hide/unhide balances the count equation');
+
+-- ── 7. NO false positive for a never-visible member (the finding) ───────────
+-- Fay's initial sync discloses {Fay, Abe}; Hugo was hidden_from_gal all along
+-- and is never journaled. Disabling Hugo bumps his updated_at inside Fay's
+-- token window AND balances the count equation (2 + 0 - 0 = 2) — the exact
+-- pre-V262 leak shape. The journal filter must yield an empty delta.
+SELECT is(gal_changes(9851, 0, 0)->>'resync', 'false', 'Fay initial sync is not a resync');
+SELECT (gal_changes(9851, 0, 0)->>'newMicros') AS microsf \gset
+SELECT (gal_changes(9851, 0, 0)->>'newCount')  AS countf  \gset
+SELECT is(gal_journal_seen(9851, 7853), false, 'the never-visible member is unjournaled for Fay');
+UPDATE users SET enabled = FALSE, updated_at = '2026-01-01 00:00:03+00' WHERE id = 7853;
+SELECT is(
+  gal_changes(9851, :microsf, :countf)->>'removed',
+  '[]', 'disabling a NEVER-visible member reports NO removal (no id oracle)');
+SELECT is(gal_changes(9851, :microsf, :countf)->>'resync', 'false',
+  'the balanced coincidence yields a (correctly empty) delta, not a resync');
+SELECT is(gal_journal_seen(9851, 7853), false,
+  'the never-visible member stays unjournaled (nothing was disclosed)');
+
+-- ── 8. Hard-delete race: count breaks → resync, never an X3 delta ───────────
+-- A3 is visible+journaled for F3; X3 is hidden (never journaled). Hard-deleting
+-- A3 while bumping X3's updated_at inside one token window is the triage race:
+-- the response must be a forced resync (A3's row — and journal row — are gone,
+-- so the equation breaks) and X3 must remain undiscoverable.
+SELECT is(gal_changes(9861, 0, 0)->>'resync', 'false', 'F3 initial sync is not a resync');
+SELECT (gal_changes(9861, 0, 0)->>'newMicros') AS micros3 \gset
+SELECT (gal_changes(9861, 0, 0)->>'newCount')  AS count3  \gset
+SELECT is(gal_journal_seen(9861, 7863), false, 'X3 (hidden) is unjournaled for F3');
+UPDATE users SET updated_at = '2026-01-01 00:00:04+00' WHERE id = 7863;
+DELETE FROM mailboxes WHERE id = 9862;
+DELETE FROM users WHERE id = 7862;
+SELECT is(
+  gal_changes(9861, :micros3, :count3)->>'resync', 'true',
+  'the hard-delete race forces a resync — never a stale delta');
+SELECT is(gal_journal_seen(9861, 7863), false,
+  'after the race X3 is still unjournaled — no never-visible id was disclosed');
+
+-- ── 9. Table denial under FORCE (app role touches nothing directly) ─────────
+SET LOCAL ROLE setjoin_app;
+SELECT is(
+  (SELECT count(*)::int FROM gal_visibility_journal),
+  0, 'app credential sees ZERO journal rows despite rows existing (deny-all RLS)');
+SELECT throws_ok(
+  $$ INSERT INTO gal_visibility_journal (mailbox_id, user_id) VALUES (9841, 7844) $$,
+  '42501', NULL, 'app credential INSERT is denied (row violates row-level security policy)');
+RESET ROLE;
+
+-- ── 10. TEMP-shadow regression (r2 hold finding, P1) ────────────────────────
+-- PostgreSQL searches an existing TEMP schema FIRST for relation names when
+-- pg_temp is omitted from search_path, so a SECURITY DEFINER helper with
+-- unqualified relations let any TEMP-privileged caller plant a same-named TEMP
+-- table (GRANTed to the definer), forge journal answers and redirect the
+-- privileged writer. Both seams now schema-qualify every relation AND pin
+-- pg_temp LAST (`pg_catalog, public, pg_temp`) — which also covers the
+-- unqualified internals of the SECURITY INVOKER seam directory_visible_users
+-- they invoke (those resolve against the DEFINER's pinned path). The attack
+-- shape, replayed as the app role: shadow the journal, plant a forged
+-- "disclosed" row, grant the definer access, and invoke the seams. The REAL
+-- table must answer; the shadow must never win.
+
+-- The mechanism, pinned directly on the functions' stored SET clause: pg_temp
+-- must be LISTED (so the temp schema is not implicitly searched first) and
+-- LISTED LAST (so it is searched after public for every relation the seams —
+-- and their invoked seam — resolve).
+SELECT is(
+  (SELECT s FROM pg_proc p, LATERAL unnest(p.proconfig) s
+    WHERE p.oid = 'gal_journal_seen(bigint,bigint)'::regprocedure
+      AND s LIKE 'search_path=%'),
+  'search_path=pg_catalog, public, pg_temp',
+  'r2: gal_journal_seen pins pg_temp LAST (temp schema searched after public)');
+SELECT is(
+  (SELECT s FROM pg_proc p, LATERAL unnest(p.proconfig) s
+    WHERE p.oid = 'gal_visibility_record(bigint,bigint[])'::regprocedure
+      AND s LIKE 'search_path=%'),
+  'search_path=pg_catalog, public, pg_temp',
+  'r2: gal_visibility_record pins pg_temp LAST (covers the invoked seam''s internals too)');
+
+SET LOCAL ROLE setjoin_app;
+-- The shadow: matching shape (incl. the unique key so a redirected
+-- ON CONFLICT INSERT would silently succeed), a planted forgery claiming the
+-- never-visible Hugo (7853) was disclosed to the caller (9841), and definer
+-- access — everything the attack needs to go silent.
+CREATE TEMP TABLE gal_visibility_journal (
+    mailbox_id     BIGINT      NOT NULL,
+    user_id        BIGINT      NOT NULL,
+    first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    CONSTRAINT gal_visibility_journal_mailbox_user_key UNIQUE (mailbox_id, user_id)
+);
+INSERT INTO pg_temp.gal_visibility_journal (mailbox_id, user_id) VALUES (9841, 7853);
+GRANT SELECT, INSERT, DELETE ON pg_temp.gal_visibility_journal TO setjoin_worker;
+
+-- Reader seam: the planted forgery must NOT make the never-visible member
+-- "seen", and the REAL journaled row must still answer true (a shadowed
+-- lookup would flip both answers).
+SELECT is(gal_journal_seen(9841, 7853), false,
+  'r2: planted TEMP journal cannot forge gal_journal_seen — the never-visible member answers false from the REAL table');
+SELECT is(gal_journal_seen(9841, 7842), true,
+  'r2: the REAL journaled member still answers true through the planted shadow');
+
+-- Writer seam: with the shadow in place, record for a mailbox with no journal
+-- rows yet (9844) must still land in the REAL journal — never redirected into
+-- pg_temp (a redirected INSERT would bump ROW_COUNT just the same, so the
+-- shadow's row count and the real table are both asserted).
+SELECT is(gal_visibility_record(9844, ARRAY[7842]::BIGINT[])->>'recorded',
+  '1', 'r2: record still journals the seam-visible id with the shadow planted');
+SELECT is((SELECT count(*)::int FROM pg_temp.gal_visibility_journal), 1,
+  'r2: nothing was redirected into the TEMP shadow (only the planted forgery row)');
+RESET ROLE;
+-- The verification reads below QUALIFY the relation on purpose: with the TEMP
+-- shadow still planted in this session, an unqualified reference would itself
+-- resolve to pg_temp first (the very rule under test) and count the forgery.
+SELECT is(
+  (SELECT count(*)::int FROM public.gal_visibility_journal WHERE mailbox_id = 9844),
+  1, 'r2: the recorded row landed in the REAL journal');
+SELECT is(
+  (SELECT user_id FROM public.gal_visibility_journal WHERE mailbox_id = 9844),
+  7842::BIGINT, 'r2: the REAL journal row is the disclosed member (not the forged id)');
+
+-- ── 10b. Guest-shadow regression (r3 hold finding, transitive helper) ──────
+-- The r2 pins on the two journal seams are not self-sufficient: the writer's
+-- resolution chain is gal_visibility_record → directory_visible_users →
+-- is_guest_account, and is_guest_account declares its OWN search_path — which
+-- OVERRIDES the outer definer's pg_temp-last pin for the duration of its
+-- execution. With pg_temp omitted there, PostgreSQL searches an existing TEMP
+-- schema FIRST, so an app-owned empty TEMP guest_accounts (real guest absent)
+-- made a real enabled guest classify as NON-guest and let the seam journal an
+-- org-invisible guest into the REAL journal. The helper now carries the same
+-- V254 trusted-seam form (qualified relation + pg_temp LAST); this section
+-- replays the attack as the app role and requires the REAL table to answer.
+
+-- The mechanism, pinned on the helper's stored SET clause (mirrors section 10).
+SELECT is(
+  (SELECT s FROM pg_proc p, LATERAL unnest(p.proconfig) s
+    WHERE p.oid = 'is_guest_account(bigint)'::regprocedure
+      AND s LIKE 'search_path=%'),
+  'search_path=pg_catalog, public, pg_temp',
+  'r3: is_guest_account pins pg_temp LAST (its own SET clause overrides the caller''s pin while it runs)');
+
+SET LOCAL ROLE setjoin_app;
+-- The shadow: matching shape, deliberately EMPTY (the attack needs the real
+-- guest ABSENT so the EXISTS answer flips), with definer access granted.
+CREATE TEMP TABLE guest_accounts (
+    user_id          BIGINT PRIMARY KEY,
+    invited_email    TEXT   NOT NULL,
+    invited_by       BIGINT,
+    invited_by_email TEXT   NOT NULL,
+    sponsor_user_id  BIGINT,
+    host_domain_id   BIGINT NOT NULL,
+    profile_id       BIGINT,
+    status           TEXT   NOT NULL DEFAULT 'invited',
+    expires_at       TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+GRANT SELECT ON pg_temp.guest_accounts TO setjoin_worker;
+
+-- The helper must classify from the REAL table through the shadow: the real
+-- enabled guest stays a guest (a shadowed lookup flips this to false — the r3
+-- bug), and a member stays a non-guest.
+SELECT is(is_guest_account(7871), true,
+  'r3: the REAL enabled guest still classifies as a guest with an empty TEMP guest_accounts planted');
+SELECT is(is_guest_account(7842), false,
+  'r3: a member still classifies as non-guest through the planted shadow');
+
+-- End-to-end through the record seam: with the shadow in place, recording the
+-- guest id for the caller must journal NOTHING (the seam excludes the guest via
+-- the REAL table). The pre-r3 bug journaled the org-invisible guest here.
+SELECT is(gal_visibility_record(9841, ARRAY[7871]::BIGINT[])->>'recorded',
+  '0', 'r3: record journals NOTHING for the real guest with the shadow planted (the seam excludes it via the REAL table)');
+RESET ROLE;
+-- Qualified on purpose: the section-10 TEMP journal shadow is still planted in
+-- this session, so an unqualified reference would resolve pg_temp first.
+SELECT is(
+  (SELECT count(*)::int FROM public.gal_visibility_journal
+    WHERE mailbox_id = 9841 AND user_id = 7871),
+  0, 'r3: no journal row was written for the guest — the REAL guest_accounts answered, never the shadow');
+
+SELECT * FROM finish();
+ROLLBACK;

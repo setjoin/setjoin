@@ -1,0 +1,122 @@
+-- pgTAP: deliver_group_vacation.sql — group expansion in deliver()
+-- deliver() detects distribution groups via the distribution_groups satellite table,
+-- not the mailboxes.type column. The group mailbox is personal-type.
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (name, is_local) VALUES ('grp.test', TRUE);
+-- ADR-003: DIVERGENT ids (users 107001/107002 != mailboxes 7001/7002). deliver()
+-- resolves recipients by email and is mailbox-scoped; member checks use mailbox ids.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (107001, 'groupusr1', (SELECT id FROM domains WHERE name = 'grp.test'), 'u1@grp.test', 'U1');
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (107002, 'groupusr2', (SELECT id FROM domains WHERE name = 'grp.test'), 'u2@grp.test', 'U2');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (7001, 107001, (SELECT id FROM domains WHERE name = 'grp.test'), 'u1@grp.test', 'U1', 'personal', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (7002, 107002, (SELECT id FROM domains WHERE name = 'grp.test'), 'u2@grp.test', 'U2', 'personal', TRUE);
+
+-- Create the group mailbox as personal-type; the distribution_groups satellite row is the sole group signal
+INSERT INTO mailboxes (id, domain_id, email, display_name, type, is_primary)
+VALUES (7003, (SELECT id FROM domains WHERE name = 'grp.test'), 'team@grp.test', 'Team', 'personal', FALSE);
+
+-- Create a distribution group record tied to the group mailbox
+INSERT INTO distribution_groups (id, mailbox_id)
+VALUES (7001, 7003);
+
+-- Add members
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES (7001, 7001);
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES (7001, 7002);
+
+-- Test 1: deliver to group — both members receive the message
+SELECT lives_ok(
+  $$ SELECT deliver('ref_grp', '<msg@grp>', 'sender@ext.com', 'Sender', 'team@grp.test', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Group Test', NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'deliver to distribution group succeeds'
+);
+
+-- Test 2: both member mailboxes have the message
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id IN (7001, 7002)),
+  2::BIGINT,
+  'both group members received the message'
+);
+
+-- ── SP1 Phase 3: encrypted send to a distribution GROUP must null EACH member's
+-- body cache. The recursive member deliver() must forward p_is_encrypted; if it
+-- is dropped it defaults FALSE and members keep cleartext body cols (plaintext
+-- leak). This guard fails if p_is_encrypted is not threaded through.
+SELECT deliver('encgrpref', '<msg-enc-grp>', 'sender@ext.com', 'Sender', 'team@grp.test',
+  '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Encrypted Group', NULL, NULL,
+  'cleartext group body', '<p>cleartext group</p>', 100, FALSE, now(),
+  'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_encrypted => TRUE);
+
+-- Test 3: deliver returned (lives) and produced exactly one row per member.
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE message_id = '<msg-enc-grp>' AND mailbox_id IN (7001, 7002)),
+  2::BIGINT,
+  'encrypted group send: both members received the encrypted copy'
+);
+
+-- Test 4: EACH member copy has body_text/body_html NULL and body_tsv NULL —
+-- no plaintext-at-rest body cache, even though the cleartext was passed in.
+-- (V029: crypto_type='smime-encrypted' makes body_tsv genuinely NULL, not the
+-- empty tsvector the dead pre-fix branch produced.)
+SELECT is(
+  (SELECT COUNT(*) FROM messages
+     WHERE message_id = '<msg-enc-grp>'
+       AND mailbox_id IN (7001, 7002)
+       AND body_text IS NULL
+       AND body_html IS NULL
+       AND body_tsv IS NULL),
+  2::BIGINT,
+  'encrypted group send: EVERY member copy has NULL bodies + NULL body_tsv (no plaintext leak)'
+);
+
+-- Test 5: REGRESSION GUARD — EVERY member copy must carry crypto_type='smime-encrypted'
+-- (the recursive member deliver() threads p_is_encrypted, which now also drives the
+-- discriminator). Without it the member's copy renders blank/undecryptable in webmail.
+SELECT is(
+  (SELECT COUNT(*) FROM messages
+     WHERE message_id = '<msg-enc-grp>'
+       AND mailbox_id IN (7001, 7002)
+       AND crypto_type = 'smime-encrypted'),
+  2::BIGINT,
+  'encrypted group send: EVERY member copy crypto_type = smime-encrypted (decrypt-on-read fires)'
+);
+
+-- ── Findings [10] + [6]: ineligible / failing members must not break the list ──────
+-- Add three more members: a DISABLED mailbox, a RECEIVE-DISABLED mailbox, and an
+-- OVER-QUOTA (but eligible) mailbox. expand_group must filter the first two; the
+-- over-quota one is fanned out but its per-member subtransaction must catch its BZ001
+-- so the rest of the list still receives.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (107004, 'groupusr4', (SELECT id FROM domains WHERE name='grp.test'), 'u4@grp.test', 'U4'),
+  (107005, 'groupusr5', (SELECT id FROM domains WHERE name='grp.test'), 'u5@grp.test', 'U5'),
+  (107006, 'groupusr6', (SELECT id FROM domains WHERE name='grp.test'), 'u6@grp.test', 'U6');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, enabled, receive_enabled) VALUES
+  (7004, 107004, (SELECT id FROM domains WHERE name='grp.test'), 'u4@grp.test', 'U4', 'personal', TRUE, FALSE, TRUE),   -- disabled
+  (7005, 107005, (SELECT id FROM domains WHERE name='grp.test'), 'u5@grp.test', 'U5', 'personal', TRUE, TRUE,  FALSE);  -- receive-disabled
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, quota_bytes, used_bytes) VALUES
+  (7006, 107006, (SELECT id FROM domains WHERE name='grp.test'), 'u6@grp.test', 'U6', 'personal', TRUE, 100, 100);       -- over quota (eligible)
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES (7001, 7004), (7001, 7005), (7001, 7006);
+
+-- Test 6: expand_group static path returns only enabled + receive-enabled members
+-- (the over-quota one is still eligible to RECEIVE; quota is enforced inside deliver()).
+SELECT bag_eq(
+  $$ SELECT mailbox_id FROM expand_group(7001) $$,
+  $$ VALUES (7001::bigint), (7002::bigint), (7006::bigint) $$,
+  'expand_group static path excludes disabled + receive-disabled members');
+
+-- Test 7: delivering to the group does NOT abort even though one eligible member (7006)
+-- is over quota — the per-member subtransaction catches it.
+SELECT lives_ok(
+  $$ SELECT deliver('refelig', '<msg-elig>', 'sender@ext.com', 'Sender', 'team@grp.test',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Eligibility', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'group delivery survives an over-quota member (per-member subtransaction)');
+
+-- Test 8: the two healthy members received it; the over-quota member did NOT.
+SELECT is(
+  (SELECT COUNT(*) FROM messages WHERE message_id = '<msg-elig>' AND mailbox_id IN (7001, 7002, 7006)),
+  2::BIGINT,
+  'over-quota member skipped; the two healthy members still received the message');
+
+SELECT * FROM finish();
+ROLLBACK;

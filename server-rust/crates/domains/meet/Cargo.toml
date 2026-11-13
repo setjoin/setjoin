@@ -1,0 +1,13 @@
+[package]
+name = "setjoin-meet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-pg = { path = "../../pg" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+sha2 = "=0.10.9"

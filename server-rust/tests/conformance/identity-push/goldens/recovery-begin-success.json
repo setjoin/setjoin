@@ -1,0 +1,89 @@
+{
+  "case": "recovery-begin-success",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "audit": [],
+      "budgets": [
+        {
+          "active": true,
+          "count": 1,
+          "fifteen_minutes": true,
+          "kind": "recovery_user:",
+          "owner": "actor",
+          "updated": true
+        }
+      ],
+      "challenges": [],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "idmfa3-actor",
+          "live": true,
+          "method": "password",
+          "operation": "recovery.regenerate",
+          "owner": "actor",
+          "scope": "session",
+          "target": null
+        },
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "token_stores": {
+        "auth_event_log": [],
+        "login_events": [],
+        "oauth_tokens": [],
+        "sessions": []
+      },
+      "users": [
+        {
+          "generation": 2,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"email\":\"actor@idmfa3.test\",\"user_id\":<foreign>}",
+      "method": "POST",
+      "path": "/auth/forgot-password/begin"
+    },
+    "response": {
+      "body": "{\"message\":\"If an account with that email exists and has multi-factor authentication enabled, a verification challenge has been sent.\",\"method\":\"totp\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /auth/forgot-password/begin"
+}

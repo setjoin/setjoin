@@ -1,0 +1,11 @@
+{
+  "stdout": "",
+  "stderr": "Error: resolve user \"missing@gofree-mctl3.test\": no rows in result set\n",
+  "exit": 1,
+  "database_effects": {
+    "outbound": [],
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

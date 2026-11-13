@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of approval reorder:\n  -consumer-type string\n    \tConsumer type (required)\n",
+  "exit": 0
+}

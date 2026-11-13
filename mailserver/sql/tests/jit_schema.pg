@@ -1,0 +1,20 @@
+-- pgTAP: jit_schema.pg
+--
+-- 8 tests covering V042: JIT activation columns, policy table, toggle, defaults.
+
+BEGIN;
+SELECT plan(8);
+
+SELECT has_column('public','admin_role_assignments','eligible','eligible col added');
+SELECT col_default_is('public','admin_role_assignments','eligible','false','eligible defaults false');
+SELECT has_column('public','admin_role_assignments','activated_until','activated_until col added');
+SELECT has_table('public','admin_role_activation_policy','policy table exists');
+SELECT col_is_pk('public','admin_role_activation_policy','role_group_id','policy PK is role_group_id');
+-- toggle seeded OFF
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='rbac.jit'), false, 'rbac.jit seeded OFF');
+-- global defaults seeded
+SELECT is((SELECT (value->>0)::int FROM system_config WHERE key='jit.default_max_minutes'), 480, 'default max minutes seeded');
+SELECT is((SELECT (value->>0)::bool FROM system_config WHERE key='jit.default_require_justification'), false, 'default justification seeded');
+
+SELECT finish();
+ROLLBACK;

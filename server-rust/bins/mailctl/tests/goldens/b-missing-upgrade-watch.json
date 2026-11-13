@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl upgrade watch <intent-id> [--interval 2s] [--timeout 10m]\n",
+  "exit": 1
+}

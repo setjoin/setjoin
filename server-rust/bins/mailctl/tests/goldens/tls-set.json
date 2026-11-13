@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/tls/config",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"tls.autocert_challenge\":\"dns-01\",\"tls.autocert_domains\":\"example.test,mail.test\",\"tls.autocert_email\":\"admin@example.test\",\"tls.dns_provider\":\"cloudflare\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 599: unexpected request\n",
+  "exit": 1
+}

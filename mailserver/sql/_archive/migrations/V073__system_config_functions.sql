@@ -1,0 +1,12 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- V073: Wire the orphaned system_config CRUD functions into the migration chain.
+--
+-- mailserver/sql/schema/048_system_config_triggers.sql defines get_system_config(),
+-- set_system_config(), and the trg_system_config_notify NOTIFY trigger, but no
+-- migration ever applied it and V001 does not \i it. On a fresh database those
+-- functions were therefore missing (the 048_system_config.pg pgTAP test failed
+-- with "function get_system_config does not exist"). The system_config table the
+-- functions operate on is created by schema/014_system.sql (applied in V001), so
+-- this migration is safe to run after V001. The schema file is idempotent
+-- (CREATE OR REPLACE FUNCTION + DROP TRIGGER IF EXISTS), so re-runs are no-ops.
+\i ../schema/048_system_config_triggers.sql

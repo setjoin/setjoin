@@ -1,0 +1,51 @@
+BEGIN;
+SELECT plan(9);
+-- Isolated domain so IDs don't collide with other suites
+INSERT INTO domains (name, is_local) VALUES ('gaptest.local', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+-- Mailbox 952 with advanced state (simulates folders having changed)
+INSERT INTO mailboxes (id, domain_id, email, display_name, jmap_mailbox_state, jmap_thread_state, jmap_email_state)
+  VALUES (952, (SELECT id FROM domains WHERE name='gaptest.local'),
+          'gap@gaptest.local', 'GapTest', 5, 5, 5)
+  ON CONFLICT (id) DO NOTHING;
+
+-- Gap: p_since_state < v_current (state advanced, no journal → cannotCalculateChanges)
+-- Returning an empty list with a bumped newState is semantically wrong; BZ011 forces resync.
+SELECT throws_ok($$SELECT jmap_mailbox_changes(952, '3')$$, 'BZ011', NULL,
+  'mailbox gap (since<current, no journal) → BZ011');
+SELECT throws_ok($$SELECT jmap_thread_changes(952, '3')$$, 'BZ011', NULL,
+  'thread gap (since<current, no journal) → BZ011');
+
+-- Future: p_since_state > v_current (existing guard, must stay BZ011)
+SELECT throws_ok($$SELECT jmap_mailbox_changes(952, '9999')$$, 'BZ011', NULL,
+  'mailbox future → BZ011');
+SELECT throws_ok($$SELECT jmap_thread_changes(952, '9999')$$, 'BZ011', NULL,
+  'thread future → BZ011');
+
+-- Equal: p_since_state == v_current (no changes) → empty-but-correct, no error
+SELECT lives_ok($$SELECT jmap_mailbox_changes(952, '5')$$,
+  'mailbox same-state → empty response, no error');
+SELECT lives_ok($$SELECT jmap_thread_changes(952, '5')$$,
+  'thread same-state → empty response, no error');
+
+-- Mailbox/queryChanges destroyed-folder gap: jmap_mailbox_set_destroy hard-DELETEs
+-- the tag row with no tombstone, so 'removed' can never be enumerated after the
+-- fact — same coarse BZ011 fix as above, applied to jmap_mailbox_query_changes.
+INSERT INTO tags (id, mailbox_id, name, tag_type, imap_expose)
+  VALUES (95201, 952, 'DestroyMeQC', 'user', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+SELECT lives_ok($$SELECT jmap_mailbox_query_changes(952, NULL, NULL, '5')$$,
+  'queryChanges pre-destroy same-state → empty response, no error');
+
+SELECT jmap_mailbox_set_destroy(952, ARRAY[95201]::BIGINT[]);
+
+SELECT throws_ok($$SELECT jmap_mailbox_query_changes(952, NULL, NULL, '5')$$, 'BZ011', NULL,
+  'queryChanges since pre-destroy state → BZ011 (destroyed folder unenumerable)');
+
+SELECT lives_ok($$SELECT jmap_mailbox_query_changes(952, NULL, NULL,
+    (SELECT jmap_mailbox_state::TEXT FROM mailboxes WHERE id = 952))$$,
+  'queryChanges same-state (post-destroy) → empty response, no error');
+
+SELECT finish();
+ROLLBACK;

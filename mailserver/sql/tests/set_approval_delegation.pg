@@ -1,0 +1,45 @@
+-- set_approval_delegation.pg — QoL #23 out-of-office approval entrust writer/reader.
+-- Covers: happy-path upsert + get; delete-then-insert keeps a single row; NULL delegate
+-- clears; and the BZ119 guards (inverted window, self-delegate, cross-domain delegate).
+BEGIN;
+SELECT plan(7);
+
+-- fixtures: two domains. Domain A: delegator 40 + delegate 50. Domain B: outsider 60.
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (90921, 'setdel-a.test', TRUE),
+  (90922, 'setdel-b.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (40, 'setdel_delegator', 90921, 'delegator@setdel-a.test', 'Delegator', TRUE),
+  (50, 'setdel_delegate',  90921, 'delegate@setdel-a.test',  'Delegate',  TRUE),
+  (60, 'setdel_outsider',  90922, 'outsider@setdel-b.test',  'Outsider',  TRUE);
+
+-- happy path: set an entrust, then read it back
+SELECT set_approval_delegation(40, 50, now(), now() + interval '7 day');
+SELECT is((SELECT delegate_user_id FROM get_approval_delegation(40)), 50::bigint, 'entrust set + read back');
+SELECT is((SELECT count(*)::int FROM approval_delegations WHERE delegator_user_id = 40), 1, 'exactly one row after set');
+
+-- re-set replaces (delete-then-insert), still one row
+SELECT set_approval_delegation(40, 50, now() + interval '1 day', now() + interval '5 day');
+SELECT is((SELECT count(*)::int FROM approval_delegations WHERE delegator_user_id = 40), 1, 're-set keeps a single row');
+
+-- NULL delegate clears
+SELECT set_approval_delegation(40, NULL, NULL, NULL);
+SELECT is((SELECT count(*)::int FROM approval_delegations WHERE delegator_user_id = 40), 0, 'NULL delegate clears the entrust');
+
+-- BZ119: inverted window (ends <= starts)
+SELECT throws_ok(
+  $$ SELECT set_approval_delegation(40, 50, now() + interval '5 day', now() + interval '1 day') $$,
+  'BZ119', NULL, 'inverted window rejected (BZ119)');
+
+-- BZ119: self-delegate
+SELECT throws_ok(
+  $$ SELECT set_approval_delegation(40, 40, now(), now() + interval '1 day') $$,
+  'BZ119', NULL, 'self-delegate rejected (BZ119)');
+
+-- BZ119: cross-domain delegate (tenant safety)
+SELECT throws_ok(
+  $$ SELECT set_approval_delegation(40, 60, now(), now() + interval '1 day') $$,
+  'BZ119', NULL, 'cross-domain delegate rejected (BZ119)');
+
+SELECT * FROM finish();
+ROLLBACK;

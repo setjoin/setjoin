@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/roles",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "ID    Name                      Builtin  Members  Permissions\n7     Reader                    no       1        mail.read\n",
+  "stderr": "",
+  "exit": 0
+}

@@ -1,0 +1,19 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [],
+        "files": []
+      },
+      "before": {
+        "config": [],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/outbound-tls-policy"
+}

@@ -1,0 +1,97 @@
+BEGIN;
+SELECT plan(22);
+
+SELECT mk_account('delivery-admission') AS mailbox_id \gset
+SELECT user_id FROM mailboxes WHERE id=:mailbox_id \gset
+INSERT INTO webhook_subscriptions(user_id,url,secret,event_types,is_active,retry_enabled,max_retries,scope)
+VALUES(:user_id,'https://delivery.example/hook','delivery-secret','["user.deleted"]',true,true,3,'self')
+RETURNING id AS subscription_id \gset
+
+SELECT ok(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='webhook_deliveries' AND column_name='lease_owner' AND is_nullable='YES'),
+  'delivery lease owner is additive and nullable for old-binary compatibility');
+SELECT ok(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='webhook_deliveries' AND column_name='next_attempt_at' AND is_nullable='NO'),
+  'every delivery has a durable admission instant');
+SELECT is(has_function_privilege('setjoin_app','webhook_delivery_claim(uuid,integer,text)','EXECUTE'),false,
+  'app credential cannot claim cross-tenant deliveries');
+SELECT is(has_function_privilege('setjoin_worker','webhook_delivery_claim(uuid,integer,text)','EXECUTE'),true,
+  'worker credential owns the delivery admission seam');
+
+INSERT INTO webhook_deliveries(subscription_id,event_id,event_type,request_body,attempt,status)
+SELECT :subscription_id,'admission-'||g,'user.deleted',jsonb_build_object(
+  'specversion','1.0','id','admission-'||g,'source','mailserver/auth',
+  'type','user.deleted','data',jsonb_build_object('user_id',:user_id)),0,'pending'
+FROM generate_series(1,10000) g;
+
+CREATE TEMP TABLE _delivery_admission_seen(id bigint PRIMARY KEY,attempt integer NOT NULL) ON COMMIT DROP;
+DO $$
+DECLARE v_claims jsonb; v_row jsonb; v_worker uuid := gen_random_uuid();
+BEGIN
+  FOR v_batch IN 1..100 LOOP
+    v_claims := webhook_delivery_claim(v_worker,100,NULL);
+    INSERT INTO _delivery_admission_seen(id,attempt)
+      SELECT (x->>'id')::bigint,(x->>'attempt')::integer FROM jsonb_array_elements(v_claims) x;
+    FOR v_row IN SELECT value FROM jsonb_array_elements(v_claims) LOOP
+      PERFORM webhook_delivery_complete((v_row->>'id')::bigint,v_worker,true,false,204,NULL,1,NULL);
+    END LOOP;
+  END LOOP;
+END $$;
+SELECT is((SELECT count(*)::integer FROM _delivery_admission_seen),10000,
+  '10k backlog is admitted completely without a hot-prefix starvation loop');
+SELECT is((SELECT min(attempt) FROM _delivery_admission_seen),1,
+  'first admission increments every row exactly once');
+SELECT is((SELECT max(attempt) FROM _delivery_admission_seen),1,
+  'no row is concurrently or repeatedly admitted');
+SELECT is((SELECT count(*)::integer FROM webhook_deliveries WHERE event_id LIKE 'admission-%' AND status='success'),10000,
+  'all 10k admitted rows reach their final state');
+SELECT is((SELECT count(*)::integer FROM webhook_deliveries WHERE event_id LIKE 'admission-%' AND lease_owner IS NOT NULL),0,
+  'settlement clears every owned lease');
+SELECT is(jsonb_array_length(webhook_delivery_claim(gen_random_uuid(),100,NULL)),0,
+  'success rows are never reclaimed');
+
+INSERT INTO webhook_deliveries(subscription_id,event_id,event_type,request_body,attempt,status)
+VALUES(:subscription_id,'inactive-head','user.deleted','{"specversion":"1.0","id":"inactive-head","type":"user.deleted"}',0,'pending');
+UPDATE webhook_subscriptions SET is_active=false WHERE id=:subscription_id;
+SELECT is(jsonb_array_length(webhook_delivery_claim(gen_random_uuid(),100,NULL)),0,
+  'claim re-checks active subscription state');
+UPDATE webhook_subscriptions SET is_active=true WHERE id=:subscription_id;
+
+SELECT gen_random_uuid() AS lease_worker_one \gset
+SELECT gen_random_uuid() AS lease_worker_two \gset
+SELECT webhook_delivery_claim(:'lease_worker_one',1,'inactive-head') AS first_claim \gset
+SELECT is(jsonb_array_length(:'first_claim'::jsonb),1,'first worker atomically owns the eligible row');
+SELECT ok((SELECT lease_expires_at-statement_timestamp()>interval '40 seconds'
+             FROM webhook_deliveries WHERE event_id='inactive-head'),
+  '45 second database lease exceeds the 30 second HTTP plus 5 second settlement bounds');
+SELECT is(jsonb_array_length(webhook_delivery_claim(:'lease_worker_two',1,'inactive-head')),0,
+  'second worker cannot concurrently admit an unexpired lease');
+UPDATE webhook_deliveries SET lease_expires_at=statement_timestamp()-interval '1 second'
+ WHERE event_id='inactive-head';
+SELECT webhook_delivery_claim(:'lease_worker_two',1,'inactive-head') AS reclaimed \gset
+SELECT is((:'reclaimed'::jsonb->0->>'attempt')::integer,2,
+  'expired crash lease is reclaimed with monotonic attempt metadata');
+SELECT ok(webhook_delivery_complete((:'reclaimed'::jsonb->0->>'id')::bigint,:'lease_worker_two',false,true,503,NULL,1,'retry'),
+  'retryable settlement is fenced by the current lease owner');
+SELECT is((SELECT status FROM webhook_deliveries WHERE event_id='inactive-head'),'failed',
+  'retryable outcome persists failed state instead of disappearing in memory');
+SELECT is(webhook_delivery_complete((:'reclaimed'::jsonb->0->>'id')::bigint,:'lease_worker_one',true,false,204,NULL,1,NULL),false,
+  'stale worker cannot settle a row after losing its lease');
+
+UPDATE webhook_subscriptions SET retry_enabled=false WHERE id=:subscription_id;
+UPDATE webhook_deliveries SET next_attempt_at=statement_timestamp()-interval '1 second' WHERE event_id='inactive-head';
+SELECT is(jsonb_array_length(webhook_delivery_claim(gen_random_uuid(),100,NULL)),0,
+  'failed rows re-check retry_enabled before admission');
+
+INSERT INTO webhook_deliveries(subscription_id,event_id,event_type,request_body,attempt,status,
+  lease_owner,lease_expires_at)
+VALUES(:subscription_id,'expired-no-retry','user.deleted',
+  '{"specversion":"1.0","id":"expired-no-retry","type":"user.deleted"}',1,'pending',
+  gen_random_uuid(),statement_timestamp()-interval '1 second');
+SELECT is(jsonb_array_length(webhook_delivery_claim(gen_random_uuid(),100,'expired-no-retry')),0,
+  'retry-disabled expired in-flight lease is not admitted again');
+SELECT is((SELECT status FROM webhook_deliveries WHERE event_id='expired-no-retry'),'exhausted',
+  'retry-disabled crash residue terminates instead of remaining a pending hot row');
+SELECT throws_ok($$SELECT webhook_delivery_claim(NULL,1,NULL)$$,'BZ301',NULL,
+  'claim rejects missing worker identity');
+
+SELECT * FROM finish();
+ROLLBACK;

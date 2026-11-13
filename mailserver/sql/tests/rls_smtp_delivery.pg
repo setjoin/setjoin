@@ -1,0 +1,101 @@
+-- pgTAP: rls_smtp_delivery.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- W6 ISOLATION PROOF (SMTP) — the BYPASSRLS worker role is LOAD-BEARING for
+-- delivery, and the app role fails CLOSED on a cross-tenant write without the
+-- matching GUC.
+--
+-- SMTP delivery (inbound deliver(), and submission's local-recipient fan-out) is
+-- CROSS-TENANT BY NATURE: deliver() resolves the recipient mailbox SERVER-SIDE and
+-- writes a `messages` row into THAT mailbox — which may not be the sender's. W4
+-- routed both SMTP paths onto setjoin_worker (BYPASSRLS) for exactly this reason.
+-- Under the W6 FORCE flip this test proves the two halves of that decision:
+--
+--   (1) As setjoin_worker (BYPASSRLS): the cross-tenant delivery write into B's
+--       mailbox succeeds with NO app.current_mailbox_id GUC set — bypassing the
+--       messages WITH CHECK. This is CORRECT: delivery is cross-tenant; a
+--       sender-pinned GUC could not satisfy a write into a different mailbox.
+--   (2) As setjoin_app (NOSUPERUSER NOBYPASSRLS) WITHOUT the recipient's GUC: the
+--       SAME write is DENIED (WITH CHECK → 42501). This proves the bypass role is
+--       LOAD-BEARING — delivery genuinely needs it; the tenant-facing app role
+--       structurally cannot perform a cross-tenant delivery, which is the safety
+--       property (a leaked/forgotten predicate on the app pool cannot deliver into
+--       a foreign mailbox).
+--   (3) As setjoin_app WITH the recipient's own GUC: the write succeeds — showing
+--       the app role isn't blanket-denied, the GUC is the discriminator.
+--
+-- Production now ships V004 (ENABLE+FORCE). All inside BEGIN…ROLLBACK; the test
+-- connection `mail` is SUPERUSER + owner, so we SET LOCAL ROLE per block.
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(6);
+
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'messages' AND relnamespace = 'public'::regnamespace),
+  TRUE, 'precondition: messages is FORCE ROW LEVEL SECURITY (V004 applied)');
+
+-- Two tenants. The "sender" side is irrelevant to the write target — delivery
+-- writes into the RECIPIENT mailbox (B), server-resolved. Divergent ids (ADR-003).
+SELECT mk_account('srlsSender') AS mbs \gset
+SELECT mk_account('srlsRecip')  AS mbr \gset
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.messages, public.message_tags
+  TO setjoin_app, setjoin_worker;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- (1) setjoin_worker (BYPASSRLS): cross-tenant delivery into B WITHOUT a GUC.
+-- This mirrors what deliver() does on the W4 worker pool — INSERT a messages row
+-- into the server-resolved recipient mailbox. No app.current_mailbox_id is set.
+-- ════════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_worker;
+-- (worker has BYPASSRLS, so the empty GUC does NOT fail-close it)
+SELECT lives_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (783001, %s, %s, '<deliver-w@rls.test>', 'delivered by worker', 'sender@ext.com', 10, 'thr-dw', 'raw-dw', now(), FALSE) $$,
+         :mbr, get_tag_id('Inbox', :mbr)),
+  'setjoin_worker (BYPASSRLS): cross-tenant delivery INSERT into recipient B succeeds with NO GUC — delivery is cross-tenant, the bypass is correct');
+RESET ROLE;
+
+-- Confirm the worker's delivered row really landed (read as superuser).
+SELECT is(
+  (SELECT count(*) FROM messages WHERE id = 783001 AND mailbox_id = :mbr)::INT, 1,
+  'the worker-delivered row is present in recipient B''s mailbox');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- (2) setjoin_app (NOBYPASSRLS) WITHOUT the recipient GUC: the SAME delivery write
+-- is DENIED (WITH CHECK → 42501). Proves the bypass role is load-bearing: the
+-- tenant-facing app role structurally cannot deliver into a foreign mailbox.
+-- ════════════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', '', true);  -- no scope (un-wrapped delivery on the wrong pool)
+SELECT throws_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (783002, %s, %s, '<deliver-a@rls.test>', 'app cannot deliver', 'sender@ext.com', 10, 'thr-da', 'raw-da', now(), FALSE) $$,
+         :mbr, get_tag_id('Inbox', :mbr)),
+  '42501', NULL,
+  'setjoin_app WITHOUT GUC: cross-tenant delivery INSERT is REJECTED (WITH CHECK) — the bypass role is load-bearing for delivery');
+
+-- (2b) setjoin_app with the WRONG (sender's) GUC also denied — a sender-pinned GUC
+-- cannot satisfy the recipient-row WITH CHECK (the W4 fan-out point).
+SELECT set_config('app.current_mailbox_id', :mbs::text, true);  -- sender's GUC, recipient row
+SELECT throws_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (783003, %s, %s, '<deliver-a2@rls.test>', 'sender GUC cannot fan out', 'sender@ext.com', 10, 'thr-da2', 'raw-da2', now(), FALSE) $$,
+         :mbr, get_tag_id('Inbox', :mbr)),
+  '42501', NULL,
+  'setjoin_app with SENDER''s GUC: delivery into recipient B still REJECTED — a sender-pinned GUC cannot satisfy the fan-out (W4)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- (3) setjoin_app WITH the recipient's own GUC: the write succeeds — the app role
+-- is not blanket-denied; the GUC is the discriminator. (This is the tenant-scoped
+-- path; delivery does NOT use it, but it proves non-vacuity of the deny above.)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_mailbox_id', :mbr::text, true);  -- recipient's own GUC
+SELECT lives_ok(
+  format($$ INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+            VALUES (783004, %s, %s, '<deliver-a3@rls.test>', 'app with right GUC', 'sender@ext.com', 10, 'thr-da3', 'raw-da3', now(), FALSE) $$,
+         :mbr, get_tag_id('Inbox', :mbr)),
+  'setjoin_app WITH recipient''s own GUC: INSERT succeeds — the deny above is the GUC discriminating, not a blanket app-role block');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

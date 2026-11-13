@@ -1,0 +1,304 @@
+-- mailserver/sql/tests/rls_meet.pg — Task 1: V125 meet core FORCE-RLS
+-- cross-tenant denial proof (the DEFINER meeting_member_role scope-helper
+-- recursion-dodge, V114/V119 pattern, fourth use). Spec:
+-- retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 1.
+-- COVERED entry in scripts/rls-denial-allowlist.txt points here for
+-- meetings/meeting_participants/meeting_join_requests.
+--
+-- Meet B3 Task 1 (V130) extends this file with the meeting_breakouts
+-- FORCE-RLS denial proof (same meeting_member_role scope, fifth use) and the
+-- chat_messages msg_type 'question' CHECK-widening proof. Spec:
+-- retired-docs:superpowers/plans/archive/2026-07-15-meet-B3-qol.md Task 1.
+-- COVERED entry in scripts/rls-denial-allowlist.txt for meeting_breakouts:
+-- non-participant and cross-meeting participants see no breakout rows; host/cohost-only mutation policy (V134).
+--
+-- V134 (native-RLS W4 write-policy wave, the B1 live-gate flip blocker)
+-- reshapes this file twice:
+--   · meetings SELECT is now ORG-OPEN (any authed GUC — the LOCKED read
+--     posture, meeting_read.sql header + the gate-ratified org-open join):
+--     the old "non-participant cannot read the meeting row" assertion is
+--     replaced by the fail-closed no-GUC denial + the org-open positive.
+--   · a full meeting lifecycle is driven END-TO-END as setjoin_app under
+--     FORCE (create → join → promote → lock → knock/admit → webhook-live →
+--     record → breakouts → kick → end), proving every write surface the B1
+--     live gate found denied (meeting_create 500'd live), plus the negative
+--     arms (member/stranger denied on every write surface).
+BEGIN;
+SELECT plan(53);
+
+-- msg_type widen (V130 §C): 'question' now accepted, a bogus kind still
+-- rejected — the rls_chat_qol.pg:39-47 genre, run as superuser before any
+-- role switch below.
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'b3qol-t1', 42);
+INSERT INTO chat_messages (channel_id, seq, author_id, body, msg_type)
+  SELECT id, 1, 42, 'v130 fixture message', 'text' FROM chat_channels WHERE name = 'b3qol-t1';
+SELECT lives_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, body, msg_type)
+       SELECT id, 2, 42, 'a question', 'question' FROM chat_channels WHERE name = 'b3qol-t1' $$,
+  'msg_type accepts question');
+SELECT throws_ok(
+  $$ INSERT INTO chat_messages (channel_id, seq, author_id, body, msg_type)
+       SELECT id, 3, 42, 'nope', 'bogus' FROM chat_channels WHERE name = 'b3qol-t1' $$,
+  NULL, NULL, 'msg_type still rejects a bogus kind');
+
+-- Fixtures as superuser: meeting 'standup' owned by user 42, with 42 as host
+-- and 43 as a plain member. User 99 is an org user who never joined.
+INSERT INTO meetings (title, owner_user_id) VALUES ('standup', 42);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+  SELECT id, 42, 'u:42', 'host' FROM meetings WHERE title='standup';
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+  SELECT id, 43, 'u:43', 'member' FROM meetings WHERE title='standup';
+INSERT INTO meeting_join_requests (meeting_id, display_name)
+  SELECT id, 'Knocking Guest' FROM meetings WHERE title='standup';
+INSERT INTO meeting_breakouts (meeting_id, idx)
+  SELECT id, 1 FROM meetings WHERE title='standup';
+
+-- A second, unrelated meeting: participant 77 belongs here, NOT to 'standup'
+-- — the cross-tenant breakout-read denial fixture.
+INSERT INTO meetings (title, owner_user_id) VALUES ('other-meeting', 77);
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+  SELECT id, 77, 'u:77', 'host' FROM meetings WHERE title='other-meeting';
+
+-- Privilege belt (provision-roles.sql already blanket-grants; explicit here
+-- so the file stands alone): the V134 flow below exercises writes.
+GRANT SELECT, INSERT, UPDATE ON public.meetings, public.meeting_participants,
+  public.meeting_join_requests, public.meeting_breakouts,
+  public.meeting_recordings, public.chat_channels TO setjoin_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.chat_channel_members TO setjoin_app;
+GRANT USAGE, SELECT ON SEQUENCE public.chat_channels_id_seq TO setjoin_app;
+
+-- The identity-transition admission fence intentionally refuses media grants
+-- for an absent or disabled person. These explicit users make the lifecycle
+-- below mirror real authenticated callers instead of relying on orphan numeric
+-- IDs that predated the fence.
+INSERT INTO domains (name, is_local)
+VALUES ('rls-meet.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+SELECT id,
+       'rls-meet-' || id::text,
+       (SELECT id FROM domains WHERE name = 'rls-meet.test'),
+       'rls-meet-' || id::text || '@rls-meet.test',
+       'RLS Meet ' || id::text,
+       'x'
+  FROM generate_series(61,65) AS ids(id);
+
+-- FORCE flag, checked before any role switch.
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.meeting_breakouts'::regclass),
+  TRUE, 'meeting_breakouts RLS FORCED');
+
+SET LOCAL ROLE setjoin_app;
+
+-- load-bearing: policy MUST NOT recurse (a literal membership subquery
+-- raises 'infinite recursion detected in policy' here).
+SELECT set_config('app.current_user_id', '42', true);
+SELECT lives_ok($$ SELECT count(*) FROM meeting_participants $$,
+  'membership policy does not recurse');
+
+-- Positive control: the host (42) sees the meeting, the roster, and the
+-- pending join request (host/cohost-only policy).
+SELECT is((SELECT count(*) FROM meetings WHERE title='standup')::INT, 1,
+  'host sees their meeting');
+SELECT is((SELECT count(*) FROM meeting_participants
+            WHERE meeting_id = (SELECT id FROM meetings WHERE title='standup'))::INT, 2,
+  'host sees the full roster');
+SELECT is((SELECT count(*) FROM meeting_join_requests)::INT, 1,
+  'host sees the pending join request');
+
+-- Plain member (43): sees the meeting + roster, but NOT the join request
+-- (host/cohost-only policy — R4 denial for a lesser role).
+SELECT set_config('app.current_user_id', '43', true);
+SELECT is((SELECT count(*) FROM meetings WHERE title='standup')::INT, 1,
+  'member sees their meeting');
+SELECT is((SELECT count(*) FROM meeting_join_requests)::INT, 0,
+  'plain member cannot see join requests (host/cohost-only)');
+-- V130: a live participant sees the superuser-seeded breakout row.
+SELECT is((SELECT count(*) FROM meeting_breakouts b JOIN meetings m ON m.id = b.meeting_id
+  WHERE m.title = 'standup')::INT, 1, 'member sees the standup breakout row');
+
+-- Non-participant (99): the meetings ROW is org-open by locked design
+-- (V134 — meeting_read.sql's read posture + the gate-ratified org-open
+-- join); everything scoped below it stays denied.
+SELECT set_config('app.current_user_id', '99', true);
+SELECT is((SELECT count(*) FROM meetings WHERE title='standup')::INT, 1,
+  'any authed org user reads the meeting row (org-open read posture, V134)');
+SELECT is((SELECT count(*) FROM meeting_participants)::INT, 0,
+  'non-participant sees no participants');
+SELECT is((SELECT count(*) FROM meeting_join_requests)::INT, 0,
+  'non-participant sees no join requests');
+SELECT is((SELECT count(*) FROM meeting_breakouts b JOIN meetings m ON m.id = b.meeting_id
+  WHERE m.title = 'standup')::INT, 0, 'non-participant sees no breakout rows');
+
+-- Fail-closed: with NO auth-context GUC at all, even the org-open meetings
+-- policy denies — the denial that keeps this table's COVERED entry honest.
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*) FROM meetings)::INT, 0,
+  'no GUC: zero meetings rows (org-open arm fails closed — runtime deny)');
+
+-- V130/V134: a participant of a DIFFERENT meeting (77, host of
+-- 'other-meeting') sees ZERO of standup's breakout rows and cannot write
+-- into standup (host/cohost of standup only).
+SELECT set_config('app.current_user_id', '77', true);
+SELECT is((SELECT count(*) FROM meeting_breakouts b JOIN meetings m ON m.id = b.meeting_id
+  WHERE m.title = 'standup')::INT, 0,
+  'a different meeting''s participant sees no breakout rows (cross-tenant denial)');
+SELECT throws_ok(
+  $$ INSERT INTO meeting_breakouts (meeting_id, idx)
+       SELECT id, 2 FROM meetings WHERE title = 'standup' $$,
+  '42501', NULL,
+  'a foreign meeting''s host cannot INSERT a breakout into standup (host/cohost-only WITH CHECK)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- V134 flow proof — the FULL lifecycle as setjoin_app under FORCE, the exact
+-- paths the B1 live gate found denied. Users 61-65 (61=creator/host).
+-- ══════════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', '61', true);
+SELECT (r ->> 'meetingId')::bigint AS w4id,
+       r ->> 'slug'                AS w4slug,
+       (r ->> 'chatChannelId')::bigint AS w4chan
+  FROM (SELECT meeting_create(61, 'w4 flow') AS r) s \gset
+SELECT room_name AS w4room FROM meetings WHERE id = :w4id \gset
+
+SELECT is((SELECT state FROM meetings WHERE id = :w4id), 'scheduled',
+  'meeting_create works as setjoin_app under FORCE (the live-gate 500 path) and the creator reads it back');
+SELECT is((SELECT count(*) FROM chat_channels WHERE id = :w4chan)::INT, 1,
+  'the provisioned chat channel is created and readable by its creator');
+
+-- org-open join: 62 and 63 are NOT participants yet.
+SELECT set_config('app.current_user_id', '62', true);
+SELECT lives_ok($$ SELECT meeting_join(62, $$ || :w4id || $$) $$,
+  'a non-member joins org-open (pre-membership meetings read + self INSERT)');
+SELECT is((SELECT count(*) FROM meeting_participants
+            WHERE meeting_id = :w4id AND user_id = 62)::INT, 1,
+  'the joiner reads their own fresh participant row back');
+SELECT is((SELECT count(*) FROM chat_channel_members
+            WHERE channel_id = :w4chan AND user_id = 62)::INT, 1,
+  'the joiner was auto-added to the provisioned chat channel (self-arm INSERT)');
+
+SELECT set_config('app.current_user_id', '63', true);
+SELECT lives_ok($$ SELECT meeting_join(63, $$ || :w4id || $$) $$, 'a second member joins');
+
+-- host promotes 63 to cohost (participants UPDATE, host arm, another's row).
+SELECT set_config('app.current_user_id', '61', true);
+SELECT lives_ok($$ SELECT meeting_set_role(61, $$ || :w4id || $$, 'u:63', 'cohost') $$,
+  'host promotes a member to cohost (UPDATE another participant''s row)');
+SELECT lives_ok($$ SELECT meeting_lock(61, $$ || :w4id || $$, true) $$,
+  'host locks the meeting (meetings UPDATE, host/cohost arm)');
+SELECT is((SELECT locked FROM meetings WHERE id = :w4id), TRUE, 'meeting is locked');
+
+-- knock (the DEFINER lobby create, callable with no special role) + negatives.
+SELECT (r ->> 'requestId')::bigint AS w4req
+  FROM (SELECT meeting_join_request_create(:'w4slug', 'Knocker', 64) AS r) s \gset
+
+SELECT set_config('app.current_user_id', '62', true);
+SELECT throws_ok($$ SELECT meeting_lock(62, $$ || :w4id || $$, false) $$,
+  'BZ186', NULL, 'plain member cannot lock (reducer BZ186)');
+UPDATE meetings SET locked = false WHERE id = :w4id;  -- member direct write: silent no-op
+SELECT is((SELECT locked FROM meetings WHERE id = :w4id), TRUE,
+  'plain member direct UPDATE of meetings is a no-op (no policy arm admits it)');
+UPDATE meeting_join_requests SET state = 'admitted' WHERE id = :w4req;  -- no-op: not host/cohost
+UPDATE meeting_participants SET role = 'cohost' WHERE meeting_id = :w4id AND user_id = 63;  -- no-op: not own row, not host
+
+-- cohost (63; chat-role plain 'member' in the provisioned channel) admits
+-- the knock: join_requests UPDATE + participants INSERT-for-another +
+-- the chat_members_meet_bridge INSERT arm all in one act.
+SELECT set_config('app.current_user_id', '63', true);
+SELECT is((SELECT state FROM meeting_join_requests WHERE id = :w4req), 'pending',
+  'plain member''s direct join-request UPDATE was a no-op (still pending)');
+SELECT lives_ok($$ SELECT meeting_admit(63, $$ || :w4req || $$) $$,
+  'cohost admits a member knock (join_requests UPDATE + bridge chat-membership INSERT)');
+SELECT set_config('app.current_user_id', '64', true);
+SELECT is((SELECT count(*) FROM meeting_participants
+            WHERE meeting_id = :w4id AND user_id = 64)::INT, 1,
+  'the admitted knocker reads their own participant row');
+SELECT is((SELECT count(*) FROM chat_channel_members
+            WHERE channel_id = :w4chan AND user_id = 64)::INT, 1,
+  'cohost-admitted knocker gained chat membership (chat_members_meet_bridge arm)');
+
+-- webhook ingest as the app role: the V134 DEFINER conversion.
+SELECT lives_ok(format($$ SELECT meeting_participant_event(%L::uuid, 'room_started') $$, :'w4room'),
+  'webhook fact ingest works as setjoin_app (meeting_participant_event is DEFINER, V134)');
+SELECT is((SELECT state FROM meetings WHERE id = :w4id), 'live', 'room_started flipped the meeting live');
+
+-- recording lifecycle (host writes via meeting_attendee_role arms).
+SELECT set_config('app.current_user_id', '61', true);
+SELECT lives_ok($$ SELECT meeting_recording_start(61, $$ || :w4id || $$) $$,
+  'host starts a recording (meeting_recordings INSERT, started_by pinned)');
+SELECT id AS w4rec FROM meeting_recordings WHERE meeting_id = :w4id \gset
+SELECT lives_ok($$ SELECT meeting_recording_bind_egress($$ || :w4rec || $$, 'eg-w4', 'stage/w4', true, NULL) $$,
+  'egress bind flips requested->active (meeting_recordings UPDATE)');
+SELECT lives_ok($$ SELECT meeting_recording_stop(61, $$ || :w4id || $$) $$,
+  'host stops the recording (active->stopping)');
+SELECT lives_ok(format($$ SELECT meeting_recording_event(%L::uuid, 'eg-w4', 'egress_ended',
+    '{"status":"EGRESS_COMPLETE","fileResults":[{"size":"100","duration":"2000000000"}]}'::jsonb) $$, :'w4room'),
+  'egress webhook settles the row as setjoin_app (meeting_recording_event is DEFINER, V134)');
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :w4rec), 'pending_ingest',
+  'recording row lifecycle readable by the host (attendee-scoped SELECT)');
+
+SELECT set_config('app.current_user_id', '62', true);
+UPDATE meeting_recordings SET state = 'failed' WHERE id = :w4rec;  -- member direct write: no-op
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_recordings (meeting_id, started_by) VALUES (%s, 62) $$, :w4id),
+  '42501', NULL, 'plain member cannot INSERT a recording row (host/cohost attendee WITH CHECK)');
+
+-- breakouts (host INSERT/UPDATE; member direct write is a no-op).
+SELECT set_config('app.current_user_id', '61', true);
+SELECT is((SELECT state FROM meeting_recordings WHERE id = :w4rec), 'pending_ingest',
+  'plain member''s direct recording UPDATE was a no-op');
+SELECT lives_ok($$ SELECT meeting_breakout_open(61, $$ || :w4id || $$, 2) $$,
+  'host opens breakouts (meeting_breakouts INSERT)');
+SELECT set_config('app.current_user_id', '62', true);
+UPDATE meeting_breakouts SET state = 'closed', closed_at = now() WHERE meeting_id = :w4id;  -- no-op
+SELECT set_config('app.current_user_id', '61', true);
+SELECT is((SELECT count(*) FROM meeting_breakouts WHERE meeting_id = :w4id AND state = 'open')::INT, 2,
+  'plain member''s direct breakout close was a no-op (still 2 open)');
+SELECT lives_ok($$ SELECT meeting_breakout_close(61, $$ || :w4id || $$) $$,
+  'host closes all breakouts (meeting_breakouts UPDATE)');
+
+-- kick = ban-until-re-admit; the banned member still reads their OWN row
+-- (the V134 self arm meeting_join's ban check depends on), and cannot rejoin.
+SELECT lives_ok($$ SELECT meeting_kick(61, $$ || :w4id || $$, 'u:62') $$,
+  'host kicks a member (participants UPDATE + provisioned-chat-membership DELETE)');
+SELECT set_config('app.current_user_id', '62', true);
+SELECT is((SELECT banned_at IS NOT NULL FROM meeting_participants
+            WHERE meeting_id = :w4id AND user_id = 62), TRUE,
+  'kicked member reads their OWN banned row (self arm — meeting_join''s ban check)');
+SELECT throws_ok($$ SELECT meeting_join(62, $$ || :w4id || $$) $$,
+  'BZ186', NULL, 'kicked member cannot rejoin (ban-until-re-admit)');
+
+-- stranger cannot write a participant row FOR another user.
+SELECT set_config('app.current_user_id', '65', true);
+SELECT throws_ok(
+  format($$ INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+              VALUES (%s, 43, 'u:43', 'member') $$, :w4id),
+  '42501', NULL, 'stranger cannot INSERT a participant row for another user');
+
+-- end + post-end read breadth. A PENDING knock must be alive at end-time:
+-- the 2026-07-16 fresh-VM gate found meeting_end expiring it AFTER the
+-- left_at mass-stamp, where meeting_member_role (left_at IS NULL) no longer
+-- authorizes the V134 join_requests UPDATE policy — the UPDATE silently hit
+-- 0 rows and the knock polled forever. Order is now expire-then-stamp.
+SELECT (r ->> 'requestId')::bigint AS w4latereq,
+       r ->> 'secret'              AS w4latesecret
+  FROM (SELECT meeting_join_request_create(:'w4slug', 'Late Knocker', 65) AS r) s \gset
+SELECT set_config('app.current_user_id', '61', true);
+SELECT lives_ok($$ SELECT meeting_end(61, $$ || :w4id || $$) $$,
+  'host ends the meeting (meetings/participants/join_requests terminal writes)');
+-- Read the knock back through the DEFINER poll (the guest UI's own path —
+-- the direct row is host/cohost-scoped and the host's membership is dead
+-- post-end, so a raw SELECT here reads NULL by design).
+SELECT is((SELECT meeting_join_request_poll(:'w4slug', :w4latereq, :'w4latesecret') ->> 'state'), 'expired',
+  'a knock still pending at end-time lands expired under setjoin_app (expire-before-stamp ordering)');
+SELECT set_config('app.current_user_id', '65', true);
+SELECT is((SELECT state FROM meetings WHERE id = :w4id), 'ended',
+  'an ended meeting stays org-open readable (stale deep link renders "ended")');
+SELECT set_config('app.current_user_id', '61', true);
+SELECT is((SELECT count(*) FROM meeting_participants WHERE meeting_id = :w4id)::INT, 4,
+  'post-end the host still reads the full roster (meeting_attendee_role arm — attendance panel)');
+SELECT set_config('app.current_user_id', '62', true);
+SELECT is((SELECT count(*) FROM meeting_participants WHERE meeting_id = :w4id)::INT, 1,
+  'post-end a banned member reads ONLY their own row (self arm; attendee arm excludes banned)');
+
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,21 @@
+package geoip
+import("bytes";"net";"os";"testing";"github.com/oschwald/geoip2-golang")
+// Export a standard MMDB fixture. Go's tiny original fixture omits build_epoch
+// and encodes node_count as uint16; add the required metadata and uint32 type
+// without changing the IP tree or country payload. Go validates and resolves it.
+func TestRecordAUTHZGATESGeoIP(t *testing.T){
+ data:=validTestMMDBCountry(t,"US")
+ old:=append(mmdbString("node_count"),mmdbUint(1)...)
+ canonical:=append(mmdbString("node_count"),[]byte{0xC1,1}...)
+ data=bytes.Replace(data,old,canonical,1)
+ marker:=append([]byte{0xAB,0xCD,0xEF},[]byte("MaxMind.com")...)
+ at:=bytes.LastIndex(data,marker)+len(marker)
+ if at<len(marker)||data[at]!=0xE8{t.Fatal("unexpected metadata fixture")}
+ data[at]=0xE9
+ data=append(data,mmdbString("build_epoch")...)
+ data=append(data,0x01,0x02,0x00) // uint64, value 0
+ if err:=validateBytes(data,"");err!=nil{t.Fatal(err)}
+ reader,err:=geoip2.FromBytes(data);if err!=nil{t.Fatal(err)};defer reader.Close()
+ country,err:=reader.Country(net.ParseIP("203.0.113.5"));if err!=nil||country.Country.IsoCode!="US"{t.Fatalf("country=%v err=%v",country,err)}
+ if err=os.WriteFile(os.Getenv("AUTHZGATES_GEOIP_OUTPUT"),data,0644);err!=nil{t.Fatal(err)}
+}

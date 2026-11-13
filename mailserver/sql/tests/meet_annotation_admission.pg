@@ -1,0 +1,176 @@
+-- meet_annotation_admission.pg — MEET plan M4: the durable annotation
+-- admission (V267, meeting_presentation.sql's annotation commit + read; the
+-- BZ277 flip). Covers the admitted-path semantics: the four-axis fence
+-- (BZ272 anti-oracle, BZ273 presenter authority, BZ274 generation+sequence,
+-- BZ275 ACTIVE-only lifecycle) runs BEFORE the admitted-shape gate, and
+-- BZ277 now refuses exactly the un-admitted shapes (missing, size-mismatched,
+-- oversized snapshots) while a well-formed snapshot commit or a clear is
+-- ADMITTED — committed atomically with its durable event, the checkpoint
+-- ref, the ledger row (V267 §A: in-database-derived content identity) and
+-- the push fact. The read is the authorized bounded reference/read path:
+-- HISTORICAL-attendee scoped (post-end convergence), truthful NULL when no
+-- snapshot exists.
+--
+-- Plan: retired-docs:superpowers/plans/2026-08-25-meet-document-presentation-
+-- semantic-recording.md, M4 ("annotation snapshots"). The FORCE-RLS proof
+-- for the ledger lives in meet_annotation_rls.pg.
+BEGIN;
+SELECT plan(33);
+SELECT set_config('app.capture_notify', 'on', true);
+
+SELECT mk_auth_user('ann-host@meet-annotation.test') AS host \gset
+SELECT mk_auth_user('ann-member@meet-annotation.test') AS member \gset
+SELECT mk_auth_user('ann-other@meet-annotation.test') AS other \gset
+
+INSERT INTO meetings (title, owner_user_id, state) VALUES ('ann-m1', :host, 'live')
+  RETURNING id AS m1 \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :host, 'u:' || :host, 'host', now());
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role, joined_at)
+  VALUES (:m1, :member, 'u:' || :member, 'member', now());
+
+SELECT drive_space_create(:host, 'ann-space', 'regular') AS space \gset
+SELECT drive_node_create(:host, :space, NULL, 'file', 'ann.pdf') AS node \gset
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node, :space, repeat('ab', 32), 1, :host)
+  RETURNING id AS ver \gset
+UPDATE drive_files SET head_version_id = :ver WHERE node_id = :node;
+
+-- The ACTIVE session the annotation verbs fence on (seq: ready 1 · start 2).
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid \gset
+SELECT meeting_presentation_ready(:host, :m1, :pid, NULL);
+SELECT meeting_presentation_start(:host, :m1, :pid, 1);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 — the four-axis fence runs BEFORE any admission.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 2, false, '{"s":1}', 7) $$,
+         :host, :m1, :m1 + 99999999),
+  'BZ272', NULL, 'an unknown presentation is the anti-oracle not-found');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 2, false, '{"s":1}', 7) $$,
+         :member, :m1, :pid),
+  'BZ273', NULL, 'a non-presenter cannot commit an annotation (authority axis)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 9, 2, false, '{"s":1}', 7) $$,
+         :host, :m1, :pid),
+  'BZ274', NULL, 'a stale presenter generation refuses (generation axis)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 9, false, '{"s":1}', 7) $$,
+         :host, :m1, :pid),
+  'BZ274', NULL, 'a stale checkpoint sequence refuses (sequence axis)');
+SELECT is((SELECT checkpoint_seq FROM meeting_presentations WHERE id = :pid), 2::bigint,
+  'no refused call bumped the checkpoint');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 — the admitted-shape gate (BZ277): un-admitted shapes fail closed.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 2, false, NULL, NULL) $$,
+         :host, :m1, :pid),
+  'BZ277', NULL, 'a commit without a snapshot is not an admitted shape');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 2, false, '{"s":1}', 999) $$,
+         :host, :m1, :pid),
+  'BZ277', NULL, 'a byte-size mismatch with the received bytes is not admitted (identity is derived, never claimed)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 2, false, repeat('x', 16385), 16385) $$,
+         :host, :m1, :pid),
+  'BZ277', NULL, 'a snapshot over the 16384-byte stored-object bound has no admitted home');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_events
+            WHERE kind LIKE 'annotation%' AND presentation_id = :pid), 0,
+  'no un-admitted annotation event ever landed');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 — the admitted COMMIT: fact rider + event + checkpoint ref + ledger.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_presentation_annotation_commit(:host, :m1, :pid, 1, 2, false,
+  '{"strokes":[[0,0,1,1]]}', octet_length('{"strokes":[[0,0,1,1]]}')) AS fact \gset
+SELECT is(:'fact'::jsonb->>'checkpointSeq', '3', 'the committed fact carries the bumped checkpoint');
+SELECT is(:'fact'::jsonb->'annotation'->>'snapshotRef', 'annotations/p' || :pid || '-s3.json',
+  'the fact''s annotation rider derives the StableRef path from (presentation, checkpoint)');
+SELECT is(:'fact'::jsonb->'annotation'->>'sha256',
+  encode(sha256(convert_to('{"strokes":[[0,0,1,1]]}', 'UTF8')), 'hex'),
+  'the rider''s digest is the in-database-derived identity of the exact bytes');
+SELECT is((SELECT kind FROM meeting_presentation_events
+            WHERE presentation_id = :pid AND checkpoint_seq = 3),
+  'annotation.committed', 'the durable event landed at the committed checkpoint');
+SELECT is((SELECT payload->>'snapshotRef' FROM meeting_presentation_events
+            WHERE presentation_id = :pid AND checkpoint_seq = 3),
+  'annotations/p' || :pid || '-s3.json', 'the event payload carries the bounded reference');
+SELECT is((SELECT annotation_snapshot_ref FROM meeting_presentations WHERE id = :pid),
+  'annotations/p' || :pid || '-s3.json', 'the checkpoint''s annotation_snapshot_ref is set');
+SELECT is((SELECT content FROM meeting_presentation_annotations
+            WHERE presentation_id = :pid AND checkpoint_seq = 3),
+  '{"strokes":[[0,0,1,1]]}', 'the ledger stores the EXACT serialized snapshot bytes');
+SELECT is((SELECT content_sha256 FROM meeting_presentation_annotations
+            WHERE presentation_id = :pid AND checkpoint_seq = 3),
+  encode(sha256(convert_to('{"strokes":[[0,0,1,1]]}', 'UTF8')), 'hex'),
+  'the ledger digest matches its own bytes (V267 identity CHECK)');
+SELECT is((SELECT byte_size FROM meeting_presentation_annotations
+            WHERE presentation_id = :pid AND checkpoint_seq = 3),
+  octet_length('{"strokes":[[0,0,1,1]]}'), 'the ledger byte size matches its own bytes');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §4 — the admitted CLEAR: the ref releases; history is never rewritten.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 3, true, NULL, NULL) $$,
+         :host, :m1, :pid),
+  'a clear is an admitted annotation commit');
+SELECT is((SELECT kind FROM meeting_presentation_events
+            WHERE presentation_id = :pid AND checkpoint_seq = 4),
+  'annotation.cleared', 'the clear event landed');
+SELECT is((SELECT payload FROM meeting_presentation_events
+            WHERE presentation_id = :pid AND checkpoint_seq = 4), NULL,
+  'a clear carries no payload');
+SELECT is((SELECT annotation_snapshot_ref FROM meeting_presentations WHERE id = :pid), NULL,
+  'the checkpoint''s snapshot ref is released');
+SELECT is((SELECT count(*)::int FROM meeting_presentation_annotations
+            WHERE presentation_id = :pid AND checkpoint_seq = 3), 1,
+  'the ledger is history: a clear never rewrites the committed snapshot');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §5 — the authorized bounded read (HISTORICAL attendee scope).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT meeting_presentation_annotation_commit(:host, :m1, :pid, 1, 4, false,
+  '{"strokes":[[5,5,9,9]]}', octet_length('{"strokes":[[5,5,9,9]]}'));
+SELECT is((SELECT meeting_presentation_annotation_read(:host, :m1, :pid) -> 'snapshot' ->> 'snapshotRef'),
+  'annotations/p' || :pid || '-s5.json', 'the read serves the CURRENT snapshot reference');
+SELECT is((SELECT meeting_presentation_annotation_read(:member, :m1, :pid) -> 'snapshot' ->> 'content'),
+  '{"strokes":[[5,5,9,9]]}', 'an attendee reads the exact committed bytes (reconnect convergence)');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_read(%s, %s, %s) $$, :other, :m1, :pid),
+  'BZ272', NULL, 'a non-attendee read is the indistinguishable not-found');
+SELECT is((SELECT meeting_presentation_annotation_read(:host, :m1, :pid) ->> 'presentationId'),
+  :pid::text, 'the read names its presentation');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §6 — lifecycle: annotations are an ACTIVE-session verb; post-end the
+-- committed material still reads (HISTORICAL attendee gate).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT lives_ok(
+  format($$ SELECT meeting_presentation_end(%s, %s, %s, 1) $$, :host, :m1, :pid),
+  'the presenter ends the ACTIVE session');
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 6, false, '{"s":1}', 7) $$,
+         :host, :m1, :pid),
+  'BZ275', NULL, 'a terminal session never commits annotations (the end event bumped the sequence the fences read first)');
+SELECT is((SELECT meeting_presentation_annotation_read(:host, :m1, :pid) -> 'snapshot' ->> 'snapshotRef'),
+  'annotations/p' || :pid || '-s5.json', 'a post-end attendee still converges on the committed snapshot');
+
+-- A fresh session with no snapshot is a truthful NULL, never an error
+-- (the ended session above cleared the one-live belt).
+SELECT meeting_presentation_prepare(:host, :m1, :node, :ver, repeat('ef', 32)) AS pid2 \gset
+SELECT throws_ok(
+  format($$ SELECT meeting_presentation_annotation_commit(%s, %s, %s, 1, 0, false, '{"s":1}', 7) $$,
+         :host, :m1, :pid2),
+  'BZ275', NULL, 'a PREPARING session cannot commit annotations (ACTIVE only)');
+SELECT is((SELECT meeting_presentation_annotation_read(:host, :m1, :pid2) ->> 'snapshot'), NULL,
+  'no snapshot yet is a truthful NULL (never a fabricated snapshot)');
+SELECT is((SELECT meeting_presentation_annotation_read(:host, :m1, :pid) -> 'snapshot' ->> 'snapshotRef'),
+  'annotations/p' || :pid || '-s5.json', 'a post-end attendee still converges on the committed snapshot');
+
+SELECT * FROM finish();
+ROLLBACK;

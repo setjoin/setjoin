@@ -1,0 +1,85 @@
+-- rls_chat_compliance.pg — Chat A4a Task 1: chat_audit_log FORCE-RLS denial
+-- proof. chat_audit_log is DENY-ALL under FORCE RLS with ZERO policies (the
+-- chat_link_previews V122 precedent) — a channel MEMBER also sees zero rows,
+-- because a legal hold must stay invisible to the custodians it targets (CEO
+-- review #1). Every read is an admin route on workerPool (BYPASSRLS); the
+-- writer is a SECURITY DEFINER worker-owned reducer (Task 2).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 1.
+BEGIN;
+SELECT plan(10);
+
+-- fixture: a channel with a member, and one audit-log row (inserted as the
+-- superuser owner — mirrors chat_link_previews' RESET ROLE insert, since the
+-- writer reducer lands in Task 2 and isn't built yet).
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'v126-audit', 91001);
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+  SELECT id, 91001, 'owner' FROM chat_channels WHERE name = 'v126-audit';
+INSERT INTO chat_audit_log (channel_id, id, user_id, action, after_state)
+  SELECT id, 1, 91001, 'hold.set', '{"_checksum":"x"}'::jsonb
+    FROM chat_channels WHERE name = 'v126-audit';
+
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_audit_log'::regclass),
+  TRUE, 'chat_audit_log RLS FORCED');
+
+-- ── denial proof: a channel MEMBER sees zero rows (deny-all, not member-scoped) ─
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '91001', true);
+SELECT is((SELECT count(*) FROM chat_audit_log)::int, 0,
+  'chat_audit_log denies ALL app-role access, even a channel member (zero policies, FORCE)');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+-- ── denial proof: an INSERT by the app role is rejected ──────────────────
+GRANT INSERT ON public.chat_audit_log TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '91001', true);
+SELECT throws_ok(
+  $$ INSERT INTO chat_audit_log (channel_id, id, user_id, action, after_state)
+       SELECT id, 2, 91001, 'hold.set', '{"_checksum":"y"}'::jsonb
+         FROM chat_channels WHERE name = 'v126-audit' $$,
+  NULL, NULL, 'app-role INSERT into chat_audit_log is rejected (zero policies, FORCE)');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+-- ── chat_retention_policies deliberately NOT FORCE'd (org config, no
+-- user_id column — not R4 territory) ──────────────────────────────────────
+SELECT is((SELECT count(*) FROM pg_class
+             WHERE relname = 'chat_retention_policies'
+               AND relforcerowsecurity)::int, 0,
+  'chat_retention_policies has no FORCE RLS (org config, not per-user data)');
+
+-- ── V132 (pipeline review security finding #5): chat_send_counters is now
+-- FORCE-RLS'd, self-scoped like chat_saved_messages — NOT deny-all, since
+-- its writer (chat_message_send) is an ordinary reducer upserting the
+-- CALLING user's own row, never another user's. ──────────────────────────
+SELECT is((SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.chat_send_counters'::regclass),
+  TRUE, 'chat_send_counters RLS FORCED (V132)');
+
+INSERT INTO chat_send_counters (user_id, window_start, sent_count) VALUES (91001, now(), 3);
+INSERT INTO chat_send_counters (user_id, window_start, sent_count) VALUES (91002, now(), 7);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '91001', true);
+SELECT is((SELECT count(*) FROM chat_send_counters)::int, 1,
+  'chat_send_counters self-scoped: the owner sees their own counter row');
+SELECT is((SELECT sent_count FROM chat_send_counters), 3,
+  'chat_send_counters self-scoped: the visible row is the owner''s own');
+SELECT set_config('app.current_user_id', '91002', true);
+SELECT is((SELECT count(*) FROM chat_send_counters WHERE user_id = 91001)::int, 0,
+  'chat_send_counters self-scoped: a different user sees none of another user''s counter (FORCE-RLS denial)');
+
+-- ── write-path proof (the app pool posture doesn't break the reducer's own
+-- upsert): a self-scoped INSERT/UPDATE of the caller's OWN row succeeds
+-- (the ON CONFLICT DO UPDATE chat_message_send issues), matching WITH CHECK. ─
+SELECT lives_ok(
+  $$ INSERT INTO chat_send_counters (user_id, window_start, sent_count) VALUES (91002, now(), 1)
+       ON CONFLICT (user_id) DO UPDATE SET sent_count = chat_send_counters.sent_count + 1 $$,
+  'chat_send_counters self-scoped WITH CHECK allows the caller to upsert their OWN row');
+SELECT throws_ok(
+  $$ INSERT INTO chat_send_counters (user_id, window_start, sent_count) VALUES (91003, now(), 1) $$,
+  NULL, NULL,
+  'chat_send_counters self-scoped WITH CHECK rejects an insert for a DIFFERENT user''s row');
+RESET ROLE;
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT * FROM finish(); ROLLBACK;

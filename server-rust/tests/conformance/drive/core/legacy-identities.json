@@ -1,0 +1,21 @@
+{
+  "patch_node-success": [
+    {
+      "field": "/effects/invalidations/0/anchor_node_id",
+      "from": 47,
+      "to": "<node>"
+    }
+  ],
+  "preview-success": [
+    {
+      "field": "/audit/3/after_state/fileNodeId",
+      "from": 75,
+      "to": "<node-2>"
+    },
+    {
+      "field": "/effects/audit/3/after_state/fileNodeId",
+      "from": 75,
+      "to": "<node-2>"
+    }
+  ]
+}

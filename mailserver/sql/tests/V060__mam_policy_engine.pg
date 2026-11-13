@@ -1,0 +1,23 @@
+BEGIN;
+SELECT plan(10);
+
+-- Verify tables exist
+SELECT has_table('device_policy');
+SELECT has_table('device_policy_groups');
+SELECT has_table('device_events');
+
+-- Verify columns on device_policy
+SELECT has_column('device_policy', 'policy_key');
+SELECT has_column('device_policy', 'policy_value');
+SELECT has_column('device_policy', 'device_id');
+SELECT col_is_pk('device_policy', 'id');
+
+-- Verify CHECK constraint on device_policy_groups.group_type
+SELECT col_has_check('device_policy_groups', 'group_type');
+
+-- Verify extended device_registry columns
+SELECT has_column('device_registry', 'device_fingerprint');
+SELECT has_column('device_registry', 'device_secret');
+
+SELECT * FROM finish();
+ROLLBACK;

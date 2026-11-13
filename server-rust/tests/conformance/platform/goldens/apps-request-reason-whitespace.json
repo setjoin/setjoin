@@ -1,0 +1,65 @@
+{
+  "case": "reason-whitespace",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "office_app_operations"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"kind\":\"install\",\"providerId\":\"collabora\",\"expectedProviderGeneration\":3,\"idempotencyKey\":\"6f1c1c0e-5b7e-4c3a-9d0a-1d2f3a4b5c6d\",\"request\":{\"profile\":\"managed-wildcard\",\"ingress\":{\"hostname\":\"office.example\"},\"catalogRevision\":\"code-v1\"}}",
+      "external_path": "/api/admin/apps/collabora-code/operations",
+      "method": "POST",
+      "path": "/admin/apps/{appId}/operations"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/problems/office/invalid-arguments\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"invalidArguments\",\"instance\":\"/admin/apps/collabora-code/operations\",\"code\":\"BZ322\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-language": [
+          "en"
+        ],
+        "content-length": [
+          "194"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /admin/apps/{appId}/operations"
+}

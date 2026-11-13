@@ -1,0 +1,117 @@
+[
+  {
+    "blob_requests": null,
+    "case": {
+      "transport": {
+        "feature.dane": true,
+        "feature.dnssec": true,
+        "feature.mta_sts": false,
+        "feature.tls_rpt": true
+      },
+      "tlsa": [
+        "error"
+      ],
+      "dns": {
+        "txt:_smtp._tls.dest.test": [
+          "v=TLSRPTv1; rua=https://reports.example.test"
+        ]
+      },
+      "observe_file": "transport-report-observe.sql",
+      "blob_headers": null,
+      "teardown_sql": "DROP TABLE IF EXISTS tls_rpt_sessions;",
+      "link_secret": "",
+      "link_previous": "",
+      "link_version": 0,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "tls-rpt-dane-failure-aggregates",
+      "sql": "-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.\n-- 035_tls_rpt.sql: TLS-RPT session aggregation (RFC 8460)\n-- Records per-policy-domain TLS session results for daily report generation.\n\nCREATE TABLE IF NOT EXISTS tls_rpt_sessions (\n    id              BIGSERIAL PRIMARY KEY,\n    policy_domain   TEXT        NOT NULL,       -- the email domain being delivered to (e.g., example.com)\n    policy_type     TEXT        NOT NULL DEFAULT 'sts',  -- 'sts' or 'no-policy-found'\n    mx_host         TEXT        NOT NULL,       -- the MX hostname connected to\n    mx_ip           TEXT,                        -- resolved IP address\n    result          TEXT        NOT NULL,       -- 'success', 'starttls-not-supported', 'certificate-expired',\n                                                -- 'certificate-host-mismatch', 'validation-failure', 'tlsa-invalid'\n    failure_reason  TEXT,                        -- human-readable failure detail\n    session_count   INT         NOT NULL DEFAULT 1,\n    report_uri      TEXT,                        -- rua URI from _smtp._tls TXT record\n    report_date     DATE        NOT NULL,        -- aggregation date\n    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_date_idx ON tls_rpt_sessions(report_date);\nCREATE INDEX IF NOT EXISTS tls_rpt_sessions_domain_idx ON tls_rpt_sessions(policy_domain, report_date);\nCREATE UNIQUE INDEX IF NOT EXISTS tls_rpt_sessions_uniq_idx \n    ON tls_rpt_sessions(policy_domain, mx_host, mx_ip, result, report_date);\n\nINSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test','two@dest.test']::text[],'From: sender@smtp3.test\r\nTo: remote@dest.test\r\nSubject: outbound\r\n\r\nhello\r\n.dot\nlast\r\n',0,9348021,9350001);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 2
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "delivered": false,
+          "last_error": "all recipients failed: delivery to two@dest.test failed: DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "attempt_count": 1,
+          "backoff_minutes": 1
+        }
+      ],
+      "traces": [],
+      "attempts": [
+        {
+          "tls": false,
+          "mx_host": "mx.dest.test.",
+          "outcome": "error",
+          "smtp_code": null,
+          "smtp_text": "DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "mailbox_id": 9348021,
+          "message_pk": 9350001,
+          "attempt_number": 1,
+          "recipient_email": "one@dest.test"
+        },
+        {
+          "tls": false,
+          "mx_host": "mx.dest.test.",
+          "outcome": "error",
+          "smtp_code": null,
+          "smtp_text": "DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1",
+          "mailbox_id": 9348021,
+          "message_pk": 9350001,
+          "attempt_number": 1,
+          "recipient_email": "two@dest.test"
+        }
+      ],
+      "policies": [],
+      "audit_count": 0,
+      "tls_sessions": [
+        {
+          "ip": "",
+          "uri": "https://reports.example.test",
+          "host": "mx.dest.test.",
+          "count": 2,
+          "today": true,
+          "domain": "dest.test",
+          "result": "validation-failure",
+          "failure": "DANE: server mx.dest.test. unreachable — TLSA lookup failed per RFC 7672 §2.1"
+        }
+      ],
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  }
+]

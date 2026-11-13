@@ -1,0 +1,193 @@
+{
+  "status": "source_final_schema_amendment_for_review",
+  "base_commit": "4399a2f5eacbfa50206bcbc84883f7b40a53bf6b",
+  "tree": "4bbaa6153513646a2bf9e7f3fb4aa7ef4e3aa0e0",
+  "fixture": {
+    "library_id": "libfile_a6022d006df08191b0ce4286975cb9b5",
+    "expected_json_sha256": "a398c4501f8fd49b5d3645c4321cd3a3fd59ace6d3ea83533952efd07583d934",
+    "expected_contract_sha256": "ca21c4123b119b7ff82a8a14f8a23bdbf1f52d42e99974f90245b647f70950b6",
+    "verified_locally": true,
+    "transfer_outcome": "two supported Library materializations failed transport; later in-thread bytes verified",
+    "json_bytes": 1630,
+    "contract_bytes": 5791,
+    "source": "strict in-thread base64 handoff",
+    "archive_sha256_parent_attested": "fc70847b8133572d36dac8765403ce519f7f533b5db3883ef7b51c3ff5e3d6e5",
+    "archive_locally_verified": false
+  },
+  "sources": {
+    "V001__baseline.sql": "a5cfe54ffeb452f51a14ac1d3d896a6ef9bb766f66cd0720051bd68d9b529a14",
+    "V029__smime_encrypted_no_fts.sql": "0b2538311ad766d0131a8eb947b3f73fed4437e7fc986111a017383e721fed46",
+    "V075__attachment_blob_refcount_inc.sql": "dfddee211b9cd05bdc2644d27d47ca5e9b1be9513958a266501552ff9beb96bb",
+    "V078__focus_split.sql": "76e91b76ea10734c508ac99b9ac85f8fb880f64f6398e9c0a0cf9b3a060041ea",
+    "V182__tag_size_counter_integrity.sql": "61c40b352586bf60e3f6045b7d76f215885ad4c3c30255daa8e4aaf825917480",
+    "V199__mailbox_lifecycle_retention.sql": "8861d3c63578acf878e08d86a62bf8ebe7e80040015aa71171e210750186e1ca",
+    "V201__webmail_competitive_productivity.sql": "b2f751b00c48d8250f1a84c1ef7d065dfcd82b9a2cd97c191d279238fa402c9a",
+    "V249__identity_address_admission.sql": "73a305f8cd93928aee99f633760890ebf11475a7683e0f4ac434bfc528d1b3b7",
+    "V143__guest_core.sql": "a6db9d7ea0ddbb8aa500b99f2c1fa5f336f7896116282060487662e2ce414665",
+    "V155__federation_pair_safety.sql": "a1efea49aeded2eb11db858ea69b6205574c54963e11bb453d08553011d1cee9",
+    "V164__identity_provisioning_authority.sql": "0032600790ed7f096db18b4686acf46b571dc57d0936dd21edc69ac152dd2495",
+    "V172__admin_authority_and_revocation_bounds.sql": "4c0915d3e9d225c13282d6fca154b6b80e5f651ce1af7e96258b969d6ebb7247",
+    "V186__directory_group_authority.sql": "4791f84b0ccee6649cdd93dc5e5fa1b72eb26394572cdec9e853f4fd5915c87e",
+    "V222__ca_reachability_serialization.sql": "5a6d7118bf85fed178eef6f7ea059faa65b52c9c308078844a56ddf1b3b1ce79",
+    "V235__blob_user_storage_accounting.sql": "b6817605f6a7e7cf183cf55b564951c940bea3ddd389abe520a7aaa24edc9e5a",
+    "V077__drop_dead_folder_counters.sql": "48be576250bac4f3066add5ef0cea2712c2776fbb3fa309e6b75c98ae353156c",
+    "V085__primary_mailbox_deferred_delete.sql": "2e78220ff53ae829a7adca5237e83e39a3e97899f55935c9da6656093c8dec06",
+    "V156__identity_source_link_substrate.sql": "4e00f7cc0625cceb1ac0b66a1287ebf0b64d34e117472bca40e98970e64cb536",
+    "reducers/jmap_email.sql": "0ec836f9186d0a033f8e73bbdc5ce2bbedff8a6181db24de28df16513c75e940",
+    "V197__imap_membership_uid.sql": "0b92387f6b1038fbc5f20c75ab77ccd345c7ae10e20121c960bdee1b0cc4e3bb",
+    "reducers/trg_imap_membership_uid_allocate.sql": "ddff4a3aff0ef3db245330716724d78402e035c21be44d170d2c58fef6c2d9d0",
+    "reducers/imap_membership_uid_allocate.sql": "b1b2b03d0a8de3f7a0f9241a73467e4494e2adeacd45d816fbdcaae7f3a9a4b9",
+    "V008__email_address_policy.sql": "0d43b239ec30348f0053acd7246fcf5de48cd8eaa61f632a58e01c53faf386eb",
+    "V013__smime_verdict.sql": "98798b2aae2e33392da686d22b12adfa782c7ac558023e64f6978053b9d46528",
+    "V023__drop_admin_role.sql": "826ae6cc35cadf78aa785f79e4484683658d84e4ff6e3ce486f0502f2d39b9d3",
+    "V031__drop_inert_smime_encrypt.sql": "79a09cd025e09b5720d1164de836d3895fe3d2eedf4eefd1100776ba06f7bdb7",
+    "V272__possession_first_factor_gate.sql": "399e1dff7fe180933e40b0f283bf1fa44ef7138a962eddd90f0f07bec0630712",
+    "V035__admin_protection.sql": "0f9176cc958f9dd5cd26b3bbcfcec6282d0d9ad393c99e3a9bba096e0a2ce308"
+  },
+  "conditional_effects": [
+    {
+      "on": "two newly inserted users",
+      "effect": "two sender_control_state rows, generation 1 when absent; V249 and V155 admission checks"
+    },
+    {
+      "on": "two newly inserted nonjournal primary personal mailboxes",
+      "effect": "two lifecycle rows, two lower(email) primary claims, two local user_lifecycle_authorities when absent, fourteen folders and twenty-two system tags, conditional on trigger state, no conflicts and accepted setup route; quota/default updates are configuration dependent"
+    },
+    {
+      "on": "two message inserts",
+      "effect": "V029 FTS update conditional on skip_fts and crypto_type"
+    },
+    {
+      "on": "two unread Inbox membership inserts into initially empty tag",
+      "effect": "Inbox total +2, unread +2, size + sum of message sizes, jmap_state +2; conditional exclusivity and primary sync"
+    },
+    {
+      "on": "one attachment insert",
+      "effect": "V075 matching metadata blob ref_count +1; attachment FK requires metadata blob row, not object bytes"
+    },
+    {
+      "on": "optional blob_user_charges insert",
+      "effect": "V235 usage upsert; no charge row follows from attachment insert alone"
+    }
+  ],
+  "unresolved": [
+    "review of final schema column inventory and source closure against all pinned definitions",
+    "body provider, result/event schema and transaction witness",
+    "runtime binding of source/function/trigger/partition identities, security and actual before/after rows"
+  ],
+  "runtime_executed": false,
+  "blob_bytes_loaded": false,
+  "selectors": {
+    "run_id": "t03_metadata_20261027",
+    "tenant": "tenant",
+    "actors": [
+      "owner",
+      "other"
+    ],
+    "mailboxes": {
+      "owner-inbox": "owner",
+      "bystander-inbox": "other"
+    },
+    "thread": "t03-thread-001",
+    "messages": [
+      "root",
+      "reply"
+    ],
+    "internet_ids": [
+      "<t03-root@fixture.test>",
+      "<t03-reply@fixture.test>"
+    ],
+    "attachment": "reply-attachment",
+    "blob_metadata": "fixture-blob",
+    "membership": "owner-inbox/Inbox/root,reply"
+  },
+  "proposal": {
+    "domain": "t03-metadata.fixture.test",
+    "actors": {
+      "owner": {
+        "username": "t03-owner",
+        "email": "t03-owner@t03-metadata.fixture.test"
+      },
+      "other": {
+        "username": "t03-other",
+        "email": "t03-other@t03-metadata.fixture.test"
+      }
+    },
+    "mailbox_quotas": {
+      "bytes": 1048576,
+      "sends_per_day": 100
+    },
+    "message_sizes": [
+      0,
+      51
+    ],
+    "has_attachments": [
+      false,
+      true
+    ],
+    "raw_refs": [
+      "metadata-only/t03/root",
+      "metadata-only/t03/reply"
+    ],
+    "membership": {
+      "is_primary": true,
+      "added_by": "fixture",
+      "folder_id_binding": "owner Inbox tag id, not generated folder id"
+    },
+    "blob_metadata": {
+      "sha256_label": "0000000000000000000000000000000000000000000000000000000000000000",
+      "minio_ref": "metadata-only/t03/fixture-blob",
+      "size_bytes": 51,
+      "initial_ref_count": 0,
+      "after_attachment_ref_count": 1,
+      "bytes_or_object_evidence": false
+    },
+    "order": [
+      "domain",
+      "users",
+      "mailboxes and triggered rows",
+      "capture separate folder and tag IDs",
+      "blob metadata",
+      "messages",
+      "memberships",
+      "attachment"
+    ],
+    "status": "proposed, not fixture fact or executed"
+  },
+  "closure": [
+    {
+      "operation": "mailbox insert quota hook",
+      "result": "unconditional quota-only mailbox UPDATE; V085 general update primary check fires",
+      "column_specific_predicates": "V143/V249 user_id; V172 user_id/is_primary; V199 email/user_id/enabled/receive_enabled do not match quota-only SET; V186/V222 target users update",
+      "limits": "further indirect or later trigger changes require closure"
+    },
+    {
+      "operation": "primary Inbox memberships",
+      "result": "V001 sets messages.folder_id to NEW.tag_id; V077 calls it a tag-ID mirror; V182 counters +2 total/unread, +51 size, +2 jmap state under proposal"
+    },
+    {
+      "operation": "V164 local authority insert",
+      "result": "V156 deferred lifecycle-link guard returns for local kind"
+    },
+    {
+      "operation": "attachment insert",
+      "result": "V075 increments ref_count from proposed 0 to 1, no zero cleanup; no charge row follows"
+    },
+    {
+      "operation": "membership UID allocation",
+      "required_branch": "pinned V197 and reducer function and trigger installed and enabled; HOLD if missing/different",
+      "expectation": "fresh tag/empty ledger and ordered inserts: UIDs 1,2; two active ledger rows; tag uid_next=3, imap_modseq=3; membership imap_modseq=1"
+    }
+  ],
+  "source_schema_branch": "V001 plus pinned overlays through V272; canonical reducer UID allocator installed and enabled, mismatch HOLD",
+  "schema_overlays": {
+    "V008": "users.address_policy_enabled default true",
+    "V013": "messages smime_status, smime_signer_email, smime_signer_cn, smime_issuer_cn nullable",
+    "V023": "drop users.admin_role",
+    "V031": "drop messages.smime_encrypt",
+    "V077": "drop folder counters",
+    "V197": "message_tags imap_uid nullable, imap_modseq default 1; ledger",
+    "V201": "mailboxes.jmap_mailwork_state default 0",
+    "V272": "user factor generation and possession password/webauthn failure counters default 0 and locked_until nullable"
+  }
+}

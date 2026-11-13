@@ -1,0 +1,171 @@
+{
+  "format": 1,
+  "route": "GET /admin/ediscovery/export",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": {
+        "cases": [
+          {
+            "closed_at": null,
+            "closed_by": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "Scope <42>",
+            "id": 970001,
+            "name": "Investigation",
+            "status": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "",
+            "id": 970002,
+            "name": "Closed investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "mailbox_state": {
+          "email": 0,
+          "mailbox": 0,
+          "tag": 0,
+          "thread": 0
+        },
+        "messages": [
+          {
+            "held": false,
+            "id": "<message-a>",
+            "mailbox_id": "<mailbox>"
+          },
+          {
+            "held": false,
+            "id": "<message-b>",
+            "mailbox_id": "<mailbox>"
+          }
+        ],
+        "results": [
+          {
+            "bound_at": "<timestamp>",
+            "message_id": "<message-a>",
+            "search_id": 980001
+          },
+          {
+            "bound_at": "<timestamp>",
+            "message_id": "<message-b>",
+            "search_id": 980001
+          }
+        ],
+        "searches": [
+          {
+            "case_id": 970001,
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "export_ref": null,
+            "id": 980001,
+            "name": "Result search",
+            "query": {
+              "dateFrom": "",
+              "dateTo": "",
+              "fromAddr": "",
+              "keywords": "oracle",
+              "kql": "",
+              "mailboxIds": [
+                "<mailbox>"
+              ]
+            },
+            "result_count": 2,
+            "started_at": null,
+            "status": "complete"
+          }
+        ]
+      },
+      "before": {
+        "cases": [
+          {
+            "closed_at": null,
+            "closed_by": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "Scope <42>",
+            "id": 970001,
+            "name": "Investigation",
+            "status": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "closed_at": "<timestamp>",
+            "closed_by": "<actor>",
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "description": "",
+            "id": 970002,
+            "name": "Closed investigation",
+            "status": "closed",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "mailbox_state": {
+          "email": 0,
+          "mailbox": 0,
+          "tag": 0,
+          "thread": 0
+        },
+        "messages": [
+          {
+            "held": false,
+            "id": "<message-a>",
+            "mailbox_id": "<mailbox>"
+          },
+          {
+            "held": false,
+            "id": "<message-b>",
+            "mailbox_id": "<mailbox>"
+          }
+        ],
+        "results": [
+          {
+            "bound_at": "<timestamp>",
+            "message_id": "<message-a>",
+            "search_id": 980001
+          },
+          {
+            "bound_at": "<timestamp>",
+            "message_id": "<message-b>",
+            "search_id": 980001
+          }
+        ],
+        "searches": [
+          {
+            "case_id": 970001,
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<actor>",
+            "export_ref": null,
+            "id": 980001,
+            "name": "Result search",
+            "query": {
+              "dateFrom": "",
+              "dateTo": "",
+              "fromAddr": "",
+              "keywords": "oracle",
+              "kql": "",
+              "mailboxIds": [
+                "<mailbox>"
+              ]
+            },
+            "result_count": 2,
+            "started_at": null,
+            "status": "complete"
+          }
+        ]
+      },
+      "table": "ediscovery_cases"
+    }
+  ]
+}

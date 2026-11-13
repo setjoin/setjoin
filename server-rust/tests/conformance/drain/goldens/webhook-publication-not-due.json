@@ -1,0 +1,30 @@
+{
+  "case": "webhook-publication-not-due",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "publications": [
+      {
+        "attempts": 0,
+        "completed": false,
+        "event_id": "evt_pub_later",
+        "last_error": null,
+        "leased": false,
+        "state": "pending"
+      }
+    ],
+    "requests": [],
+    "subscriptions": [
+      {
+        "key_id": "v1",
+        "label": "org",
+        "legacy_prev": false,
+        "legacy_secret": false,
+        "prev_key_id": null,
+        "sealed": true,
+        "sealed_prev": false
+      }
+    ]
+  }
+}

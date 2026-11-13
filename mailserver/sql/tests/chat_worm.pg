@@ -1,0 +1,168 @@
+-- chat_worm.pg — Chat A4a Task 8: gxp/WORM channels — the classification
+-- reducer, the gxp chunk retain_until high-water mark (the gate-1 cut
+-- chunk-rescope replacement), unfurl disabled in gxp, and the
+-- classification/retentionDays conversation-list projection.
+-- Requires: V126 chat compliance rail, chat_channel_set_classification.sql,
+-- chat_space_ensure.sql, chat_read.sql, chat_effective_retention.sql.
+--
+-- chat_compliance_schema.pg (Task 1) already proves the V126 triggers EXIST;
+-- this file proves them firing BEHAVIORALLY through the real reducer paths
+-- (chat_message_edit/chat_message_delete/chat_pin_toggle/chat_purge_expired),
+-- which is what Task 8's own red list asks for. The classification-downgrade
+-- trigger (BZ192) and the retention-lowering trigger (BZ192) are proven at
+-- the raw-UPDATE level, same posture as chat_retention.pg's own BZ192 test
+-- (chat_channel_set_classification structurally never attempts a downgrade —
+-- it only ever does regular->gxp — so a downgrade can only be exercised by a
+-- direct UPDATE bypassing the reducer, exactly what proves the trigger, not
+-- the reducer, is the actual backstop).
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 8.
+BEGIN;
+SELECT plan(27);
+
+-- real user for the attachment/drive-chunk satellite (drive FKs need real users(id))
+SELECT mk_account('wormA') AS mba \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'worm-c1', 97001)
+  RETURNING id AS c1 \gset
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── chat_channel_set_classification: toggle + precondition belt ────────────
+SELECT throws_ok(format($$ SELECT chat_channel_set_classification(97001, %s, 'gxp') $$, :c1),
+  'BZ195', NULL, 'feature.chat_compliance OFF -> BZ195');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+SELECT throws_ok(format($$ SELECT chat_channel_set_classification(97001, %s, 'gxp') $$, :c1),
+  'BZ195', NULL, 'no retention_days/worm_mode set yet -> BZ195');
+
+SELECT throws_ok(format($$ SELECT chat_channel_set_classification(97001, 999999999, 'gxp') $$),
+  'BZ195', NULL, 'nonexistent channel -> BZ195');
+
+-- Task 11a's admin handler sets these two knobs directly, THEN calls the
+-- reducer (plan's own ordering) — a regular channel may carry them unset.
+UPDATE chat_channels SET retention_days = 90, worm_mode = 'governance' WHERE id = :c1;
+
+-- ── a valid upgrade sets classification + writes the classification.change act ─
+SELECT lives_ok(format($$ SELECT chat_channel_set_classification(97001, %s, 'gxp') $$, :c1),
+  'a valid regular->gxp upgrade succeeds once the knobs are set');
+SELECT is((SELECT classification FROM chat_channels WHERE id = :c1), 'gxp',
+  'classification is gxp after the upgrade');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :c1 AND action = 'classification.change')::int,
+  1, 'exactly one classification.change act was written');
+SELECT is((SELECT before_state FROM chat_audit_log
+            WHERE channel_id = :c1 AND action = 'classification.change'),
+  '{"classification": "regular"}'::jsonb, 'act before_state carries the prior classification');
+SELECT is((SELECT after_state - '_checksum' FROM chat_audit_log
+            WHERE channel_id = :c1 AND action = 'classification.change'),
+  '{"classification": "gxp"}'::jsonb, 'act after_state carries the new classification');
+
+-- ── the reducer structurally never attempts a downgrade: re-upgrading an
+--    already-gxp channel is rejected as an invalid transition, not a no-op ──
+SELECT throws_ok(format($$ SELECT chat_channel_set_classification(97001, %s, 'gxp') $$, :c1),
+  'BZ195', NULL, 'upgrading an already-gxp channel again is an invalid transition (BZ195)');
+
+-- ── downgrade + retention-lowering are rejected by the V126 trigger, not the
+--    reducer (which cannot even attempt them) — the DB-level backstop ───────
+SELECT throws_ok(format($$ UPDATE chat_channels SET classification = 'regular' WHERE id = %s $$, :c1),
+  'BZ192', NULL, 'a direct classification downgrade is rejected by the no-downgrade trigger');
+SELECT is((SELECT classification FROM chat_channels WHERE id = :c1), 'gxp',
+  'classification is untouched after the rejected downgrade');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── WORM message/revision immutability THROUGH THE REAL REDUCERS ──────────
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:c1, 97001, 'owner');
+SELECT chat_message_send(97001, :c1, 'gxp original body') AS send_json \gset
+SELECT (:'send_json'::jsonb ->> 'messageId')::bigint AS gxp_msg \gset
+
+SELECT throws_ok(format($$ SELECT chat_message_edit(97001, %s, 'rewritten body') $$, :gxp_msg),
+  'BZ193', NULL, 'chat_message_edit on a gxp message inside retention raises BZ193');
+SELECT is((SELECT body FROM chat_messages WHERE id = :gxp_msg), 'gxp original body',
+  'the body is untouched after the rejected edit');
+SELECT is((SELECT count(*) FROM chat_message_revisions WHERE message_id = :gxp_msg)::int, 0,
+  'no revision row was left behind by the rejected edit (the INSERT..UPDATE unwound together)');
+
+SELECT throws_ok(format($$ SELECT chat_message_delete(97001, %s) $$, :gxp_msg),
+  'BZ193', NULL, 'chat_message_delete on a gxp message inside retention raises BZ193');
+SELECT is((SELECT deleted_at FROM chat_messages WHERE id = :gxp_msg), NULL,
+  'the message is not soft-deleted after the rejected delete');
+
+-- ── pin/unpin still work on a gxp message (payload/seq-only exemption) ─────
+SELECT chat_pin_toggle(97001, :gxp_msg) AS pinned \gset
+SELECT is(:'pinned'::boolean, true, 'pin still succeeds on a gxp message (payload/seq exemption)');
+SELECT chat_pin_toggle(97001, :gxp_msg) AS unpinned \gset
+SELECT is(:'unpinned'::boolean, false, 'unpin still succeeds on a gxp message');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── a REGULAR channel's edited message purges cleanly once past retention:
+--    the revision-trigger's parent-windowed CASCADE allow, proven through the
+--    real send/edit/purge reducers, not a raw fixture insert (eng review #3) ─
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'worm-reg1', 97002, 30)
+  RETURNING id AS reg1 \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:reg1, 97002, 'owner');
+SELECT chat_message_send(97002, :reg1, 'original regular body') AS reg_send_json \gset
+SELECT (:'reg_send_json'::jsonb ->> 'messageId')::bigint AS reg_msg \gset
+SELECT chat_message_edit(97002, :reg_msg, 'edited regular body');
+SELECT is((SELECT count(*) FROM chat_message_revisions WHERE message_id = :reg_msg)::int, 1,
+  'the edit on a regular channel recorded one revision, unblocked (not gxp)');
+-- backdate past the 30-day ceiling (WORM trigger never fires on a regular
+-- channel, so a direct UPDATE of created_at is unobstructed).
+UPDATE chat_messages SET created_at = now() - interval '31 days' WHERE id = :reg_msg;
+
+SELECT lives_ok($$ SELECT chat_purge_expired() $$, 'the purge sweep runs clean over the edited regular message');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :reg_msg)::int, 0,
+  'the edited-then-expired regular message was destroyed');
+SELECT is((SELECT count(*) FROM chat_message_revisions WHERE message_id = :reg_msg)::int, 0,
+  'its revision cascaded away with it (parent-windowed trigger allows the CASCADE)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── chat_conversation_list projects classification + retentionDays ─────────
+SELECT (chat_conversation_list(97001) -> 0 ->> 'classification') AS c1_class \gset
+SELECT is(:'c1_class'::text, 'gxp', 'conversation list projects classification=gxp for the upgraded channel');
+SELECT ((chat_conversation_list(97001) -> 0 ->> 'retentionDays')::int) AS c1_ret \gset
+SELECT is(:c1_ret, 90, 'conversation list projects the gxp channel''s retentionDays (the WORM floor)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── the gate-1 chunk retain_until high-water mark stamps on upgrade ────────
+INSERT INTO chat_channels (kind, name, created_by, retention_days, worm_mode)
+  VALUES ('channel', 'worm-chunk1', :ua, 60, 'governance')
+  RETURNING id AS c2 \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:c2, :ua, 'owner');
+
+INSERT INTO drive_spaces (name, owner_user_id, chat_channel_id) VALUES ('worm-chunk-space', :ua, :c2)
+  RETURNING id AS space1 \gset
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref)
+  VALUES ('g', repeat('f', 64), 19, 'drive/g/'||repeat('f', 64));
+INSERT INTO drive_nodes (space_id, kind, name, created_by) VALUES (:space1, 'file', 'worm.bin', :ua)
+  RETURNING id AS node1 \gset
+INSERT INTO drive_files (node_id, space_id, size_bytes) VALUES (:node1, :space1, 19);
+INSERT INTO drive_file_versions (file_node_id, space_id, content_sha256, size_bytes, author_user_id)
+  VALUES (:node1, :space1, repeat('f', 64), 19, :ua) RETURNING id AS ver1 \gset
+UPDATE drive_files SET head_version_id = :ver1 WHERE node_id = :node1;
+INSERT INTO drive_version_chunks (version_id, ordinal, scope_key, chunk_sha256) VALUES (:ver1, 0, 'g', repeat('f', 64));
+SELECT chat_message_send(:ua, :c2, 'attach carrier') AS c2_send_json \gset
+SELECT (:'c2_send_json'::jsonb ->> 'messageId')::bigint AS c2_msg \gset
+INSERT INTO chat_message_attachments (channel_id, message_id, file_node_id, version_id, filename, size_bytes)
+  VALUES (:c2, :c2_msg, :node1, :ver1, 'worm.bin', 19);
+
+SELECT is((SELECT retain_until FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('f', 64)), NULL,
+  'before the upgrade the chunk carries no retain_until');
+SELECT chat_channel_set_classification(97001, :c2, 'gxp');
+SELECT ok((SELECT retain_until FROM drive_chunks WHERE scope_key = 'g' AND sha256 = repeat('f', 64))
+            >= now() + interval '59 days',
+  'the upgrade stamps a retain_until >= now + retention_days on the channel''s existing ''g''-scope chunks');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── unfurl is a no-op in a gxp channel (spec-delta 5 / chat_unfurl.pg
+--    already carries the full claim/lookup/cache_write happy-path; this only
+--    proves the gxp skip) ───────────────────────────────────────────────────
+SELECT chat_link_preview_claim('urlhash-worm', 'https://example.com/worm') AS won \gset
+SELECT chat_link_preview_cache_write('urlhash-worm', 'Should never merge', NULL, NULL, 'ok');
+SELECT chat_message_unfurl_apply(:c2_msg, 'urlhash-worm');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :c2_msg), NULL,
+  'unfurl apply is a silent no-op on a message in a gxp channel');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,39 @@
+[package]
+name = "setjoin-acme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Exact pins, reviewed with Cargo.lock. Every cryptographic primitive comes from
+# audited crates (ring signs and generates keys; RustCrypto p256 only converts the
+# SEC1 container Go writes); nothing here implements crypto.
+[dependencies]
+instant-acme = { version = "=0.8.5", default-features = false, features = ["ring", "rcgen"] }
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+http = "1"
+http-body-util = "=0.1.5"
+bytes = "=1.12.1"
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+ring = "=0.17.14"
+p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "pkcs8", "std"] }
+pem = "=3.0.6"
+x509-parser = "=0.18.1"
+tokio = { version = "=1.54.1", features = ["fs", "macros", "rt", "sync", "time", "process"] }
+rustls-pki-types = "=1.15.1"
+sha2 = "=0.10.9"
+libc = "=0.2.191"
+# Static, architecture-portable SHA1/SHA224 TSIG compatibility; ring handles key generation/signing.
+openssl = { version = "=0.10.82", features = ["vendored"] }
+# Provider wire formats and audited request/TSIG signing (never local crypto).
+reqsign-aws-v4 = "=3.2.0"
+reqsign-core = "=3.3.0"
+hickory-resolver = "=0.26.3"
+hickory-proto = { version = "=0.26.3", features = ["dnssec-ring"] }
+base64 = "=0.22.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.145"
+quick-xml = { version = "=0.41.0", features = ["serialize"] }
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["fs", "macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }

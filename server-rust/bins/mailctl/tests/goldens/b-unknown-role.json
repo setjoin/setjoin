@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown role action: unsupported (try: list, create, update, delete, grant, revoke, export, apply, diff)\n",
+  "exit": 1
+}

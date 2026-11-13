@@ -1,0 +1,520 @@
+[
+  {
+    "name": "active-schema-key-query-fails-open",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true
+  },
+  {
+    "name": "legacy-key-signs",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "legacy-disabled-key",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);UPDATE domain_signing_keys SET enabled=false WHERE id=9348099;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "legacy-malformed-pem",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);UPDATE domain_signing_keys SET private_key='broken' WHERE id=9348099;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "legacy-pkcs8-rejected",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);UPDATE domain_signing_keys SET private_key=$smtp2$-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg6wsjGmlF79AWdvUM\nt4lD8ERzKX+Wc3a9+nB2Nb7TyNWhRANCAAT1razhKpvFvxQH6aRrm16nAUxX8lif\nvCpfRMnhic9Deptw8Z/A5bUnMg1zuuPImTw6SAF2ykIp9erzp73sdjyN\n-----END PRIVATE KEY-----\n$smtp2$ WHERE id=9348099;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "arc-toggle-off",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": false
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "dmarc-toggle-off-implies-no-arc",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": false,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "forged-chain-gets-pass",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "ARC-Seal: i=3; cv=fail; b=bogus\r\nARC-Authentication-Results: i=2; forged\r\nFrom: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "case-sensitive-prefix",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "arc-seal: i=9; cv=fail; b=bogus\r\nFrom: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  },
+  {
+    "name": "body-can-increase-instance",
+    "mail_auth": {
+      "feature.spf": true,
+      "feature.dmarc": true,
+      "feature.dkim": false,
+      "feature.arc": true
+    },
+    "dns": {
+      "txt:dmarc.smtp2.test": [
+        "v=spf1 ip4:127.0.0.1 -all"
+      ],
+      "txt:_dmarc.dmarc.smtp2.test": [
+        "v=DMARC1; p=reject; rua=mailto:reports@smtp2.test"
+      ]
+    },
+    "observe_effects": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO peer.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<sender@dmarc.smtp2.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "RCPT TO:<alice@smtp1.test>\r\n",
+        "lines": 1
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1
+      },
+      {
+        "send": "From: sender@dmarc.smtp2.test\r\nTo: alice@smtp1.test\r\nSubject: ARC fixture\r\nMessage-Id: <arc@smtp2.test>\r\n\r\nbody\r\nARC-Seal: i=12; b=forged\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "capture": true,
+    "capture_blobs": true,
+    "setup_sql": "ALTER TABLE domain_signing_keys ADD COLUMN domain text, ADD COLUMN private_key text, ADD COLUMN enabled boolean; INSERT INTO domain_signing_keys(id,domain_id,selector,public_key_pem,private_key_pem,domain,private_key,enabled) VALUES (9348099,9348001,'default','fixture','fixture','dmarc.smtp2.test',$smtp2$-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAhDgCVlf0mEAlK4Rq5slavHDTp2JuLK4snZT1j+Tdh1qtd177\nj/RGWikSd2jQ0OnGUqNCaS75npojRgLcU+UdclZhligQkkyxFkNngOYKRWcSHZzI\nFvAPiLh0SVY/KhlODI4g/vOe50dI/G+PaPcX7HNobkbIKLFplMLflsHSUFTvkpDz\ncCFL00HxQUkR3wq+0nSfm0cKT5rHwUrbx6VNXCPqSx8ZvKYH3Mf1fUMZwRE97EoR\nIVcDVKKaBmPpmg9Knl6Z5rcNnZ0wLBsnyGNpczgHHWvt3uvREp1obRl4V1xUM3hG\nq4LWah/5mAlY+hHRQMGebZfadTudxom9yenX7QIDAQABAoIBABYlLmkJUs+kYMVk\n6KXOgFrTF/QvZY4ovxLGtgl7lwoaazb06vQNwTHNMslavizblurU6uTkqA0DOpi5\nlm8bzx6NLsugWsQyQa/dqsqZXQuKS6u3jIDhBO0MnfeBkVNLCTpLnOWu5sTMeQJE\n6jN1vWVOYCWmR9SfAHTY3eupe4EWNydpG6DB4H1xmZmQlqmPzehUbkq/+UxhHvXX\nSFAE27ZzLCMTbOjhYi6nY8kMTJIGUnpuLqQzsni3mNSU3+Jmlia3lER049fkOtCc\nzkrdmfMBZvoZ/Tk7iUrhN31V79wj3Z3Bm7pZNNPU9DXBBtn7ZcK897FQVk8/Mcy+\nECPGjLkCgYEAuX7KKtRI4yogfmvi3bVAzcF7nT4viZ+I1xm1q1yskn7U4EWIFnDg\nwaZ1EDHrV1TWYTNkzo23oOBQf3XnCBpf91akhXtRWNEOTpFhsCJqi+/n3IyWVmTN\nbvY1rrxa1caVUo311yWuZNz6GmiPxHMJYGVYdfYepC3jVKCXuZsZDaUCgYEAtnlE\nkHDZ4NBnIL914e0hCFsldUpUMPh/nZgY3JdrXSq6l6sNZtDJaBklcsRjUY9ZfWG7\nSNpcr3W5adNyRqVSSuUIzDsv3z0S0h9LstvjqIFdB13t0lA1crlZurchexjYLVfj\nepuJ0hYNpSTMsQtVPws9KaZJMedi5Ws9AVXknqkCgYEAk5280Ryi7HSH61N79Sfa\n7GL/NoFYX1MgGN2S304e324jhl6PEBzAIBuRqVOwj40qFaxKmr3Y1iPsq6JuOtqS\naEkBIGCkueOUWR4E+aBJ3hcLE06mDRanDZjN28J1Hw6rokjqzU5lXEsmlYGEd7d8\nTMQaA7XbaJhEAwLR+5jb9SkCgYAf7LOMOdJEvPFuD1FGh8BBwACbtrdoIfHh1pxy\n66MDF9ixdGHR3TF/nvaoT6e4u0XC4/hqVJnmsMgRtcbGiWIObGfPo4NKoVrLnGIY\nFtSLxKZMBaj4JMRVIAyM2EFpUf1wYXIRH2lLckRM4lVVnE/7ybGXudoQexUYYly4\nARkQkQKBgCy5E8lhu37FDkmYr5AXR29Gii9yh2A598mRwuPv7/q/+pvTgYonYqeO\nKLNdibC6/C1ZOrw1nCPcg5n4BxrH3Ix0rLFTk3X8U3HsPYX/++SQefhzk7RNwycO\nwMnZ7iLEYUqnBmIkQ94+MTg9nwrQKjtcSqKLx2rL6GdB6phWA64S\n-----END RSA PRIVATE KEY-----\n$smtp2$,true);SELECT 1;",
+    "teardown_sql": "DELETE FROM domain_signing_keys WHERE id=9348099; ALTER TABLE domain_signing_keys DROP COLUMN IF EXISTS domain, DROP COLUMN IF EXISTS private_key, DROP COLUMN IF EXISTS enabled;"
+  }
+]

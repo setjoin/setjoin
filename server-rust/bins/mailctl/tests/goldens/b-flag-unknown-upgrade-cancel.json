@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of upgrade cancel:\n  -generation string\n    \texpected decimal state generation\n  -reason string\n    \taudited cancellation reason\nError: invalid cancel arguments\n",
+  "exit": 1
+}

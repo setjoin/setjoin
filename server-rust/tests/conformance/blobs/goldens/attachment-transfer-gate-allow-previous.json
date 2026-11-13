@@ -1,0 +1,63 @@
+{
+  "case": "gate-allow-previous",
+  "format": 1,
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "HEAD",
+      "path": "/mail-attachment/{sha256}"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "accept-ranges": [
+          "bytes"
+        ],
+        "cache-control": [
+          "private, max-age=31536000, immutable, no-transform"
+        ],
+        "content-disposition": [
+          "attachment; filename=\"<hash>\""
+        ],
+        "content-length": [
+          "17"
+        ],
+        "content-security-policy": [
+          "default-src 'none'; sandbox"
+        ],
+        "content-type": [
+          "text/plain"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "etag": [
+          "\"<hash>\""
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-attachment-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /mail-attachment/{sha256}"
+}

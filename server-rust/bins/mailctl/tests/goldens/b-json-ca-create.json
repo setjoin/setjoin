@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"actions\":{},\"conditions\":{},\"description\":\"\",\"name\":\"Example\",\"scope_target\":\"\",\"scope_type\":\"global\",\"state\":\"on\"}"
+    }
+  ],
+  "stdout": "Policy created.\n",
+  "stderr": "warning: --enabled is deprecated; use --state (report_only|on|off)\n",
+  "exit": 0
+}

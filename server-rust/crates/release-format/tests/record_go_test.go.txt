@@ -1,0 +1,54 @@
+package testutil
+
+import (
+ "context"
+ "crypto/ed25519"
+ "encoding/base64"
+ "encoding/json"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+
+ "setjoin.com/shared/release"
+)
+
+// Test-only overlay: production Go files are untouched. Output is immutable.
+func TestREL1Record(t *testing.T) {
+ dir := os.Getenv("REL1_RECORD_DIR")
+ if dir == "" { t.Fatal("REL1_RECORD_DIR required") }
+ now := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+ type sample struct { Name string `json:"name"`; Manifest json.RawMessage `json:"manifest"`; PublicKey string `json:"public_key"`; TestOnly bool `json:"test_only"`; KeyID string `json:"key_id"`; Canonical string `json:"canonical"` }
+ samples := []sample{}
+ for _, channel := range []release.Channel{release.ChannelCommunity, release.ChannelEnterprise} {
+  raw, key, err := SignedManifest(now, channel); if err != nil { t.Fatal(err) }
+  m, err := release.ParseManifest(raw); if err != nil { t.Fatal(err) }
+  canonical, err := release.CanonicalManifest(m); if err != nil { t.Fatal(err) }
+  samples = append(samples, sample{Name:string(channel), Manifest:raw, PublicKey:base64.RawStdEncoding.EncodeToString(key.PublicKey), TestOnly:key.TestOnly, KeyID:key.ID, Canonical:string(canonical)})
+ }
+ // Signing vector exercises all optional fields, nil arrays, escaping and sorted
+ // multi-signatures. It uses the real fixture as its base, not handwritten bytes.
+ raw, _, _ := SignedManifest(now, release.ChannelCommunity)
+ m, _ := release.ParseManifest(raw)
+ m.Signatures = nil
+ m.SchemaFrom, m.SchemaTo = 183, 183
+ m.FeatureRegistry = &release.FeatureRegistryContract{CatalogDigest:releaseDigest(), CompatibleModes:[]string{"enforce","observe"}, CompatibleRollbackDigests:[]string{releaseDigest()}}
+ m.Notes.Summary = "<release>&\u2028\u2029 Unicode 雪"
+ m.Notes.KnownBlockers = []string{"<none>", "two"}
+ m.Compatibility.MinimumClient = "1.0.0-rc.1"
+ m.Signing.RotationKeyIDs = []string{"key-a", "key-z"}
+ m.Signing.Threshold = 2
+ for i := range m.Artifacts { if m.Artifacts[i].Class == release.ArtifactWebmail { m.Artifacts[i].OrganizationRepack = true; m.Artifacts[i].CompatibleWithCore = ">=2.0.0 <3.0.0" } }
+ for _, id := range []string{"key-z", "key-a"} {
+  seed := []byte("0123456789abcdef0123456789abcdef")
+  if err := release.SignManifest(context.Background(), m, release.Ed25519Signer{ID:id, PrivateKey:ed25519.NewKeyFromSeed(seed)}); err != nil { t.Fatal(err) }
+ }
+ encoded, err := release.MarshalManifest(m); if err != nil { t.Fatal(err) }
+ canonical, _ := release.CanonicalManifest(m)
+ pub := ed25519.NewKeyFromSeed([]byte("0123456789abcdef0123456789abcdef")).Public().(ed25519.PublicKey)
+ samples = append(samples, sample{Name:"optional-multisig", Manifest:encoded, PublicKey:base64.RawStdEncoding.EncodeToString(pub), KeyID:"key-a", Canonical:string(canonical)})
+ output, err := json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"now":now.Format(time.RFC3339),"samples":samples}, "", "  "); if err != nil { t.Fatal(err) }
+ f, err := os.OpenFile(filepath.Join(dir,"updater-fixtures.json"),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600); if err != nil { t.Fatal(err) }; defer f.Close()
+ if _, err := f.Write(output); err != nil { t.Fatal(err) }
+}
+func releaseDigest() string { return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }

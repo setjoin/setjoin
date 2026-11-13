@@ -1,0 +1,233 @@
+-- chat_ediscovery_read.pg — Chat A4b Task 4: chat_ediscovery_read / chat_ediscovery_export_begin.
+-- Spec: retired-docs:superpowers/specs/2026-07-15-chat-A4b-oversight-design.md §6.1 rows 4-5,
+-- L8 (record floor), D-B (canonical message JSON), contract #3/#7.
+-- Genre: chat_ediscovery_search.pg (fixture shape, attachment-leg incantation),
+-- chat_poll.pg (poll fixture), chat_case_holds.pg (case/user fixture shape).
+BEGIN;
+SELECT plan(42);
+
+-- ── fixture: toggle ON, one open case + one closed case, one real author user
+-- (drive_spaces.owner_user_id FK), an actor who is NOT a member of any
+-- fixture channel (DES-008 unscoped authority), two channels ──────────────
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.drive';
+
+INSERT INTO domains (name, is_local) VALUES ('a4b-read.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 95000, 'a4b-read-admin', id, 'a4b-read-admin@a4b-read.test', 'a4b read admin', 'x'
+    FROM domains WHERE name = 'a4b-read.test';
+-- 95001 needs a real users(id) row: it creates ch1, and chat_space_ensure
+-- (the attachment-leg fixture below) sets drive_spaces.owner_user_id from
+-- the channel's created_by, a real FK (chat_ediscovery_search.pg genre).
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  SELECT 95001, 'a4b-read-author1', id, 'a4b-read-author1@a4b-read.test', 'author1', 'x'
+    FROM domains WHERE name = 'a4b-read.test';
+
+INSERT INTO ediscovery_cases (id, name, status, created_by) VALUES
+  (95200, 'read-case-open', 'active', 95000),
+  (95201, 'read-case-closed', 'closed', 95000);
+
+-- actor 95003 is the eDiscovery officer — deliberately never joins ch1/ch2.
+SELECT chat_channel_create(95001, 'ediscov-read-ch1') AS ch1 \gset
+SELECT chat_channel_create(95001, 'ediscov-read-ch2') AS ch2 \gset
+SELECT chat_member_add(95001, :ch1, 95002);
+
+-- (a) edited message — revision leg.
+SELECT chat_message_send(95001, :ch1, 'original body text') AS m_edit \gset
+SELECT (:'m_edit'::jsonb ->> 'messageId')::bigint AS edit_id \gset
+SELECT chat_message_edit(95001, :edit_id, 'edited body text');
+
+-- (b) soft-deleted message — retained body, deletedAt set.
+SELECT chat_message_send(95001, :ch1, 'to be deleted body') AS m_del \gset
+SELECT (:'m_del'::jsonb ->> 'messageId')::bigint AS del_id \gset
+SELECT chat_message_delete(95001, :del_id);
+
+-- (c) poll message — 2 options, 2 votes (chat_poll.pg fixture genre, through
+-- the reducer seam rather than a direct INSERT, so option/vote FKs are
+-- guaranteed consistent).
+SELECT chat_poll_create(95001, :ch1, 'Best color?', ARRAY['Red','Blue'], false, NULL) AS poll_json \gset
+SELECT (:'poll_json'::jsonb ->> 'messageId')::bigint AS poll_msg_id \gset
+SELECT (:'poll_json'::jsonb ->> 'pollId')::bigint AS poll_id \gset
+SELECT id AS opt1_id FROM chat_poll_options WHERE poll_id = :poll_id AND ordinal = 1 \gset
+SELECT id AS opt2_id FROM chat_poll_options WHERE poll_id = :poll_id AND ordinal = 2 \gset
+SELECT chat_poll_vote(95001, :poll_id, :opt1_id);
+SELECT chat_poll_vote(95002, :poll_id, :opt2_id);
+
+-- (d) attachment message — the chat_ediscovery_search.pg att fixture shape.
+SELECT chat_space_ensure(95001, :ch1) AS att_space \gset
+SELECT drive_chunk_register(95001, :att_space, repeat('9', 64), 4);
+SELECT chat_message_send(95001, :ch1, '', NULL, '{}'::bigint[], NULL,
+    ('[{"sha256":"' || repeat('9', 64) || '","size":4,"name":"evidence.pdf",'
+     || '"manifest":[{"sha256":"' || repeat('9', 64) || '","size":4}]}]')::jsonb) AS m_attach \gset
+SELECT (:'m_attach'::jsonb ->> 'messageId')::bigint AS attach_id \gset
+
+-- (e) scheduled rows: one pending, one flipped to failed (contract #7).
+SELECT chat_schedule_message(95001, :ch1, 'pending scheduled body', NULL, '{}'::bigint[], NULL,
+    now() + interval '1 hour') AS sched_pending \gset
+SELECT chat_schedule_message(95001, :ch1, 'failed scheduled body', NULL, '{}'::bigint[], NULL,
+    now() + interval '2 hours') AS sched_failed \gset
+UPDATE scheduled_actions SET status = 'failed' WHERE id = :'sched_failed'::uuid;
+
+-- (f) simulated purge provenance — cheaper than a real sweep; the act shape
+-- is V126's own (purge.execute payload keys).
+UPDATE chat_channels SET last_purged_seq = 7 WHERE id = :ch1;
+SELECT chat_access_audit(NULL, :ch1, 'purge.execute', 'channel', :ch1, NULL,
+    '{"purgedCount":3,"idFrom":1,"idTo":3,"seqMax":7,"retentionDays":30,"source":"retention"}'::jsonb,
+    NULL, NULL);
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── chat_ediscovery_read: first page ──────────────────────────────────────
+SELECT chat_ediscovery_read(95003, 95200, :ch1) AS r1 \gset
+
+SELECT is((SELECT (m ->> 'deletedAt') IS NOT NULL
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :del_id), TRUE,
+  'the soft-deleted message carries a non-NULL deletedAt (tombstone expanded)');
+SELECT is((SELECT m ->> 'body' FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :del_id), 'to be deleted body',
+  'the soft-deleted message retains its body — no deleted_at filter anywhere in the reducer');
+SELECT is((SELECT (m -> 'revisions' -> 0 ->> 'priorBody')
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :edit_id), 'original body text',
+  'the edited message carries revisions[0].priorBody');
+SELECT is((SELECT jsonb_array_length(m -> 'poll' -> 'options')
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :poll_msg_id), 2,
+  'the poll message''s poll.options round-trips 2 options');
+SELECT is((SELECT m -> 'poll' -> 'options' -> 0 ->> 'label'
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :poll_msg_id), 'Red',
+  'poll.options preserves ordinal order (option 0 = Red)');
+SELECT is((SELECT jsonb_array_length(m -> 'poll' -> 'votes')
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :poll_msg_id), 2,
+  'the poll message''s poll.votes round-trips both votes (poll content is purge-destroyed — it is record)');
+SELECT is((SELECT (m -> 'payload' ->> 'pollId')::bigint
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :poll_msg_id), :poll_id::bigint,
+  'the poll message carries its payload (F3 — payload is not orphaned from export/retention)');
+SELECT is((SELECT m -> 'attachments' -> 0 ->> 'filename'
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :attach_id), 'evidence.pdf',
+  'the attachment message carries its filename');
+SELECT is((SELECT m -> 'attachments' -> 0 ->> 'sha256'
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :attach_id), repeat('9', 64),
+  'the attachment message carries its sha256');
+SELECT ok((SELECT (m -> 'attachments' -> 0 ->> 'versionId') IS NOT NULL
+             FROM jsonb_array_elements(:'r1'::jsonb -> 'messages') m
+            WHERE (m ->> 'messageId')::bigint = :attach_id),
+  'the attachment message carries a non-NULL versionId');
+
+SELECT is(jsonb_array_length(:'r1'::jsonb -> 'scheduledRows'), 2,
+  'scheduledRows carries both the pending and the failed row (contract #7)');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(:'r1'::jsonb -> 'scheduledRows') s
+            WHERE s ->> 'status' = 'pending')::int, 1,
+  'exactly one pending scheduled row surfaces');
+SELECT is((SELECT count(*) FROM jsonb_array_elements(:'r1'::jsonb -> 'scheduledRows') s
+            WHERE s ->> 'status' = 'failed')::int, 1,
+  'exactly one failed scheduled row surfaces');
+
+SELECT is((:'r1'::jsonb ->> 'lastPurgedSeq')::bigint, 7::bigint,
+  'lastPurgedSeq reflects the channel''s record floor');
+SELECT is(jsonb_array_length(:'r1'::jsonb -> 'purgeActs'), 1,
+  'purgeActs carries exactly the one simulated purge.execute act');
+SELECT is((:'r1'::jsonb -> 'purgeActs' -> 0 ->> 'idFrom')::bigint, 1::bigint,
+  'purgeActs[0].idFrom matches the act payload');
+SELECT is((:'r1'::jsonb -> 'purgeActs' -> 0 ->> 'idTo')::bigint, 3::bigint,
+  'purgeActs[0].idTo matches the act payload');
+SELECT is((:'r1'::jsonb -> 'purgeActs' -> 0 ->> 'purgedCount')::int, 3,
+  'purgeActs[0].purgedCount matches the act payload');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── search-row persistence + the ONE search.run act (range payload) ──────
+SELECT (:'r1'::jsonb ->> 'channelId')::bigint AS r1_channel_id \gset
+SELECT ok(:r1_channel_id = :ch1, 'the returned channelId matches the requested channel');
+SELECT (SELECT id FROM chat_ediscovery_searches
+         WHERE case_id = 95200 AND kind = 'read' ORDER BY id DESC LIMIT 1) AS read_search_id \gset
+SELECT ok(:read_search_id IS NOT NULL, 'a kind=read search row was persisted');
+SELECT is((SELECT query ->> 'channelId' FROM chat_ediscovery_searches WHERE id = :read_search_id),
+  :ch1::text, 'the persisted read row''s query carries channelId');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id = :ch1 AND action = 'search.run' AND after_state ? 'range')::int, 1,
+  'exactly ONE search.run act (range payload) lands on the channel chain — reads map onto search.run, no new act type');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:ch1)),
+  'the chain stays fully valid after the read');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── keyset: p_before_id excludes newer messages; scheduledRows page-2 empty
+SELECT chat_ediscovery_read(95003, 95200, :ch1, :attach_id) AS r1_page2 \gset
+SELECT is(jsonb_array_length(:'r1_page2'::jsonb -> 'messages'), 3,
+  'p_before_id = the attachment message''s id excludes it and everything newer, leaving 3 messages');
+SELECT ok((SELECT jsonb_path_exists(:'r1_page2'::jsonb -> 'messages',
+             format('$[*] ? (@.messageId == %s)', :attach_id)::jsonpath)) = FALSE,
+  'the attachment message itself is excluded from page 2');
+SELECT is(jsonb_array_length(:'r1_page2'::jsonb -> 'scheduledRows'), 0,
+  'scheduledRows is empty once p_before_id is non-NULL (first-page-only)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── review F9: scheduledRows clamped to v_lim, same cap as the message window
+SELECT chat_ediscovery_read(95003, 95200, :ch1, NULL, 1) AS r1_limit1 \gset
+SELECT is(jsonb_array_length(:'r1_limit1'::jsonb -> 'scheduledRows'), 1,
+  'scheduledRows is clamped to p_limit=1 even though the channel has 2 scheduled rows (pending+failed)');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── errors ─────────────────────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_ediscovery_read(95003, 95201, %s) $$, :ch1),
+  'BZ198', NULL, 'a closed case raises BZ198');
+SELECT throws_ok($$ SELECT chat_ediscovery_read(95003, 95200, 999999) $$,
+  'BZ197', NULL, 'an unknown channel raises BZ197');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── chat_ediscovery_export_begin: two channels ────────────────────────────
+SELECT chat_ediscovery_export_begin(95003, 95200, ARRAY[:ch1, :ch2]::bigint[], '{}'::jsonb) AS exp \gset
+SELECT is(jsonb_array_length(:'exp'::jsonb -> 'channels'), 2,
+  'export_begin over 2 channels returns 2 channel entries');
+SELECT is((SELECT count(*) FROM chat_audit_log
+            WHERE channel_id IN (:ch1, :ch2) AND action = 'export.run')::int, 2,
+  'one export.run act lands per included channel');
+
+SELECT (SELECT c -> 'chainHead' ->> 'id'
+          FROM jsonb_array_elements(:'exp'::jsonb -> 'channels') c
+         WHERE (c ->> 'channelId')::bigint = :ch1) AS exp_ch1_head_id \gset
+SELECT (SELECT max(id) FROM chat_audit_log WHERE channel_id = :ch1) AS exp_ch1_live_max \gset
+SELECT is(:exp_ch1_head_id::bigint, :exp_ch1_live_max::bigint,
+  'ch1''s returned chainHead.id equals the live MAX(id) of its chain — the export.run act just written');
+SELECT (SELECT c -> 'chainHead' ->> 'checksum'
+          FROM jsonb_array_elements(:'exp'::jsonb -> 'channels') c
+         WHERE (c ->> 'channelId')::bigint = :ch1) AS exp_ch1_head_sum \gset
+SELECT is(:'exp_ch1_head_sum', (SELECT after_state ->> '_checksum' FROM chat_audit_log
+                                  WHERE channel_id = :ch1 AND id = :exp_ch1_head_id::bigint),
+  'ch1''s returned chainHead.checksum matches the stored after_state checksum');
+
+SELECT (SELECT c ->> 'lastPurgedSeq' FROM jsonb_array_elements(:'exp'::jsonb -> 'channels') c
+         WHERE (c ->> 'channelId')::bigint = :ch1) AS exp_ch1_lastseq \gset
+SELECT is(:exp_ch1_lastseq::bigint, 7::bigint,
+  'ch1''s export entry carries the same lastPurgedSeq record floor as the read window');
+SELECT (SELECT jsonb_array_length(c -> 'purgeActs') FROM jsonb_array_elements(:'exp'::jsonb -> 'channels') c
+         WHERE (c ->> 'channelId')::bigint = :ch1) AS exp_ch1_purgeacts_len \gset
+SELECT is(:exp_ch1_purgeacts_len, 1,
+  'ch1''s export entry carries the purge-act id-range');
+
+SELECT (:'exp'::jsonb ->> 'searchId')::bigint AS exp_search_id \gset
+SELECT is((SELECT kind FROM chat_ediscovery_searches WHERE id = :exp_search_id), 'export',
+  'export_begin persists a kind=export search row');
+SELECT is((SELECT result_count FROM chat_ediscovery_searches WHERE id = :exp_search_id), 0,
+  'the export row''s result_count is 0 at begin — counts are computed in the streaming pass, never here');
+
+-- ── export_begin errors ───────────────────────────────────────────────────
+SELECT throws_ok(format($$ SELECT chat_ediscovery_export_begin(95003, 95200, NULL, '{}'::jsonb) $$),
+  'BZ197', NULL, 'NULL p_channel_ids raises BZ197');
+SELECT throws_ok(
+  $$ SELECT chat_ediscovery_export_begin(95003, 95200, '{}'::bigint[], '{}'::jsonb) $$,
+  'BZ197', NULL, 'empty p_channel_ids raises BZ197');
+SELECT throws_ok(
+  format($$ SELECT chat_ediscovery_export_begin(95003, 95200, ARRAY[%s, 999999]::bigint[], '{}'::jsonb) $$, :ch1),
+  'BZ197', NULL, 'an unknown channel id anywhere in the scope raises BZ197 — all-or-nothing, before any act is written');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE action = 'export.run')::int, 2,
+  'the all-or-nothing failure above wrote NO additional export.run acts (still exactly the 2 from the happy path)');
+SELECT throws_ok(
+  format($$ SELECT chat_ediscovery_export_begin(95003, 95201, ARRAY[%s]::bigint[], '{}'::jsonb) $$, :ch1),
+  'BZ198', NULL, 'a closed case raises BZ198');
+
+SELECT * FROM finish(); ROLLBACK;

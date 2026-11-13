@@ -1,0 +1,18 @@
+{
+  "go_source": "559bb903e5ff5bb4f2d15cb79f7016261eafc4ea",
+  "binary_sha256": "3e447bb4547deb1bb620007528a9b038bcebd34311dbc554ffc1f183151a55ca",
+  "build": [
+    "go",
+    "build",
+    "-p=2",
+    "-cover",
+    "-o",
+    "<task-evidence>/mailserverd",
+    "./cmd/mailserverd"
+  ],
+  "image": "setjoin-ci-linux-tc:local-amd64",
+  "image_id": "sha256:b5c41404ac8126e7d2ab4c7f8c7d45d926f165425d589d197f497313410511b6",
+  "go_sources_unchanged": true,
+  "seam": "Frozen mailserverd through Rust front door; optional Go recording, no Go in ordinary replay",
+  "normalization": "Fixture identities and verified checksums/timestamps; Date/framing; temporary S3 keys and SigV4 nonces; equivalent multipart control XML namespace and MIME"
+}

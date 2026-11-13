@@ -1,0 +1,59 @@
+-- pgTAP: vip_senders.sql — VIP senders (QoL #10a: VIP/mute in-app). Reducer
+-- correctness (set on/off, list lower()s + dedups, BZ122 empty-email guard,
+-- ownership) plus the V106 RLS policy proof (mirrors rls_calendar_subscriptions.pg
+-- — ENABLE+FORCE assertion, then the real constrained setjoin_app role).
+BEGIN;
+SELECT plan(16);
+
+CREATE TEMP TABLE _mb AS SELECT mk_account('vipa') AS a, mk_account('vipb') AS b;
+SELECT user_id AS ua FROM mailboxes WHERE id = (SELECT a FROM _mb) \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = (SELECT b FROM _mb) \gset
+
+-- ── empty list initially ──
+SELECT is(jsonb_array_length(vip_senders_list(:ua)), 0, 'no VIP senders yet');
+
+-- ── set on: adds, lowercases ──
+SELECT lives_ok(format($$ SELECT vip_sender_set(%s, 'Boss@Corp.Test', true) $$, :ua), 'vip_sender_set on lives');
+SELECT is(vip_senders_list(:ua), '["boss@corp.test"]'::jsonb, 'list is lowercased');
+
+-- ── idempotent re-add (ON CONFLICT DO NOTHING) ──
+SELECT lives_ok(format($$ SELECT vip_sender_set(%s, 'boss@corp.test', true) $$, :ua), 're-add same VIP is a no-op, not an error');
+SELECT is(jsonb_array_length(vip_senders_list(:ua)), 1, 'still exactly one VIP after re-add');
+
+-- ── second VIP ──
+SELECT lives_ok(format($$ SELECT vip_sender_set(%s, 'friend@example.test', true) $$, :ua), 'add second VIP');
+SELECT is(jsonb_array_length(vip_senders_list(:ua)), 2, 'two VIPs listed');
+
+-- ── set off: removes ──
+SELECT is(
+  (SELECT vip_sender_set(:ua, 'boss@corp.test', false))->>'vip', 'false',
+  'set off returns vip:false');
+SELECT is(jsonb_array_length(vip_senders_list(:ua)), 1, 'one VIP left after unset');
+
+-- ── BZ122: empty/blank email rejected ──
+SELECT throws_ok(format($$ SELECT vip_sender_set(%s, '', true) $$, :ua), 'BZ122', NULL, 'reject empty email');
+SELECT throws_ok(format($$ SELECT vip_sender_set(%s, '   ', true) $$, :ua), 'BZ122', NULL, 'reject blank email');
+
+-- ── ownership: B's list is independent of A's ──
+SELECT is(jsonb_array_length(vip_senders_list(:ub)), 0, 'B has no VIPs (independent of A)');
+
+-- ── RLS (V106): ENABLE + FORCE ──
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.vip_senders'::regclass),
+  TRUE, 'V106: vip_senders has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.vip_senders'::regclass),
+  TRUE, 'V106: vip_senders has ROW LEVEL SECURITY FORCED');
+
+-- ── RLS (V106): real constrained role, fail-closed on no GUC ──
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.vip_senders TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+
+SELECT set_config('app.current_user_id', :'ua', true);
+SELECT is((SELECT count(*) FROM vip_senders)::INT, 1, 'GUC=A: sees exactly their own VIP row');
+
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*) FROM vip_senders)::INT, 0, 'no GUC: fail-closed — ZERO rows visible');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,125 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": [
+          {
+            "kind": "dir",
+            "mode": "700",
+            "name": "."
+          },
+          {
+            "content": {
+              "bytes": 663,
+              "sha256": "c5e3bff605bcdf0647561706a4d65767076d8b331c196b18781aae40de2788b8"
+            },
+            "mode": "600",
+            "name": "custom.cert.pem"
+          },
+          {
+            "content": {
+              "bytes": 240,
+              "sha256": "9d0086085943363241df459ae555f4d997a880a7d4cfe5ad2444539556bfb57c"
+            },
+            "mode": "600",
+            "name": "custom.key.pem"
+          }
+        ]
+      },
+      "before": {
+        "config": [
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_challenge",
+            "value": "tls-alpn-01"
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_domains",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_autocert_email",
+            "value": ""
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_auto_renew",
+            "value": true
+          },
+          {
+            "description": "oracle seed",
+            "encrypted": false,
+            "key": "tls_mode",
+            "value": "none"
+          }
+        ],
+        "files": [
+          {
+            "kind": "dir",
+            "mode": "700",
+            "name": "."
+          },
+          {
+            "content": {
+              "bytes": 663,
+              "sha256": "c5e3bff605bcdf0647561706a4d65767076d8b331c196b18781aae40de2788b8"
+            },
+            "mode": "600",
+            "name": "custom.cert.pem"
+          },
+          {
+            "content": {
+              "bytes": 240,
+              "sha256": "9d0086085943363241df459ae555f4d997a880a7d4cfe5ad2444539556bfb57c"
+            },
+            "mode": "600",
+            "name": "custom.key.pem"
+          }
+        ]
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/tls/import-cert"
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "case": "tls-ticket-keys-at-rest",
+    "issue": "#503",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#503): persisted session-ticket keys are sealed in the system_config secret envelope; legacy plaintext rows are never trusted",
+    "secure_test": "bins/gateway/tests/ticket_worker.rs::persisted_ticket_keys_are_sealed_and_legacy_plaintext_is_replaced",
+    "mutant": "ticket-keys-plaintext"
+  },
+  {
+    "case": "csrf-before-over-budget",
+    "issue": "#491",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#491): the global CSRF gate runs before the over-budget branch",
+    "secure_test": "bins/gateway/tests/secfix3_csrf.rs::over_budget_cross_site_mutation_is_denied_by_csrf",
+    "mutant": "csrf-after-over-budget"
+  },
+  {
+    "case": "tls-ticket-keys-no-codec",
+    "issue": "#503",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-05",
+    "review": "owner-approved security fix 2026-11-05",
+    "reason": "owner-approved security fix 2026-11-05 (#503): without key material the legacy plaintext ticket-key row is deleted and keys stay in memory; a sealed row is kept",
+    "secure_test": "bins/gateway/tests/ticket_worker.rs::without_a_codec_the_legacy_plaintext_row_is_deleted_and_a_sealed_row_kept",
+    "mutant": "ticket-legacy-row-kept"
+  }
+]

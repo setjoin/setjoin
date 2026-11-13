@@ -1,0 +1,87 @@
+-- pgTAP: ensure_default_admin() idempotency test
+BEGIN;
+SELECT plan(7);
+
+-- Arrange the first-call precondition: the security-boundary lane's Go
+-- fixtures run before this file and complete setup (any user row gates the
+-- reducer with "setup already completed"). TRUNCATE inside this transaction
+-- restores the first-call state; the whole transaction rolls back, and the
+-- disposable test database is discarded after the lane regardless.
+TRUNCATE users CASCADE;
+
+-- Re-seed the built-in Super Admin role group: the TRUNCATE cascade reaches
+-- admin_role_groups through its users FK columns. Verbatim from the V001
+-- baseline seed (created_by/updated_by are NULL in the seed, so the insert
+-- has no dangling user reference).
+INSERT INTO public.admin_role_groups VALUES (1, 'Super Admin', 'Full unrestricted access to all admin features.', '{users.read,users.write,users.delete,users.password_reset,users.impersonate,domains.read,domains.write,audit.read,mam.read,mam.write,queue.read,queue.write,reports.read,security.write,roles.manage,compliance.read,compliance.write,backup.read,backup.write,system.config,system.upgrade}', NULL, true, '2026-06-18 16:02:03.142877+08', '2026-06-18 16:02:03.142877+08');
+
+-- Test 1: first call creates admin
+SELECT ok(
+  (SELECT (ensure_default_admin('admin@pg.test', '\$2a\$10\$hashplaceholder000000000000000000000') ->> 'admin_created')::BOOLEAN IS TRUE),
+  'first call creates admin'
+);
+
+SELECT is(
+  (
+    SELECT count(*)::INTEGER
+      FROM admin_role_assignments ara
+      JOIN admin_role_groups arg ON arg.id = ara.role_group_id
+      JOIN users u ON u.id = ara.user_id
+     WHERE u.email = 'admin@pg.test'
+       AND arg.name = 'Super Admin'
+       AND arg.is_builtin = TRUE
+  ),
+  1,
+  'first admin receives exactly one governed built-in Super Admin assignment'
+);
+
+SELECT ok(
+  (
+    SELECT ara.granted_by = ara.user_id
+      FROM admin_role_assignments ara
+      JOIN admin_role_groups arg ON arg.id = ara.role_group_id
+      JOIN users u ON u.id = ara.user_id
+     WHERE u.email = 'admin@pg.test'
+       AND arg.name = 'Super Admin'
+       AND arg.is_builtin = TRUE
+  ),
+  'bootstrap assignment records the first admin as its grant actor'
+);
+
+SELECT ok(
+  (
+    SELECT 'system.config' = ANY(arg.permissions)
+      FROM admin_role_assignments ara
+      JOIN admin_role_groups arg ON arg.id = ara.role_group_id
+      JOIN users u ON u.id = ara.user_id
+     WHERE u.email = 'admin@pg.test'
+  ),
+  'bootstrap authority resolves the system.config permission'
+);
+
+-- Second call detects the existing bootstrap admin and changes no authority.
+SELECT results_eq(
+  $$ SELECT ensure_default_admin('admin2@pg.test', '\$2a\$10\$hashplaceholder000000000000000000000') $$,
+  $$ SELECT '{"admin_created": false, "reason": "setup already completed"}'::JSONB $$,
+  'second call skips because admin exists'
+);
+
+SELECT is(
+  (
+    SELECT count(*)::INTEGER
+      FROM admin_role_assignments ara
+      JOIN users u ON u.id = ara.user_id
+     WHERE u.email = 'admin@pg.test'
+  ),
+  1,
+  'idempotent retry does not duplicate bootstrap authority'
+);
+
+SELECT is(
+  (SELECT count(*)::INTEGER FROM users WHERE email = 'admin2@pg.test'),
+  0,
+  'a second bootstrap never creates another user'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,153 @@
+{
+  "case": "bootstrap-confirm-fault-audit",
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "active_secrets": [
+        {
+          "owner": "actor",
+          "secret": null
+        },
+        {
+          "owner": "foreign",
+          "secret": null
+        }
+      ],
+      "audit": [],
+      "grants": [
+        {
+          "owner": "actor",
+          "stepups": 1
+        },
+        {
+          "owner": "foreign",
+          "stepups": 0
+        }
+      ],
+      "mfa_reauth_step_ups": [
+        {
+          "bound_factor_generation": 2,
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "operation": "bootstrap.totp.enroll",
+          "proof_method": "password",
+          "proving_factor_id": null,
+          "refresh_family_id": null,
+          "session_jti": "idmfa1-actor",
+          "target_ref": "<enrollment>",
+          "token_hash": "<MFA token SHA256>",
+          "token_scope": "mfa_pending",
+          "user_id": "actor"
+        }
+      ],
+      "token_stores": {
+        "auth_event_log": [],
+        "login_events": [],
+        "oauth_tokens": [],
+        "sessions": []
+      },
+      "totp_pending_enrollments": [
+        {
+          "created_at": "<time>",
+          "expires_at": "<time>",
+          "id": "<enrollment>",
+          "secret_enc": "<encrypted pending secret>",
+          "staged_by_jti": "idmfa1-actor",
+          "staged_via": "enroll_setup",
+          "user_id": "actor"
+        }
+      ],
+      "users": [
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "actor",
+          "secret": false,
+          "used": false
+        },
+        {
+          "backups": [
+            "fixture-backup"
+          ],
+          "enabled": false,
+          "failures": 0,
+          "generation": 2,
+          "locked": false,
+          "owner": "foreign",
+          "secret": false,
+          "used": false
+        }
+      ]
+    },
+    "factor_store": {
+      "actor": {
+        "active_secret": null,
+        "enabled_at": false
+      },
+      "foreign": {
+        "active_secret": null,
+        "enabled_at": false
+      }
+    },
+    "mailbox_state": {
+      "after": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      },
+      "before": {
+        "actor": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        },
+        "foreign": {
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0
+        }
+      }
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"code\":\"<TOTP code>\",\"enrollment_id\":\"<enrollment>\",\"mfa_token\":\"<mfa_token>\",\"user_id\":\"<foreign>\"}",
+      "method": "POST",
+      "path": "/auth/totp/enroll/confirm"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"totp confirmation failed\",\"instance\":\"/auth/totp/enroll/confirm\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 500
+    }
+  },
+  "route": "POST /auth/totp/enroll/confirm"
+}

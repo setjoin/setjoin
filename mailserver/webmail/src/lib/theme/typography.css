@@ -1,0 +1,38 @@
+/* setjoin typography tokens.
+   IBM Plex Sans for UI + display, IBM Plex Mono for ids/code/meta. */
+:root {
+  /* Latin stays on Plex. Installed platform CJK faces precede the physically
+     sharded self-hosted fallback, so ordinary desktops transfer zero CJK font
+     bytes while minimal Linux remains fully legible and air-gap safe. */
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Hiragino Sans GB", system-ui, "Setjoin Noto SC Fallback", "Helvetica Neue", sans-serif;
+  --font-mono: "IBM Plex Mono", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, "Setjoin Noto SC Fallback", ui-monospace, "SF Mono", menlo, monospace;
+
+  /* Size scale (UI base is 14px) */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  --text-display: 44px;
+
+  /* Line heights */
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Tracking */
+  --tracking-display: -0.02em; /* ≥24px headings */
+  --tracking-heading: -0.01em; /* 16–24px headings */
+  --tracking-normal: 0;
+  --tracking-caps: 0.06em;     /* uppercase labels, 11–12px */
+}

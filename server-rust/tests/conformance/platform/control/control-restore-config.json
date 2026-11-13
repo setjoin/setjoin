@@ -1,0 +1,62 @@
+{
+  "case": "control-restore-config",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "config": [
+        {
+          "encrypted": false,
+          "key": "feature.gofree_plat7_safe",
+          "value": "true"
+        }
+      ],
+      "primary_objects": [],
+      "quarantine": [
+        {
+          "disposition": "quarantine",
+          "key": "ad_gofree_plat7",
+          "verified": false
+        },
+        {
+          "disposition": "rotate",
+          "key": "gofree_plat7_secret",
+          "verified": false
+        },
+        {
+          "disposition": "quarantine",
+          "key": "gofree_plat7_unknown",
+          "verified": false
+        }
+      ],
+      "restore_jobs": [
+        {
+          "error_log": [],
+          "status": "completed",
+          "type": "config"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/setup/restore"
+    },
+    "response": {
+      "body": {
+        "errors": [],
+        "restore_job_id": "<id>",
+        "restored_blobs": 0,
+        "restored_config_keys": 1,
+        "status": "completed"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /setup/restore"
+}

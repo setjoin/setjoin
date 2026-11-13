@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "named_locations": [],
+  "auth_strengths": [
+    {
+      "slug": "phishing-resistant",
+      "name": "Phishing-Resistant MFA",
+      "builtin": true,
+      "combinations": [["webauthn"], ["passkey"]]
+    }
+  ],
+  "policies": [
+    {
+      "name": "CIS: Require MFA — All Users",
+      "description": "CIS Controls v8 §6.3 — Require MFA for all user accounts. Report-only first.",
+      "priority": 100,
+      "state": "report_only",
+      "scope": {"type": "global"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_acr", "acr": "aal2"}]}
+    },
+    {
+      "name": "CIS: Phishing-Resistant MFA for Privileged Accounts",
+      "description": "CIS Controls v8 §6.5 — Require phishing-resistant credentials for admin accounts.",
+      "priority": 150,
+      "state": "report_only",
+      "scope": {"type": "group", "target": "role:admin"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_strength", "strength_slug": "phishing-resistant"}]}
+    },
+    {
+      "name": "CIS: Step-Up on Unmanaged Device",
+      "description": "CIS Controls v8 §4.1 — Require additional authentication from unmanaged/unknown devices.",
+      "priority": 300,
+      "state": "report_only",
+      "scope": {"type": "global"},
+      "conditions": {"device_trust": "unmanaged"},
+      "actions": {"grants": [{"type": "step_up"}]}
+    },
+    {
+      "name": "CIS: Alert on Suspicious IP",
+      "description": "CIS Controls v8 §13.6 — Generate a security alert for sign-ins from suspicious IP reputation. Does not block.",
+      "priority": 400,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"ip_reputation": "suspicious"},
+      "actions": {"grants": [{"type": "notify"}]}
+    },
+    {
+      "name": "CIS: Block Malicious IP",
+      "description": "CIS Controls v8 §13.6 — Block sign-ins from confirmed malicious IP reputation.",
+      "priority": 450,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"ip_reputation": "malicious"},
+      "actions": {"grants": [{"type": "block"}]}
+    },
+    {
+      "name": "CIS: Block High-Risk Countries",
+      "description": "CIS Controls v8 §13.1 — Block sign-ins from sanctioned or high-risk geographies.",
+      "priority": 500,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"country_in": ["KP", "IR", "CU", "SY"]},
+      "actions": {"grants": [{"type": "block"}]}
+    }
+  ]
+}

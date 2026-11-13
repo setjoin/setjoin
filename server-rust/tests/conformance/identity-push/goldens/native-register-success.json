@@ -1,0 +1,84 @@
+{
+  "case": "native-register-success",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [
+      {
+        "action": "device_registered",
+        "ip": "127.0.0.1/32",
+        "notes": null,
+        "owner": "actor",
+        "target_type": "user"
+      }
+    ],
+    "effects": {
+      "audit": [
+        {
+          "action": "device_registered",
+          "ip": "127.0.0.1/32",
+          "notes": null,
+          "owner": "actor",
+          "target_type": "user"
+        }
+      ],
+      "devices": [
+        {
+          "key": "046ff03b949241ce1dadd43519e6960e0a85b41a69a05c328103aa2bce1594ca163c4f753a55bf01dc53f6c0b0c7eee78b40c6ff7d25a96e2282b989cef71c144a",
+          "name": "IDMFA3 device",
+          "owner": "actor",
+          "provider": "fcm",
+          "revoked": false,
+          "token": "idmfa3-device-token",
+          "used": false
+        }
+      ],
+      "grants": [
+        {
+          "factor": null,
+          "family": null,
+          "generation": 2,
+          "jti": "prior",
+          "live": true,
+          "method": "password",
+          "operation": "totp.enroll",
+          "owner": "foreign",
+          "scope": "session",
+          "target": null
+        }
+      ],
+      "users": [
+        {
+          "generation": 3,
+          "owner": "actor",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        },
+        {
+          "generation": 2,
+          "owner": "foreign",
+          "password_failures": 0,
+          "password_locked": false,
+          "totp_failures": 0,
+          "totp_locked": false,
+          "totp_used": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"device_name\":\"IDMFA3 device\",\"device_public_key\":\"046ff03b949241ce1dadd43519e6960e0a85b41a69a05c328103aa2bce1594ca163c4f753a55bf01dc53f6c0b0c7eee78b40c6ff7d25a96e2282b989cef71c144a\",\"provider\":\"fcm\",\"push_token\":\"idmfa3-device-token\",\"reauth_token\":\"idmfa3-backup-proof\",\"user_id\":<foreign>}",
+      "method": "POST",
+      "path": "/auth/device/register"
+    },
+    "response": {
+      "body": "",
+      "headers": {},
+      "status": 204
+    }
+  },
+  "route": "POST /auth/device/register"
+}

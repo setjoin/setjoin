@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "setjoin.exchange.support-cells/v1",
+  "cells": [
+    {
+      "id": "EX2019-ONPREM-INITIAL",
+      "productFamily": "Exchange Server 2019",
+      "namedCU": "explicit-at-collection",
+      "buildAllowlist": [],
+      "topology": "on_premises",
+      "directoryAuthority": "active_directory",
+      "powerShellRuntime": "windows_powershell_5_1",
+      "cloudAdapterVersion": "none",
+      "collectorVersion": "1",
+      "catalogVersion": 1,
+      "registryVersion": 1,
+      "setjoinRelease": "build-bound",
+      "admission": "unassessed"
+    }
+  ]
+}

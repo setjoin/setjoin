@@ -1,0 +1,446 @@
+[
+  {
+    "name": "phish-exact-rejected",
+    "mail_auth": {
+      "feature.antiphish_display_name": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alice <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-exact-rejected@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-internal-bypass",
+    "mail_auth": {
+      "feature.antiphish_display_name": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alice <alice@smtp1.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-internal-bypass@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-fuzzy-warn",
+    "mail_auth": {
+      "feature.antiphish_display_name": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alicee <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-fuzzy-warn@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.4
+    }
+  },
+  {
+    "name": "phish-strict-upgrades-warn",
+    "mail_auth": {
+      "feature.antiphish_display_name": true,
+      "feature.antiphish_strict_mode": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alicee <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-strict-upgrades-warn@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.4
+    }
+  },
+  {
+    "name": "phish-homoglyph-reject",
+    "mail_auth": {
+      "feature.antiphish_lookalike": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <sender@ex\u0430mple.com>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-homoglyph-reject@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-lookalike-warn",
+    "mail_auth": {
+      "feature.antiphish_lookalike": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <sender@examp1e.com>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-lookalike-warn@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-protected-exact-ok",
+    "mail_auth": {
+      "feature.antiphish_lookalike": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <sender@example.com>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-protected-exact-ok@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-lookalike-far-ok",
+    "mail_auth": {
+      "feature.antiphish_lookalike": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <sender@remote.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-lookalike-far-ok@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  },
+  {
+    "name": "phish-contact-skips-unresolved-mailbox",
+    "mail_auth": {
+      "feature.antiphish_contact_graph": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alice <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-contact-skips-unresolved-mailbox@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    },
+    "setup_sql": "SELECT deliver('inbound/smtp6-history','<smtp6-trusted-history>','trusted@example.com','Alice','alias@smtp1.test','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,'History','','','hello','',0,false,'2026-01-01T00:00:00Z'::timestamptz,'none','none','none',0,NULL); REFRESH MATERIALIZED VIEW antiphish_contact_graph",
+    "teardown_sql": "DELETE FROM messages WHERE mailbox_id=9348021 AND message_id='<smtp6-trusted-history>';REFRESH MATERIALIZED VIEW antiphish_contact_graph"
+  },
+  {
+    "name": "phish-disabled-user-not-protected",
+    "mail_auth": {
+      "feature.antiphish_display_name": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Bob <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-disabled-user-not-protected@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    },
+    "setup_sql": "UPDATE users SET enabled=false WHERE id=9348012"
+  },
+  {
+    "name": "phish-detector-disabled",
+    "mail_auth": {
+      "feature.antiphish_display_name": false
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Alice <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <phish-detector-disabled@smtp6.test>\r\nSubject: Ordinary message\r\n\r\nhello\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "anti_phish": true,
+      "internal_domains": [
+        "smtp1.test"
+      ],
+      "protected_domains": [
+        "example.com"
+      ],
+      "name_threshold": 0.85
+    }
+  }
+]

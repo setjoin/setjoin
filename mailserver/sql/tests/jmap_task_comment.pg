@@ -1,0 +1,82 @@
+-- pgTAP: jmap_task_comment.sql — task comments + @mention resolve + R1 ownership
+-- + the change-history half (status/assignee/due activity rows on update).
+BEGIN;
+SELECT plan(9);
+
+-- Two disjoint accounts: author (owns the task) + mentionee (a resolvable
+-- internal user whose email a comment @mentions). mk_account guarantees
+-- disjoint user/mailbox id ranges.
+CREATE TEMP TABLE _au AS SELECT mk_account('tcAuthor') AS mb;
+CREATE TEMP TABLE _me AS SELECT mk_account('tcMentionee') AS mb;
+CREATE TEMP TABLE _fo AS SELECT mk_account('tcForeign') AS mb;
+SELECT (SELECT email FROM mailboxes WHERE id = (SELECT mb FROM _me)) AS me_email \gset
+SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _me)) AS me_uid \gset
+
+-- A task owned by the author.
+SELECT (jmap_task_set_create((SELECT mb FROM _au), '{"t":{"title":"Coordinate launch"}}'::JSONB)
+  ->'created'->'t'->>'id') AS tid \gset
+
+-- ── Comment create + @mention resolve ───────────────────────────────────────
+SELECT (task_comment_create((SELECT mb FROM _au), :tid::BIGINT, 'Please review',
+  ('["' || :'me_email' || '"]')::JSONB)->>'id') AS aid \gset
+
+-- 1: the comment row exists (kind='comment', body verbatim)
+SELECT is(
+  (SELECT body FROM task_activity WHERE id = :aid::BIGINT AND kind = 'comment'),
+  'Please review',
+  'task_comment_create inserts a comment row with the verbatim body');
+
+-- 2: the @mention resolved to the mentionee's internal users.id
+SELECT ok(
+  (SELECT mentioned_user_ids @> ARRAY[:me_uid::BIGINT] FROM task_activity WHERE id = :aid::BIGINT),
+  'the @mention email resolved to the internal users.id in mentioned_user_ids');
+
+-- 3: the mentionee got a notification delivered into their own mailbox
+SELECT cmp_ok(
+  (SELECT COUNT(*) FROM messages WHERE mailbox_id = (SELECT mb FROM _me)),
+  '>=', 1::BIGINT,
+  'an @mention delivers a notification into the mentioned user''s mailbox');
+
+-- 4: task_activity_list returns the comment (ownership-checked reader)
+SELECT ok(
+  jsonb_array_length(task_activity_list((SELECT mb FROM _au), :tid::BIGINT)->'list') >= 1,
+  'task_activity_list returns the feed for an owned task');
+
+-- 5: an unresolvable @mention fails loud (BZ040 → invalidArguments)
+SELECT throws_ok(
+  format($$ SELECT task_comment_create(%s, %s, 'hi', '["ghost@nowhere.invalid"]'::JSONB) $$,
+    (SELECT mb FROM _au), :tid),
+  'BZ040', NULL, 'an unresolvable @mention email fails loud');
+
+-- 6: R1 — a FOREIGN account cannot comment on the author's task
+SELECT throws_ok(
+  format($$ SELECT task_comment_create(%s, %s, 'sneaky', '[]'::JSONB) $$,
+    (SELECT mb FROM _fo), :tid),
+  'BZ041', NULL, 'commenting on a cross-mailbox task is rejected (R1 ownership)');
+
+-- 7: R1 — a FOREIGN account cannot read the author's activity feed
+SELECT throws_ok(
+  format($$ SELECT task_activity_list(%s, %s) $$, (SELECT mb FROM _fo), :tid),
+  'BZ041', NULL, 'reading a cross-mailbox activity feed is rejected (R1 ownership)');
+
+-- ── Change history: update produces status/assignee change rows ──────────────
+CREATE TEMP TABLE _sc AS
+  SELECT COUNT(*) AS n FROM task_activity WHERE task_id = :tid::BIGINT AND kind = 'status_change';
+SELECT jmap_task_set_update((SELECT mb FROM _au),
+  ('{"' || :tid || '":{"status":"in-progress"}}')::JSONB);
+-- 8: a status change appends a status_change activity row
+SELECT is(
+  (SELECT COUNT(*) FROM task_activity WHERE task_id = :tid::BIGINT AND kind = 'status_change') - (SELECT n FROM _sc),
+  1::BIGINT,
+  'a status change on update appends a status_change activity row');
+
+-- 9: an assignee change appends an assignee_change activity row
+SELECT jmap_task_set_update((SELECT mb FROM _au),
+  ('{"' || :tid || '":{"assigneeEmail":"' || :'me_email' || '"}}')::JSONB);
+SELECT is(
+  (SELECT COUNT(*) FROM task_activity WHERE task_id = :tid::BIGINT AND kind = 'assignee_change'),
+  1::BIGINT,
+  'an assignee change on update appends an assignee_change activity row');
+
+SELECT * FROM finish();
+ROLLBACK;

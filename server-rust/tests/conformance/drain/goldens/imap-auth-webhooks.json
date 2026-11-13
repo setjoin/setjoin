@@ -1,0 +1,667 @@
+{
+  "case": "imap-auth-webhooks",
+  "format": 1,
+  "go_source": "1d7ea54c0",
+  "observation": {
+    "app-password-authenticate": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"app_password\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"app_password\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "app-passwords": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"ALICE@imap1.test\", \"provider\": \"app_password\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"bob@imap1.test\", \"provider\": \"app_password\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"ivan@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"ivan@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"ALICE@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"app_password\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"bob@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"app_password\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"ivan@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"ivan@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "authenticate-authzid-ignored": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "authenticate-forms": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "login-argument-quirks": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"jack@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"jack@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"{11+}\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"jack@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"{11+}\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"jack@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"jack@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"{11+}\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"jack@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"{11+}\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "login-denials": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"bob@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"carol@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"gina@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"bob@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"carol@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"gina@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "login-failures": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"erin@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"Alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"dave@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"ivan@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/auth",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"nobody@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"Alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"dave@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"ivan@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ],
+        [
+          "/failed",
+          "auth.login_failed",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"nobody@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login_failed\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"erin@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"Alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"dave@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"ivan@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"nobody@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"Alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"dave@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"ivan@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        },
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login_failed\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"nobody@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/failed",
+          "signature": "<valid>"
+        }
+      ]
+    },
+    "login-success-forms": {
+      "deliveries": [
+        [
+          "/auth",
+          "auth.login",
+          "{\"id\": \"<id>\", \"data\": {\"ip\": \"127.0.0.1\", \"email\": \"alice@imap1.test\", \"provider\": \"bcrypt\"}, \"time\": \"<time>\", \"type\": \"auth.login\", \"source\": \"mailserver/auth\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+          "success",
+          1,
+          200,
+          "",
+          "<id>"
+        ]
+      ],
+      "requests": [
+        {
+          "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/auth\",\"type\":\"auth.login\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"email\":\"alice@imap1.test\",\"ip\":\"127.0.0.1\",\"provider\":\"bcrypt\"}}",
+          "content_type": "application/json",
+          "method": "POST",
+          "path": "/auth",
+          "signature": "<valid>"
+        }
+      ]
+    }
+  }
+}

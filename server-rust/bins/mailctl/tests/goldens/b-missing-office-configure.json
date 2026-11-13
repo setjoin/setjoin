@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl office configure --generation N --discovery-url URL --wopi-base-url URL --editor-url URL --reason TEXT [--profile existing-provider]\n",
+  "exit": 1
+}

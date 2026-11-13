@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl device wipe <device_id> [--level account|device]\n",
+  "exit": 1
+}

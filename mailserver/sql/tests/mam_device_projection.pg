@@ -1,0 +1,98 @@
+-- MAM admin device projection: registry identity + optional MDM check-in state.
+-- The admin list uses the BIGINT device_registry id for policy/event actions;
+-- MDM fields are joined by the stable fingerprint and the owning user.
+BEGIN;
+SELECT plan(15);
+
+INSERT INTO domains (name, is_local)
+VALUES ('mam-projection.test', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (92061, 'mam-projection', (SELECT id FROM domains WHERE name = 'mam-projection.test'),
+        'mam-projection@mam-projection.test', 'MAM Projection', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (92062, 'mam-projection-other', (SELECT id FROM domains WHERE name = 'mam-projection.test'),
+        'mam-projection-other@mam-projection.test', 'MAM Projection Other', crypt('x', gen_salt('bf')), FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO device_registry (user_id, device_hash, device_fingerprint, first_seen, last_seen)
+VALUES
+  (92061, 'mam-projection-missing', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', now() - interval '5 minutes', now() - interval '1 minute'),
+  (92061, 'mam-projection-compliant', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - interval '5 minutes', now() - interval '2 minutes'),
+  (92061, 'mam-projection-non-compliant', 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - interval '5 minutes', now() - interval '3 minutes'),
+  (92061, 'mam-projection-grace', 'dddddddd-dddd-dddd-dddd-dddddddddddd', now() - interval '5 minutes', now() - interval '4 minutes'),
+  (92061, 'mam-projection-quarantined', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - interval '5 minutes', now() - interval '5 minutes'),
+  (92062, 'mam-projection-cross-owner', 'ffffffff-ffff-ffff-ffff-ffffffffffff', now() - interval '5 minutes', now() - interval '6 minutes');
+
+INSERT INTO mdm_device_state (device_id, user_id, platform, device_name, os_version, app_version,
+                              compliance_status, wipe_requested, last_checkin_at, created_at, updated_at)
+VALUES
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 92061, 'ios', 'Projection iPhone', '17.5', '1.0',
+   'compliant', 'none', now() - interval '2 minutes', now() - interval '1 day', now()),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 92061, 'android', 'Projection Pixel', '14', '1.1',
+   'non_compliant', 'none', now() - interval '3 minutes', now() - interval '2 days', now()),
+  ('dddddddd-dddd-dddd-dddd-dddddddddddd', 92061, 'ios', 'Projection iPad', '17.4', '1.2',
+   'grace', 'none', now() - interval '4 minutes', now() - interval '3 days', now()),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 92061, 'android', 'Projection Tablet', '13', '1.3',
+   'quarantined', 'pending', now() - interval '5 minutes', now() - interval '4 days', now()),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 92061, 'ios', 'Cross-owner state', '17.0', '1.0',
+   'compliant', 'none', now() - interval '6 minutes', now() - interval '5 days', now());
+
+-- Keep this SELECT aligned with admin_mam.go's source projection. The Go
+-- wire mapper owns the final unknown/registry fallback for NULL MDM columns.
+CREATE TEMP VIEW mam_device_projection_test AS
+SELECT d.device_hash,
+       d.user_id AS registry_user_id,
+       m.user_id AS state_user_id,
+       m.platform,
+       m.device_name,
+       m.compliance_status,
+       m.wipe_requested,
+       m.last_checkin_at,
+       m.created_at,
+       d.last_seen,
+       d.first_seen,
+       COALESCE(m.last_checkin_at, d.last_seen) AS projected_last_checkin,
+       COALESCE(m.created_at, d.first_seen) AS projected_created
+  FROM device_registry AS d
+  LEFT JOIN mdm_device_state AS m
+    ON m.device_id = d.device_fingerprint
+   AND m.user_id = d.user_id
+ WHERE d.device_hash LIKE 'mam-projection-%';
+
+SELECT is((SELECT count(*) FROM mam_device_projection_test), 6::bigint,
+          'registry rows remain visible when MDM state is absent');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE state_user_id IS NOT NULL), 4::bigint,
+          'four registry rows attach their MDM state');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE compliance_status = 'compliant'), 1::bigint,
+          'compliant status survives the projection');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE compliance_status = 'non_compliant'), 1::bigint,
+          'non_compliant status survives the projection');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE compliance_status = 'grace'), 1::bigint,
+          'grace status survives the projection');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE compliance_status = 'quarantined'), 1::bigint,
+          'quarantined status survives the projection');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing' AND platform IS NULL), 1::bigint,
+          'missing MDM state leaves platform nullable for the Go fallback');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing' AND device_name IS NULL), 1::bigint,
+          'missing MDM state leaves device name nullable for the Go fallback');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing' AND compliance_status IS NULL), 1::bigint,
+          'missing MDM state leaves compliance nullable for the Go fallback');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing' AND last_checkin_at IS NULL), 1::bigint,
+          'missing MDM state has no synthetic check-in timestamp');
+SELECT isnt((SELECT projected_last_checkin FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing'), NULL,
+            'registry last_seen supplies the missing check-in fallback');
+SELECT isnt((SELECT projected_created FROM mam_device_projection_test WHERE device_hash = 'mam-projection-missing'), NULL,
+            'registry first_seen supplies the missing created fallback');
+SELECT is((SELECT count(*) FROM mam_device_projection_test WHERE wipe_requested = 'pending'), 1::bigint,
+          'wipe state is available to the MAM wire mapper');
+SELECT is((SELECT count(*) FROM mam_device_projection_test
+            WHERE state_user_id IS NOT NULL AND state_user_id = registry_user_id), 4::bigint,
+          'state is only attached to the registry row owned by the same user');
+SELECT is((SELECT count(*) FROM mam_device_projection_test
+            WHERE device_hash = 'mam-projection-cross-owner' AND state_user_id IS NULL), 1::bigint,
+          'a cross-owner fingerprint does not attach another user''s state');
+
+SELECT * FROM finish();
+ROLLBACK;

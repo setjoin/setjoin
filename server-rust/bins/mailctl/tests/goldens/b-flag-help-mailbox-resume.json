@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: invalid mailbox resume flags\n",
+  "exit": 1
+}

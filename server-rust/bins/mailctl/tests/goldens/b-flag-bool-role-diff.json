@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -prune: parse error\nUsage of role diff:\n  -f string\n    \tRoles document (JSON); '-' for stdin\n  -prune\n    \tInclude deletions (roles/members absent from the document)\nError: invalid boolean value \"not-a-bool\" for -prune: parse error\n",
+  "exit": 1
+}

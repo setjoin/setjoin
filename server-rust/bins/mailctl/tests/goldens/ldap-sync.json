@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/ldap/sync",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "Sync complete: checked=5 created=1 updated=0 disabled=0 skipped=0 errors=2 duration=3s\n",
+  "stderr": "Error: sync completed with 2 error(s)\n",
+  "exit": 1
+}

@@ -1,0 +1,19 @@
+{
+  "case": "notify-drain-order-and-dedupe",
+  "format": 1,
+  "go_source": "d88e3f481",
+  "observation": {
+    "notifies": {
+      "gofree-drain-a": [
+        "p1",
+        "p3"
+      ],
+      "gofree-drain-b": [
+        "p2"
+      ],
+      "gofree-drain-bulk": [],
+      "gofree-drain-locked": []
+    },
+    "remaining": []
+  }
+}

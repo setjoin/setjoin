@@ -1,0 +1,114 @@
+-- pgTAP tests for V027 ca_signin_log: append-only telemetry, BZ083, no hash-chain.
+BEGIN;
+SELECT plan(16);
+
+-- Test 1: table exists with the expected columns.
+SELECT has_table('ca_signin_log');
+SELECT has_column('ca_signin_log', 'correlation_id');
+SELECT has_column('ca_signin_log', 'evaluated');
+
+-- Test 2: RLS is enabled AND forced (R4).
+SELECT is(
+  (SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE relname = 'ca_signin_log'),
+  TRUE, 'ca_signin_log has RLS enabled + forced');
+
+-- Seed one row to mutate.
+INSERT INTO ca_signin_log (user_id, decision, evaluated)
+  VALUES (4711, 'allow', '[]'::jsonb);
+
+-- Test 3: UPDATE is always blocked with BZ083.
+SELECT throws_ok(
+  $$ UPDATE ca_signin_log SET decision = 'block' WHERE user_id = 4711 $$,
+  'BZ083', NULL, 'UPDATE on ca_signin_log raises BZ083');
+
+-- Test 4: ad-hoc DELETE (no GUC flag) is blocked with BZ083 — role-independent.
+-- C2 regression: previously gated on current_user='setjoin_worker', which failed
+-- in the default deployment where the worker pool aliases the main pool.
+SELECT throws_ok(
+  $$ DELETE FROM ca_signin_log WHERE user_id = 4711 $$,
+  'BZ083', NULL, 'ad-hoc DELETE (no GUC flag) on ca_signin_log raises BZ083');
+
+-- Test 5: NO hash-chain checksum machinery is attached (telemetry, not change log).
+SELECT is(
+  (SELECT count(*)::int FROM pg_trigger
+     WHERE tgrelid = 'ca_signin_log'::regclass
+       AND tgname LIKE '%checksum%'),
+  0, 'ca_signin_log has no hash-chain checksum trigger');
+
+-- Test 8: ca_signin_log_append inserts a well-formed telemetry row from JSON.
+SELECT lives_ok(
+  $$ SELECT ca_signin_log_append(jsonb_build_object(
+       'user_id', 5001, 'source_ip', '203.0.113.9', 'protocol', 'http',
+       'client_type', 'web', 'country', 'CN', 'matched_policy_id', 12,
+       'decision', 'allow', 'would_decision', 'block', 'report_only', true,
+       'correlation_id', 'CA-7f3c9a',
+       'evaluated', jsonb_build_array(
+         jsonb_build_object('policy_id', 12, 'name', 'Block geo (RO)', 'outcome', 'would_block')))) $$,
+  'ca_signin_log_append inserts a row');
+
+-- Test 9: the appended row round-trips its decision + correlation_id + evaluated.
+SELECT is(
+  (SELECT decision || '|' || correlation_id || '|' || (evaluated->0->>'outcome')
+     FROM ca_signin_log WHERE user_id = 5001),
+  'allow|CA-7f3c9a|would_block',
+  'appended row carries decision, correlation_id and evaluated outcome');
+
+-- Test 10: setjoin_app (NOBYPASSRLS) can INSERT via ca_signin_log_app_insert policy.
+-- Pins that FORCE RLS does not silently block production telemetry writes.
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(
+  $$ SELECT ca_signin_log_append(jsonb_build_object(
+       'user_id', 5002, 'source_ip', '203.0.113.1', 'protocol', 'imap',
+       'client_type', 'imap', 'decision', 'block', 'correlation_id', 'CA-rls-pin')) $$,
+  'setjoin_app (NOBYPASSRLS) can INSERT via ca_signin_log_app_insert RLS policy');
+RESET ROLE;
+
+-- ── C2 regression tests ──────────────────────────────────────────────────────
+-- These pin the GUC-based gate that replaced the prior current_user='setjoin_worker'
+-- check. The old check failed in the default deployment (worker DSN aliases main).
+
+-- Test C2c: ad-hoc DELETE (GUC flag absent) raises BZ083 — tested BEFORE calling
+-- prune so the flag is provably unset. set_config with is_local=true is txn-local
+-- (not function-local), so after prune() runs in this txn the flag stays 'on'.
+INSERT INTO ca_signin_log (user_id, decision, evaluated)
+  VALUES (6003, 'allow', '[]'::jsonb);
+SELECT throws_ok(
+  $$ DELETE FROM ca_signin_log WHERE user_id = 6003 $$,
+  'BZ083', NULL,
+  'C2: ad-hoc DELETE (no GUC flag) raises BZ083');
+
+-- Test C2d: UPDATE still raises BZ083 (sanity — UPDATE path unchanged).
+INSERT INTO ca_signin_log (user_id, decision, evaluated)
+  VALUES (6004, 'allow', '[]'::jsonb);
+SELECT throws_ok(
+  $$ UPDATE ca_signin_log SET decision = 'allow' WHERE user_id = 6004 $$,
+  'BZ083', NULL, 'C2: UPDATE still raises BZ083');
+
+-- Seed two rows with known timestamps for prune tests.
+INSERT INTO ca_signin_log (user_id, decision, occurred_at)
+  VALUES (6001, 'allow', now() - interval '40 days'),   -- stale
+         (6002, 'allow', now() - interval '5 days');    -- in-window
+
+-- Test C2a: ca_signin_log_prune() succeeds called AS the DEFAULT connection role
+-- (NO SET ROLE setjoin_worker) — the SECURITY DEFINER + GUC flag make it role-independent.
+SELECT is(
+  ca_signin_log_prune(30), 1::bigint,
+  'C2: prune(30) deletes exactly the 40-day-old row without SET ROLE setjoin_worker');
+
+-- Test C2b: only the in-window row survives.
+SELECT is(
+  (SELECT count(*)::int FROM ca_signin_log WHERE user_id IN (6001, 6002)),
+  1, 'C2: only the in-window row (6002) survives the prune');
+
+-- Test 11: prune deletes rows older than the retention window only.
+-- (Legacy arm kept for compatibility; this time we don't SET ROLE setjoin_worker —
+-- the SECURITY DEFINER makes role irrelevant. Seeds a fresh pair.)
+INSERT INTO ca_signin_log (user_id, decision, occurred_at)
+  VALUES (7001, 'allow', now() - interval '40 days'),
+         (7002, 'allow', now() - interval '5 days');
+SELECT is(ca_signin_log_prune(30), 1::bigint, 'prune(30) deletes exactly the 40-day-old row (no SET ROLE)');
+SELECT is(
+  (SELECT count(*)::int FROM ca_signin_log WHERE user_id IN (7001, 7002)),
+  1, 'only the in-window row (7002) survives the second prune');
+
+ROLLBACK;

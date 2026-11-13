@@ -1,0 +1,599 @@
+-- pgTAP: V254__mdm_rls_backstop.pg — the MDM table R4 FORCE-RLS backstop
+-- (L2 cluster C2, MDM-004 / R4-RLS-BACKSTOP-ABSENT).
+--
+-- Methodology per the accepted evidence forms: V234__m365_consent_states.pg
+-- (GUC-keyed isolation arms), rls_calendar_subscriptions.pg (literal-row
+-- WITH CHECK rejection, 42501), identity_source_engine_quarantine.pg
+-- (deny-all FORCE proof, non-vacuous, real runtime role), rls_role_model.pg
+-- preconditions, and the r12 actual-role contract (SET LOCAL ROLE
+-- setjoin_app = NOBYPASSRLS; setjoin_worker = BYPASSRLS control).
+--
+-- Denial expectations are NORMALIZED per the r3.4 adjudications:
+--   - INSERT denials are WITH CHECK rejections → 42501.
+--   - USING-side UPDATE/DELETE denials FILTER to 0 rows — never 42501.
+--   - admin-read arms are the r2.4 view-or-manage OR-form ('mam.read' OR
+--     'mam.write'), so a write-only admin MUST see rows.
+--
+-- Every GUC used here is the test-side reproduction of the production
+-- dbscope.RunUserScoped seam; the Go-level actual-role continuity (the
+-- production wrap as the only GUC source) is pinned by the item-14 Go tests.
+BEGIN;
+SELECT plan(106);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Fixtures (superuser — ids materialized via \gset BEFORE switching roles;
+-- rows created by the provisioning role are not readable as setjoin_app).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT mk_account('c2a') AS mba \gset
+SELECT user_id AS user_a FROM mailboxes WHERE id = :mba \gset
+SELECT mk_account('c2b') AS mbb \gset
+SELECT user_id AS user_b FROM mailboxes WHERE id = :mbb \gset
+
+-- Admin grant groups: read-only (mam.read), write-only (mam.write, NOT
+-- mam.read — the r2.4/r3.4 write-only-admin arm), and one admin with NEITHER.
+INSERT INTO admin_role_groups (name, permissions) VALUES ('c2-pgtap-mam-read', ARRAY['mam.read']::text[]);
+SELECT currval(pg_get_serial_sequence('admin_role_groups','id')) AS grp_read \gset
+INSERT INTO admin_role_groups (name, permissions) VALUES ('c2-pgtap-mam-write', ARRAY['mam.write']::text[]);
+SELECT currval(pg_get_serial_sequence('admin_role_groups','id')) AS grp_write \gset
+SELECT mk_account('c2admr') AS mbr \gset
+SELECT user_id AS adm_read FROM mailboxes WHERE id = :mbr \gset
+SELECT mk_account('c2admw') AS mbw \gset
+SELECT user_id AS adm_write FROM mailboxes WHERE id = :mbw \gset
+SELECT mk_account('c2admn') AS mbn \gset
+SELECT user_id AS adm_none FROM mailboxes WHERE id = :mbn \gset
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+VALUES (:adm_read, :grp_read, :adm_read);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+VALUES (:adm_write, :grp_write, :adm_write);
+
+-- Owner department for the evaluator's group layer (device_a owner's dept).
+INSERT INTO departments (id, name, path, ldap_ou)
+VALUES (987654222, 'C2 RLS Dept', '/c2-rls-dept', 'ou=c2-rls-dept')
+ON CONFLICT (id) DO NOTHING;
+UPDATE users SET department_id = 987654222 WHERE id = :user_a;
+
+-- Authoritative devices rows (the device_events / device_policy FK target).
+INSERT INTO devices (user_id, fingerprint, device_name, platform)
+VALUES (:user_a, 'c2-rls-fp-a', 'C2 Device A', 'ios');
+SELECT currval(pg_get_serial_sequence('devices','id')) AS dev_a \gset
+INSERT INTO devices (user_id, fingerprint, device_name, platform)
+VALUES (:user_b, 'c2-rls-fp-b', 'C2 Device B', 'android');
+SELECT currval(pg_get_serial_sequence('devices','id')) AS dev_b \gset
+
+-- Posture A rows: mdm_device_state (uuid-keyed), device_registry,
+-- managed_devices. compliance_status is set explicitly: the baseline column
+-- DEFAULT ('unknown') sits OUTSIDE its own CHECK's vocabulary, so an INSERT
+-- that lets the default fire violates mdm_device_state_compliance_status_check.
+INSERT INTO mdm_device_state (device_id, user_id, platform, compliance_status)
+VALUES ('a2a00000-0000-4000-8000-0000000002a1', :user_a, 'ios', 'compliant');
+INSERT INTO mdm_device_state (device_id, user_id, platform, compliance_status)
+VALUES ('a2b00000-0000-4000-8000-0000000002b1', :user_b, 'android', 'compliant');
+INSERT INTO device_registry (user_id, device_hash, auth_count)
+VALUES (:user_a, 'c2hash-a', 3), (:user_b, 'c2hash-b', 1);
+INSERT INTO managed_devices (device_hash, user_id, compliance_status)
+VALUES ('c2mhash-a', :user_a, 'compliant'), ('c2mhash-b', :user_b, 'non_compliant');
+
+-- Posture B rows: device_events keyed on the authoritative devices ids.
+INSERT INTO device_events (device_id, event_type, severity, details)
+VALUES (:dev_a, 'registered', 'info', '{}'::jsonb),
+       (:dev_a, 'device_locked', 'warn', '{}'::jsonb),
+       (:dev_b, 'registered', 'info', '{}'::jsonb);
+
+-- Posture C rows: org config (global NULL-device row, per-device overrides,
+-- department group rows, an mdm_policies row).
+INSERT INTO device_policy (device_id, policy_key, policy_value)
+VALUES (NULL, 'c2_pin', 'global'),
+       (:dev_a, 'c2_pin', 'device'),
+       (:dev_b, 'c2_other', 'deviceb');
+INSERT INTO device_policy_groups (group_type, group_id, policy_key, policy_value)
+VALUES ('department', 987654222, 'c2_pin', 'group'),
+       ('department', 987654222, 'c2_min_os', 'group');
+INSERT INTO mdm_policies (name, scope_type) VALUES ('c2-pgtap-policy-1', 'global');
+
+-- Posture D rows: device_telemetry (deny-all — rows must EXIST for the
+-- non-vacuous denial proof).
+INSERT INTO device_telemetry (device_id, app_version, os_version)
+VALUES (:dev_a, '1.0', '17.0'), (:dev_b, '1.1', '18.0');
+
+-- Non-vacuousness precondition for item 10 (asserted as the fixture role).
+SELECT is((SELECT count(*)::int FROM device_telemetry), 2,
+    'posture D: the fixture telemetry rows exist so the denial proof is not vacuous');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 1 — Shape: FORCE RLS + isolated ownership on all eight tables, the
+-- med-dbschema-rls-001 census invariant (ZERO public USING(true) policies),
+-- and the two trusted-seam functions (r2.2).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT has_table('mdm_device_state');
+SELECT has_table('device_registry');
+SELECT has_table('managed_devices');
+SELECT has_table('device_events');
+SELECT has_table('mdm_policies');
+SELECT has_table('device_policy');
+SELECT has_table('device_policy_groups');
+SELECT has_table('device_telemetry');
+SELECT is(
+  (SELECT count(*)::int FROM pg_class c
+    JOIN pg_roles r ON r.oid = c.relowner
+   WHERE c.relnamespace = 'public'::regnamespace
+     AND c.relname = ANY(ARRAY['mdm_device_state','device_registry','managed_devices',
+                               'device_events','mdm_policies','device_policy',
+                               'device_policy_groups','device_telemetry'])
+     AND c.relrowsecurity AND c.relforcerowsecurity
+     AND r.rolname = 'setjoin_owner'),
+  8, 'all eight V254 tables are ENABLE+FORCE RLS and owned by setjoin_owner');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policy p
+   WHERE p.polrelid::regclass::text = ANY(ARRAY['mdm_device_state','device_registry','managed_devices',
+                                                'device_events','mdm_policies','device_policy',
+                                                'device_policy_groups','device_telemetry'])
+     AND COALESCE(pg_get_expr(p.polqual, p.polrelid), '') = 'true'),
+  0, 'policy census: no public USING(true) policy exists on any V254 table');
+SELECT has_function('public', 'mdm_effective_policy', ARRAY['bigint'],
+    'mdm_effective_policy(bigint) is installed');
+SELECT has_function('public', 'mdm_checkin_event_append', ARRAY['bigint','text','jsonb'],
+    'mdm_checkin_event_append(bigint,text,jsonb) is installed');
+SELECT is(
+  (SELECT prosecdef AND (SELECT rolname = 'setjoin_worker' FROM pg_roles WHERE oid = proowner)
+     FROM pg_proc WHERE oid = 'mdm_effective_policy(bigint)'::regprocedure),
+  TRUE, 'mdm_effective_policy is SECURITY DEFINER owned by setjoin_worker');
+SELECT is(
+  (SELECT prosecdef AND (SELECT rolname = 'setjoin_worker' FROM pg_roles WHERE oid = proowner)
+     FROM pg_proc WHERE oid = 'mdm_checkin_event_append(bigint,text,jsonb)'::regprocedure),
+  TRUE, 'mdm_checkin_event_append is SECURITY DEFINER owned by setjoin_worker');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Items 2-9, 13 — the real runtime role (setjoin_app, NOBYPASSRLS).
+-- ══════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_app;
+
+-- ── Item 2: own-row visibility (exact counts) ─────────────────────────────
+SELECT set_config('app.current_user_id', :'user_a', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state), 1,
+    'posture A: owner GUC sees exactly the own mdm_device_state row');
+SELECT is((SELECT count(*)::int FROM device_registry), 1,
+    'posture A: owner GUC sees exactly the own device_registry row');
+SELECT is((SELECT count(*)::int FROM managed_devices), 1,
+    'posture A: owner GUC sees exactly the own managed_devices row');
+SELECT is((SELECT count(*)::int FROM device_events), 2,
+    'posture B: owner GUC sees exactly the own devices'' device_events rows');
+
+-- Login continuity (r2.1): the shared/threat probe shapes return seeded tiers.
+SELECT is((SELECT compliance_status = 'compliant' FROM managed_devices
+           WHERE device_hash = 'c2mhash-a' AND user_id = :user_a), TRUE,
+    'isManagedDevice probe shape admits the seeded compliant row for its owner');
+SELECT is((SELECT EXISTS(SELECT 1 FROM device_registry
+            WHERE user_id = :user_a AND device_hash = 'c2hash-a'
+              AND last_seen > now() - INTERVAL '90 days' AND auth_count >= 3)), TRUE,
+    'isKnownDevice probe shape admits the seeded registry row for its owner');
+
+-- ── Item 3: cross-actor zero rows ──────────────────────────────────────────
+SELECT set_config('app.current_user_id', :'user_b', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state
+           WHERE device_id = 'a2a00000-0000-4000-8000-0000000002a1'), 0,
+    'cross-actor GUC sees NO other user''s mdm_device_state row');
+SELECT is((SELECT count(*)::int FROM device_registry
+           WHERE device_hash = 'c2hash-a'), 0,
+    'cross-actor GUC sees NO other user''s device_registry row');
+SELECT is((SELECT count(*)::int FROM managed_devices
+           WHERE device_hash = 'c2mhash-a'), 0,
+    'cross-actor GUC sees NO other user''s managed_devices compliance row');
+SELECT is((SELECT count(*)::int FROM device_events WHERE device_id = :dev_a), 0,
+    'cross-actor GUC sees NO other user''s device_events (the JOIN is the predicate)');
+
+-- ── Item 4: empty-GUC fail-closed (NULLIF missing_ok, no cast error) ──────
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state), 0,
+    'empty GUC sees NO mdm_device_state rows (fail-closed)');
+SELECT is((SELECT count(*)::int FROM device_registry), 0,
+    'empty GUC sees NO device_registry rows (fail-closed)');
+SELECT is((SELECT count(*)::int FROM managed_devices), 0,
+    'empty GUC sees NO managed_devices rows (fail-closed)');
+SELECT is((SELECT count(*)::int FROM device_events), 0,
+    'empty GUC sees NO device_events rows (fail-closed)');
+
+-- ── Item 5: authorized own-row INSERT (WITH CHECK admits) ─────────────────
+SELECT set_config('app.current_user_id', :'user_a', true);
+SELECT lives_ok(
+  format($f$INSERT INTO mdm_device_state (device_id, user_id, platform, compliance_status)
+           VALUES ('a2c00000-0000-4000-8000-0000000002c1', %s, 'ios', 'compliant')$f$, :'user_a'),
+  'own-row mdm_device_state INSERT passes WITH CHECK');
+SELECT lives_ok(
+  format($f$INSERT INTO device_registry (user_id, device_hash)
+           VALUES (%s, 'c2hash-new')$f$, :'user_a'),
+  'own-row device_registry INSERT passes WITH CHECK');
+SELECT lives_ok(
+  format($f$INSERT INTO device_events (device_id, event_type)
+           VALUES (%s, 'device_unlocked')$f$, :'dev_a'),
+  'own-device device_events INSERT passes the device-join WITH CHECK');
+-- C2-I2 (astra-impl-l2c2): managed_devices own/cross-owner INSERT proofs —
+-- the matrix arm the r1 block omitted. Admission is asserted by MUTATION
+-- COUNT (RETURNING through the data-modifying CTE) plus resulting state,
+-- never lives_ok: a USING/WITH CHECK mismatch that filters the statement to
+-- zero rows must FAIL here, not pass as a "successful" statement.
+WITH i AS (INSERT INTO managed_devices (device_hash, user_id, compliance_status)
+             VALUES ('c2mhash-a2', :'user_a'::bigint, 'compliant')
+           RETURNING device_hash)
+SELECT count(*)::int AS md_self_insert FROM (SELECT device_hash FROM i) s \gset
+SELECT is(:md_self_insert, 1,
+    'own-row managed_devices INSERT lands exactly 1 row (WITH CHECK admits)');
+SELECT is((SELECT compliance_status FROM managed_devices
+           WHERE device_hash = 'c2mhash-a2' AND user_id = :'user_a'::bigint), 'compliant',
+    'the inserted managed_devices row is readable back under the owner GUC (resulting state)');
+
+-- ── Item 6: literal-row WITH CHECK rejection (42501) ──────────────────────
+SELECT throws_ok(
+  format($f$INSERT INTO mdm_device_state (device_id, user_id, platform)
+           VALUES ('a2d00000-0000-4000-8000-0000000002d1', %s, 'ios')$f$, :'user_b'),
+  '42501', NULL,
+  'INSERT claiming another user''s user_id is a WITH CHECK rejection (42501)');
+SELECT throws_ok(
+  format($f$INSERT INTO device_registry (user_id, device_hash)
+           VALUES (%s, 'c2hash-steal')$f$, :'user_b'),
+  '42501', NULL,
+  'INSERT into device_registry with another user''s user_id is 42501');
+SELECT throws_ok(
+  format($f$INSERT INTO device_events (device_id, event_type)
+           VALUES (%s, 'device_locked')$f$, :'dev_b'),
+  '42501', NULL,
+  'INSERT of device_events on another user''s device is 42501');
+SELECT throws_ok(
+  format($f$INSERT INTO managed_devices (device_hash, user_id, compliance_status)
+           VALUES ('c2mhash-steal', %s, 'compliant')$f$, :'user_b'),
+  '42501', NULL,
+  'INSERT into managed_devices with another user''s user_id is 42501');
+
+-- ── Item 7: device-join specificity — a VALID device_id owned by B admits
+-- nothing to A: the join (not literal equality) is the predicate, in both the
+-- read and the write direction.
+SELECT is((SELECT count(*)::int FROM device_events WHERE device_id = :dev_b), 0,
+    'actor A with B''s valid device_id sees 0 device_events rows');
+-- (data-modifying WITH stays TOP-LEVEL: pgTAP's is() would nest it — illegal.
+-- The counting SELECT must REFERENCE a RETURNING column through a subselect:
+-- with count(*) alone, a candidate row matched by the UPDATE's WHERE but
+-- rejected by the RLS USING qual still emits a constant-RETURNING row, which
+-- would fake an affected-row count under FORCE.)
+WITH u AS (UPDATE device_events SET severity = 'critical'
+           WHERE device_id = :dev_b
+           RETURNING device_id)
+SELECT count(*)::int AS dev_b_updated FROM (SELECT device_id FROM u) s \gset
+SELECT is(:dev_b_updated, 0,
+    'actor A''s UPDATE targeting B''s device_events row matches 0 rows (join predicate)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 8 — admin arms are perm-scoped, NEVER USING(true); r2.4 OR-form read;
+-- r3.4 normalization (USING-side UPDATE denial filters to 0 rows; 42501 only
+-- on WITH CHECK INSERTs).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :'adm_read', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state
+           WHERE user_id IN (:user_a, :user_b)), 3,
+    'mam.read admin sees the seeded + own-inserted mdm_device_state rows (OR-form read arm)');
+SELECT set_config('app.current_user_id', :'adm_write', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state
+           WHERE user_id IN (:user_a, :user_b)), 3,
+    'write-only (mam.write, NOT mam.read) admin MUST see rows (r2.4 OR-form)');
+SELECT is((SELECT count(*)::int FROM device_registry
+           WHERE device_hash IN ('c2hash-a','c2hash-b')), 2,
+    'write-only admin sees both device_registry rows (OR-form read arm)');
+SELECT is((SELECT count(*)::int FROM device_events), 4,
+    'write-only admin sees all device_events rows (OR-form read arm; 3 seeded + 1 own-device insert)');
+SELECT set_config('app.current_user_id', :'adm_none', true);
+SELECT is((SELECT count(*)::int FROM mdm_device_state
+           WHERE user_id IN (:user_a, :user_b)), 0,
+    'admin holding NEITHER mam perm sees 0 mdm_device_state rows');
+SELECT is((SELECT count(*)::int FROM device_events), 0,
+    'admin holding NEITHER mam perm sees 0 device_events rows');
+-- wipe UPDATE under the write-only admin (the FSM's none→pending).
+SELECT set_config('app.current_user_id', :'adm_write', true);
+WITH u AS (UPDATE mdm_device_state
+              SET wipe_requested = 'pending', wipe_level = 'account'
+            WHERE device_id = 'a2b00000-0000-4000-8000-0000000002b1'
+              AND wipe_requested = 'none'
+            RETURNING device_id)
+SELECT count(*)::int AS wipe_write_updated FROM (SELECT device_id FROM u) s \gset
+SELECT is(:wipe_write_updated, 1,
+    'admin with mam.write UPDATEs another user''s mdm_device_state row (wipe FSM)');
+-- the same UPDATE under a mam.read-only admin matches ZERO rows (r3.4: the
+-- USING side filters — never a 42501).
+SELECT set_config('app.current_user_id', :'adm_read', true);
+WITH u AS (UPDATE mdm_device_state
+              SET wipe_requested = 'acknowledged'
+            WHERE device_id = 'a2b00000-0000-4000-8000-0000000002b1'
+            RETURNING device_id)
+SELECT count(*)::int AS wipe_read_updated FROM (SELECT device_id FROM u) s \gset
+SELECT is(:wipe_read_updated, 0,
+    'mam.read-only admin''s wipe UPDATE affects 0 rows (USING filter, not 42501)');
+-- admin evidence INSERT arm: the wipe FSM's FK-honest NULL-device_id row.
+SELECT set_config('app.current_user_id', :'adm_write', true);
+SELECT lives_ok(
+  $$INSERT INTO device_events (device_id, event_type, severity, details)
+      VALUES (NULL, 'wipe_requested', 'critical',
+              '{"mdm_device_id":"a2b00000-0000-4000-8000-0000000002b1"}'::jsonb)$$,
+  'mam.write admin INSERT admits the NULL-device_id wipe evidence row');
+SELECT set_config('app.current_user_id', :'adm_read', true);
+SELECT throws_ok(
+  $$INSERT INTO device_events (device_id, event_type, severity)
+      VALUES (NULL, 'wipe_requested', 'info')$$,
+  '42501', NULL,
+  'mam.read-only admin device_events INSERT is a WITH CHECK rejection (42501)');
+
+-- Registry-write continuity (r2.1): the upsertDevice shape through the real
+-- role + GUC lands and bumps auth_count; the same shape with another user's
+-- user_id is 42501.
+SELECT set_config('app.current_user_id', :'user_a', true);
+SELECT lives_ok(
+  format($f$INSERT INTO device_registry (user_id, device_hash, country, first_seen, last_seen, auth_count)
+           VALUES (%s, 'c2hash-a', NULL, now(), now(), 1)
+           ON CONFLICT (user_id, device_hash) DO UPDATE
+             SET last_seen = now(),
+                 auth_count = device_registry.auth_count + 1,
+                 country = EXCLUDED.country$f$, :'user_a'),
+  'upsertDevice-shaped INSERT..ON CONFLICT lands under the owner GUC');
+SELECT is((SELECT auth_count::int FROM device_registry
+           WHERE user_id = :user_a AND device_hash = 'c2hash-a'), 4,
+    'the upsert bumped auth_count 3 → 4 (registry-write continuity)');
+SELECT throws_ok(
+  format($f$INSERT INTO device_registry (user_id, device_hash, first_seen, last_seen, auth_count)
+           VALUES (%s, 'c2hash-a2', now(), now(), 1)$f$, :'user_b'),
+  '42501', NULL,
+  'same-shape registry INSERT with another user''s user_id is 42501');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 13 — Posture C allow/deny (mdm_policies, device_policy,
+-- device_policy_groups) + the r2.2 evaluator continuity pair.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT set_config('app.current_user_id', :'adm_read', true);
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name LIKE 'c2-pgtap%'), 1,
+    'posture C: mam.read admin sees the seeded mdm_policies row');
+SELECT is((SELECT count(*)::int FROM device_policy WHERE policy_key LIKE 'c2\_%'), 3,
+    'posture C: mam.read admin sees global + per-device device_policy rows');
+SELECT is((SELECT count(*)::int FROM device_policy_groups
+           WHERE policy_key LIKE 'c2\_%'), 2,
+    'posture C: mam.read admin sees the device_policy_groups rows');
+SELECT set_config('app.current_user_id', :'adm_write', true);
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name LIKE 'c2-pgtap%'), 1,
+    'posture C: write-only admin MUST see the seeded mdm_policies row (r3.4)');
+SELECT is((SELECT count(*)::int FROM device_policy WHERE policy_key LIKE 'c2\_%'), 3,
+    'posture C: write-only admin MUST see the device_policy rows (r3.4)');
+-- C2-I2 (astra-impl-l2c2): the device_policy_groups write-only-admin
+-- visibility arm the r1 block omitted (r2.4 OR-form read).
+SELECT is((SELECT count(*)::int FROM device_policy_groups
+           WHERE policy_key LIKE 'c2\_%'), 2,
+    'posture C: write-only admin MUST see the device_policy_groups rows (r3.4)');
+SELECT set_config('app.current_user_id', :'adm_none', true);
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name LIKE 'c2-pgtap%'), 0,
+    'posture C: admin holding NEITHER perm sees 0 mdm_policies rows');
+SELECT is((SELECT count(*)::int FROM device_policy WHERE policy_key LIKE 'c2\_%'), 0,
+    'posture C: admin holding NEITHER perm sees 0 device_policy rows');
+SELECT is((SELECT count(*)::int FROM device_policy_groups WHERE policy_key LIKE 'c2\_%'), 0,
+    'posture C: admin holding NEITHER perm sees 0 device_policy_groups rows');
+SELECT set_config('app.current_user_id', :'user_a', true);
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name LIKE 'c2-pgtap%'), 0,
+    'posture C: plain-user GUC sees 0 mdm_policies rows');
+SELECT is((SELECT count(*)::int FROM device_policy WHERE policy_key LIKE 'c2\_%'), 0,
+    'posture C: plain-user GUC sees 0 device_policy rows');
+-- C2-I2 (astra-impl-l2c2): the plain-user device_policy_groups denial arm.
+SELECT is((SELECT count(*)::int FROM device_policy_groups WHERE policy_key LIKE 'c2\_%'), 0,
+    'posture C: plain-user GUC sees 0 device_policy_groups rows');
+SELECT set_config('app.current_user_id', '', true);
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name LIKE 'c2-pgtap%'), 0,
+    'posture C: empty GUC sees 0 mdm_policies rows');
+SELECT is((SELECT count(*)::int FROM device_policy_groups WHERE policy_key LIKE 'c2\_%'), 0,
+    'posture C: empty GUC sees 0 device_policy_groups rows');
+-- mam.write mutations admitted — INCLUDING the device_id IS NULL global row.
+--
+-- C2-I2 (astra-impl-l2c2): every admission arm below is asserted by MUTATION
+-- COUNT (RETURNING through the data-modifying CTE — the established top-level
+-- pattern, since pgTAP's is() cannot nest a data-modifying CTE) plus
+-- RESULTING STATE read-back. lives_ok accepted zero-affected-row UPDATEs and
+-- DELETEs (a silently filtered statement passes it), so it is gone from the
+-- mutation arms.
+SELECT set_config('app.current_user_id', :'adm_write', true);
+WITH i AS (INSERT INTO device_policy (device_id, policy_key, policy_value)
+             VALUES (NULL, 'c2_tmp_key', 'tmp')
+           RETURNING device_id)
+SELECT count(*)::int AS dp_ins FROM (SELECT device_id FROM i) s \gset
+SELECT is(:dp_ins, 1,
+    'posture C: mam.write INSERT lands exactly 1 device_policy global row (device_id IS NULL)');
+SELECT is((SELECT policy_value FROM device_policy
+           WHERE device_id IS NULL AND policy_key = 'c2_tmp_key'), 'tmp',
+    'posture C: the inserted device_policy global row reads back under the write-only admin');
+WITH u AS (UPDATE device_policy SET policy_value = 'tmp2'
+             WHERE device_id IS NULL AND policy_key = 'c2_tmp_key'
+           RETURNING device_id)
+SELECT count(*)::int AS dp_upd FROM (SELECT device_id FROM u) s \gset
+SELECT is(:dp_upd, 1,
+    'posture C: mam.write UPDATE of the global row affects exactly 1 row (never 0 silently)');
+SELECT is((SELECT policy_value FROM device_policy
+           WHERE device_id IS NULL AND policy_key = 'c2_tmp_key'), 'tmp2',
+    'posture C: the device_policy UPDATE''s resulting state is visible (tmp → tmp2)');
+WITH d AS (DELETE FROM device_policy
+             WHERE device_id IS NULL AND policy_key = 'c2_tmp_key'
+           RETURNING device_id)
+SELECT count(*)::int AS dp_del FROM (SELECT device_id FROM d) s \gset
+SELECT is(:dp_del, 1,
+    'posture C: mam.write DELETE of the global row removes exactly 1 row');
+SELECT is((SELECT count(*)::int FROM device_policy
+           WHERE device_id IS NULL AND policy_key = 'c2_tmp_key'), 0,
+    'posture C: the deleted device_policy global row is gone (resulting state)');
+WITH i AS (INSERT INTO mdm_policies (name, scope_type)
+             VALUES ('c2-pgtap-policy-tmp', 'global')
+           RETURNING name)
+SELECT count(*)::int AS mp_ins FROM (SELECT name FROM i) s \gset
+SELECT is(:mp_ins, 1,
+    'posture C: mam.write INSERT lands exactly 1 mdm_policies row');
+SELECT is((SELECT scope_type FROM mdm_policies WHERE name = 'c2-pgtap-policy-tmp'), 'global',
+    'posture C: the inserted mdm_policies row reads back under the write-only admin');
+-- C2-I2 r3 (astra-impl-l2c2345-r2): the mdm_policies admitted UPDATE arm —
+-- item 13 requires INSERT/UPDATE/DELETE all three and this block had only the
+-- INSERT + DELETE. Same non-vacuous contract as every arm above: mutation
+-- COUNT through the data-modifying CTE plus the resulting-value read-back.
+WITH u AS (UPDATE mdm_policies SET scope_type = 'user'
+             WHERE name = 'c2-pgtap-policy-tmp'
+           RETURNING name)
+SELECT count(*)::int AS mp_upd FROM (SELECT name FROM u) s \gset
+SELECT is(:mp_upd, 1,
+    'posture C: mam.write UPDATE of the mdm_policies row affects exactly 1 row (never 0 silently)');
+SELECT is((SELECT scope_type FROM mdm_policies WHERE name = 'c2-pgtap-policy-tmp'), 'user',
+    'posture C: the mdm_policies UPDATE''s resulting state is visible (global → user)');
+WITH d AS (DELETE FROM mdm_policies WHERE name = 'c2-pgtap-policy-tmp' RETURNING name)
+SELECT count(*)::int AS mp_del FROM (SELECT name FROM d) s \gset
+SELECT is(:mp_del, 1,
+    'posture C: mam.write DELETE from mdm_policies removes exactly 1 row');
+SELECT is((SELECT count(*)::int FROM mdm_policies WHERE name = 'c2-pgtap-policy-tmp'), 0,
+    'posture C: the deleted mdm_policies row is gone (resulting state)');
+-- device_policy_groups: the full admitted-mutation arm (INSERT + UPDATE +
+-- DELETE), the matrix gap the r1 block left at a bare lives_ok INSERT.
+WITH i AS (INSERT INTO device_policy_groups (group_type, group_id, policy_key, policy_value)
+             VALUES ('department', 987654222, 'c2_tmp_group_key', 'tmp')
+           RETURNING id)
+SELECT count(*)::int AS dpg_ins FROM (SELECT id FROM i) s \gset
+SELECT is(:dpg_ins, 1,
+    'posture C: mam.write INSERT lands exactly 1 device_policy_groups row');
+SELECT is((SELECT policy_value FROM device_policy_groups
+           WHERE group_type = 'department' AND group_id = 987654222
+             AND policy_key = 'c2_tmp_group_key'), 'tmp',
+    'posture C: the inserted device_policy_groups row reads back under the write-only admin');
+WITH u AS (UPDATE device_policy_groups SET policy_value = 'tmp2'
+             WHERE group_type = 'department' AND group_id = 987654222
+               AND policy_key = 'c2_tmp_group_key'
+           RETURNING id)
+SELECT count(*)::int AS dpg_upd FROM (SELECT id FROM u) s \gset
+SELECT is(:dpg_upd, 1,
+    'posture C: mam.write UPDATE of the device_policy_groups row affects exactly 1 row');
+SELECT is((SELECT policy_value FROM device_policy_groups
+           WHERE group_type = 'department' AND group_id = 987654222
+             AND policy_key = 'c2_tmp_group_key'), 'tmp2',
+    'posture C: the device_policy_groups UPDATE''s resulting state is visible (tmp → tmp2)');
+WITH d AS (DELETE FROM device_policy_groups
+             WHERE group_type = 'department' AND group_id = 987654222
+               AND policy_key = 'c2_tmp_group_key'
+           RETURNING id)
+SELECT count(*)::int AS dpg_del FROM (SELECT id FROM d) s \gset
+SELECT is(:dpg_del, 1,
+    'posture C: mam.write DELETE of the device_policy_groups row removes exactly 1 row');
+SELECT is((SELECT count(*)::int FROM device_policy_groups
+           WHERE policy_key = 'c2_tmp_group_key'), 0,
+    'posture C: the deleted device_policy_groups row is gone (resulting state)');
+-- write without mam.write is a WITH CHECK rejection (42501).
+SELECT set_config('app.current_user_id', :'adm_read', true);
+SELECT throws_ok(
+  $$INSERT INTO mdm_policies (name, scope_type) VALUES ('c2-pgtap-policy-deny', 'global')$$,
+  '42501', NULL,
+  'posture C: write WITHOUT mam.write is 42501 (mdm_policies)');
+SELECT throws_ok(
+  $$INSERT INTO device_policy (device_id, policy_key, policy_value)
+      VALUES (NULL, 'c2_denied_key', 'x')$$,
+  '42501', NULL,
+  'posture C: write WITHOUT mam.write is 42501 (device_policy, global row)');
+-- C2-I2 (astra-impl-l2c2): the device_policy_groups denied-INSERT arm.
+SELECT throws_ok(
+  $$INSERT INTO device_policy_groups (group_type, group_id, policy_key, policy_value)
+      VALUES ('department', 987654222, 'c2_denied_group_key', 'x')$$,
+  '42501', NULL,
+  'posture C: write WITHOUT mam.write is 42501 (device_policy_groups)');
+
+-- r2.2 evaluator continuity pair: plain setjoin_app (NO GUC) gets the merged
+-- layers through mdm_effective_policy while a direct SELECT of the same rows
+-- returns 0 rows (choke-point proof).
+SELECT set_config('app.current_user_id', '', true);
+SELECT is(
+  (SELECT (mdm_effective_policy(:dev_a) -> 'policies' ->> 'c2_pin') || '|' ||
+          (mdm_effective_policy(:dev_a) -> 'policies' ->> 'c2_min_os') || '|' ||
+          (mdm_effective_policy(:dev_a) ->> 'wipe_requested')),
+  'device|group|false',
+  'evaluator merges device > group > global for a conflicting key (no GUC needed)');
+SELECT is(
+  (SELECT count(*)::int FROM device_policy WHERE policy_key LIKE 'c2\_%'),
+  0, 'choke point: the same rows are NOT directly SELECTable by plain setjoin_app');
+SELECT is(
+  (SELECT mdm_effective_policy(:dev_b) -> 'policies' ->> 'c2_pin'),
+  'global',
+  'evaluator falls through to the global layer when device/group hold no key');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 10 — Posture D deny-all: the app role is denied every read and write
+-- (the non-vacuous fixture-exists precondition was asserted above).
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT count(*)::int FROM device_telemetry), 0,
+    'posture D: setjoin_app sees 0 device_telemetry rows (deny-all FORCE)');
+SELECT throws_ok(
+  $$INSERT INTO device_telemetry (device_id, app_version, os_version)
+      VALUES ((SELECT device_id FROM device_telemetry LIMIT 1), '2.0', '19.0')$$,
+  '42501', NULL,
+  'posture D: setjoin_app direct INSERT is denied (42501)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 11 — wipe-path continuity: mdm_device_wipe_arm invoked AS the
+-- write-only admin (mam.write, NOT mam.read) still lands state + audit +
+-- device_events + notify; a mam.read-only admin's arm surfaces the reducer's
+-- own BZ053 (the FOR UPDATE matches zero rows — r3.4 normalization, no 42501).
+-- ══════════════════════════════════════════════════════════════════════
+RESET ROLE;
+INSERT INTO mdm_device_state (device_id, user_id, platform, compliance_status)
+VALUES ('a2e00000-0000-4000-8000-0000000002e1', :user_a, 'ios', 'compliant');
+INSERT INTO mdm_device_state (device_id, user_id, platform, compliance_status)
+VALUES ('a2f00000-0000-4000-8000-0000000002f2', :user_a, 'ios', 'compliant');
+SELECT set_config('app.capture_notify', 'on', false);
+
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :'adm_write', true);
+SELECT is((mdm_device_wipe_arm('a2e00000-0000-4000-8000-0000000002e1', 'account', 0, :adm_write))
+          ->>'result', 'armed',
+    'write-only admin (mam.write only) arms the wipe end-to-end through the real role');
+SELECT set_config('app.current_user_id', :'adm_read', true);
+SELECT throws_ok(
+  format($f$SELECT mdm_device_wipe_arm('a2f00000-0000-4000-8000-0000000002f2', 'account', 0, %s)$f$, :'adm_read'),
+  'BZ053', NULL,
+  'mam.read-only admin''s arm matches zero rows at the FOR UPDATE → the reducer''s BZ053 (no 42501)');
+RESET ROLE;
+
+SELECT is((SELECT wipe_requested FROM mdm_device_state
+           WHERE device_id = 'a2e00000-0000-4000-8000-0000000002e1'), 'pending',
+    'the armed wipe landed the none → pending state transition');
+SELECT is((SELECT count(*)::int FROM admin_audit_log
+           WHERE action = 'mdm_device_wipe_arm'
+             AND notes = 'a2e00000-0000-4000-8000-0000000002e1'), 1,
+    'the arm wrote its durable core audit row');
+SELECT is((SELECT count(*)::int FROM device_events
+           WHERE event_type = 'wipe_requested'
+             AND details->>'mdm_device_id' = 'a2e00000-0000-4000-8000-0000000002e1'), 1,
+    'the arm wrote its durable device_events lifecycle row (NULL device_id admitted)');
+SELECT is(notify_count('device_policy'), 1,
+    'the arm pushed one device_policy notify');
+SELECT is((last_notify_payload('device_policy')::jsonb->>'action'), 'wipe_armed',
+    'the notify carries the wipe_armed action');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 9 — worker BYPASSRLS control: the worker credential sees fixtures and
+-- writes under FORCE on every posture (the worker/admin pool never strands).
+-- ══════════════════════════════════════════════════════════════════════
+SET LOCAL ROLE setjoin_worker;
+SELECT is((SELECT count(*)::int FROM mdm_device_state
+           WHERE user_id IN (:user_a, :user_b)), 5,
+    'worker control: sees fixture + item-5 + item-11 mdm_device_state rows under FORCE');
+SELECT is((SELECT count(*)::int FROM device_telemetry), 2,
+    'worker control: setjoin_worker sees the FORCE-denied rows (BYPASSRLS)');
+SELECT lives_ok(
+  format($f$INSERT INTO device_registry (user_id, device_hash)
+           VALUES (%s, 'c2hash-worker')$f$, :'user_a'),
+  'worker control: can write device_registry under FORCE');
+SELECT lives_ok(
+  format($f$INSERT INTO device_telemetry (device_id, app_version, os_version)
+           VALUES (%s, '2.0', '19.0')$f$, :'dev_a'),
+  'worker control: can write device_telemetry under FORCE (ingest never strands)');
+SELECT lives_ok(
+  format($f$INSERT INTO device_events (device_id, event_type)
+           VALUES (%s, 'policy_applied')$f$, :'dev_a'),
+  'worker control: can write device_events under FORCE');
+RESET ROLE;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- Item 12 — migration bookkeeping.
+-- ══════════════════════════════════════════════════════════════════════
+SELECT is((SELECT count(*)::int FROM schema_migrations WHERE version = 254), 1,
+    'schema_migrations records version 254');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,83 @@
+-- access_review_ou_scope.pg
+-- Regression for the OU-scope leak in access-review decide/close: a narrower OU-admin
+-- could decide+close another admin's campaign in the same DOMAIN and revoke (delete)
+-- assignments OUTSIDE their OU. access_review_start snapshots via admin_can_reach
+-- (domain AND OU AND set), but decide/close re-authorized DOMAIN-ONLY. The fix gates
+-- both the single-decide revoke and the close DELETE with admin_can_reach (and the
+-- bulk-decide revoke filters out-of-reach items), so a scoped actor can only revoke
+-- items it can actually reach. Global actors (scope<=0) keep the bypass.
+BEGIN;
+SELECT plan(7);
+
+-- Domain D, two OUs: /eng (the actor's scope) and /sales (outside it).
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (95610, 'arv-ou.test', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'Engineering', '/eng',   'ou=Engineering,dc=arv-ou,dc=test'),
+  (95602, 'Sales',       '/sales', 'ou=Sales,dc=arv-ou,dc=test');
+
+INSERT INTO users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95620, 'ou_creator', 95610, NULL,  'creator@arv-ou.test', 'Creator', TRUE),  -- domain-wide campaign creator
+  (95621, 'ou_act',     95610, NULL,  'act@arv-ou.test',     'OUAct',   TRUE),  -- OU-admin confined to /eng
+  (95611, 'ou_eng_tgt', 95610, 95601, 'eng@arv-ou.test',     'EngTgt',  TRUE),  -- in /eng  (reachable)
+  (95612, 'ou_sls_tgt', 95610, 95602, 'sls@arv-ou.test',     'SlsTgt',  TRUE);  -- in /sales (NOT reachable)
+
+-- Role with NULL domain_scope (all-domains coverage), so OU is the only narrowing axis.
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'arv-ou-role', ARRAY['mail.pipeline'], NULL),
+  (95602, 'arv-domD',    ARRAY['mail.pipeline'], 95610);   -- creator's domain-wide authority
+
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, scope_type, scope_id, granted_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95630, 95620, 95602, NULL, NULL, 95620),       -- creator: domain-wide (reaches all of D)
+  (95620, 95621, 95601, 'ou', 95601, 95620);      -- actor: confined to /eng
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95631, 95611, 95601, 95620),                   -- eng target's admin-granted assignment (deletable)
+  (95632, 95612, 95601, 95620);                   -- sales target's admin-granted assignment (deletable)
+
+-- The domain-wide creator starts the campaign (domain_scope = D) → snapshots BOTH the
+-- /eng and /sales assignments (the leak's precondition: the campaign holds out-of-OU items).
+SELECT access_review_start(95620, 'ou recert', 95610);
+CREATE TEMP TABLE _c  AS SELECT id FROM access_review_campaigns WHERE name='ou recert';
+CREATE TEMP TABLE _it AS SELECT i.id, i.assignment_id FROM access_review_items i
+  JOIN access_review_campaigns c ON c.id=i.campaign_id WHERE c.name='ou recert';
+
+-- T1: OU-admin (scope=D) revoking the OUT-OF-OU item raises BZ061 (out of scope).
+SELECT throws_ok(
+  $$ SELECT access_review_decide(95621, (SELECT id FROM _c),
+       (SELECT id FROM _it WHERE assignment_id=95632), 'revoke', NULL, 95610) $$,
+  'BZ061', NULL, 'decide: scoped actor cannot revoke an out-of-OU item (BZ061)');
+
+-- T2: the same actor revoking the IN-OU item succeeds.
+SELECT lives_ok(
+  $$ SELECT access_review_decide(95621, (SELECT id FROM _c),
+       (SELECT id FROM _it WHERE assignment_id=95631), 'revoke', NULL, 95610) $$,
+  'decide: scoped actor CAN revoke an in-OU item');
+
+-- T3-T4: bulk revoke of BOTH items by the scoped actor skips the out-of-OU one.
+SELECT is(
+  (SELECT (access_review_decide_bulk(95621, (SELECT id FROM _c),
+     (SELECT array_agg(id) FROM _it WHERE assignment_id IN (95631,95632)), 'revoke', 95610))->>'applied')::int,
+  1, 'decide_bulk: only the in-OU item is revoked (applied=1)');
+SELECT is(
+  (SELECT (access_review_decide_bulk(95621, (SELECT id FROM _c),
+     (SELECT array_agg(id) FROM _it WHERE assignment_id IN (95631,95632)), 'revoke', 95610))->>'skipped')::int,
+  1, 'decide_bulk: the out-of-OU item is skipped (skipped=1)');
+
+-- Force the out-of-OU item to decision='revoke' directly (simulating a revoke recorded
+-- by a broader-scope context) so we can prove CLOSE independently refuses to apply it.
+UPDATE access_review_items SET decision='revoke'
+  WHERE id=(SELECT id FROM _it WHERE assignment_id=95632);
+
+-- T5-T7: close as the OU-admin deletes ONLY the reachable assignment.
+SELECT lives_ok(
+  $$ SELECT access_review_close(95621, (SELECT id FROM _c), '10.0.0.1'::inet, 95610) $$,
+  'close runs for the scoped actor');
+SELECT is((SELECT count(*)::int FROM admin_role_assignments WHERE id=95631), 0,
+  'close: in-OU revoke applied (assignment deleted)');
+SELECT is((SELECT count(*)::int FROM admin_role_assignments WHERE id=95632), 1,
+  'close: out-of-OU revoke NOT applied (assignment survives — the leak is closed)');
+
+SELECT * FROM finish();
+ROLLBACK;

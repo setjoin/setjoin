@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca why:\n  -correlation string\n    \tCorrelation ID of a specific sign-in event\nError: flag: help requested\n",
+  "exit": 1
+}

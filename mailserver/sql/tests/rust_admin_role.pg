@@ -1,0 +1,26 @@
+-- Public seam for the F01 role transactions (#278): fence/lock order is Go's,
+-- every refusal is a status (no rows), BZ errors propagate, audit is atomic.
+BEGIN;
+SELECT plan(14);
+CREATE TEMP TABLE adm2_acc(kind text,mailbox_id bigint,user_id bigint);
+INSERT INTO adm2_acc(kind,mailbox_id) VALUES('admin',mk_account('adm2-admin')),('target',mk_account('adm2-target'));
+UPDATE adm2_acc a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
+CREATE TEMP TABLE adm2_role AS WITH r AS (INSERT INTO admin_role_groups(name,permissions) VALUES('adm2-role','{users.read}') RETURNING id) SELECT id FROM r;
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) SELECT a.user_id,(SELECT id FROM adm2_role),a.user_id FROM adm2_acc a WHERE a.kind='admin';
+CREATE TEMP TABLE adm2_new AS SELECT rust_admin_role_create((SELECT user_id FROM adm2_acc WHERE kind='admin'),'adm2-made','d','{users.read}',NULL,'127.0.0.1') AS id;
+SELECT is((SELECT permissions FROM admin_role_groups WHERE id=(SELECT id FROM adm2_new)),'{users.read}'::text[],'create inserts the role');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='role_create' AND target_id=(SELECT id FROM adm2_new)),1,'create audits in the same transaction');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,99999999,NULL,NULL,NULL,NULL,NULL,0,'',NULL,NULL)->>'status','404','update of a missing role is 404');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,1,'x',NULL,NULL,NULL,NULL,0,'',NULL,NULL)->>'status','409','built-in roles are refused');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),7,(SELECT id FROM adm2_new),'x',NULL,NULL,NULL,NULL,0,'',NULL,NULL)->>'status','404','a scoped admin cannot see a global role');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_new),'x',NULL,NULL,NULL,NULL,400,'invalid JSON',NULL,NULL)->>'detail','invalid JSON','edge body problem is returned after the lock checks');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_new),NULL,NULL,NULL,NULL,NULL,0,'',NULL,NULL)->>'detail','no fields to update','empty patch is refused');
+SELECT is(rust_admin_role_update((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_new),'adm2-renamed',NULL,NULL,NULL,NULL,0,'',NULL,NULL)->>'status','204','update succeeds');
+SELECT is((SELECT name FROM admin_role_groups WHERE id=(SELECT id FROM adm2_new)),'adm2-renamed','update persists');
+SELECT is(rust_admin_role_assign((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,'{}',(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL,NULL,false,NULL,NULL,NULL,0,'',NULL)->>'detail','cannot assign a role granting a permission you do not hold: users.read','Rule A is checked against the actor permissions');
+SELECT is(rust_admin_role_assign((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,'{users.read}',(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL,NULL,false,NULL,NULL,NULL,0,'',NULL)->>'status','201','assign upserts the membership');
+SELECT is(rust_admin_role_remove((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL)->>'status','204','remove deletes it');
+SELECT is(rust_admin_role_remove((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_role),(SELECT user_id FROM adm2_acc WHERE kind='target'),NULL)->>'status','404','a second remove is 404');
+SELECT is(rust_admin_role_delete((SELECT user_id FROM adm2_acc WHERE kind='admin'),0,(SELECT id FROM adm2_new),NULL)->>'status','204','delete removes the role');
+SELECT * FROM finish();
+ROLLBACK;

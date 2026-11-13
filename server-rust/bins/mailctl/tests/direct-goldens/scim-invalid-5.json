@@ -1,0 +1,10 @@
+{
+  "stdout": "",
+  "stderr": "Error: invalid value \"wat\" for flag -expiry: parse error\n",
+  "exit": 1,
+  "database_effects": {
+    "tokens": [],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

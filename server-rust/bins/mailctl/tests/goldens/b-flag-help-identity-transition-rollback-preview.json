@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity transition rollback-preview:\n  -expected-generation string\n    \tstrong transition generation\n  -idempotency-key string\n    \tstable mutation UUID\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\nError: flag: help requested\n",
+  "exit": 1
+}

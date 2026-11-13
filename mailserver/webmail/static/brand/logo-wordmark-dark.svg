@@ -1,0 +1,8 @@
+<svg width="172" height="40" viewBox="0 0 172 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(2,2)">
+    <rect x="3" y="3" width="20" height="20" rx="5" stroke="#FFFFFF" stroke-width="2.5"></rect>
+    <rect x="13" y="13" width="20" height="20" rx="5" stroke="#FFFFFF" stroke-width="2.5"></rect>
+    <rect x="13" y="13" width="10" height="10" rx="2.5" fill="#A8AFF4"></rect>
+  </g>
+  <text x="48" y="27" font-family="IBM Plex Sans, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.02em"><tspan fill="#FFFFFF">set</tspan><tspan fill="#A8AFF4">join</tspan></text>
+</svg>

@@ -1,0 +1,198 @@
+-- pgTAP: recall.sql — message recall reducer (Stage 1.7)
+BEGIN;
+SELECT plan(16);
+
+INSERT INTO domains (name, is_local) VALUES ('recall.test', TRUE);
+
+-- ADR-003: DIVERGENT ids. recall_message() takes BOTH a user id and a mailbox id
+-- (p_recaller_user_id, p_recaller_mailbox_id) — coincident ids masked any swap of
+-- the two. Sender user 107001 owns mailbox 7001; recipient user 107002 owns mailbox 7002.
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (107001, 'sender', (SELECT id FROM domains WHERE name = 'recall.test'), 'sender@recall.test', 'Sender');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7001, 107001, (SELECT id FROM domains WHERE name = 'recall.test'), 'sender@recall.test', 'Sender', 'personal', TRUE);
+
+-- Recipient user and mailbox
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (107002, 'rcpt', (SELECT id FROM domains WHERE name = 'recall.test'), 'rcpt@recall.test', 'Recipient');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (7002, 107002, (SELECT id FROM domains WHERE name = 'recall.test'), 'rcpt@recall.test', 'Recipient', 'personal', TRUE);
+
+-- Ensure feature.recall is enabled
+INSERT INTO feature_toggles (key, enabled, description) VALUES
+  ('feature.recall', TRUE, 'Internal message recall')
+ON CONFLICT (key) DO UPDATE SET enabled = TRUE;
+
+-- Deliver a message from sender to recipient (unread)
+INSERT INTO messages (id, mailbox_id, message_id, from_addr, to_addrs, subject,
+  body_text, size_bytes, sent_at, received_at, is_read, raw_ref,
+  thread_id, has_attachments, folder_id)
+VALUES (
+  7001, 7002,
+  '<msg-1@recall.test>',
+  'sender@recall.test',
+  '[{"email":"rcpt@recall.test"}]'::JSONB,
+  'Test Subject',
+  'Test body',
+  0,
+  now(), now(),
+  FALSE,
+  'raw-ref-7001',
+  '<msg-1@recall.test>',
+  FALSE,
+  (SELECT id FROM tags WHERE name = 'Inbox' AND mailbox_id = 7002)
+);
+
+-- Also insert the sender's Sent copy
+INSERT INTO messages (id, mailbox_id, message_id, from_addr, to_addrs, subject,
+  body_text, size_bytes, sent_at, received_at, is_read, raw_ref,
+  thread_id, has_attachments, folder_id)
+VALUES (
+  7003, 7001,
+  '<msg-1@recall.test>',
+  'sender@recall.test',
+  '[{"email":"rcpt@recall.test"}]'::JSONB,
+  'Test Subject',
+  'Test body',
+  0,
+  now(), now(),
+  TRUE,
+  'raw-ref-7003',
+  '<msg-1@recall.test>',
+  FALSE,
+  (SELECT id FROM tags WHERE name = 'Sent' AND mailbox_id = 7001)
+);
+
+-- ── REAL push assertion (WAVE 4 Phase 3): recall emits its OWN bespoke 'recalled'
+-- push (NOT a plain state_change) on tag:{recipient_mailbox} — richer, carrying
+-- the message_id + replacement stub_id. The recipient's client must wake and swap
+-- the original for the stub. Capture the app_notify tee around the recall and
+-- assert the push fired on tag:7002 (the recipient) exactly once with event
+-- 'recalled'. transition_message_location ran p_notify=FALSE so this bespoke push
+-- is the single one (no double-bump). ──
+SET LOCAL app.capture_notify = 'on';
+
+-- Run the recall once and stash the caller-facing verdict for shape assertions.
+CREATE TEMP TABLE _recall_verdict AS
+SELECT recall_message(
+  '<msg-1@recall.test>',     -- p_message_id
+  107001,                     -- p_recaller_user_id (divergent from mailbox)
+  7001,                       -- p_recaller_mailbox_id
+  'user'                      -- p_recall_source
+) AS v;
+
+-- Test 1: the return is a caller-safe verdict object {type, recalled}.
+SELECT is(
+  (SELECT jsonb_typeof(v) FROM _recall_verdict),
+  'object',
+  'recall_message returns object for unread internal copy'
+);
+SELECT is(
+  (SELECT v->>'type' FROM _recall_verdict),
+  'success',
+  'success verdict reports type=success'
+);
+SELECT is(
+  (SELECT (v->>'recalled')::BOOL FROM _recall_verdict),
+  TRUE,
+  'success verdict exposes the caller-safe recalled boolean'
+);
+
+-- ORACLE CLOSED: the success return must NOT carry the global copyCount /
+-- cannotCount / per-recipient breakdown (recipient-enumeration oracle under
+-- Message-ID forgery). Each is absent from the caller-facing JSONB.
+SELECT ok(
+  (SELECT NOT (v ? 'copyCount') FROM _recall_verdict),
+  'success verdict does NOT leak copyCount (oracle closed)'
+);
+SELECT ok(
+  (SELECT NOT (v ? 'cannotCount') FROM _recall_verdict),
+  'success verdict does NOT leak cannotCount (oracle closed)'
+);
+SELECT ok(
+  (SELECT NOT (v ? 'recipients') FROM _recall_verdict),
+  'success verdict does NOT leak the recipients[] breakdown (oracle closed)'
+);
+
+-- the recalled copy lives in recipient mailbox 7002 → push lands on tag:7002.
+SELECT is(
+  notify_count('tag:7002'),
+  1,
+  'recall pushes once on the RECIPIENT mailbox channel tag:7002');
+SELECT is(
+  last_notify_event('tag:7002'),
+  'recalled',
+  'recall emits the bespoke recalled event (not a plain state_change)');
+
+-- Test 2: recall record was created
+SELECT is(
+  (SELECT copy_count FROM message_recalls WHERE message_id = '<msg-1@recall.test>'),
+  1,
+  'one unread internal copy was recalled'
+);
+
+-- Test 2b: the recall-notice stub is bound to the recipient's Inbox via a
+-- message_tags row (folder_id alone is invisible to the tag-based read path).
+-- Pre-fix the stub carried no message_tags row and never listed in the Inbox.
+SELECT is(
+  (SELECT t.name FROM message_tags mt
+     JOIN tags t ON t.id = mt.tag_id
+     JOIN messages m ON m.id = mt.message_id
+    WHERE m.mailbox_id = 7002
+      AND m.message_id = 'recall-<msg-1@recall.test>'
+      AND t.exclusive_group = 'location'),
+  'Inbox',
+  'recall stub is tagged Inbox in message_tags (visible in tag-based webmail)'
+);
+
+-- ── Part 2 (seam adoption): recall moves the copy to Trash via the location seam,
+-- and the seam preserved the 'recall' provenance (p_added_by threaded through). ──
+SELECT is(
+  (SELECT t.name FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7001 AND t.exclusive_group = 'location'),
+  'Trash',
+  'recall lands the recalled copy in Trash via transition_message_location'
+);
+SELECT is(
+  (SELECT mt.added_by FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+     WHERE mt.message_id = 7001 AND t.name = 'Trash'),
+  'recall',
+  'recall preserves the recall provenance on the swapped-in Trash tag'
+);
+
+-- Test 3: an already-read copy is reported as cannotRecall — in the AUDIT row's
+-- true cannot_count, NOT in the caller-facing return (which stays {type, recalled}).
+-- First clean up the recall record from test 1
+DELETE FROM message_recalls WHERE message_id = '<msg-1@recall.test>';
+-- Re-deliver as read
+UPDATE messages SET is_read = TRUE WHERE id = 7001;
+
+CREATE TEMP TABLE _recall_read AS
+SELECT recall_message('<msg-1@recall.test>', 107001, 7001, 'user') AS v;
+
+-- The return is still caller-safe: type=success, no cannotCount leaked.
+SELECT is(
+  (SELECT v->>'type' FROM _recall_read),
+  'success',
+  'recall over an already-read copy still returns a caller-safe success verdict'
+);
+SELECT ok(
+  (SELECT NOT (v ? 'cannotCount') FROM _recall_read),
+  'already-read recall does NOT leak cannotCount in the return (oracle closed)'
+);
+-- The TRUE cannot_count is recorded in the internal audit row (audit intact).
+SELECT is(
+  (SELECT cannot_count FROM message_recalls WHERE message_id = '<msg-1@recall.test>'),
+  1,
+  'already-read copy recorded as cannotRecall in the message_recalls audit row'
+);
+
+-- Test 4: unknown message-id returns notFound
+SELECT is(
+  recall_message('<nonexistent@recall.test>', 107001, 7001, 'user')->>'type',
+  'notFound',
+  'unknown message-id returns notFound'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

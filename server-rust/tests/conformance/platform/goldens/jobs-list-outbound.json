@@ -1,0 +1,79 @@
+{
+  "case": "outbound",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "bulk": 4,
+            "journal": 6,
+            "migrations": 0,
+            "outbound": 5,
+            "scans": 0,
+            "scheduled": 5
+          }
+        ],
+        "before": [
+          {
+            "bulk": 4,
+            "journal": 6,
+            "migrations": 0,
+            "outbound": 5,
+            "scans": 0,
+            "scheduled": 5
+          }
+        ],
+        "table": "queues"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/jobs/outbound",
+      "method": "GET",
+      "path": "/admin/jobs/{queue}"
+    },
+    "response": {
+      "body": "[{\"id\":\"9315\",\"label\":\"\\u003co5@plat3.test\\u003e\",\"queue\":\"outbound\",\"status\":\"delivered\",\"queuedAt\":\"2026-10-01T10:05:00+00:00\",\"lastError\":null,\"normalized\":\"done\",\"attemptCount\":1,\"nextAttemptAt\":\"2026-10-02T10:00:00+00:00\"},{\"id\":\"9314\",\"label\":\"\\u003co4@plat3.test\\u003e\",\"queue\":\"outbound\",\"status\":\"bounced\",\"queuedAt\":\"2026-10-01T10:04:00+00:00\",\"lastError\":\"5xx rejected\",\"normalized\":\"failed\",\"attemptCount\":6,\"nextAttemptAt\":\"2026-10-02T10:00:00+00:00\"},{\"id\":\"9313\",\"label\":\"\\u003co3@plat3.test\\u003e\",\"queue\":\"outbound\",\"status\":\"deferred\",\"queuedAt\":\"2026-10-01T10:03:00+00:00\",\"lastError\":\"4xx try later\",\"normalized\":\"active\",\"attemptCount\":3,\"nextAttemptAt\":\"2026-10-02T11:00:00+00:00\"},{\"id\":\"9312\",\"label\":\"\\u003co2@plat3.test\\u003e\",\"queue\":\"outbound\",\"status\":\"sending\",\"queuedAt\":\"2026-10-01T10:02:00+00:00\",\"lastError\":null,\"normalized\":\"active\",\"attemptCount\":1,\"nextAttemptAt\":\"2026-10-02T10:00:00+00:00\"},{\"id\":\"9311\",\"label\":\"\\u003co1@plat3.test\\u003e\",\"queue\":\"outbound\",\"status\":\"pending\",\"queuedAt\":\"2026-10-01T10:01:00+00:00\",\"lastError\":null,\"normalized\":\"active\",\"attemptCount\":0,\"nextAttemptAt\":\"2026-10-02T10:00:00+00:00\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "1159"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/jobs/{queue}"
+}

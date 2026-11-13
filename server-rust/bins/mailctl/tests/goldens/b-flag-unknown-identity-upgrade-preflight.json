@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of identity upgrade preflight:\n  -json\n    \tJSON output\n  -output string\n    \toptional 0600 JSON evidence file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

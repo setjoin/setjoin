@@ -1,0 +1,20 @@
+-- Frozen content.go auditDedup transaction, called after download admission.
+BEGIN;
+SELECT plan(8);
+SELECT mk_account('drive3-audit-view') AS mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:mb \gset
+INSERT INTO drive_spaces(name,owner_user_id) VALUES('drive3-view',:actor) RETURNING id AS space \gset
+INSERT INTO drive_space_members(space_id,user_id,role,granted_by) VALUES(:space,:actor,'manager',:actor);
+SELECT set_config('app.current_user_id',:'actor',true);
+SET LOCAL ROLE setjoin_app;
+SELECT lives_ok(format('SELECT rust_drive_audit_view(%s,%s,7777)',:actor,:space),'admitted content view appends audit');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND action='view'),1::bigint,'first view is audited');
+SELECT lives_ok(format('SELECT rust_drive_audit_view(%s,%s,7777)',:actor,:space),'same view repeats');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND action='view'),1::bigint,'15-minute duplicate does not append');
+SELECT lives_ok(format('SELECT rust_drive_audit_view(%s,%s,7778)',:actor,:space),'different version is distinct');
+SELECT is((SELECT count(*) FROM drive_audit_log WHERE space_id=:space AND action='view'),2::bigint,'different version appends');
+SELECT throws_ok(format('SELECT rust_drive_audit_view(%s,%s,7777)',:actor+1,:space),'42501','actor does not match authenticated context','request-owned actor cannot replace authenticated actor');
+SELECT ok((SELECT bool_and(valid) FROM verify_drive_audit_chain(:space)),'view chain verifies');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

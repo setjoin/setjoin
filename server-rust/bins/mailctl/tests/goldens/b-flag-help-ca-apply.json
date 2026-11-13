@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca apply:\n  -f string\n    \tPolicy document file\n  -prune\n    \tUse prune mode (removes policies not in doc)\nError: flag: help requested\n",
+  "exit": 1
+}

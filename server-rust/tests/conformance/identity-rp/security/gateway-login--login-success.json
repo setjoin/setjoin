@@ -1,0 +1,32 @@
+{
+  "case": "login-success",
+  "format": 1,
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "*",
+      "path": "/auth/oidc/",
+      "query": "provider=idfed2",
+      "wire_method": "GET",
+      "wire_path": "/auth/oidc/login"
+    },
+    "response": {
+      "body": "<a href=\"https://idp.idfed2.test:19440/authorize?client_id=setjoin-client-340&amp;code_challenge=_challenge&amp;code_challenge_method=S256&amp;nonce=_nonce&amp;redirect_uri=https%3A%2F%2Fauth.idfed2.test%2Fauth%2Foidc%2Fcallback&amp;response_type=code&amp;scope=openid+email+profile+groups&amp;state=_state\">Found</a>.\n\n",
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "location": "https://idp.idfed2.test:19440/authorize?client_id=setjoin-client-340&code_challenge=_challenge&code_challenge_method=S256&nonce=_nonce&redirect_uri=https%3A%2F%2Fauth.idfed2.test%2Fauth%2Foidc%2Fcallback&response_type=code&scope=openid+email+profile+groups&state=_state",
+        "set-cookie": [
+          "oidc_state=_state; Max-Age=600; HttpOnly; SameSite=Lax",
+          "oidc_nonce=_nonce; Max-Age=600; HttpOnly; SameSite=Lax",
+          "oidc_provider=idfed2; Max-Age=600; HttpOnly; SameSite=Lax",
+          "oidc_verifier=_verifier; Max-Age=600; HttpOnly; SameSite=Lax"
+        ]
+      },
+      "status": 302
+    }
+  },
+  "route": "* /auth/oidc/ login"
+}

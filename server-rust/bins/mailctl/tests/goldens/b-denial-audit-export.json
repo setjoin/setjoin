@@ -1,0 +1,15 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/audit/csv",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 AUTH_DENIED: Access denied (remediation: Ask an administrator) (retry after: 7)\n",
+  "exit": 1
+}

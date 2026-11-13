@@ -1,0 +1,41 @@
+{
+  "case": "purge-expired-tokens",
+  "format": 1,
+  "go_source": "9523a68fab6bb029d1730ca87e8d8024a9f0e3ab",
+  "observation": {
+    "phases": [
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "oauth": [
+              "gofree-cron-new",
+              "gofree-cron-old"
+            ],
+            "scim": [
+              "gofree-cron-scim-new",
+              "gofree-cron-scim-old"
+            ]
+          }
+        },
+        "phase": "go-off-skips"
+      },
+      {
+        "after": {
+          "audit": [],
+          "notifies": [],
+          "rows": {
+            "oauth": [
+              "gofree-cron-new"
+            ],
+            "scim": [
+              "gofree-cron-scim-new"
+            ]
+          }
+        },
+        "phase": "tick"
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox reconnect <mailbox-id> --generation N --reason TEXT\n",
+  "exit": 1
+}

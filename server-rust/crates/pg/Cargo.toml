@@ -1,0 +1,22 @@
+[package]
+name = "setjoin-pg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "setjoin_pg"
+path = "src/lib.rs"
+
+[dependencies]
+setjoin-contracts = { path = "../contracts" }
+setjoin-db = { path = "../db" }
+tokio-postgres = "0.7.18"
+deadpool-postgres = "0.14.2"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Client-side read deadlines (review item 1); already in the lock via the driver.
+tokio = { version = "1.54", features = ["rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

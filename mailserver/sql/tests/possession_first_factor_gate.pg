@@ -1,0 +1,340 @@
+-- possession_first_factor_gate.pg — pgTAP for the first-factor possession
+-- gate storage authority (retired-docs:verification/2026-09-23-possession-scheme-v7.md
+-- §2.1, §2.2, §2.3, §2.5; acceptance §4.1 TestDurableRevocationRecheckWatermark,
+-- TestGrantConsumeExactlyOnceConcurrent's SQL layer, §4.4 case 6's SQL layer).
+--
+-- Covered here (SQL-layer, deterministic):
+--   - V272 objects: grant tuple columns, totp_pending_enrollments UUID +
+--     one-row-per-user + ON CONFLICT re-staging, webauthn_ceremonies shape,
+--     users.factor_generation + the two possession budget pairs,
+--     passkey_credentials.uv_capable default false (clean cut).
+--   - Grant consumption: DELETE ... RETURNING single-use; the generation
+--     predicate kills a grant whose factor_generation moved (§1.8).
+--   - §2.3 budgets: evaluated failure increments atomically; a LOCKED
+--     refusal does not increment (the WHERE guard); reset clears.
+--   - §2.5 / V273: revoke_user_sessions scope all/family/jti deletes grants
+--     and ceremonies; the narrow family predicate does NOT widen.
+--   - §2.2 watermark recheck (TestDurableRevocationRecheckWatermark): the
+--     in-tx EXISTS mirrors denylist.IsRevoked — 'all' rows deny iat <=
+--     not_before (boundary inclusive), pass strictly-after tokens, deny a
+--     NULL iat (fail closed); jti/family rows are exact iat-independent.
+BEGIN;
+SELECT plan(55);
+-- pgp_sym_encrypt/decrypt in the pending-enrollment fixtures need the pool
+-- encryption key (the Go harness sets the same session variable).
+SET LOCAL app.encryption_key = 'test-totp-encryption-key-32chars';
+
+-- ── Seed ─────────────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES (9901, 'test.possession.example', TRUE)
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (990001, 'possuser',  9901, 'possuser@possession.example',  'Possession User',  'x'),
+         (990002, 'possuser2', 9901, 'possuser2@possession.example', 'Possession User 2','x')
+  ON CONFLICT DO NOTHING;
+
+-- ── V272 objects ─────────────────────────────────────────────────────────────
+SELECT has_column('mfa_reauth_step_ups', 'operation',              'grants: operation column');
+SELECT has_column('mfa_reauth_step_ups', 'target_ref',             'grants: target_ref column');
+SELECT has_column('mfa_reauth_step_ups', 'proof_method',           'grants: proof_method column');
+SELECT has_column('mfa_reauth_step_ups', 'proving_factor_id',      'grants: proving_factor_id column');
+SELECT has_column('mfa_reauth_step_ups', 'bound_factor_generation','grants: bound_factor_generation column');
+SELECT has_column('mfa_reauth_step_ups', 'token_scope',            'grants: token_scope column');
+SELECT has_column('mfa_reauth_step_ups', 'refresh_family_id',      'grants: refresh_family_id column');
+SELECT has_table('totp_pending_enrollments', 'totp_pending_enrollments exists');
+SELECT has_column('totp_pending_enrollments', 'staged_by_jti', 'pending: staged_by_jti provenance');
+SELECT col_is_unique('totp_pending_enrollments', 'user_id', 'pending: one live row per user');
+SELECT has_table('webauthn_ceremonies', 'webauthn_ceremonies exists');
+SELECT has_column('webauthn_ceremonies', 'target_ref', 'ceremonies: target_ref (v6 revoke binding)');
+SELECT has_column('users', 'factor_generation', 'users: factor_generation');
+SELECT has_column('users', 'possession_password_failed_attempts', 'users: password budget counter');
+SELECT has_column('users', 'possession_password_locked_until',    'users: password budget lock');
+SELECT has_column('users', 'possession_webauthn_failed_attempts', 'users: webauthn budget counter');
+SELECT has_column('users', 'possession_webauthn_locked_until',    'users: webauthn budget lock');
+SELECT is((SELECT factor_generation FROM users WHERE id = 990001), 0::bigint,
+  'users.factor_generation defaults to 0');
+SELECT is((SELECT uv_capable FROM passkey_credentials LIMIT 1), NULL,
+  'uv_capable column exists (no seeded credentials rows)');
+
+-- ── Grant lifecycle: issue → bind → consume exactly once ────────────────────
+INSERT INTO mfa_reauth_step_ups
+  (token_hash, user_id, session_jti, operation, target_ref, proof_method,
+   proving_factor_id, bound_factor_generation, token_scope, refresh_family_id, expires_at)
+VALUES
+  ('poss-hash-1', 990001, 'poss-jti-1', 'recovery.regenerate', NULL, 'password',
+   NULL, 0, 'session', 'poss-family-A', now() + interval '5 minutes');
+
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups
+    WHERE token_hash='poss-hash-1' AND user_id=990001 AND session_jti='poss-jti-1'
+      AND operation='recovery.regenerate' AND expires_at > now()
+      AND bound_factor_generation = (SELECT factor_generation FROM users WHERE id=990001)),
+  1::bigint, 'live grant resolves under the full tuple predicate');
+
+-- One-time binding: the target_ref IS NULL guard makes exactly one UPDATE bind.
+UPDATE mfa_reauth_step_ups SET target_ref = 'poss-pending-uuid-1'
+ WHERE token_hash='poss-hash-1' AND user_id=990001 AND session_jti='poss-jti-1'
+   AND expires_at > now() AND target_ref IS NULL
+RETURNING token_hash AS bind_ok;
+SELECT is((SELECT target_ref FROM mfa_reauth_step_ups WHERE token_hash='poss-hash-1'),
+  'poss-pending-uuid-1', 'one-time binding commits the target');
+-- A second begin (target already bound) matches zero rows.
+SELECT is(
+  (SELECT count(*) FROM (SELECT 1 FROM mfa_reauth_step_ups
+    WHERE token_hash='poss-hash-1' AND target_ref IS NULL) s),
+  0::bigint, 'binding is one-time (target_ref IS NULL guard)');
+
+-- Consumption: single-use DELETE ... RETURNING — the second attempt in the
+-- SAME statement stream finds zero rows (the SQL layer of
+-- TestGrantConsumeExactlyOnceConcurrent; the concurrency harness is Go-side).
+WITH consumed AS (
+  DELETE FROM mfa_reauth_step_ups
+   WHERE token_hash='poss-hash-1' AND user_id=990001 AND session_jti='poss-jti-1'
+     AND operation='recovery.regenerate'
+     AND (true = false OR target_ref IS NOT DISTINCT FROM 'poss-pending-uuid-1')
+     AND token_scope='session'
+     AND (true = false OR refresh_family_id IS NOT DISTINCT FROM 'poss-family-A')
+     AND expires_at > now()
+     AND bound_factor_generation = (SELECT factor_generation FROM users WHERE id=990001)
+  RETURNING token_hash
+)
+SELECT is((SELECT count(*) FROM consumed), 1::bigint, 'first consumption wins (exactly one row)');
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups WHERE token_hash='poss-hash-1'),
+  0::bigint, 'consumed grant is gone (replay finds nothing)');
+
+-- ── §1.8 generation predicate: a bumped generation refuses the grant ────────
+INSERT INTO mfa_reauth_step_ups
+  (token_hash, user_id, session_jti, operation, proof_method,
+   bound_factor_generation, token_scope, expires_at)
+VALUES
+  ('poss-hash-2', 990001, 'poss-jti-2', 'recovery.regenerate', 'totp',
+   0, 'session', now() + interval '5 minutes');
+UPDATE users SET factor_generation = factor_generation + 1 WHERE id = 990001;
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups
+    WHERE token_hash='poss-hash-2' AND user_id=990001 AND session_jti='poss-jti-2'
+      AND expires_at > now()
+      AND bound_factor_generation = (SELECT factor_generation FROM users WHERE id=990001)),
+  0::bigint, 'generation bump kills the outstanding grant (§1.8)');
+DELETE FROM mfa_reauth_step_ups WHERE token_hash='poss-hash-2';
+
+-- ── §2.3 password budget: evaluated failures increment; locked refusals do not
+UPDATE users SET possession_password_failed_attempts = 0,
+                 possession_password_locked_until = NULL WHERE id = 990002;
+-- Four evaluated failures.
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+SELECT is((SELECT possession_password_failed_attempts FROM users WHERE id=990002), 4,
+  'four evaluated failures = counter 4, not yet locked');
+SELECT is((SELECT possession_password_locked_until IS NULL FROM users WHERE id=990002), true,
+  'lock not set below the threshold');
+-- 5th failure trips the lock in the SAME atomic statement.
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+SELECT is((SELECT possession_password_failed_attempts FROM users WHERE id=990002), 5,
+  'threshold failure = counter exactly 5');
+SELECT isnt((SELECT possession_password_locked_until FROM users WHERE id=990002), NULL,
+  'lock timestamp set by the 5th failure');
+-- A locked attempt matches ZERO rows — refused bookkeeping never increments.
+UPDATE users
+   SET possession_password_failed_attempts = possession_password_failed_attempts + 1,
+       possession_password_locked_until =
+         CASE WHEN possession_password_failed_attempts + 1 >= 5
+              THEN now() + interval '15 minutes'
+              ELSE possession_password_locked_until END
+ WHERE id = 990002
+   AND (possession_password_locked_until IS NULL OR possession_password_locked_until <= now());
+SELECT is((SELECT possession_password_failed_attempts FROM users WHERE id=990002), 5,
+  'locked refusal does NOT increment (TestBudgetLockedRefusalDoesNotIncrement)');
+-- Reset clears both columns (the success path).
+UPDATE users SET possession_password_failed_attempts = 0,
+                 possession_password_locked_until = NULL WHERE id = 990002;
+SELECT is((SELECT possession_password_failed_attempts FROM users WHERE id=990002), 0,
+  'budget reset clears the counter');
+SELECT is((SELECT possession_password_locked_until IS NULL FROM users WHERE id=990002), true,
+  'budget reset clears the lock');
+
+-- ── §2.5 / V273: revocation deletes possession artifacts ────────────────────
+-- Family A: user 990001 grant + ceremony. Family B: user 990002 artifacts
+-- (the surviving family — the narrow predicate must not widen, §4.4 case 6).
+INSERT INTO mfa_reauth_step_ups
+  (token_hash, user_id, session_jti, operation, proof_method,
+   bound_factor_generation, token_scope, refresh_family_id, expires_at)
+VALUES
+  ('poss-fam-A', 990001, 'jti-A', 'recovery.regenerate', 'password', 1, 'session', 'fam-A', now() + interval '5 minutes'),
+  ('poss-fam-B', 990002, 'jti-B', 'recovery.regenerate', 'password', 0, 'session', 'fam-B', now() + interval '5 minutes'),
+  ('poss-jti-C', 990001, 'jti-C', 'webauthn.register',   'totp',     1, 'session', 'fam-A', now() + interval '5 minutes');
+INSERT INTO webauthn_ceremonies
+  (challenge_hash, user_id, kind, operation, target_ref, session_jti, token_scope, refresh_family_id, expires_at)
+VALUES
+  ('chash-A', 990001, 'management_assertion', 'recovery.regenerate', NULL, 'jti-A', 'session', 'fam-A', now() + interval '5 minutes'),
+  ('chash-B', 990002, 'management_assertion', 'recovery.regenerate', NULL, 'jti-B', 'session', 'fam-B', now() + interval '5 minutes');
+
+-- Family revocation for fam-A (as a non-affecting actor 990002→self is not
+-- possible — the reducer acts on p_user_id; revoke 990001's family A).
+CREATE TEMP TABLE _famrev AS
+  SELECT revoke_user_sessions(990001, 'family', 'test_family_revoke', 990002, NULL, 'fam-A') AS id;
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups
+    WHERE user_id=990001 AND refresh_family_id='fam-A'), 0::bigint,
+  'family revocation deletes the family''s grants (both fam rows for 990001)');
+SELECT is(
+  (SELECT count(*) FROM webauthn_ceremonies
+    WHERE user_id=990001 AND refresh_family_id='fam-A'), 0::bigint,
+  'family revocation deletes the family''s ceremonies');
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups
+    WHERE user_id=990002 AND refresh_family_id='fam-B'), 1::bigint,
+  'narrow family revocation does NOT widen (other family survives)');
+SELECT is(
+  (SELECT count(*) FROM webauthn_ceremonies
+    WHERE user_id=990002 AND refresh_family_id='fam-B'), 1::bigint,
+  'narrow family revocation leaves other family''s ceremony live');
+
+-- jti revocation deletes exact-JTI artifacts.
+CREATE TEMP TABLE _jtirev AS
+  SELECT revoke_user_sessions(990002, 'jti', 'test_jti_revoke', 990002, 'jti-B', NULL) AS id;
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups WHERE user_id=990002 AND session_jti='jti-B'),
+  0::bigint, 'jti revocation deletes the exact-JTI grant');
+SELECT is(
+  (SELECT count(*) FROM webauthn_ceremonies WHERE user_id=990002 AND session_jti='jti-B'),
+  0::bigint, 'jti revocation deletes the exact-JTI ceremony');
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups WHERE user_id=990002), 0::bigint,
+  'jti revocation left no grant behind for the user');
+
+-- all revocation deletes every artifact.
+INSERT INTO mfa_reauth_step_ups
+  (token_hash, user_id, session_jti, operation, proof_method,
+   bound_factor_generation, token_scope, refresh_family_id, expires_at)
+VALUES
+  ('poss-all-1', 990002, 'jti-all', 'device.register.native', 'password', 0, 'session', 'fam-B', now() + interval '5 minutes');
+INSERT INTO webauthn_ceremonies
+  (challenge_hash, user_id, kind, operation, session_jti, token_scope, expires_at)
+VALUES ('chash-all', 990002, 'registration', 'webauthn.register', 'jti-all', 'session', now() + interval '5 minutes');
+CREATE TEMP TABLE _allrev AS
+  SELECT revoke_user_sessions(990002, 'all', 'test_all_revoke', 990002, NULL, NULL) AS id;
+SELECT is(
+  (SELECT count(*) FROM mfa_reauth_step_ups WHERE user_id=990002), 0::bigint,
+  'all revocation deletes every grant');
+SELECT is(
+  (SELECT count(*) FROM webauthn_ceremonies WHERE user_id=990002), 0::bigint,
+  'all revocation deletes every ceremony');
+
+-- ── §2.2 watermark recheck (TestDurableRevocationRecheckWatermark) ───────────
+-- The predicate mirrors shared/threat denylist.IsRevoked exactly.
+CREATE TEMP TABLE _recheck_probe(user_id bigint, family text, jti text, iat timestamptz, locked boolean);
+CREATE OR REPLACE FUNCTION _poss_recheck(p_user bigint, p_fam text, p_jti text, p_iat timestamptz)
+RETURNS boolean LANGUAGE sql AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM session_revocations
+     WHERE user_id = p_user
+       AND (expires_at IS NULL OR expires_at > now())
+       AND (
+             (scope = 'jti'       AND jti = p_jti)
+             OR (scope = 'family' AND family_id = p_fam)
+             OR (scope = 'all' AND (p_iat IS NULL OR p_iat <= not_before))
+       )
+  )
+$$;
+
+INSERT INTO session_revocations(user_id, scope, jti, family_id, reason, created_by, expires_at, not_before)
+VALUES (990001, 'all', NULL, NULL, 'probe', NULL, now() + interval '31 days', now());
+
+SELECT is(_poss_recheck(990001, NULL, 'x', now() - interval '1 minute'), true,
+  'watermark: iat < not_before DENIED');
+SELECT is(_poss_recheck(990001, NULL, 'x', now()), true,
+  'watermark: iat == not_before DENIED (boundary inclusive)');
+SELECT is(_poss_recheck(990001, NULL, 'x', now() + interval '1 minute'), false,
+  'watermark: iat > not_before PASSES (fresh login manages factors)');
+SELECT is(_poss_recheck(990001, NULL, 'x', NULL), true,
+  'watermark: missing iat DENIED (fail closed)');
+-- Two 'all' rows deny per the greatest watermark.
+INSERT INTO session_revocations(user_id, scope, jti, family_id, reason, created_by, expires_at, not_before)
+VALUES (990001, 'all', NULL, NULL, 'probe-older-watermark-superseded', NULL, now() + interval '31 days', now() - interval '1 hour');
+SELECT is(_poss_recheck(990001, NULL, 'x', now() - interval '30 minutes'), true,
+  'two all-rows: the newest watermark denies mid-air tokens (greatest watermark)');
+-- jti/family rows are exact, iat-independent.
+INSERT INTO session_revocations(user_id, scope, jti, family_id, reason, created_by, expires_at, not_before)
+VALUES (990002, 'jti', 'exact-jti', NULL, 'probe', NULL, now() + interval '31 days', now()),
+       (990002, 'family', NULL, 'fam-Z', 'probe', NULL, now() + interval '31 days', now());
+SELECT is(_poss_recheck(990002, NULL, 'exact-jti', now() + interval '1 hour'), true,
+  'jti row: exact match denies regardless of iat');
+SELECT is(_poss_recheck(990002, NULL, 'other-jti', now() + interval '1 hour'), false,
+  'jti row: non-matching jti passes');
+SELECT is(_poss_recheck(990002, 'fam-Z', 'x', now() + interval '1 hour'), true,
+  'family row: exact match denies regardless of iat');
+SELECT is(_poss_recheck(990002, 'fam-other', 'x', now() + interval '1 hour'), false,
+  'family row: non-matching family passes');
+
+-- ── totp_pending_enrollments: fresh UUID per re-stage (§1.6) ────────────────
+INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, staged_via, expires_at)
+VALUES (990001, pgp_sym_encrypt('pending-secret', current_setting('app.encryption_key')),
+        'stage-jti-1', 'totp_setup', now() + interval '15 minutes');
+SELECT is((SELECT staged_by_jti FROM totp_pending_enrollments WHERE user_id=990001),
+  'stage-jti-1', 'pending row staged with provenance');
+INSERT INTO totp_pending_enrollments (user_id, secret_enc, staged_by_jti, staged_via, expires_at)
+VALUES (990001, pgp_sym_encrypt('pending-secret-2', current_setting('app.encryption_key')),
+        'stage-jti-2', 'totp_setup', now() + interval '15 minutes')
+ON CONFLICT (user_id) DO UPDATE
+  SET id = gen_random_uuid(), secret_enc = EXCLUDED.secret_enc,
+      staged_by_jti = EXCLUDED.staged_by_jti, staged_via = EXCLUDED.staged_via,
+      created_at = now(), expires_at = EXCLUDED.expires_at
+RETURNING id AS restaged_id;
+SELECT is((SELECT staged_by_jti FROM totp_pending_enrollments WHERE user_id=990001),
+  'stage-jti-2', 're-stage replaces the pending row (latest wins)');
+SELECT is((SELECT count(*) FROM totp_pending_enrollments WHERE user_id=990001), 1::bigint,
+  'still exactly one live pending enrollment per user');
+
+-- webauthn_ceremonies kind constraint holds the documented values.
+SELECT lives_ok(
+  $fn$INSERT INTO webauthn_ceremonies
+        (challenge_hash, user_id, kind, operation, session_jti, token_scope, expires_at)
+       VALUES ('chash-kind-ok', 990001, 'registration', 'webauthn.register', 'jti-k', 'session', now() + interval '5 minutes')$fn$,
+  'ceremony kind registration accepted');
+SELECT throws_ok(
+  $fn$INSERT INTO webauthn_ceremonies
+        (challenge_hash, user_id, kind, operation, session_jti, token_scope, expires_at)
+       VALUES ('chash-kind-bad', 990001, 'login', 'webauthn.register', 'jti-k2', 'session', now() + interval '5 minutes')$fn$,
+  NULL, NULL,
+  'ceremony kind login rejected (constraint)');
+
+SELECT finish();
+ROLLBACK;

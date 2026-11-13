@@ -1,0 +1,79 @@
+-- pgTAP: rls_calendar_subscriptions.pg
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Correctness proof for the V092 calendar_subscriptions RLS policy (webcal/ICS
+-- subscribe, WAVE-5 #10). Copies the V091 user_image_allow shape exactly:
+-- ENABLE+FORCE ship in the migration, one self policy keyed on
+-- app.current_user_id. Force-state assertion first, then the REAL constrained
+-- runtime role (setjoin_app) inside a BEGIN…ROLLBACK.
+--
+-- WHY SET LOCAL ROLE setjoin_app: the test connection (`mail`) is a SUPERUSER
+-- and the table owner — both bypass RLS even under FORCE. setjoin_app is the
+-- runtime role the flip targets (NOSUPERUSER + NOBYPASSRLS).
+-- ─────────────────────────────────────────────────────────────────────────────
+BEGIN;
+SELECT plan(10);
+
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.calendar_subscriptions'::regclass),
+  TRUE, 'V092: calendar_subscriptions has ROW LEVEL SECURITY ENABLED');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.calendar_subscriptions'::regclass),
+  TRUE, 'V092: calendar_subscriptions has ROW LEVEL SECURITY FORCED');
+
+SELECT mk_account('subrlsA') AS mba \gset
+SELECT mk_account('subrlsB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7811, :mba, 'A sub', FALSE);
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7812, :mbb, 'B sub', FALSE);
+INSERT INTO calendar_subscriptions (user_id, calendar_id, url) VALUES
+  (:ua, 7811, 'https://a.test/feed.ics'),
+  (:ub, 7812, 'https://b.test/feed.ics');
+
+SELECT is(
+  (SELECT count(*) FROM calendar_subscriptions WHERE calendar_id IN (7811, 7812))::INT, 2,
+  'superuser sees both seeded rows (non-vacuous fixtures)');
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.calendar_subscriptions TO setjoin_app;
+
+SET LOCAL ROLE setjoin_app;
+
+-- ── READ: self-scoped ────────────────────────────────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT is(
+  (SELECT count(*) FROM calendar_subscriptions)::INT, 1,
+  'GUC=A: sees exactly their own subscription');
+SELECT is(
+  (SELECT url FROM calendar_subscriptions), 'https://a.test/feed.ics',
+  'GUC=A: and it is A''s subscription row');
+
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is(
+  (SELECT count(*) FROM calendar_subscriptions WHERE user_id = :ua)::INT, 0,
+  'GUC=B: A''s row is invisible');
+
+-- ── FAIL-CLOSED: no GUC → zero rows ─────────────────────────────────────────
+SELECT set_config('app.current_user_id', '', true);
+SELECT is(
+  (SELECT count(*) FROM calendar_subscriptions)::INT, 0,
+  'no GUC: fail-closed — ZERO rows visible');
+
+-- ── WRITE: self only ─────────────────────────────────────────────────────────
+SELECT set_config('app.current_user_id', :ua::text, true);
+SELECT throws_ok(
+  format($$ INSERT INTO calendar_subscriptions (user_id, calendar_id, url) VALUES (%s, 7812, 'https://evil.test/feed.ics') $$, :ub),
+  '42501', NULL,
+  'A INSERTing a row for B is REJECTED (42501, WITH CHECK)');
+
+-- DELETE of B's row: invisible under USING → executes but removes nothing.
+SELECT lives_ok(
+  $$ DELETE FROM calendar_subscriptions WHERE url = 'https://b.test/feed.ics' $$,
+  'A DELETE of B''s row executes without error…');
+SELECT set_config('app.current_user_id', :ub::text, true);
+SELECT is(
+  (SELECT count(*) FROM calendar_subscriptions)::INT, 1,
+  '…but removed NOTHING (B''s row survives, B-visible)');
+
+SELECT * FROM finish();
+ROLLBACK;

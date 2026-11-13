@@ -1,0 +1,30 @@
+// Recording-only overlay: real collector, flush loop, PGModelStore and minio client.
+package spam
+
+import (
+ "context"
+ "encoding/json"
+ "log/slog"
+ "os"
+ "testing"
+ "time"
+
+ "github.com/minio/minio-go/v7"
+ "github.com/minio/minio-go/v7/pkg/credentials"
+ "setjoin.com/shared/pgxutil"
+)
+
+func TestGoFreeSpamTrainerTick(t *testing.T) {
+ ctx:=context.Background()
+ pool,err:=pgxutil.OpenPool(ctx,os.Getenv("GOFREE_DRAIN_DSN"),2,"","");if err!=nil{t.Fatal(err)};defer pool.Close()
+ s3,err:=minio.New(os.Getenv("GOFREE_SPAM_S3"),&minio.Options{Creds:credentials.NewStaticV4("test-access","test-secret",""),Secure:false,Region:"us-east-1"});if err!=nil{t.Fatal(err)}
+ trainer:=NewTrainer(NewPGModelStore(pgxutil.WorkerPool{Pool:pool},s3,"mail"),slog.Default())
+ var payloads []string
+ if err=json.Unmarshal([]byte(os.Getenv("GOFREE_SPAM_EVENTS")),&payloads);err!=nil{t.Fatal(err)}
+ for _,p:=range payloads {ev,err:=ParseNotifyPayload(p);if err==nil{trainer.collector.add(ev)}}
+ // Exactly one production flush. The ticker only schedules this method.
+ trainer.flushAndTrain(ctx)
+ if os.Getenv("GOFREE_SPAM_SECOND_TICK")=="1" {trainer.flushAndTrain(ctx)}
+ // Ensure asynchronous DB traffic has completed before the process exits.
+ _=time.Second
+}

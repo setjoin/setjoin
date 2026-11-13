@@ -1,0 +1,111 @@
+{
+  "contract": "clientip",
+  "cases": [
+    {
+      "input": {
+        "remote": "192.0.2.10:443",
+        "trusted": "192.0.2.10",
+        "forwarded_for": [
+          "203.0.113.5"
+        ],
+        "forwarded_proto": [
+          "https"
+        ],
+        "tls": false
+      },
+      "name": "trusted_proxy",
+      "output": {
+        "ip": "203.0.113.5",
+        "proto": "https"
+      }
+    },
+    {
+      "input": {
+        "remote": "198.51.100.2:1234",
+        "trusted": "192.0.2.10",
+        "forwarded_for": [
+          "203.0.113.5"
+        ],
+        "forwarded_proto": [
+          "https"
+        ],
+        "tls": false
+      },
+      "name": "spoofed_untrusted",
+      "output": {
+        "ip": "198.51.100.2",
+        "proto": "http"
+      }
+    },
+    {
+      "input": {
+        "remote": "192.0.2.10:443",
+        "trusted": "192.0.2.10",
+        "forwarded_for": [
+          "10.0.0.1, 10.0.0.2",
+          "2001:db8::123"
+        ],
+        "forwarded_proto": [
+          "http",
+          " HTTPS "
+        ],
+        "tls": false
+      },
+      "name": "multi_header_rightmost",
+      "output": {
+        "ip": "2001:db8::123",
+        "proto": "https"
+      }
+    },
+    {
+      "input": {
+        "remote": "192.0.2.10:443",
+        "trusted": "192.0.2.10",
+        "forwarded_for": [
+          "203.0.113.5, bogus"
+        ],
+        "forwarded_proto": [
+          "https, http"
+        ],
+        "tls": false
+      },
+      "name": "invalid_rightmost",
+      "output": {
+        "ip": "192.0.2.10",
+        "proto": "http"
+      }
+    },
+    {
+      "input": {
+        "remote": "[2001:db8::1]:8080",
+        "trusted": "2001:db8::1",
+        "forwarded_for": [
+          "[fe80::1%25eth0]"
+        ],
+        "forwarded_proto": null,
+        "tls": false
+      },
+      "name": "ipv6_zone",
+      "output": {
+        "ip": "fe80::1",
+        "proto": "http"
+      }
+    },
+    {
+      "input": {
+        "remote": "192.0.2.10:443",
+        "trusted": "192.0.2.10",
+        "forwarded_for": null,
+        "forwarded_proto": [
+          "http"
+        ],
+        "tls": true
+      },
+      "name": "tls_overrides_forwarded",
+      "output": {
+        "ip": "192.0.2.10",
+        "proto": "https"
+      }
+    }
+  ]
+}

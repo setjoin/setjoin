@@ -1,0 +1,41 @@
+// Recording-only overlay (#305): frozen Go's HTTP-01 token responder (the handler mounted on
+// the :80 server) answering the requests listed below. Never a tracked Go change.
+package acme
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+)
+
+func TestGoFreeHTTP01Handler(t *testing.T) {
+	store := &http01TokenStore{tokens: map[string]string{}}
+	_ = store.Present("example.test", "tok-1", "tok-1.thumbprint")
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = w.Write([]byte("next"))
+	})
+	handler := store.handler(next)
+	requests := []struct{ Method, Path string }{
+		{"GET", "/.well-known/acme-challenge/tok-1"},
+		{"POST", "/.well-known/acme-challenge/tok-1"},
+		{"GET", "/.well-known/acme-challenge/unknown"},
+		{"GET", "/.well-known/acme-challenge/"},
+		{"GET", "/other"},
+	}
+	var out []map[string]any
+	for _, c := range requests {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(c.Method, c.Path, nil))
+		out = append(out, map[string]any{
+			"method": c.Method, "path": c.Path, "status": rec.Code,
+			"content_type": rec.Header().Get("Content-Type"), "body": rec.Body.String(),
+		})
+	}
+	data, _ := json.Marshal(out)
+	if err := os.WriteFile(os.Getenv("GOFREE_HTTP80_OUT"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

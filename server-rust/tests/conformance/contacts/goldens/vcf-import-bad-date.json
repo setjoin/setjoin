@@ -1,0 +1,361 @@
+{
+  "case": "bad-date",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "addressbooks": [
+            {
+              "name": "cal2-a-book",
+              "owner": "a",
+              "state": 0
+            },
+            {
+              "name": "cal2-b-book",
+              "owner": "b",
+              "state": 0
+            }
+          ],
+          "contacts": [
+            {
+              "addresses": [
+                {
+                  "city": "Town",
+                  "code": "123",
+                  "country": "X",
+                  "region": "R",
+                  "street": "1 Main St",
+                  "type": "home"
+                }
+              ],
+              "anniversary": null,
+              "birthday": "1990-02-03",
+              "book": "a",
+              "categories": [
+                "friends",
+                "work"
+              ],
+              "company": "=Evil Corp",
+              "department": "Sales",
+              "display": "Alice Seed",
+              "emails": [
+                {
+                  "address": "alice@seed.test",
+                  "type": "work"
+                }
+              ],
+              "etag_set": false,
+              "first": "Alice",
+              "impps": [],
+              "last": "Seed",
+              "notes": "line1\nline2, with comma",
+              "phones": [
+                {
+                  "number": "+100",
+                  "type": "work"
+                }
+              ],
+              "title": "Engineer",
+              "uid": "cal2-seed-1",
+              "urls": [
+                {
+                  "type": "work",
+                  "value": "https://seed.test"
+                }
+              ]
+            },
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "a",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Bob Seed",
+              "emails": [
+                {
+                  "type": "home",
+                  "value": "bob@seed.test"
+                }
+              ],
+              "etag_set": false,
+              "first": "Bob",
+              "impps": [],
+              "last": "Seed",
+              "notes": null,
+              "phones": [
+                {
+                  "type": "home",
+                  "value": "+101"
+                }
+              ],
+              "title": null,
+              "uid": "cal2-seed-2",
+              "urls": []
+            },
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "b",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Carol Other",
+              "emails": [],
+              "etag_set": false,
+              "first": "Carol",
+              "impps": [],
+              "last": "Other",
+              "notes": null,
+              "phones": [],
+              "title": null,
+              "uid": "cal2-other-1",
+              "urls": []
+            }
+          ],
+          "journal": [
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": null
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 2,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": "cal2-other-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": null
+            }
+          ]
+        },
+        "before": {
+          "addressbooks": [
+            {
+              "name": "cal2-a-book",
+              "owner": "a",
+              "state": 0
+            },
+            {
+              "name": "cal2-b-book",
+              "owner": "b",
+              "state": 0
+            }
+          ],
+          "contacts": [
+            {
+              "addresses": [
+                {
+                  "city": "Town",
+                  "code": "123",
+                  "country": "X",
+                  "region": "R",
+                  "street": "1 Main St",
+                  "type": "home"
+                }
+              ],
+              "anniversary": null,
+              "birthday": "1990-02-03",
+              "book": "a",
+              "categories": [
+                "friends",
+                "work"
+              ],
+              "company": "=Evil Corp",
+              "department": "Sales",
+              "display": "Alice Seed",
+              "emails": [
+                {
+                  "address": "alice@seed.test",
+                  "type": "work"
+                }
+              ],
+              "etag_set": false,
+              "first": "Alice",
+              "impps": [],
+              "last": "Seed",
+              "notes": "line1\nline2, with comma",
+              "phones": [
+                {
+                  "number": "+100",
+                  "type": "work"
+                }
+              ],
+              "title": "Engineer",
+              "uid": "cal2-seed-1",
+              "urls": [
+                {
+                  "type": "work",
+                  "value": "https://seed.test"
+                }
+              ]
+            },
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "a",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Bob Seed",
+              "emails": [
+                {
+                  "type": "home",
+                  "value": "bob@seed.test"
+                }
+              ],
+              "etag_set": false,
+              "first": "Bob",
+              "impps": [],
+              "last": "Seed",
+              "notes": null,
+              "phones": [
+                {
+                  "type": "home",
+                  "value": "+101"
+                }
+              ],
+              "title": null,
+              "uid": "cal2-seed-2",
+              "urls": []
+            },
+            {
+              "addresses": [],
+              "anniversary": null,
+              "birthday": null,
+              "book": "b",
+              "categories": [],
+              "company": null,
+              "department": null,
+              "display": "Carol Other",
+              "emails": [],
+              "etag_set": false,
+              "first": "Carol",
+              "impps": [],
+              "last": "Other",
+              "notes": null,
+              "phones": [],
+              "title": null,
+              "uid": "cal2-other-1",
+              "urls": []
+            }
+          ],
+          "journal": [
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": "cal2-seed-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "a",
+              "state": 1,
+              "uid": null
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "a",
+              "state": 2,
+              "uid": "cal2-seed-2"
+            },
+            {
+              "datatype": "ContactCard",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": "cal2-other-1"
+            },
+            {
+              "datatype": "AddressBook",
+              "op": "created",
+              "owner": "b",
+              "state": 1,
+              "uid": null
+            }
+          ]
+        },
+        "table": "f17-contacts"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "--cal2boundary7f3a\r\nContent-Disposition: form-data; name=\"addressBookId\"\r\n\r\n<book-a>\r\n--cal2boundary7f3a\r\nContent-Disposition: form-data; name=\"file\"; filename=\"c.vcf\"\r\n\r\nBEGIN:VCARD\r\nVERSION:3.0\r\nUID:cal2-v5\r\nFN:Zed\r\nN:Card;Zed;;;\r\nEMAIL;TYPE=work:cal2-v5@v.test\r\nTEL;TYPE=cell:+300\r\nORG:Vcorp\r\nTITLE:Boss\r\nNOTE:hello\\, world\r\nADR;TYPE=home:;;1 Rd;City;ST;999;Land\r\nURL:https://v.test\r\nBDAY:00000101\r\nEND:VCARD\r\n\r\n--cal2boundary7f3a--\r\n",
+      "concrete_method": "POST",
+      "external_path": "/api/contacts/import/vcf",
+      "method": "*",
+      "path": "/contacts/import/"
+    },
+    "response": {
+      "body": "{\"imported\":0,\"skipped\":0,\"errors\":[\"contact cal2-v5: ERROR: date/time field value out of range: \\\"0000-01-01\\\" (SQLSTATE 22008)\"]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "132"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-cal2-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "* /contacts/import/ vcf-import"
+}

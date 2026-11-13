@@ -1,0 +1,44 @@
+-- pgTAP test for settle_job (F2): backoff math, terminal transition, audit row.
+BEGIN;
+SELECT plan(9);
+
+-- ok → done status, no next_attempt, not terminal
+SELECT is((SELECT resolved_status FROM settle_job('ok', 1)), 'delivered', 'ok resolves to done status');
+SELECT ok((SELECT next_attempt_at IS NULL FROM settle_job('ok', 1)), 'ok has no next_attempt_at');
+SELECT ok((SELECT NOT is_terminal FROM settle_job('ok', 1)), 'ok is not terminal');
+
+-- retry under the cap → deferred, exponential backoff (2^attempt minutes)
+SELECT is((SELECT resolved_status FROM settle_job('retry', 2)), 'deferred', 'retry under cap is deferred');
+-- attempt_count=2 ⇒ 1min * 2^2 = 4 minutes from now (allow 2s slop)
+SELECT ok(
+  (SELECT next_attempt_at FROM settle_job('retry', 2))
+    BETWEEN now() + interval '4 minutes' - interval '2 seconds'
+        AND now() + interval '4 minutes' + interval '2 seconds',
+  'retry backoff = 1min * 2^attempts');
+
+-- backoff is capped at p_backoff_cap (default 1h): attempt_count=20 (with a high
+-- max_attempts so this is still a retry, not exhausted) ⇒ capped at 1h.
+SELECT ok(
+  (SELECT next_attempt_at FROM settle_job('retry', 20, NULL, 99))
+    BETWEEN now() + interval '1 hour' - interval '2 seconds'
+        AND now() + interval '1 hour' + interval '2 seconds',
+  'retry backoff capped at p_backoff_cap');
+
+-- retry at/over max_attempts → terminal dead
+SELECT is((SELECT resolved_status FROM settle_job('retry', 5)), 'dead', 'retries exhausted → terminal');
+SELECT ok((SELECT is_terminal FROM settle_job('retry', 5)), 'exhausted is terminal');
+
+-- audit row is written when p_audit_id is supplied
+DO $$
+DECLARE v_id UUID := gen_random_uuid(); v_n INT;
+BEGIN
+  PERFORM settle_job('permanent_fail', 1, 'boom', 5, interval '1 hour', v_id);
+  SELECT COUNT(*)::INT INTO v_n FROM scheduled_action_log
+   WHERE action_id = v_id AND to_status = 'dead' AND note = 'boom';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'expected 1 audit row, got %', v_n; END IF;
+END;
+$$;
+SELECT pass('settle_job writes one audit row on terminal failure');
+
+SELECT * FROM finish();
+ROLLBACK;

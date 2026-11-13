@@ -1,0 +1,31 @@
+-- #341: the public elevation/receipt seam, with exact live-session ownership.
+BEGIN;
+SELECT plan(16);
+INSERT INTO domains(name,is_local) VALUES('saml-sp-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,domain_id,display_name,password_hash,enabled) VALUES('saml-pgtap-a','a@saml-sp-pgtap.test',:dom,'SAML A','x',true) RETURNING id AS actor \gset
+INSERT INTO users(username,email,domain_id,display_name,password_hash,enabled) VALUES('saml-pgtap-b','b@saml-sp-pgtap.test',:dom,'SAML B','x',true) RETURNING id AS other \gset
+INSERT INTO sessions(id,user_id,token_hash,expires_at,auth_method) VALUES('saml-pgtap-a',:actor,digest('session-a','sha256'),now()+interval '1 hour','totp');
+SELECT set_config('app.rust_operation_id','34100000-0000-4000-8000-000000000001',true);
+SELECT is(rust_identity_saml_link_begin(:actor,'34100000-0000-4000-8000-000000000101','saml-pgtap-a',digest('session-a','sha256'),'saml:pgtap',(extract(epoch FROM now())+600)::bigint)->>'started','true','SAML elevation starts');
+SELECT is((SELECT count(*) FROM identity_auth_link_elevations WHERE user_id=:actor),1::bigint,'one owned elevation');
+SELECT is((SELECT count(*) FROM identity_auth_link_elevations WHERE user_id=:other),0::bigint,'foreign principal untouched');
+SELECT ok((SELECT session_hash=digest('session-a','sha256') FROM identity_auth_link_elevations WHERE flow_id='34100000-0000-4000-8000-000000000101' AND user_id=:actor),'exact cookie hash bound');
+SELECT is((SELECT kind FROM identity_auth_link_elevations WHERE flow_id='34100000-0000-4000-8000-000000000101' AND user_id=:actor),'saml','SAML kind remains separate from RP');
+SELECT is((SELECT command FROM rust_operation_receipts WHERE operation_id='34100000-0000-4000-8000-000000000001'),'saml-link-begin','receipt commits beside elevation');
+SELECT set_config('app.rust_operation_id','34100000-0000-4000-8000-000000000002',true);
+SELECT throws_ok(format($q$SELECT rust_identity_saml_link_begin(%s,'34100000-0000-4000-8000-000000000102','saml-pgtap-a',digest('wrong-cookie','sha256'),'saml:pgtap',(extract(epoch FROM now())+600)::bigint)$q$,:actor),'BZ234','identity link session is not active','wrong cookie hash refused');
+SELECT is((SELECT count(*) FROM identity_auth_link_elevations WHERE user_id=:actor),1::bigint,'refusal adds no elevation');
+SELECT is((SELECT count(*) FROM rust_operation_receipts WHERE operation_id='34100000-0000-4000-8000-000000000002'),0::bigint,'refusal adds no receipt');
+INSERT INTO mailboxes(user_id,domain_id,email,display_name,type,is_primary) VALUES(:actor,:dom,'a@saml-sp-pgtap.test','A','personal',true),(:other,:dom,'b@saml-sp-pgtap.test','B','personal',true);
+SELECT identity_auth_link(:actor,:actor,'saml','pgtap-sp','actor-subject','saml:pgtap','fixture')->>'linkId' AS actor_link \gset
+SELECT identity_auth_link(:other,:other,'saml','pgtap-sp','foreign-subject','saml:pgtap','fixture')->>'linkId' AS foreign_link \gset
+SELECT set_config('app.rust_operation_id','34100000-0000-4000-8000-000000000003',true);
+SELECT throws_ok(format('SELECT rust_identity_unlink(%s,%s,%L)',:actor,:foreign_link,'foreign'),'BZ234','identity link not found','foreign link refused in reducer');
+SELECT is((SELECT count(*) FROM rust_operation_receipts WHERE operation_id='34100000-0000-4000-8000-000000000003'),0::bigint,'foreign refusal adds no receipt');
+SELECT is(rust_identity_unlink(:actor,:actor_link,'test unlink')->>'unlinked','true','owned link detaches');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:actor_link AND user_id=:actor),'detached','actor mutation committed');
+SELECT is((SELECT state FROM user_identity_links WHERE id=:foreign_link AND user_id=:other),'active','foreign link preserved');
+SELECT is((SELECT count(*) FROM sessions WHERE user_id=:actor),0::bigint,'unlink revokes all owned sessions');
+SELECT is((SELECT command FROM rust_operation_receipts WHERE operation_id='34100000-0000-4000-8000-000000000003'),'identity-unlink','unlink receipt and effects share transaction');
+SELECT * FROM finish();
+ROLLBACK;

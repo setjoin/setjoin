@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: IMPORT-003: duplicate JSON key \"x\"\n",
+  "exit": 5
+}

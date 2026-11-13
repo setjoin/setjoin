@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -yes: parse error\nUsage of identity inventory export:\n  -json\n    \tJSON output\n  -output string\n    \t0600 JSON output file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\nError: invalid boolean value \"not-a-bool\" for -yes: parse error\n",
+  "exit": 1
+}

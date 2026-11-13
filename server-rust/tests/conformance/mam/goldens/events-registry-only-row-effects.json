@@ -1,0 +1,121 @@
+{
+  "case": "registry-only-row-effects",
+  "effects": [
+    {
+      "after": {
+        "events": [
+          {
+            "details": {
+              "locked_by": "seed"
+            },
+            "device_id": 984001,
+            "severity": "warn",
+            "type": "device_locked"
+          },
+          {
+            "details": {},
+            "device_id": 984001,
+            "severity": "info",
+            "type": "device_unlocked"
+          },
+          {
+            "details": {
+              "private": true
+            },
+            "device_id": 983001,
+            "severity": "warn",
+            "type": "device_locked"
+          }
+        ],
+        "groups": [
+          {
+            "group_id": 5,
+            "group_type": "role",
+            "policy_key": "pin_length",
+            "policy_value": "6",
+            "touched": false
+          }
+        ],
+        "policies": [
+          {
+            "device_id": null,
+            "policy_key": "require_pin",
+            "policy_value": "true",
+            "touched": false
+          },
+          {
+            "device_id": 983001,
+            "policy_key": "private",
+            "policy_value": "other",
+            "touched": false
+          },
+          {
+            "device_id": 984001,
+            "policy_key": "require_pin",
+            "policy_value": "true",
+            "touched": false
+          }
+        ]
+      },
+      "before": {
+        "events": [
+          {
+            "details": {
+              "locked_by": "seed"
+            },
+            "device_id": 984001,
+            "severity": "warn",
+            "type": "device_locked"
+          },
+          {
+            "details": {},
+            "device_id": 984001,
+            "severity": "info",
+            "type": "device_unlocked"
+          },
+          {
+            "details": {
+              "private": true
+            },
+            "device_id": 983001,
+            "severity": "warn",
+            "type": "device_locked"
+          }
+        ],
+        "groups": [
+          {
+            "group_id": 5,
+            "group_type": "role",
+            "policy_key": "pin_length",
+            "policy_value": "6",
+            "touched": false
+          }
+        ],
+        "policies": [
+          {
+            "device_id": null,
+            "policy_key": "require_pin",
+            "policy_value": "true",
+            "touched": false
+          },
+          {
+            "device_id": 983001,
+            "policy_key": "private",
+            "policy_value": "other",
+            "touched": false
+          },
+          {
+            "device_id": 984001,
+            "policy_key": "require_pin",
+            "policy_value": "true",
+            "touched": false
+          }
+        ]
+      },
+      "table": "device_policy+device_policy_groups+device_events"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/mam/devices/{device_id}/events"
+}

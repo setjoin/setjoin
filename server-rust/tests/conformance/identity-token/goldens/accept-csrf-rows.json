@@ -1,0 +1,13 @@
+{
+  "case": "accept-csrf-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "terms_of_use_acceptance"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /terms/accept"
+}

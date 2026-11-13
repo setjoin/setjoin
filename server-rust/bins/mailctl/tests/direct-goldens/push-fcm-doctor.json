@@ -1,0 +1,37 @@
+{
+  "stdout": "  [..] webpush  absent\n  [..] apns     absent\n  [OK] fcm      configured \u2014 project fixture-project\n  [..] hms      absent\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "outbound": [
+      {
+        "method": "POST",
+        "path": "/oauth/fcm",
+        "content_type": "application/x-www-form-urlencoded",
+        "authorization": "",
+        "body": {
+          "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          "assertion": {
+            "header": {
+              "alg": "RS256",
+              "typ": "JWT",
+              "kid": "fixture-key"
+            },
+            "claims": {
+              "iss": "synthetic@fixture.invalid",
+              "scope": "https://www.googleapis.com/auth/firebase.messaging",
+              "aud": "{HTTP}/oauth/fcm",
+              "exp": "{EXPIRY}",
+              "iat": "{IAT}",
+              "lifetime": 3600
+            },
+            "signature_verified": true
+          }
+        }
+      }
+    ],
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

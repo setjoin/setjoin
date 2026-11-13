@@ -1,0 +1,70 @@
+-- journal_coverage_runtime.pg: RUNTIME coverage guard (offline #3, T8, F1/§8.6).
+--
+-- The static grep guard (check-changes-journal-coverage.sh) verifies STRUCTURE:
+-- a reducer that bumps jmap_email_state must declare a pairing call. This pgTAP
+-- verifies RUNTIME BEHAVIOUR: an actual bump PRODUCED a journal row at the new
+-- state_seq, so an offline client's jmap_email_changes request can return a
+-- precise delta rather than forcing a full resync.
+--
+-- Belt-and-braces shape: same as the reducer-load expected-set assertion that
+-- backs the static exit-code gate. Together they make "bump + no journal row"
+-- un-shippable at BOTH source-analysis AND execution time.
+--
+-- GT+pattern: mk_account() creates a FK-safe mailbox with divergent ids
+-- (user_id ≠ mailbox_id) so a p_mailbox_id/p_user_id confusion is caught.
+BEGIN;
+SELECT plan(4);
+
+-- Seed a fresh account for this test; mk_account() creates the system tags too.
+CREATE TEMP TABLE _jcr AS SELECT mk_account('jcr_user') AS mb_id;
+
+-- ── Test 1: id-bearing notify_state_change bumps jmap_email_state ────────────
+-- Capture the pre-call state_seq so the assertion is independent of arg eval order.
+CREATE TEMP TABLE _jcr_before AS
+  SELECT jmap_email_state AS s FROM mailboxes WHERE id = (SELECT mb_id FROM _jcr);
+
+SELECT is(
+  notify_state_change((SELECT mb_id FROM _jcr), NULL, 700, 'updated'),
+  (SELECT s + 1 FROM _jcr_before),
+  'id-bearing notify_state_change returns new jmap_email_state (bump happened)');
+
+-- ── Test 2: the bump produced exactly one journal row at the new state_seq ───
+-- The primary runtime invariant: bump → journal row. No row = offline client
+-- stalls on cannotCalculateChanges forever for this state transition.
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal
+     WHERE mailbox_id = (SELECT mb_id FROM _jcr)
+       AND state_seq  = (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _jcr))
+       AND entity_id = 700),
+  1::bigint,
+  'bump produced exactly one precise journal row at the new state_seq (runtime coverage)');
+
+-- ── Test 3: journal row carries correct op ────────────────────────────────────
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+     WHERE mailbox_id  = (SELECT mb_id FROM _jcr)
+       AND entity_id  = 700
+       AND state_seq   = (SELECT jmap_email_state FROM mailboxes WHERE id = (SELECT mb_id FROM _jcr))),
+  'updated',
+  'journal row op matches the op threaded through notify_state_change');
+
+-- ── Test 4: null-caller (2-arg) bump still journals — resync sentinel ─────────
+-- The allow-listed escape path: a bump that cannot name a specific entity_id
+-- (batch/counter-only callers) MUST still leave a row so no bump escapes the
+-- journal entirely. Here we call notify_state_change with no entity_id → resync.
+-- ponytail: resync forces BZ011 cannotCalculateChanges on any spanning delta;
+-- the upgrade path is Task 4 (thread entity_id through every bulk caller).
+CREATE TEMP TABLE _jcr_resync_before AS
+  SELECT count(*) AS n FROM jmap_changes_journal
+    WHERE mailbox_id = (SELECT mb_id FROM _jcr) AND op = 'resync';
+
+SELECT notify_state_change((SELECT mb_id FROM _jcr), NULL);
+
+SELECT ok(
+  (SELECT count(*) FROM jmap_changes_journal
+     WHERE mailbox_id = (SELECT mb_id FROM _jcr) AND op = 'resync')
+  > (SELECT n FROM _jcr_resync_before),
+  'null-caller bump still journals a resync sentinel — never an un-journaled bump');
+
+SELECT finish();
+ROLLBACK;

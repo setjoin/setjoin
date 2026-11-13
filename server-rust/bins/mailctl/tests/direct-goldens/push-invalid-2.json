@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Usage of push test:\n  -user string\n    \trecipient email address\nError: flag: help requested\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

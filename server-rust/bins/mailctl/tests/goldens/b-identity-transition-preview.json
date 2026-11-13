@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/preview",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\",\"userId\":\"7\"}"
+    }
+  ],
+  "stdout": "Transition preview 00000000-0000-4000-8000-000000000001\nDigest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nProtected: false\nRecovery ready: true\nSource generation: 3\nLifecycle generation: 1\n",
+  "stderr": "Error: transition preview contains executable changes\n",
+  "exit": 2
+}

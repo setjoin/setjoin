@@ -1,0 +1,74 @@
+BEGIN;
+SELECT plan(19);
+SELECT set_config('app.capture_notify','on',true);
+
+INSERT INTO domains(id,name,is_local) OVERRIDING SYSTEM VALUE VALUES(98201,'exchange-assessment.test',true);
+INSERT INTO users(id,username,domain_id,email,display_name,enabled) VALUES
+  (98201,'assessment-admin',98201,'assessment-admin@exchange-assessment.test','Assessment Admin',true),
+  (98202,'unprivileged',98201,'unprivileged@exchange-assessment.test','Unprivileged',true);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(98201,1,98201);
+
+SELECT throws_ok(
+  $$SELECT exchange_assessment_project_create(98201,98201,'Replacement',NULL)$$,
+  'BZ319', NULL, 'feature OFF blocks project creation'
+);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.exchange_replacement_assessment';
+
+SELECT throws_ok(
+  $$SELECT exchange_assessment_project_create(98202,98201,'Hidden',NULL)$$,
+  'BZ317', NULL, 'missing run permission is anti-oracle not-found'
+);
+SELECT lives_ok(
+  $$SELECT exchange_assessment_project_create(98201,98201,'Replacement',NULL)$$,
+  'authorized administrator creates project'
+);
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_projects),1,'one project persisted');
+SELECT is((SELECT count(*)::integer FROM admin_audit_log WHERE action='exchange.assessment.project.create'),1,'project creation audited');
+SELECT is((SELECT count(*)::integer FROM _test_notify_log WHERE channel='exchange_assessment' AND payload::jsonb->>'event'='project.created'),1,'project creation notified');
+
+SELECT throws_ok(
+  $$SELECT exchange_assessment_run_create(98201,(SELECT id FROM exchange_assessment_projects WHERE name='Replacement'),'EX2019-ONPREM-INITIAL',repeat('a',64),1,repeat('b',64),1,'1')$$,
+  'BZ316', NULL, 'registry digest mismatch fails closed'
+);
+SELECT lives_ok(
+  $$SELECT exchange_assessment_run_create(
+    98201,(SELECT id FROM exchange_assessment_projects WHERE name='Replacement'),'EX2019-ONPREM-INITIAL','26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963',1,
+    'cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09',1,'1')$$,
+  'run binds the installed registry digest'
+);
+SELECT is((SELECT generation FROM exchange_assessment_runs),1::bigint,'first run generation is one');
+
+SELECT lives_ok($$SELECT exchange_assessment_lease_claim((SELECT id FROM exchange_assessment_runs),'worker-a',30)$$,'worker claims a bounded lease');
+SELECT is((SELECT fencing_token FROM exchange_assessment_leases),1::bigint,'first fencing token is one');
+SELECT throws_ok(
+  $$SELECT exchange_assessment_lease_claim((SELECT id FROM exchange_assessment_runs),'worker-b',30)$$,
+  'BZ318', NULL, 'different worker cannot steal live lease'
+);
+SELECT lives_ok(
+  $$SELECT exchange_assessment_probe_put((SELECT id FROM exchange_assessment_runs),1,'ROOT-MAILBOXES','PROBE-CALENDAR-VISIBILITY',
+    'EX-CALENDAR-VISIBILITY','mailbox:1','collected',NULL,'{"count":1}',statement_timestamp())$$,
+  'current fence appends terminal probe result'
+);
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_probe_results),1,'one probe result persisted');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_probe_put((SELECT id FROM exchange_assessment_runs),1,'ROOT-MAILBOXES','PROBE-CALENDAR-VISIBILITY',
+    'EX-CALENDAR-VISIBILITY','mailbox:1','collected',NULL,'{"count":1}',statement_timestamp())$$,
+  'same-key same-payload probe replay is idempotent'
+);
+SELECT throws_ok(
+  $$SELECT exchange_assessment_probe_put((SELECT id FROM exchange_assessment_runs),1,'ROOT-MAILBOXES','PROBE-CALENDAR-VISIBILITY',
+    'EX-CALENDAR-VISIBILITY','mailbox:1','collected',NULL,'{"count":2}',statement_timestamp())$$,
+  'BZ319', NULL, 'same-key different-payload probe replay conflicts'
+);
+SELECT lives_ok($$SELECT exchange_assessment_run_transition(98201,(SELECT id FROM exchange_assessment_runs),1,'preflight',NULL)$$,'created run enters preflight');
+SELECT throws_ok(
+  $$SELECT exchange_assessment_run_transition(98201,(SELECT id FROM exchange_assessment_runs),1,'uploading',NULL)$$,
+  'BZ318', NULL, 'stale generation is rejected'
+);
+SELECT throws_ok(
+  $$SELECT exchange_assessment_run_transition(98201,(SELECT id FROM exchange_assessment_runs),2,'ready',NULL)$$,
+  'BZ319', NULL, 'illegal lifecycle jump is rejected'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

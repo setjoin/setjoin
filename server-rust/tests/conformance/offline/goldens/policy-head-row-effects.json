@@ -1,0 +1,73 @@
+{
+  "case": "head-row-effects",
+  "effects": [
+    {
+      "after": {
+        "devices": [],
+        "policies": [
+          {
+            "attachment_prefetch_max": "never",
+            "automatic_network_max": "unmetered",
+            "background_sync_allowed": true,
+            "connectivity_sync_mode": "off",
+            "created_at": "<timestamp>",
+            "enabled": true,
+            "id": 985001,
+            "max_offline_days": 30,
+            "name": "Global <offline> & policy",
+            "opportunistic_requires_charging": true,
+            "priority": 5,
+            "require_approval": true,
+            "scope_id": null,
+            "scope_type": "global",
+            "updated_at": "<timestamp>",
+            "wipe_on_logout": "admin_default"
+          }
+        ],
+        "toggle": [
+          {
+            "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+            "enabled": false,
+            "key": "feature.offline_mail",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "before": {
+        "devices": [],
+        "policies": [
+          {
+            "attachment_prefetch_max": "never",
+            "automatic_network_max": "unmetered",
+            "background_sync_allowed": true,
+            "connectivity_sync_mode": "off",
+            "created_at": "<timestamp>",
+            "enabled": true,
+            "id": 985001,
+            "max_offline_days": 30,
+            "name": "Global <offline> & policy",
+            "opportunistic_requires_charging": true,
+            "priority": 5,
+            "require_approval": true,
+            "scope_id": null,
+            "scope_type": "global",
+            "updated_at": "<timestamp>",
+            "wipe_on_logout": "admin_default"
+          }
+        ],
+        "toggle": [
+          {
+            "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+            "enabled": false,
+            "key": "feature.offline_mail",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "table": "offline_policies+feature_toggles+user_devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/offline/policies/{id}"
+}

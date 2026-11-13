@@ -1,0 +1,135 @@
+-- pgTAP: V019__dengbao_sod.pg — sod_class column, 5 new catalog rows, 3 等保 presets, toggle
+BEGIN;
+SELECT plan(21);
+
+-- ── 1. sod_class column exists and has the right type ─────────────────────────
+SELECT has_column(
+  'public', 'admin_role_groups', 'sod_class',
+  'admin_role_groups.sod_class column exists');
+
+SELECT col_type_is(
+  'public', 'admin_role_groups', 'sod_class', 'text',
+  'admin_role_groups.sod_class is type text');
+
+SELECT col_is_null(
+  'public', 'admin_role_groups', 'sod_class',
+  'admin_role_groups.sod_class is nullable');
+
+-- CHECK constraint: valid values accepted, invalid rejected
+SELECT lives_ok(
+  $$UPDATE admin_role_groups SET sod_class = 'system'  WHERE name = '系统管理员'$$,
+  'sod_class=system is a valid value');
+SELECT lives_ok(
+  $$UPDATE admin_role_groups SET sod_class = 'security' WHERE name = '安全管理员'$$,
+  'sod_class=security is a valid value');
+SELECT lives_ok(
+  $$UPDATE admin_role_groups SET sod_class = 'audit'   WHERE name = '审计管理员'$$,
+  'sod_class=audit is a valid value');
+SELECT throws_ok(
+  $$UPDATE admin_role_groups SET sod_class = 'bogus' WHERE name = 'Super Admin'$$,
+  '23514',
+  NULL,
+  'sod_class=bogus raises check-constraint violation');
+
+-- ── 2. Five new catalog rows exist ───────────────────────────────────────────
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_permissions
+    WHERE permission_key IN ('users.create','users.suspend','mail.pipeline','mail.security','audit.export')$$,
+  $$SELECT 5$$,
+  '5 new permission catalog rows present after V019');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'users.suspend'),
+  true, 'users.suspend is marked sensitive');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'mail.security'),
+  true, 'mail.security is marked sensitive');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'audit.export'),
+  true, 'audit.export is marked sensitive');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'users.create'),
+  false, 'users.create is NOT sensitive');
+
+SELECT is(
+  (SELECT is_sensitive FROM admin_permissions WHERE permission_key = 'mail.pipeline'),
+  false, 'mail.pipeline is NOT sensitive');
+
+-- ── 3. Three 等保 preset role groups with correct sod_class ─────────────────
+SELECT results_eq(
+  $$SELECT sod_class FROM admin_role_groups WHERE name = '系统管理员'$$,
+  $$SELECT 'system'::text$$,
+  '系统管理员 has sod_class=system');
+
+SELECT results_eq(
+  $$SELECT sod_class FROM admin_role_groups WHERE name = '安全管理员'$$,
+  $$SELECT 'security'::text$$,
+  '安全管理员 has sod_class=security');
+
+SELECT results_eq(
+  $$SELECT sod_class FROM admin_role_groups WHERE name = '审计管理员'$$,
+  $$SELECT 'audit'::text$$,
+  '审计管理员 has sod_class=audit');
+
+-- ── 4. dengbao.sod_mode toggle row exists and is disabled ─────────────────────
+SELECT results_eq(
+  $$SELECT count(*)::int FROM feature_toggles WHERE key = 'dengbao.sod_mode'$$,
+  $$SELECT 1$$,
+  'dengbao.sod_mode toggle row exists');
+
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'dengbao.sod_mode'),
+  false,
+  'dengbao.sod_mode is enabled=false');
+
+-- ── 5. Preset self-validation: no preset's permissions contain out-of-class perms ──
+-- system allow-list (spec §5.2)
+SELECT results_eq(
+  $$SELECT count(*)::int
+    FROM admin_role_groups g,
+         unnest(g.permissions) AS p
+    WHERE g.name = '系统管理员'
+      AND p NOT IN (
+        'users.read','users.create','users.delete',
+        'domains.read','domains.write',
+        'queue.read','queue.write',
+        'backup.read','backup.write',
+        'system.config','system.upgrade',
+        'mail.pipeline','reports.read'
+      )$$,
+  $$SELECT 0$$,
+  '系统管理员 permissions are all within the system class allow-list');
+
+-- security allow-list (spec §5.2)
+SELECT results_eq(
+  $$SELECT count(*)::int
+    FROM admin_role_groups g,
+         unnest(g.permissions) AS p
+    WHERE g.name = '安全管理员'
+      AND p NOT IN (
+        'users.read','users.suspend','users.password_reset',
+        'roles.manage','security.write',
+        'mail.security','identity.write',
+        'mam.write','compliance.write','compliance.read'
+      )$$,
+  $$SELECT 0$$,
+  '安全管理员 permissions are all within the security class allow-list');
+
+-- audit allow-list (spec §5.2)
+SELECT results_eq(
+  $$SELECT count(*)::int
+    FROM admin_role_groups g,
+         unnest(g.permissions) AS p
+    WHERE g.name = '审计管理员'
+      AND p NOT IN (
+        'audit.read','audit.export',
+        'mam.read','compliance.read','users.read'
+      )$$,
+  $$SELECT 0$$,
+  '审计管理员 permissions are all within the audit class allow-list');
+
+SELECT * FROM finish();
+ROLLBACK;

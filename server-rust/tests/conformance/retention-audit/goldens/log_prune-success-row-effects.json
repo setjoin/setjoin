@@ -1,0 +1,156 @@
+{
+  "format": 1,
+  "route": "POST /admin/retention/prune",
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "case": "success-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": "Number of days to retain auth_event_log rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_auth_event_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 4
+          },
+          {
+            "description": "Number of days to retain delivery_attempts rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_delivery_attempts_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 30
+          },
+          {
+            "description": "Number of days to retain mailbox_audit_log rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_mailbox_audit_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 3
+          },
+          {
+            "description": "Number of days to retain message_trace rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_message_trace_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 2
+          },
+          {
+            "description": "Number of days to retain webhook_deliveries rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_webhook_delivery_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 5
+          }
+        ],
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          }
+        ],
+        "traces": []
+      },
+      "before": {
+        "config": [
+          {
+            "description": "Number of days to retain auth_event_log rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_auth_event_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 4
+          },
+          {
+            "description": "Number of days to retain delivery_attempts rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_delivery_attempts_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 30
+          },
+          {
+            "description": "Number of days to retain mailbox_audit_log rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_mailbox_audit_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 3
+          },
+          {
+            "description": "Number of days to retain message_trace rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_message_trace_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 2
+          },
+          {
+            "description": "Number of days to retain webhook_deliveries rows. NULL or 0 = keep forever.",
+            "encrypted": false,
+            "key": "log_retention_webhook_delivery_days",
+            "updated_at": "<timestamp>",
+            "updated_by": null,
+            "value": 5
+          }
+        ],
+        "policies": [
+          {
+            "action": "hold",
+            "created_at": "<timestamp>",
+            "description": "Forever",
+            "domain_id": null,
+            "id": 960001,
+            "is_default": true,
+            "name": "Global <policy>",
+            "retain_days": null
+          },
+          {
+            "action": "delete",
+            "created_at": "<timestamp>",
+            "description": "",
+            "domain_id": "<domain>",
+            "id": 960002,
+            "is_default": false,
+            "name": "Domain policy",
+            "retain_days": 30
+          }
+        ],
+        "traces": [
+          {
+            "details": null,
+            "event": "received",
+            "from_addr": "sender@test",
+            "id": 940001,
+            "message_id": "compl2-prune",
+            "occurred_at": "<timestamp>",
+            "rcpt_addr": "recipient@test",
+            "remote_host": null
+          }
+        ]
+      },
+      "table": "retention_policies"
+    }
+  ]
+}

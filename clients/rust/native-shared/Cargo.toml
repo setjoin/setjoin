@@ -1,0 +1,23 @@
+[package]
+name = "native-shared"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# Host-runnable test lane for the SHARED native shim implementation
+# (D-CLIENTS-RUST-OHOS-NATIVE-002). This crate does NOT produce a loadable
+# native module and is NOT a dependency of either napi twin — see src/lib.rs.
+
+[dependencies]
+# The host-linkable N-API runtime: identical to desktop-native's choice, so
+# the shared source's `#[napi]`/`napi::` references resolve exactly as they do
+# in the Electron twin and the lib unit tests link + execute on the macOS/Linux
+# build host. (ohos-native cannot host-link: its registration ctor needs real
+# ArkTS/Node-API runtime symbols, hence its `lib.test = false`.)
+napi        = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
+capability-session = { path = "../capability-session" }
+guard-core  = { path = "../guard-core" }
+offline-core = { path = "../offline-core" }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+zeroize     = "1"

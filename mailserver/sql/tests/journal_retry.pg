@@ -1,0 +1,28 @@
+-- pgTAP: U7 repend_dead_journal_row — idempotent re-pend of a dead journal row
+BEGIN;
+SELECT plan(4);
+
+DO $$
+DECLARE v_dom BIGINT; v_usr BIGINT; v_mb BIGINT;
+BEGIN
+  INSERT INTO domains (name, is_local) VALUES ('jretry.example', TRUE) RETURNING id INTO v_dom;
+  INSERT INTO users (username, email, display_name, password_hash, domain_id, enabled)
+    VALUES ('jr', 'jr@jretry.example', 'JR', '$2a$10$abcdefghijklmnopqrstuv', v_dom, TRUE) RETURNING id INTO v_usr;
+  INSERT INTO mailboxes (user_id, domain_id, email, display_name, is_primary)
+    VALUES (v_usr, v_dom, 'jr@jretry.example', 'JR', TRUE) RETURNING id INTO v_mb;
+  INSERT INTO journal_queue (id, message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status, attempt_count, last_error)
+    VALUES (900001, '<jr-dead@test>', 'a@x', 'b@y', 'ref/1', v_mb, 'dead', 5, 'boom');
+  INSERT INTO journal_queue (id, message_id, envelope_from, envelope_to, raw_ref, journal_mailbox_id, status)
+    VALUES (900002, '<jr-pending@test>', 'a@x', 'b@y', 'ref/2', v_mb, 'pending');
+END $$;
+
+-- Re-pend the dead row: affects 1, transitions to deferred with next_attempt_at set.
+SELECT is(repend_dead_journal_row(900001), 1, 'repend dead row affects 1');
+SELECT is((SELECT status FROM journal_queue WHERE id=900001), 'deferred', 'dead -> deferred');
+SELECT ok((SELECT next_attempt_at FROM journal_queue WHERE id=900001) IS NOT NULL, 'next_attempt_at set');
+
+-- Idempotent: re-pending a non-dead (pending) row is a no-op (0 rows).
+SELECT is(repend_dead_journal_row(900002), 0, 'repend non-dead row is a no-op');
+
+SELECT * FROM finish();
+ROLLBACK;

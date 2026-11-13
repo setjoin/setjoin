@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/conditional-access/diff",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"policies\":[],\"schemaVersion\":1}"
+    }
+  ],
+  "stdout": "{\n  \"drift\": true,\n  \"changes\": [\n    \"example\"\n  ]\n}\n",
+  "stderr": "Error: changes present\n",
+  "exit": 2
+}

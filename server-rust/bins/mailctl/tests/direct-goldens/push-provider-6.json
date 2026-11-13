@@ -1,0 +1,10 @@
+{
+  "stdout": "  [..] webpush  absent\n  [..] apns     absent\n  [!!] fcm      invalid \u2014 fcm service account: google: read JWT from JSON credentials: 'type' field is \"wrong\" (expected \"service_account\")\n  [..] hms      absent\n",
+  "stderr": "Error: one or more push providers have INVALID config\n",
+  "exit": 1,
+  "database_effects": {
+    "host_unchanged": true,
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "case": "health-alerts",
+  "format": 1,
+  "go_source": "1d7ea54c0",
+  "observation": {
+    "deliveries": [
+      [
+        "/alert",
+        "system.health_alert",
+        "{\"id\": \"<id>\", \"data\": {\"check\": \"wh457_disk\", \"status\": \"failed\"}, \"time\": \"<time>\", \"type\": \"system.health_alert\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/alert",
+        "system.health_alert",
+        "{\"id\": \"<id>\", \"data\": {\"check\": \"wh457_queue\", \"status\": \"failed\"}, \"time\": \"<time>\", \"type\": \"system.health_alert\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/alert",
+        "system.health_alert",
+        "{\"id\": \"<id>\", \"data\": {\"check\": \"wh457_queue\", \"status\": \"failed\"}, \"time\": \"<time>\", \"type\": \"system.health_alert\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/alert",
+        "system.health_alert",
+        "{\"id\": \"<id>\", \"data\": {\"check\": \"wh457_zeta\", \"status\": \"failed\"}, \"time\": \"<time>\", \"type\": \"system.health_alert\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ],
+      [
+        "/alert",
+        "system.health_alert",
+        "{\"id\": \"<id>\", \"data\": {\"check\": \"wh457_zeta\", \"status\": \"failed\"}, \"time\": \"<time>\", \"type\": \"system.health_alert\", \"source\": \"mailserver/gateway\", \"specversion\": \"1.0\", \"datacontenttype\": \"application/json\"}",
+        "success",
+        1,
+        200,
+        "",
+        "<id>"
+      ]
+    ],
+    "requests": [
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"check\":\"wh457_disk\",\"status\":\"failed\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/alert",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"check\":\"wh457_queue\",\"status\":\"failed\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/alert",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"check\":\"wh457_queue\",\"status\":\"failed\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/alert",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"check\":\"wh457_zeta\",\"status\":\"failed\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/alert",
+        "signature": "<valid>"
+      },
+      {
+        "body": "{\"specversion\":\"1.0\",\"id\":\"<id>\",\"source\":\"mailserver/gateway\",\"type\":\"system.health_alert\",\"time\":\"<time>\",\"datacontenttype\":\"application/json\",\"data\":{\"check\":\"wh457_zeta\",\"status\":\"failed\"}}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/alert",
+        "signature": "<valid>"
+      }
+    ]
+  }
+}

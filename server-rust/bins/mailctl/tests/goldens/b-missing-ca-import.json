@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: -f <file.json> (or pass file as first positional arg)\n",
+  "exit": 1
+}

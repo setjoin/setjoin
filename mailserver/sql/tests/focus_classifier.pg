@@ -1,0 +1,109 @@
+-- pgTAP: focus_classifier.pg
+-- Focused/Other inbox split — deliver() classify_focus hook + set_message_focus.
+--
+-- 4 assertions:
+--   1. A List-Id (bulk) message → carries the 'Other' tag (rule 4).
+--   2. A plain internal-sender message → NO 'Other' tag (rule 3, Focused).
+--   3. A focus_sender_overrides row focused=TRUE beats rule 4: a List-Id message
+--      from that sender → NO 'Other' tag (rule 1 override wins).
+--   4. set_message_focus(msg, ts, FALSE, mb) → 'Other' tag present AND a
+--      focus_sender_overrides row focused=FALSE recorded for the message's sender.
+BEGIN;
+SELECT plan(4);
+
+-- Seed a LOCAL domain + divergent-id user/mailbox (ADR-003 fixture invariant).
+INSERT INTO domains (id, name, is_local, created_at) VALUES (7801, 'focus.example', TRUE, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, display_name, email, password_hash, domain_id, created_at)
+  VALUES (107801, 'focususer', 'Focus User', 'focus@focus.example', 'x', 7801, now())
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary, created_at, type)
+  VALUES (7801, 107801, 7801, 'focus@focus.example', 'Focus User', TRUE, now(), 'personal')
+  ON CONFLICT (id) DO NOTHING;
+
+-- Seeds Inbox, Trash, Spam, ... AND (V078) the 'Other' tag.
+SELECT create_system_tags(7801);
+
+-- ── Test 1: List-Id message from an external sender → Other (rule 4) ───────────
+SELECT deliver('reflist', '<msg-list>', 'news@bulk.example.com', 'Bulk News',
+  'focus@focus.example', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Bulk',
+  NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_external => TRUE, p_list_id => 'news.bulk.example.com');
+
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM message_tags mt
+    JOIN tags t ON t.id = mt.tag_id
+    JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at
+    WHERE m.message_id = '<msg-list>' AND m.mailbox_id = 7801
+      AND t.mailbox_id = 7801 AND t.name = 'Other'
+  ),
+  'List-Id message carries the Other tag (rule 4)'
+);
+
+-- ── Test 2: plain internal-sender message → Focused, NO Other tag (rule 3) ─────
+SELECT deliver('refint', '<msg-int>', 'colleague@focus.example', 'Colleague',
+  'focus@focus.example', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Internal',
+  NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_external => FALSE);
+
+SELECT ok(
+  NOT EXISTS (
+    SELECT 1 FROM message_tags mt
+    JOIN tags t ON t.id = mt.tag_id
+    JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at
+    WHERE m.message_id = '<msg-int>' AND m.mailbox_id = 7801
+      AND t.mailbox_id = 7801 AND t.name = 'Other'
+  ),
+  'internal-sender message has NO Other tag (rule 3, Focused)'
+);
+
+-- ── Test 3: focused=TRUE override beats the List-Id rule (rule 1 wins) ─────────
+INSERT INTO focus_sender_overrides (user_id, sender, focused)
+  VALUES (107801, 'vip@bulk.example.com', TRUE);
+
+SELECT deliver('refov', '<msg-ov>', 'vip@bulk.example.com', 'VIP',
+  'focus@focus.example', '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'VIP Bulk',
+  NULL, NULL, 'body', NULL, 100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL,
+  p_is_external => TRUE, p_list_id => 'vip.bulk.example.com');
+
+SELECT ok(
+  NOT EXISTS (
+    SELECT 1 FROM message_tags mt
+    JOIN tags t ON t.id = mt.tag_id
+    JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at
+    WHERE m.message_id = '<msg-ov>' AND m.mailbox_id = 7801
+      AND t.mailbox_id = 7801 AND t.name = 'Other'
+  ),
+  'focused=TRUE per-sender override beats rule 4 (List-Id message stays Focused)'
+);
+
+-- ── Test 4: set_message_focus(..., FALSE, ...) → Other tag + override row ──────
+-- Move the internal (currently Focused) message from test 2 to Other.
+DO $$
+DECLARE
+  v_id  BIGINT;
+  v_at  TIMESTAMPTZ;
+BEGIN
+  SELECT id, received_at INTO v_id, v_at FROM messages
+  WHERE message_id = '<msg-int>' AND mailbox_id = 7801;
+  PERFORM set_message_focus(v_id, v_at, FALSE, 7801);
+END $$;
+
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM message_tags mt
+    JOIN tags t ON t.id = mt.tag_id
+    JOIN messages m ON m.id = mt.message_id AND m.received_at = mt.received_at
+    WHERE m.message_id = '<msg-int>' AND m.mailbox_id = 7801
+      AND t.mailbox_id = 7801 AND t.name = 'Other'
+  )
+  AND EXISTS (
+    SELECT 1 FROM focus_sender_overrides
+    WHERE user_id = 107801 AND sender = 'colleague@focus.example' AND focused = FALSE
+  ),
+  'set_message_focus(FALSE) adds the Other tag AND records a focused=FALSE override'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

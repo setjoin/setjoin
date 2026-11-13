@@ -1,0 +1,158 @@
+{
+  "case": "mailbox-lifecycle-purges",
+  "format": 1,
+  "go_source": "6ec1f2e6ca3bb17c45ff90bca5936eb4426d9c0e",
+  "observation": {
+    "audit": [
+      [
+        "mailbox_purged",
+        "mailbox"
+      ],
+      [
+        "mailbox_purged",
+        "mailbox"
+      ]
+    ],
+    "effects": [
+      [
+        "lifecycle_webhook",
+        "pending",
+        0
+      ],
+      [
+        "lifecycle_webhook",
+        "pending",
+        0
+      ]
+    ],
+    "operations": [
+      [
+        "purge_execute",
+        {
+          "blobCount": 0,
+          "messageCount": 0,
+          "purgeRequestId": "29520000-0000-4000-8000-000000000001",
+          "replayed": false,
+          "state": "completed"
+        }
+      ],
+      [
+        "purge_execute",
+        {
+          "blobCount": 0,
+          "messageCount": 0,
+          "purgeRequestId": "29520000-0000-4000-8000-000000000007",
+          "replayed": false,
+          "state": "completed"
+        }
+      ]
+    ],
+    "purges": [
+      [
+        "29520000-0000-4000-8000-000000000001",
+        "completed",
+        2,
+        false,
+        null,
+        []
+      ],
+      [
+        "29520000-0000-4000-8000-000000000002",
+        "blocked",
+        1,
+        false,
+        null,
+        [
+          {
+            "count": 1,
+            "domain": "core",
+            "kind": "legal_hold",
+            "until": null
+          }
+        ]
+      ],
+      [
+        "29520000-0000-4000-8000-000000000003",
+        "failed",
+        1,
+        false,
+        true,
+        [
+          {
+            "code": "transient_failure",
+            "detail": "ERROR: purge lifecycle generation is stale (SQLSTATE BZ304)",
+            "domain": "worker"
+          }
+        ]
+      ],
+      [
+        "29520000-0000-4000-8000-000000000004",
+        "approved",
+        0,
+        false,
+        null,
+        []
+      ],
+      [
+        "29520000-0000-4000-8000-000000000005",
+        "claimed",
+        1,
+        true,
+        true,
+        []
+      ],
+      [
+        "29520000-0000-4000-8000-000000000006",
+        "approved",
+        20,
+        false,
+        null,
+        []
+      ],
+      [
+        "29520000-0000-4000-8000-000000000007",
+        "completed",
+        4,
+        false,
+        null,
+        []
+      ]
+    ],
+    "remaining": [
+      [
+        "purge-2-<domain>@mbox4.test",
+        true
+      ],
+      [
+        "purge-3-<domain>@mbox4.test",
+        true
+      ],
+      [
+        "purge-4-<domain>@mbox4.test",
+        true
+      ],
+      [
+        "purge-5-<domain>@mbox4.test",
+        true
+      ],
+      [
+        "purge-6-<domain>@mbox4.test",
+        true
+      ]
+    ],
+    "tombstones": [
+      [
+        "29520000-0000-4000-8000-000000000001",
+        0,
+        0,
+        true
+      ],
+      [
+        "29520000-0000-4000-8000-000000000007",
+        0,
+        0,
+        true
+      ]
+    ]
+  }
+}

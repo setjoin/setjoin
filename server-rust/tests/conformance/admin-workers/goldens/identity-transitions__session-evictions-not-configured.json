@@ -1,0 +1,43 @@
+{
+  "case": "session-evictions-not-configured",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [],
+      "rows": {
+        "effects": [],
+        "events": [],
+        "intents": [
+          "u:<act>:60:false:true:-1:LiveKit is not configured",
+          "u:<t1>:1:false:false:5:LiveKit is not configured",
+          "u:<t2>:3:false:false:15:LiveKit is not configured",
+          "u:<t3>:20:false:false:60:LiveKit is not configured"
+        ],
+        "steps": [],
+        "targets": [],
+        "transitions": []
+      },
+      "sfu": []
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "effects": [],
+        "events": [],
+        "intents": [
+          "u:<act>:59:false:false:-1:",
+          "u:<t1>:0:false:false:-1:",
+          "u:<t2>:2:false:false:-1:",
+          "u:<t3>:19:false:false:-1:"
+        ],
+        "steps": [],
+        "targets": [],
+        "transitions": []
+      },
+      "sfu": []
+    },
+    "notifies": []
+  },
+  "worker": "identity-transitions"
+}

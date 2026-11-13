@@ -1,0 +1,142 @@
+-- pgTAP: task_lists.pg — notify_task_list_state seam + task_lists.sql (list +
+-- membership) reducers. Plan: 2026-07-08-shared-team-task-lists.md.
+BEGIN;
+SELECT plan(31);
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- notify_task_list_state — state bump + member fan-out push
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT mk_account('tlA') AS mba \gset
+SELECT mk_account('tlB') AS mbb \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+
+INSERT INTO task_lists (id, owner_user_id, name) VALUES (900001, :ua, 'Seam test list');
+INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES
+  (900001, :ua, 'owner', :ua),
+  (900001, :ub, 'member', :ua);
+
+SET LOCAL app.capture_notify = 'on';
+SELECT is(notify_task_list_state(900001, 'list_updated', NULL), 1::BIGINT,
+  'notify_task_list_state: state_seq 0→1, returns 1');
+SELECT is(
+  (SELECT state_seq FROM task_lists WHERE id = 900001), 1::BIGINT,
+  'task_lists.state_seq persisted the bump');
+SELECT is(notify_count('task:' || :mba), 1, 'exactly one push on the owner''s task channel');
+SELECT is(notify_count('task:' || :mbb), 1, 'exactly one push on the member''s task channel');
+SELECT is(
+  last_notify_event('task:' || :mba), 'tasklist_changed',
+  'owner push event is tasklist_changed');
+SELECT is(
+  ((last_notify_payload('task:' || :mba))::jsonb)->>'list_state', '1',
+  'push payload carries the new list_state verbatim');
+
+SELECT throws_ok(
+  $$ SELECT notify_task_list_state(NULL, 'list_updated', NULL) $$,
+  'BZ034', NULL, 'NULL list_id raises BZ034 (loud, no silent no-op)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- task_list_create / task_list_update / task_list_delete
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT mk_account('tlcO') AS mbo \gset
+SELECT mk_account('tlcM') AS mbm \gset
+SELECT mk_account('tlcS') AS mbs \gset
+SELECT user_id AS uo FROM mailboxes WHERE id = :mbo \gset
+SELECT user_id AS um FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS us FROM mailboxes WHERE id = :mbs \gset
+
+SELECT task_list_create(:uo, 'Launch plan', '#4477ff') AS create_json \gset
+SELECT is((:'create_json'::jsonb)->>'name', 'Launch plan', 'create returns the name');
+SELECT ok((:'create_json'::jsonb)->>'id' IS NOT NULL, 'create returns an id');
+SELECT list_id AS lid FROM (SELECT ((:'create_json'::jsonb)->>'id')::BIGINT AS list_id) s \gset
+SELECT is(
+  (SELECT role FROM task_list_members WHERE list_id = :lid AND user_id = :uo),
+  'owner', 'the owner is auto-seated as an owner member row');
+SELECT is((:'create_json'::jsonb)->>'state', '0', 'a freshly-created list starts at state 0');
+
+SELECT throws_ok(
+  format($$ SELECT task_list_create(%s, '', NULL) $$, :uo),
+  'BZ131', NULL, 'empty name → BZ131 (invalidArguments)');
+
+-- update by owner
+SET LOCAL app.capture_notify = 'on';
+SELECT task_list_update(:uo, :lid, jsonb_build_object('name', 'Launch plan v2')) AS upd_json \gset
+SELECT is((:'upd_json'::jsonb)->>'name', 'Launch plan v2', 'owner update renames the list');
+SELECT is(notify_count('task:' || :mbo), 1, 'update fired exactly one seam push on the owner channel');
+
+-- add member
+SELECT task_list_add_member(:uo, :lid, (SELECT email FROM mailboxes WHERE id = :mbm)) AS add_json \gset
+SELECT is(
+  jsonb_array_length(:'add_json'::jsonb), 2,
+  'add_member: roster now has owner + the new member');
+SELECT is(
+  (SELECT role FROM task_list_members WHERE list_id = :lid AND user_id = :um),
+  'member', 'the added user lands with role member');
+
+-- duplicate add is idempotent
+SELECT lives_ok(
+  format($$ SELECT task_list_add_member(%s, %s, (SELECT email FROM mailboxes WHERE id = %s)) $$, :uo, :lid, :mbm),
+  'duplicate add_member is idempotent (no error)');
+SELECT is(
+  (SELECT count(*)::INT FROM task_list_members WHERE list_id = :lid AND user_id = :um),
+  1, 'duplicate add did not insert a second roster row');
+
+-- unresolvable email
+SELECT throws_ok(
+  format($$ SELECT task_list_add_member(%s, %s, 'nobody@nowhere.invalid') $$, :uo, :lid),
+  'BZ131', NULL, 'unresolvable member email → BZ131');
+
+-- member (not owner) may not update
+SELECT throws_ok(
+  format($$ SELECT task_list_update(%s, %s, jsonb_build_object('name','hijack')) $$, :um, :lid),
+  'BZ130', NULL, 'member update attempt → BZ130 (not owner, no oracle)');
+-- stranger gets the SAME code (no membership oracle)
+SELECT throws_ok(
+  format($$ SELECT task_list_update(%s, %s, jsonb_build_object('name','hijack')) $$, :us, :lid),
+  'BZ130', NULL, 'stranger update attempt → BZ130 (identical code to the member-authz failure)');
+
+-- member may not remove another member; may remove self (leave)
+SELECT task_list_add_member(:uo, :lid, (SELECT email FROM mailboxes WHERE id = :mbs)) AS add2_json \gset
+SELECT throws_ok(
+  format($$ SELECT task_list_remove_member(%s, %s, %s) $$, :um, :lid, :us),
+  'BZ130', NULL, 'member removing ANOTHER member → BZ130');
+SELECT lives_ok(
+  format($$ SELECT task_list_remove_member(%s, %s, %s) $$, :us, :lid, :us),
+  'member self-leave succeeds');
+SELECT is(
+  (SELECT count(*)::INT FROM task_list_members WHERE list_id = :lid AND user_id = :us),
+  0, 'the leaver''s roster row is gone');
+
+-- owner row cannot be removed
+SELECT throws_ok(
+  format($$ SELECT task_list_remove_member(%s, %s, %s) $$, :uo, :lid, :uo),
+  'BZ131', NULL, 'removing the owner row → BZ131 (invalidArguments)');
+
+-- task_list_get: owner / member / stranger views
+SELECT task_list_get(:uo) AS get_owner \gset
+SELECT ok(
+  (:'get_owner'::jsonb) @> jsonb_build_array(jsonb_build_object('id', :lid::TEXT, 'role', 'owner')),
+  'task_list_get(owner) shows role owner for the list') ;
+SELECT task_list_get(:um) AS get_member \gset
+SELECT ok(
+  (:'get_member'::jsonb) @> jsonb_build_array(jsonb_build_object('id', :lid::TEXT, 'role', 'member')),
+  'task_list_get(member) shows role member for the list');
+SELECT is(task_list_get(:us), '[]'::jsonb, 'task_list_get(stranger) shows nothing (no membership oracle)');
+
+-- delete: seam pushes BEFORE the row goes, tasks.list_id re-personalizes
+SELECT task_list_create(:uo, 'To be deleted', NULL) AS del_json \gset
+SELECT list_id AS dlid FROM (SELECT ((:'del_json'::jsonb)->>'id')::BIGINT AS list_id) s \gset
+INSERT INTO tasks (mailbox_id, title, list_id, jmap_state)
+  VALUES (:mbo, 'A shared task', :dlid, 1) RETURNING id AS del_task_id \gset
+SELECT lives_ok(
+  format($$ SELECT task_list_delete(%s, %s) $$, :uo, :dlid),
+  'owner delete succeeds');
+SELECT is(
+  (SELECT list_id FROM tasks WHERE id = :del_task_id), NULL,
+  'the deleted list''s task is re-personalized (list_id NULL, row survives)');
+SELECT throws_ok(
+  format($$ SELECT task_list_update(%s, %s, jsonb_build_object('name','x')) $$, :uo, :dlid),
+  'BZ130', NULL, 'the deleted list is gone (BZ130, no oracle)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,100 @@
+-- pgTAP test for purge_deleted_messages (mailserver/sql/reducers/jmap_email.sql)
+-- cron function: hard-deletes messages where is_deleted AND deleted_at < now() - 1 month.
+-- Mirrors the litigation-hold fixture pattern used in retention.pg / content_purge.pg
+-- (messages.held = TRUE → trg_messages_hold_check raises BZ015 on DELETE).
+BEGIN;
+SELECT plan(4);
+
+-- (a) Past the 1-month retention window → purged, and its raw_ref is queued
+-- for blob GC via orphaned_message_blobs (no other message shares the ref).
+DO $$
+DECLARE
+  v_mb  BIGINT := mk_account('purge_past');
+  v_fld BIGINT;
+  v_msg BIGINT;
+BEGIN
+  SELECT id INTO v_fld FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, deleted_at,
+    thread_id, raw_ref, held
+  ) VALUES (
+    v_mb, v_fld, '<purge-past-msg@test>', 'a@b.com', '[]'::JSONB, 'past window',
+    'hello', now() - interval '40 days', 100, TRUE, TRUE, now() - interval '35 days',
+    '<purge-past-msg@test>', 'ref-purge-past', FALSE
+  )
+  RETURNING id INTO v_msg;
+
+  PERFORM set_config('app.past_msg', v_msg::TEXT, TRUE);
+END;
+$$;
+
+-- (b) Inside the retention window (deleted 5 days ago) → must NOT be purged.
+DO $$
+DECLARE
+  v_mb  BIGINT := mk_account('purge_within');
+  v_fld BIGINT;
+  v_msg BIGINT;
+BEGIN
+  SELECT id INTO v_fld FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, deleted_at,
+    thread_id, raw_ref, held
+  ) VALUES (
+    v_mb, v_fld, '<purge-within-msg@test>', 'a@b.com', '[]'::JSONB, 'within window',
+    'hello', now() - interval '10 days', 100, TRUE, TRUE, now() - interval '5 days',
+    '<purge-within-msg@test>', 'ref-purge-within', FALSE
+  )
+  RETURNING id INTO v_msg;
+
+  PERFORM set_config('app.within_msg', v_msg::TEXT, TRUE);
+END;
+$$;
+
+-- (c) Past the window AND under litigation hold (held = TRUE) → the DELETE
+-- trigger raises BZ015; purge_deleted_messages' per-row exception handler
+-- must skip it rather than error out the whole cron run.
+DO $$
+DECLARE
+  v_mb  BIGINT := mk_account('purge_hold');
+  v_fld BIGINT;
+  v_msg BIGINT;
+BEGIN
+  SELECT id INTO v_fld FROM folders WHERE mailbox_id = v_mb AND role = 'inbox';
+
+  INSERT INTO messages (
+    mailbox_id, folder_id, message_id, from_addr, to_addrs, subject,
+    body_text, received_at, size_bytes, is_read, is_deleted, deleted_at,
+    thread_id, raw_ref, held
+  ) VALUES (
+    v_mb, v_fld, '<purge-hold-msg@test>', 'a@b.com', '[]'::JSONB, 'held past window',
+    'hello', now() - interval '40 days', 100, TRUE, TRUE, now() - interval '35 days',
+    '<purge-hold-msg@test>', 'ref-purge-hold', TRUE
+  )
+  RETURNING id INTO v_msg;
+
+  PERFORM set_config('app.hold_msg', v_msg::TEXT, TRUE);
+END;
+$$;
+
+SELECT lives_ok(
+  $$ SELECT purge_deleted_messages() $$,
+  'purge_deleted_messages does not throw when a row is under litigation hold');
+
+SELECT ok(
+  NOT EXISTS (SELECT 1 FROM messages WHERE id = current_setting('app.past_msg')::BIGINT),
+  'a soft-deleted message past the 1-month retention window IS purged');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM messages WHERE id = current_setting('app.within_msg')::BIGINT),
+  'a soft-deleted message inside the retention window is NOT purged');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM messages WHERE id = current_setting('app.hold_msg')::BIGINT),
+  'a litigation-held message past the window survives purge (skipped, not deleted)');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,50 @@
+[
+  {
+    "baseline": "goldens/groups-create-rls-members.json",
+    "sha256": "4db7f83280e6550b9a9a81e5d859a2dc5f0a65eff20465a93e8744a5f6fa7f69",
+    "expectation": "security/groups-create-rls-members.json",
+    "reason": "owner-approved security fix 2026-11-05 (#390: SCIM group member writes run on the worker credential, so they succeed under the RLS-bound request role)",
+    "issue": "#390",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/scim.rs::groups_create_rls_members",
+    "mutant": "scim-members-request-pool"
+  },
+  {
+    "baseline": "goldens/groups-create-rls-members-row-effects.json",
+    "sha256": "ecf19ea8ac0d08106cf3fb724beeb734d606fdeb90197554eb712102e909e43f",
+    "expectation": "security/groups-create-rls-members-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#390: SCIM group member writes run on the worker credential, so they succeed under the RLS-bound request role)",
+    "issue": "#390",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/scim.rs::groups_create_rls_members",
+    "mutant": "scim-members-request-pool"
+  },
+  {
+    "baseline": "goldens/groups-patch-rls-members.json",
+    "sha256": "f795644a705ad38f3d6070046f2a55b6711e72ff4f197878b8c0321534e95f77",
+    "expectation": "security/groups-patch-rls-members.json",
+    "reason": "owner-approved security fix 2026-11-05 (#390: SCIM group member writes run on the worker credential, so they succeed under the RLS-bound request role)",
+    "issue": "#390",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/scim.rs::groups_create_rls_members",
+    "mutant": "scim-members-request-pool"
+  },
+  {
+    "baseline": "goldens/groups-patch-rls-members-row-effects.json",
+    "sha256": "16e62eae81bba3ab15cd620090cc442a95be9aec4eacb45a40cd742911a6beb6",
+    "expectation": "security/groups-patch-rls-members-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#390: SCIM group member writes run on the worker credential, so they succeed under the RLS-bound request role)",
+    "issue": "#390",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/scim.rs::groups_create_rls_members",
+    "mutant": "scim-members-request-pool"
+  }
+]

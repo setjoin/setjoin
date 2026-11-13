@@ -1,0 +1,26 @@
+BEGIN;
+SELECT plan(10);
+INSERT INTO domains(name,is_local) VALUES('idmfa3-counter.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled)
+VALUES('idmfa3-counter','a@idmfa3-counter.test','a',:dom,'x',true) RETURNING id AS actor \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled)
+VALUES('idmfa3-counter-b','b@idmfa3-counter.test','b',:dom,'x',true) RETURNING id AS foreign_user \gset
+SELECT is(rust_identity_totp_cycle(:actor,true,100,digest('factor','sha256')),'accepted','first verified counter commits');
+UPDATE users SET last_totp_used_at=now()-interval '31 seconds' WHERE id=:actor;
+SELECT is(rust_identity_totp_cycle(:actor,true,100,digest('factor','sha256')),'invalid','elapsed time cannot make the same counter reusable');
+SELECT ok((SELECT last_counter=100 FROM totp_counter_claims WHERE user_id=:actor) AND (SELECT totp_failed_attempts=1 FROM users WHERE id=:actor),'replay preserves checkpoint and increments the existing budget');
+UPDATE users SET last_totp_used_at=now()-interval '31 seconds' WHERE id=:actor;
+SELECT is(rust_identity_totp_cycle(:actor,true,101,digest('factor','sha256')),'accepted','advancing counter succeeds after the existing time guard');
+UPDATE users SET last_totp_used_at=now()-interval '31 seconds' WHERE id=:actor;
+SELECT is(rust_identity_totp_cycle(:actor,true,1,digest('new-factor','sha256')),'accepted','a new verified factor has an independent counter');
+SELECT ok((SELECT last_counter=1 AND secret_hash=digest('new-factor','sha256') FROM totp_counter_claims WHERE user_id=:actor),'checkpoint binds the factor key, never a request identity');
+SELECT throws_ok(format('SELECT rust_identity_totp_cycle(%s,true,NULL,NULL)',:actor),'22023','verified TOTP counter binding missing','unbound proof fails closed');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='totp_counter_claims'::regclass),'counter checkpoint has forced per-user RLS');
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id',:'foreign_user'::text,true);
+SELECT is((SELECT count(*) FROM totp_counter_claims),0::bigint,'another user cannot read the checkpoint under RLS (R1)');
+SELECT set_config('app.current_user_id',:'actor'::text,true);
+SELECT is((SELECT count(*) FROM totp_counter_claims),1::bigint,'the owner reads exactly their own checkpoint');
+RESET ROLE;
+SELECT * FROM finish();
+ROLLBACK;

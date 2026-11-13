@@ -1,0 +1,65 @@
+-- V183 feature registry authority: classification, reducers, fence, audit,
+-- notification, cutover, and skew-safe rollback.
+BEGIN;
+SELECT plan(22);
+SELECT set_config('app.capture_notify', 'on', false);
+
+SELECT is((SELECT mode FROM feature_toggle_registry_state WHERE singleton),
+  'observe', 'registry starts in observe mode');
+SELECT is((SELECT registry_digest FROM feature_toggle_registry_state WHERE singleton),
+  '0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf',
+  'installed digest is the current compiled registry (V275 projection)');
+SELECT is(feature_registry_classify('feature.imap'), 'known', 'compiled key classifies known');
+SELECT is(feature_registry_classify('feature.drive_node_acl_reads'), 'known',
+  'V212 classifies the integrated Drive ACL key as known');
+SELECT is(feature_registry_classify('legacy.example'), 'unknown', 'uncompiled key classifies unknown');
+
+SELECT lives_ok($$SELECT feature_toggle_set('feature.imap',false,1,'127.0.0.1','registry pgTAP known set')$$,
+  'known reducer SET succeeds in observe');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.imap'), false,
+  'known reducer SET stored exact value');
+SELECT lives_ok($$SELECT feature_toggle_set('device_telemetry',true,1,'127.0.0.1','registered legacy key')$$,
+  'registered legacy-format key succeeds');
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='device_telemetry'), true,
+  'registered legacy-format key stores exact value');
+SELECT throws_ok($$SELECT feature_toggle_set('unregistered_legacy_key',true,1,'127.0.0.1','invalid key')$$,
+  'BZ261', NULL, 'unknown legacy-format key is rejected');
+SELECT throws_ok($$SELECT feature_toggle_set('dengbao.sod_mode',true,1,'127.0.0.1','wrong generic path')$$,
+  'BZ263', NULL, 'protected SoD key is rejected');
+
+SELECT lives_ok($$SELECT feature_toggle_set('legacy.example',true,1,'127.0.0.1','observe compatibility')$$,
+  'unknown reducer SET remains compatible in observe');
+-- V275__feature_toggle_registry_projection.sql rotated the compiled digest
+-- (feature-registry-gen over the current key set); pass the CURRENT digest so
+-- this assertion exercises V183's unknown-rows arm (BZ262), not digest skew.
+SELECT throws_ok($$SELECT feature_toggle_registry_mode_set('enforce','0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf',1,'127.0.0.1','cutover blocked')$$,
+  'BZ262', NULL, 'unknown rows block observe to enforce');
+SELECT lives_ok($$SELECT feature_toggle_delete_unknown('legacy.example',1,'127.0.0.1','clean drift')$$,
+  'unknown cleanup succeeds in observe');
+SELECT lives_ok($$SELECT feature_toggle_delete_unknown('legacy.example',1,'127.0.0.1','idempotent cleanup')$$,
+  'already absent unknown cleanup is idempotent');
+SELECT throws_ok($$SELECT feature_toggle_delete_unknown('feature.imap',1,'127.0.0.1','known delete forbidden')$$,
+  'BZ263', NULL, 'known feature deletion is forbidden');
+
+-- V275 rotated the installed digest (see above); cutover needs the compiled
+-- digest that matches the installed projection state.
+SELECT lives_ok($$SELECT feature_toggle_registry_mode_set('enforce','0e392648981a6af0b4fd03e17e22da995b7f87513501d87d4579dc0091617cdf',1,'127.0.0.1','registry is clean')$$,
+  'clean matching registry enters enforce');
+SELECT throws_ok($$INSERT INTO feature_toggles(key,enabled) VALUES('legacy.direct',true)$$,
+  'BZ262', NULL, 'legacy direct unknown DML is fenced in enforce');
+SELECT throws_ok($$SELECT feature_toggle_set('legacy.reducer',true,1,'127.0.0.1','unknown reducer blocked')$$,
+  'BZ262', NULL, 'reducer unknown SET is fenced in enforce');
+
+UPDATE feature_toggle_registry_state SET registry_digest=repeat('0',64) WHERE singleton;
+SELECT lives_ok($$SELECT feature_toggle_registry_mode_set('observe','different-compiled-digest',1,'127.0.0.1','emergency skew rollback')$$,
+  'enforce to observe rollback ignores digest skew');
+SELECT is((SELECT mode FROM feature_toggle_registry_state WHERE singleton), 'observe',
+  'skew rollback commits observe mode');
+SELECT ok(
+  (SELECT count(*) >= 4 FROM admin_audit_log
+    WHERE action IN ('feature_toggle.set','feature_toggle.delete_unknown','feature_registry.mode_set'))
+  AND (SELECT count(*) >= 4 FROM _test_notify_log WHERE channel='config_changed'),
+  'successful mutations leave audit and notification evidence');
+
+SELECT * FROM finish();
+ROLLBACK;

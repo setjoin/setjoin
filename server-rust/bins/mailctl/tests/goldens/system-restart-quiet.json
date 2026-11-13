@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/system/restart",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"mode\":\"hot_reload\"}"
+    }
+  ],
+  "stdout": "Restarting: queued (mode: full_restart)\n",
+  "stderr": "Restart system (mode: hot_reload) — are you sure? (type 'yes' to confirm): ",
+  "exit": 0
+}

@@ -1,0 +1,31 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/step-up/challenge",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+        "x-audit-reason": ""
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"previewDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/transitions/00000000-0000-4000-8000-000000000001/step-up/complete",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000002",
+        "if-match": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+        "x-audit-reason": ""
+      },
+      "body": "{\"challengeId\":\"00000000-0000-4000-8000-000000000001\",\"idempotencyKey\":\"00000000-0000-4000-8000-000000000002\",\"previewDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+    }
+  ],
+  "stdout": "Elevation 00000000-0000-4000-8000-000000000002 expires 2026-01-01T00:00:00Z and is valid for one command only.\n",
+  "stderr": "Step-up challenge 00000000-0000-4000-8000-000000000001 code ABCD1234 expires 2026-01-01T00:00:00Z; completing with the current authenticated session.\n",
+  "exit": 0
+}

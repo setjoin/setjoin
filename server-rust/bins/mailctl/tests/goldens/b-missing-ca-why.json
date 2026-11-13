@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl ca why <email-or-user-id>\n",
+  "exit": 1
+}

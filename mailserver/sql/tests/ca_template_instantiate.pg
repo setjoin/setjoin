@@ -1,0 +1,129 @@
+-- pgTAP: ca_template_instantiate.pg — CA-1 C2: instantiate a ca_templates row
+-- into a new conditional_access_policies row (state=report_only, author+break-glass
+-- auto-excluded, audit row + F2 notify in-txn).
+BEGIN;
+SELECT plan(17);
+SET app.capture_notify = 'on';
+
+-- ── Test fixtures ──────────────────────────────────────────────────────────────
+INSERT INTO domains (id, name, is_local) VALUES (97100, 'ti.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (84001, 'ti_admin',   97100, 'admin@ti.test', 'TI Admin', TRUE),
+         (84002, 'ti_bglass',  97100, 'bg@ti.test',    'BG User',  TRUE);
+
+-- Seed break-glass set to [84002] so we can assert it lands in exclude_users.
+UPDATE system_config SET value = '[84002]'::jsonb WHERE key = 'ca_break_glass_user_ids';
+
+-- ── 1. Instantiate block-legacy-auth → succeeds, returns a bigint policy id ───
+SELECT lives_ok(
+  $$ SELECT ca_template_instantiate('block-legacy-auth', 84001) $$,
+  'ca_template_instantiate block-legacy-auth succeeds');
+
+-- ── 2. Returned id is a positive bigint ───────────────────────────────────────
+SELECT ok(
+  (SELECT ca_template_instantiate('block-legacy-auth', 84001)) > 0,
+  'returned id is a positive bigint');
+
+-- ── 3. New policy state is report_only (NEVER born enforcing) ─────────────────
+SELECT is(
+  (SELECT state FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'report_only',
+  'instantiated policy born in report_only state');
+
+-- ── 4. created_from_template set to the slug ──────────────────────────────────
+SELECT is(
+  (SELECT created_from_template FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'block-legacy-auth',
+  'created_from_template is set to the slug');
+
+-- ── 5. exclude_users contains the author (p_admin_id) ─────────────────────────
+SELECT ok(
+  (SELECT exclude_users @> to_jsonb(ARRAY[84001::bigint])
+   FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'exclude_users contains the author (p_admin_id)');
+
+-- ── 6. exclude_users contains the break-glass id (84002) ─────────────────────
+SELECT ok(
+  (SELECT exclude_users @> '[84002]'::jsonb
+   FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'exclude_users contains the break-glass user id');
+
+-- ── 7. audit row written with action=ca_template_instantiate ─────────────────
+SELECT is(
+  (SELECT action FROM admin_audit_log
+   WHERE action = 'ca_template_instantiate' ORDER BY id DESC LIMIT 1),
+  'ca_template_instantiate',
+  'audit row written with action=ca_template_instantiate');
+
+-- ── 8. F2: ca_notify_policy_change fires on conditional_access channel ────────
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'ca_template_instantiate fires ca_notify_policy_change → conditional_access channel');
+
+-- ── 9. conditions + actions copied from template ──────────────────────────────
+SELECT ok(
+  (SELECT conditions = '{"client_type":"legacy"}'::jsonb
+   FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'conditions copied from template');
+
+-- ── 10. mfa-for-admins instantiate succeeds ──────────────────────────────────
+SELECT lives_ok(
+  $$ SELECT ca_template_instantiate('mfa-for-admins', 84001) $$,
+  'ca_template_instantiate mfa-for-admins succeeds');
+
+-- ── 11. mfa-for-admins: scope_target resolved to admin_role_groups.id by name ─
+-- The template stores scope_target='Super Admin' (a name). After instantiate, the
+-- policy scope_target must be the numeric id of the 'Super Admin' role group.
+SELECT ok(
+  (SELECT (scope_target::bigint) = (SELECT id FROM admin_role_groups WHERE name = 'Super Admin')
+   FROM conditional_access_policies
+   WHERE created_from_template = 'mfa-for-admins' ORDER BY id DESC LIMIT 1),
+  'mfa-for-admins scope_target resolved from role group name to id');
+
+-- ── 12. Unknown slug raises BZ085 (not-found) ─────────────────────────────────
+SELECT throws_ok(
+  $$ SELECT ca_template_instantiate('does-not-exist', 84001) $$,
+  'BZ085', NULL,
+  'unknown slug raises BZ085 (template not found)');
+
+-- ── 13. deleted_at is NULL (not soft-deleted at birth) ───────────────────────
+SELECT ok(
+  (SELECT deleted_at IS NULL FROM conditional_access_policies
+   WHERE created_from_template = 'block-legacy-auth' ORDER BY id DESC LIMIT 1),
+  'deleted_at is NULL on newly instantiated policy');
+
+-- ── 14. F2 payload has reason key ────────────────────────────────────────────
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM _test_notify_log
+    WHERE channel = 'conditional_access'
+      AND payload::jsonb ? 'reason'
+  ),
+  'ca_notify_policy_change payload has reason key (F2 choke-point contract)');
+
+-- ── 15. device-lockdown instantiate succeeds ─────────────────────────────
+SELECT lives_ok(
+  $$ SELECT ca_template_instantiate('device-lockdown', 84001) $$,
+  'ca_template_instantiate device-lockdown succeeds');
+
+-- ── 16. device-lockdown: state is report_only ─────────────────────────────
+SELECT is(
+  (SELECT state FROM conditional_access_policies
+   WHERE created_from_template = 'device-lockdown' ORDER BY id DESC LIMIT 1),
+  'report_only',
+  'device-lockdown policy born in report_only state');
+
+-- ── 17. device-lockdown: require_compliant_device in actions ─────────────
+SELECT ok(
+  (SELECT (actions ->> 'require_compliant_device')::boolean = true
+   FROM conditional_access_policies
+   WHERE created_from_template = 'device-lockdown' ORDER BY id DESC LIMIT 1),
+  'device-lockdown actions carry require_compliant_device:true');
+
+SELECT finish();
+ROLLBACK;

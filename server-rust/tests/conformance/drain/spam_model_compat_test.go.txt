@@ -1,0 +1,60 @@
+// Recording-only: frozen Go's public model plus its Unicode 15.0 case tables.
+package spam
+
+import (
+ "compress/gzip"
+ "encoding/json"
+ "fmt"
+ "math"
+ "os"
+ "path/filepath"
+ "strings"
+ "testing"
+ "unicode"
+)
+
+func TestGoFreeSpamCompatibility(t *testing.T) {
+ if unicode.Version!="15.0.0" {t.Fatalf("unexpected Go Unicode version %s",unicode.Version)}
+ dir:=os.Getenv("GOFREE_SPAM_OUT")
+ if dir=="" {t.Fatal("GOFREE_SPAM_OUT required")}
+ write:=func(name string,data []byte) {
+  f,err:=os.OpenFile(filepath.Join(dir,name),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)}
+  z:=gzip.NewWriter(f);if _,err=z.Write(data);err!=nil{t.Fatal(err)};if err=z.Close();err!=nil{t.Fatal(err)};if err=f.Close();err!=nil{t.Fatal(err)}
+ }
+ var allLower strings.Builder
+ for r:=rune(0);r<=unicode.MaxRune;r++ {if unicode.ToLower(r)!=r {allLower.WriteRune(r)}}
+ messages:=[][]byte{
+  []byte("From: "+allLower.String()+"\nSubject: unicode\n\nhello world"),
+  []byte("From: \u1c89\nSubject: AA\u1c89\n\nhello world"),
+  []byte("Subject: urls\n\n"+
+   "http://caf%C3%A9.test/escapedHost http://pct%25.test/percentHost http://%ff.invalid/invalidUtf8 "+
+   "http://user[bad]@bad-info.test/badUser http://prefix[::1]/badLiteral http://[192.0.2.1]/badIPv4 "+
+   "http://[fe80::1%25en%20x]:88/zone http://[fe80::1%25en%00x]/badZone http://::1/unbracketed "+
+   "http://x.test:abc/badPort http://x.test:123:456/badColons http://x.test:/emptyPort "+
+   "http://host].test/closingBracket http://bad%2f.test/escapedSlash http://host.test/%ff?bad=%zz#ok "+
+   "http://host.test/a%2fb/../KeepCase http://user:p%00w@h.test/passEsc http://usér@bad-user.test/nonAsciiUser "+
+   "http://ho%80st.test/nonAsciiHost"),
+ }
+ var cases []map[string]any
+ for i,raw:=range messages {
+  name:=fmt.Sprintf("compat-%d",i);uid:=int64(101+i);model:=newUserModel(uid)
+  before,_:=model.Save();write(name+"-before.gz",sealModelBlob(uid,before))
+  score:=model.Score(raw)
+  for n:=0;n<9;n++ {model.Train(raw,n%3!=0)}
+  after,_:=model.Save();write(name+"-after.gz",sealModelBlob(uid,after))
+  cases=append(cases,map[string]any{"name":name,"user":uid,"raw":raw,"steps":9,"score_bits":fmt.Sprintf("%016x",math.Float64bits(score))})
+ }
+ data,err:=json.MarshalIndent(map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"unicode":unicode.Version,"cases":cases},"","  ");if err!=nil{t.Fatal(err)}
+ f,err:=os.OpenFile(filepath.Join(dir,"compat.json"),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};if _,err=f.Write(data);err!=nil{t.Fatal(err)};if err=f.Close();err!=nil{t.Fatal(err)}
+ table,err:=os.OpenFile(os.Getenv("GOFREE_SPAM_UNICODE_OUT"),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600);if err!=nil{t.Fatal(err)};defer table.Close()
+ fmt.Fprintln(table,"// Copyright 2009 The Go Authors. All rights reserved.")
+ fmt.Fprintln(table,"// BSD-style license: GO-LICENSE in this directory.")
+ fmt.Fprintln(table,"// Generated from Go 1.26.6 unicode 15.0.0 via spam_model_compat_test.go.txt.")
+ fmt.Fprintln(table,"pub(super) const LOWER: &[(u32,u32)] = &[")
+ for r:=rune(0);r<=unicode.MaxRune;r++ {if lower:=unicode.ToLower(r);lower!=r {fmt.Fprintf(table,"(0x%x,0x%x),\n",r,lower)}}
+ fmt.Fprintln(table,"];")
+ fmt.Fprintln(table,"pub(super) const UPPER: &[(u32,u32,u32)] = &[")
+ for _,r:=range unicode.Upper.R16 {fmt.Fprintf(table,"(0x%x,0x%x,%d),\n",r.Lo,r.Hi,r.Stride)}
+ for _,r:=range unicode.Upper.R32 {fmt.Fprintf(table,"(0x%x,0x%x,%d),\n",r.Lo,r.Hi,r.Stride)}
+ fmt.Fprintln(table,"];")
+}

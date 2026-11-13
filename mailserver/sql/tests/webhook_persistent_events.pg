@@ -1,0 +1,132 @@
+BEGIN;
+SELECT plan(30);
+
+SELECT mk_account('webhook-user-change') AS changed_mb \gset
+SELECT mk_account('webhook-admin') AS actor_mb \gset
+SELECT user_id AS changed_user FROM mailboxes WHERE id=:changed_mb \gset
+SELECT user_id AS actor_user FROM mailboxes WHERE id=:actor_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+VALUES(:actor_user,2,:actor_user);
+
+SELECT is(webhook_user_changed_publish(:actor_user,:changed_user,'user.created'),false,
+          'user create enrollment is an exact no-op while the flag is OFF');
+SELECT is((SELECT count(*) FROM webhook_publications)::integer,0,
+          'flag-OFF user create leaves no fact');
+
+INSERT INTO feature_toggles(key,enabled) VALUES('feature.webhook_publication_outbox',true)
+ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled;
+SAVEPOINT user_update_rollback;
+SELECT ok(webhook_user_changed_publish(:actor_user,:changed_user,'user.updated'),
+          'enabled user update enrolls inside the caller transaction');
+ROLLBACK TO user_update_rollback;
+SELECT is((SELECT count(*) FROM webhook_publications)::integer,0,
+          'rolling back the user mutation also removes its fact');
+
+SELECT ok(webhook_user_changed_publish(:actor_user,:changed_user,'user.created'),
+          'committed user create enrolls one fact');
+SELECT is((SELECT payload FROM webhook_publications WHERE event_type='user.created'),
+          jsonb_build_object('user_id',:changed_user),
+          'approved user create payload contains only user_id');
+SELECT ok((SELECT source='mailserver/auth' AND audience='user'
+                  AND subject_user_id=:changed_user AND subject_mailbox_id IS NULL
+             FROM webhook_publications WHERE event_type='user.created'),
+          'user create fact carries its reducer-derived user audience');
+SELECT ok(webhook_user_changed_publish(:actor_user,:changed_user,'user.updated'),
+          'committed user update enrolls one fact');
+SELECT isnt((SELECT event_id FROM webhook_publications WHERE event_type='user.created'),
+            (SELECT event_id FROM webhook_publications WHERE event_type='user.updated'),
+            'separate user transitions retain separate stable event IDs');
+SELECT throws_ok(
+  'SELECT webhook_user_changed_publish('||:actor_user||','||:changed_user||',''user.deleted'')',
+  'BZ301',NULL,'user publication reducer rejects an unapproved event type');
+
+SELECT mk_account('webhook-migration') AS migration_mb \gset
+SELECT user_id AS migration_user FROM mailboxes WHERE id=:migration_mb \gset
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status)
+VALUES(93001,:migration_user,'imap',:migration_mb,'fetching');
+SELECT migration_orchestrate(93001,'complete','{}'::jsonb) AS completed_result \gset
+SELECT ok((:'completed_result'::jsonb->>'publication_enrolled')::boolean,
+          'migration complete enrolls in its terminal transition');
+SELECT is((SELECT status FROM migration_jobs WHERE id=93001),'completed',
+          'migration status commits with its publication');
+SELECT is((SELECT event_id FROM webhook_publications WHERE event_type='migration.completed'),
+          'migration-93001-completed','migration terminal event ID is stable by job and terminal state');
+SELECT ok((SELECT audience='mailbox' AND subject_user_id=:migration_user
+                  AND subject_mailbox_id=:migration_mb
+             FROM webhook_publications WHERE event_id='migration-93001-completed'),
+          'migration fact binds a database-owned mailbox and its user');
+SELECT is((SELECT payload FROM webhook_publications WHERE event_id='migration-93001-completed'),
+          '{"job_id":93001}'::jsonb,'migration payload contains only job_id');
+
+SELECT mk_account('webhook-migration-rollback') AS rollback_mb \gset
+SELECT user_id AS rollback_user FROM mailboxes WHERE id=:rollback_mb \gset
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status)
+VALUES(93002,:rollback_user,'imap',:rollback_mb,'fetching');
+SAVEPOINT migration_fail_rollback;
+SELECT ok((migration_orchestrate(93002,'fail','{}'::jsonb)->>'publication_enrolled')::boolean,
+          'migration fail enrolls before caller commit');
+ROLLBACK TO migration_fail_rollback;
+SELECT is((SELECT status FROM migration_jobs WHERE id=93002),'fetching',
+          'rollback restores the non-terminal migration state');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_id='migration-93002-failed')::integer,0,
+          'rollback leaves no migration failure fact');
+
+SELECT mk_account('webhook-migration-recover') AS recover_mb \gset
+SELECT user_id AS recover_user FROM mailboxes WHERE id=:recover_mb \gset
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status)
+VALUES(93003,:recover_user,'imap',:recover_mb,'paused');
+SELECT migration_recover_stuck() AS recovery_result \gset
+SELECT ok((:'recovery_result'::jsonb->'terminal_events'->0->>'publication_enrolled')::boolean,
+          'startup recovery enrolls failed facts in its bulk transaction');
+SELECT is((SELECT status FROM migration_jobs WHERE id=93003),'failed',
+          'startup recovery terminal state commits');
+SELECT is((SELECT event_id FROM webhook_publications WHERE event_id='migration-93003-failed'),
+          'migration-93003-failed','recovery uses the same stable terminal identity');
+
+INSERT INTO webhook_subscriptions(user_id,url,secret,event_types,scope) VALUES
+  (:migration_user,'https://migration-self.example/hook','self','["migration.completed"]','self'),
+  (:changed_user,'https://migration-cross.example/hook','cross','["migration.completed"]','self'),
+  (:actor_user,'https://migration-org.example/hook','org','["migration.completed"]','organization');
+SELECT gen_random_uuid() AS migration_worker \gset
+SELECT webhook_publication_claim(:'migration_worker',100);
+SELECT is(webhook_publication_fanout(
+            (SELECT id FROM webhook_publications WHERE event_id='migration-93001-completed'),
+            :'migration_worker'),2,
+          'migration fan-out matches subject self plus organization');
+SELECT is((SELECT count(*) FROM webhook_deliveries
+            WHERE event_id='migration-93001-completed')::integer,2,
+          'cross-user self subscription is excluded');
+UPDATE feature_toggles SET enabled=false WHERE key='feature.webhook_publication_outbox';
+SELECT ok(webhook_publication_complete(
+            (SELECT id FROM webhook_publications WHERE event_id='migration-93001-completed'),
+            :'migration_worker',true,NULL),
+          'committed migration residue drains after live disable');
+
+SELECT mk_account('webhook-migration-off') AS off_mb \gset
+SELECT user_id AS off_user FROM mailboxes WHERE id=:off_mb \gset
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status)
+VALUES(93004,:off_user,'imap',:off_mb,'fetching');
+SELECT migration_orchestrate(93004,'complete','{}'::jsonb) AS off_result \gset
+SELECT is((:'off_result'::jsonb->>'publication_enrolled')::boolean,false,
+          'flag OFF reports that the post-commit legacy path owns delivery');
+SELECT is((SELECT count(*) FROM webhook_publications WHERE event_id='migration-93004-completed')::integer,0,
+          'flag OFF migration terminal transition leaves no fact');
+SELECT is(has_function_privilege('setjoin_worker','webhook_migration_terminal_publish(bigint,text)','EXECUTE'),true,
+          'worker credential has the migration enrollment reducer');
+SELECT is(has_function_privilege('setjoin_app','webhook_user_changed_publish(bigint,bigint,text)','EXECUTE'),false,
+          'tenant app credential cannot enroll cross-user admin facts');
+
+-- A target mailbox belonging to another user cannot be projected as mailbox audience.
+UPDATE feature_toggles SET enabled=true WHERE key='feature.webhook_publication_outbox';
+SELECT mk_account('webhook-migration-mismatch') AS mismatch_mb \gset
+SELECT user_id AS mismatch_user FROM mailboxes WHERE id=:mismatch_mb \gset
+INSERT INTO migration_jobs(id,user_id,source_type,target_mailbox_id,status)
+VALUES(93005,:mismatch_user,'imap',:changed_mb,'fetching');
+SELECT migration_orchestrate(93005,'complete','{}'::jsonb);
+SELECT is((SELECT audience FROM webhook_publications WHERE event_id='migration-93005-completed'),'user',
+          'mismatched target mailbox falls back to fail-closed user audience');
+SELECT is((SELECT subject_mailbox_id FROM webhook_publications WHERE event_id='migration-93005-completed'),NULL::bigint,
+          'mismatched mailbox identity is not copied into the fact');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,209 @@
+-- imap_batch_uid_mapping.pg — WP4 (plan 2026-09-30-review-remediation-wave.md).
+--
+-- Pins the SQL side of the batched IMAP MOVE/COPY UID rule:
+--   * the batch front door imap_batch_move_location loops its ALIGNED input
+--     arrays in input-ordinal order, so destination membership UIDs are
+--     allocated in the source view's ascending effective-UID order — even when
+--     message ids run in the OPPOSITE direction and two messages share one
+--     received_at (partition neighbors) while a third sits in another partition;
+--   * output rows echo (message_id, received_at) in ordinal order so the
+--     gateway can match memberships and pair COPYUID without trusting scan
+--     order;
+--   * mixed preexisting memberships swap away (retired ledger row, fresh UID —
+--     retired UIDs are never reused);
+--   * misaligned arrays are rejected (BZ285); a foreign mailbox cannot resolve
+--     the destination tag (BZ019) and nothing moves;
+--   * the set-based non-location dest INSERT (the statement imap.go issues)
+--     allocates in ordinal order too, SKIPS another mailbox's message ids via
+--     the ownership join (R1), and rejects duplicates at MUTATION time via the
+--     message_tags primary key (23505) — no separate EXISTS read;
+--   * a mid-batch invariant violation (BZ035) rolls back the WHOLE batch —
+--     all-or-nothing, matching the gateway's per-command transaction. This
+--     corrupt fixture runs LAST: it deliberately breaks the membership-UID
+--     invariant on one tag and would otherwise pollute the readiness check.
+--
+-- Runs inside one transaction; every effect rolls back.
+
+BEGIN;
+SELECT plan(26);
+
+SELECT mk_account('imap-batch-uid') AS mailbox_id \gset
+SELECT id AS src_tag FROM tags WHERE mailbox_id = :mailbox_id AND name = 'Inbox' \gset
+INSERT INTO tags(mailbox_id, name, tag_type, exclusive_group)
+VALUES (:mailbox_id, 'BatchLocDest', 'user', 'location') RETURNING id AS loc_tag \gset
+INSERT INTO tags(mailbox_id, name, tag_type, exclusive_group)
+VALUES (:mailbox_id, 'BatchLocAlt', 'user', 'location') RETURNING id AS loc_alt \gset
+INSERT INTO tags(mailbox_id, name, tag_type)
+VALUES (:mailbox_id, 'BatchPlainDest', 'user') RETURNING id AS plain_tag \gset
+
+-- ── Fixture: non-contiguous pinned membership UIDs, message ids inserted in
+-- the OPPOSITE order of their UIDs, two messages sharing one received_at
+-- (partition neighbors), one in another partition. Source folder is a plain
+-- (non-location) tag so the location fixtures don't trip the exclusive trigger
+-- against Inbox (Inbox is a location tag in the seed). ──
+INSERT INTO tags(mailbox_id, name, tag_type)
+VALUES (:mailbox_id, 'BatchSrc', 'user') RETURNING id AS bsrc_tag \gset
+
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 900, 'batch-uid-high', 'high', 'a@test', '[]', 't1', 'r1', 10, '2026-09-01T10:00:00Z'::timestamptz)
+RETURNING id AS m_high \gset
+INSERT INTO message_tags(message_id, received_at, tag_id, is_primary, imap_uid)
+VALUES (:m_high, '2026-09-01T10:00:00Z'::timestamptz, :bsrc_tag, TRUE, 900);
+
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 500, 'batch-uid-mid', 'mid', 'a@test', '[]', 't2', 'r2', 10, '2026-09-03T10:00:00Z'::timestamptz)
+RETURNING id AS m_mid \gset
+INSERT INTO message_tags(message_id, received_at, tag_id, is_primary, imap_uid)
+VALUES (:m_mid, '2026-09-03T10:00:00Z'::timestamptz, :bsrc_tag, TRUE, 7);
+
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 300, 'batch-uid-low', 'low', 'a@test', '[]', 't3', 'r3', 10, '2026-09-03T10:00:00Z'::timestamptz)
+RETURNING id AS m_low \gset
+INSERT INTO message_tags(message_id, received_at, tag_id, is_primary, imap_uid)
+VALUES (:m_low, '2026-09-03T10:00:00Z'::timestamptz, :bsrc_tag, TRUE, 5);
+
+-- Source view order (membership UID ascending) is m_low(5), m_mid(7), m_high(900)
+-- while message ids ascend m_high < m_mid < m_low.
+
+-- ── 1. Reducer ordinal → allocation order. ──
+CREATE TEMP TABLE batch_out AS
+SELECT out_message_id, out_received_at, out_imap_uid, row_number() OVER () AS ord
+FROM imap_batch_move_location(
+    ARRAY[:m_low, :m_mid, :m_high]::bigint[],
+    ARRAY['2026-09-03T10:00:00Z', '2026-09-03T10:00:00Z', '2026-09-01T10:00:00Z']::timestamptz[],
+    'BatchLocDest', :mailbox_id, 'imap');
+
+SELECT is(count(*)::int, 3, 'batch front door returns one row per input ordinal') FROM batch_out;
+SELECT is(out_message_id, :m_low::bigint,  'ordinal 1 echoes the first input message (lowest source UID)') FROM batch_out WHERE ord = 1;
+SELECT is(out_message_id, :m_mid::bigint,  'ordinal 2 echoes the second input message') FROM batch_out WHERE ord = 2;
+SELECT is(out_message_id, :m_high::bigint, 'ordinal 3 echoes the third input message (highest source UID, lowest message id)') FROM batch_out WHERE ord = 3;
+SELECT is(out_received_at, '2026-09-03T10:00:00Z'::timestamptz, 'ordinal 1 kept the shared received_at (same partition)') FROM batch_out WHERE ord = 1;
+SELECT is(out_received_at, '2026-09-01T10:00:00Z'::timestamptz, 'ordinal 3 kept its own received_at (partition boundary)') FROM batch_out WHERE ord = 3;
+SELECT ok(count(*) = 3 AND count(out_imap_uid) = 3 AND MIN(out_imap_uid) > 0,
+          'every input ordinal got an allocated destination UID') FROM batch_out;
+SELECT is(count(*)::int, 0, 'destination UIDs are strictly ascending in input-ordinal order — never message-ID order')
+FROM (SELECT out_imap_uid, lead(out_imap_uid) OVER (ORDER BY ord) AS nxt FROM batch_out) p
+WHERE nxt IS NOT NULL AND out_imap_uid >= nxt;
+
+-- The dest memberships landed with the ORIGINAL received_at and are the ONLY
+-- location memberships (exclusive invariant).
+SELECT is(count(*)::int, 3, 'dest location tag holds exactly one membership per moved message') FROM message_tags WHERE tag_id = :loc_tag;
+SELECT is(count(*)::int, 0, 'no message carries two location tags after the batch')
+FROM (SELECT mt.message_id FROM message_tags mt JOIN tags t ON t.id = mt.tag_id
+      WHERE t.mailbox_id = :mailbox_id AND t.exclusive_group = 'location'
+      GROUP BY mt.message_id HAVING count(*) > 1) d;
+
+-- ── 2. Mixed preexisting membership: swap retires the old UID, allocates a
+-- fresh one, never reuses. ──
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 950, 'batch-uid-pre', 'pre', 'a@test', '[]', 't4', 'r4', 10, '2026-09-01T10:00:00Z'::timestamptz)
+RETURNING id AS m_pre \gset
+-- After the batch above the dest allocator is at 3; pin a stale membership at 4.
+INSERT INTO message_tags(message_id, received_at, tag_id, is_primary, imap_uid)
+VALUES (:m_pre, '2026-09-01T10:00:00Z'::timestamptz, :loc_tag, FALSE, 4);
+
+SELECT out_imap_uid AS pre_uid
+FROM imap_batch_move_location(ARRAY[:m_pre]::bigint[], ARRAY['2026-09-01T10:00:00Z'::timestamptz], 'BatchLocDest', :mailbox_id, 'imap') \gset
+SELECT is(:pre_uid::bigint, 5::bigint, 'preexisting membership swaps away to a FRESH uid (retired 4 never reused)');
+SELECT is((SELECT active FROM imap_membership_uid_ledger WHERE tag_id = :loc_tag AND imap_uid = 4), false,
+          'swapped-away membership retired in the ledger');
+SELECT is((SELECT active FROM imap_membership_uid_ledger WHERE tag_id = :loc_tag AND imap_uid = 5), true,
+          'new membership is active in the ledger');
+
+-- ── 3. Misaligned arrays rejected; foreign destination unresolvable. ──
+SELECT throws_ok(
+    $$SELECT imap_batch_move_location(ARRAY[1::bigint], ARRAY[]::timestamptz[], 'BatchLocDest', 1::bigint, 'imap')$$,
+    'BZ285', 'imap_batch_move_location: input arrays are misaligned (ids=1, received_ats=0)',
+    'misaligned batch arrays rejected (BZ285)');
+
+SELECT mk_account('imap-batch-uid-foreign') AS foreign_mb \gset
+INSERT INTO tags(mailbox_id, name, tag_type) VALUES (:foreign_mb, 'ForeignOnly', 'user') RETURNING id AS foreign_tag \gset
+SELECT throws_ok(
+    format('SELECT imap_batch_move_location(ARRAY[%s::bigint], ARRAY[''2026-09-01T10:00:00Z''::timestamptz], ''ForeignOnly'', %s::bigint, ''imap'')',
+           :m_low, :mailbox_id),
+    'BZ019', format('Tag ForeignOnly not found in mailbox %s', :mailbox_id),
+    'another mailbox''s destination tag cannot be resolved (BZ019)');
+SELECT is(count(*)::int, 0, 'the failed cross-mailbox batch tagged nothing into the foreign tag') FROM message_tags WHERE tag_id = :foreign_tag;
+
+-- ── 4. The set-based non-location dest INSERT (the statement imap.go issues):
+-- ordinal-ordered allocation, ownership join skips foreign ids, mutation-time
+-- duplicate rejection. ──
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 980, 'batch-uid-p3', 'p3', 'a@test', '[]', 't7', 'r7', 10, '2026-09-01T10:00:00Z'::timestamptz)
+RETURNING id AS p_high \gset
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 985, 'batch-uid-p2', 'p2', 'a@test', '[]', 't8', 'r8', 10, '2026-09-05T10:00:00Z'::timestamptz)
+RETURNING id AS p_mid \gset
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 990, 'batch-uid-p1', 'p1', 'a@test', '[]', 't9', 'r9', 10, '2026-09-05T10:00:00Z'::timestamptz)
+RETURNING id AS p_low \gset
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:foreign_mb, (SELECT id FROM tags WHERE mailbox_id = :foreign_mb AND name = 'Inbox'), 5, 'batch-uid-foreign', 'foreign', 'a@test', '[]', 'tf', 'rf', 10, '2026-09-05T10:00:00Z'::timestamptz)
+RETURNING id AS p_foreign \gset
+
+CREATE TEMP TABLE plain_out AS
+WITH input AS (
+    SELECT u.mid, u.rat, u.ord
+      FROM unnest(ARRAY[:p_low, :p_mid, :p_high, :p_foreign]::bigint[],
+                  ARRAY['2026-09-05T10:00:00Z', '2026-09-05T10:00:00Z', '2026-09-01T10:00:00Z', '2026-09-05T10:00:00Z']::timestamptz[])
+           WITH ORDINALITY AS u(mid, rat, ord)
+), inserted AS (
+    INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary)
+    SELECT i.mid, i.rat, :plain_tag, 'imap', TRUE
+      FROM input i
+      JOIN messages m ON m.id = i.mid AND m.received_at = i.rat
+      WHERE m.mailbox_id = :mailbox_id
+      ORDER BY i.ord
+      RETURNING message_id, received_at, imap_uid
+)
+SELECT ins.message_id, ins.received_at, ins.imap_uid, row_number() OVER () AS ord
+  FROM inserted ins
+  JOIN input i ON i.mid = ins.message_id AND i.rat = ins.received_at
+ ORDER BY i.ord;
+
+SELECT is(count(*)::int, 3, 'set-based dest INSERT skips the FOREIGN mailbox id via the ownership join (R1)') FROM plain_out;
+SELECT is(message_id, :p_low::bigint,  'non-location INSERT ordinal 1 echoes first owned input') FROM plain_out WHERE ord = 1;
+SELECT is(message_id, :p_high::bigint, 'non-location INSERT ordinal 3 echoes the reversed-id input (kept its partition)') FROM plain_out WHERE ord = 3;
+SELECT is(count(*)::int, 0, 'non-location dest UIDs also allocate in input-ordinal order')
+FROM (SELECT imap_uid, lead(imap_uid) OVER (ORDER BY ord) AS nxt FROM plain_out) p
+WHERE nxt IS NOT NULL AND imap_uid >= nxt;
+SELECT is(count(*)::int, 0, 'the foreign message gained NO membership in our dest tag')
+FROM message_tags WHERE message_id = :p_foreign AND tag_id = :plain_tag;
+
+-- Mutation-time duplicate rejection: the same statement again violates the
+-- message_tags PRIMARY KEY (23505) — no separate EXISTS read.
+SELECT throws_ok(
+    format('WITH input AS (SELECT u.mid, u.rat, u.ord FROM unnest(ARRAY[%s::bigint], ARRAY[''2026-09-05T10:00:00Z''::timestamptz]) WITH ORDINALITY AS u(mid, rat, ord)) , inserted AS (INSERT INTO message_tags (message_id, received_at, tag_id, added_by, is_primary) SELECT i.mid, i.rat, %s, ''imap'', TRUE FROM input i JOIN messages m ON m.id = i.mid AND m.received_at = i.rat WHERE m.mailbox_id = %s ORDER BY i.ord RETURNING message_id, received_at, imap_uid) SELECT 1 FROM inserted',
+           :p_low, :plain_tag, :mailbox_id),
+    '23505', NULL, 'duplicate COPY rejected at mutation time by the primary key');
+
+-- ── 5. Allocator/ledger integrity after all batches. ──
+SELECT is((imap_membership_uid_readiness(:loc_tag) ->> 'ready')::boolean, true, 'dest tag stays readiness-clean after batched allocation');
+SELECT ok((imap_membership_uid_readiness(:loc_tag) ->> 'uidNext')::bigint > (imap_membership_uid_readiness(:loc_tag) ->> 'maxUid')::bigint,
+          'UIDNEXT advanced above max allocated UID');
+
+-- ── 6. Mid-batch invariant violation (BZ035) rolls back the WHOLE batch —
+-- runs LAST: its deliberately corrupt fixture (two location tags, inserted with
+-- the exclusive + allocator triggers bypassed) would pollute the readiness
+-- check above. ──
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 960, 'batch-uid-ok', 'ok', 'a@test', '[]', 't5', 'r5', 10, '2026-09-01T10:00:00Z'::timestamptz)
+RETURNING id AS m_ok \gset
+INSERT INTO messages(mailbox_id, folder_id, imap_uid, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (:mailbox_id, :bsrc_tag, 970, 'batch-uid-bad', 'bad', 'a@test', '[]', 't6', 'r6', 10, '2026-09-01T10:00:00Z'::timestamptz)
+RETURNING id AS m_bad \gset
+SET LOCAL session_replication_role = replica;
+INSERT INTO message_tags(message_id, received_at, tag_id, is_primary)
+VALUES (:m_bad, '2026-09-01T10:00:00Z'::timestamptz, :loc_tag, FALSE), (:m_bad, '2026-09-01T10:00:00Z'::timestamptz, :loc_alt, FALSE);
+SET LOCAL session_replication_role = origin;
+
+SELECT throws_ok(
+    format('SELECT imap_batch_move_location(ARRAY[%s, %s]::bigint[], ARRAY[''2026-09-01T10:00:00Z''::timestamptz, ''2026-09-01T10:00:00Z''::timestamptz], ''BatchLocDest'', %s::bigint, ''imap'')',
+           :m_ok, :m_bad, :mailbox_id),
+    'BZ035', format('message %s carries 2 location tags (expected <=1)', :m_bad),
+    'mid-batch invariant violation raises BZ035');
+SELECT is(count(*)::int, 0, 'row 1''s swap rolled back with row 2''s failure (all-or-nothing)')
+FROM message_tags WHERE message_id = :m_ok AND tag_id = :loc_tag;
+
+SELECT * FROM finish();
+ROLLBACK;

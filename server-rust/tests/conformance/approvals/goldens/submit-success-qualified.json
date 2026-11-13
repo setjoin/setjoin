@@ -1,0 +1,108 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "observation": {
+    "audit": [
+      {
+        "action": "approval_created",
+        "after_state": {
+          "consumer_type": "hr.leave",
+          "subject": "Leave: annual 2026-11-01 → 2026-11-02 (2d)"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit-id>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<request>",
+        "target_type": "approval_request",
+        "user_id": "<requester>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "approver_kind": "user",
+            "approver_ref": "<approver>",
+            "consumer_type": "hr.leave",
+            "created_at": "<timestamp>",
+            "decided_at": null,
+            "decided_by_user_id": null,
+            "decision_comment": null,
+            "domain_id": "<domain>",
+            "expires_at": "<timestamp>",
+            "id": "<request>",
+            "payload": {
+              "days": 2,
+              "end_date": "2026-11-02",
+              "leave_type": "annual",
+              "reason": "Trip <two>",
+              "start_date": "2026-11-01"
+            },
+            "policy_id": "<policy>",
+            "requester_user_id": "<requester>",
+            "status": "pending",
+            "subject": "Leave: annual 2026-11-01 → 2026-11-02 (2d)"
+          }
+        ],
+        "before": [],
+        "table": "approval_requests"
+      }
+    ],
+    "notify": [
+      {
+        "consumer_type": "hr.leave",
+        "request_id": "<request>"
+      }
+    ],
+    "request": {
+      "body": "{\"form\":{\"days\":2,\"end_date\":\"2026-11-02\",\"leave_type\":\"annual\",\"reason\":\"Trip <two>\",\"start_date\":\"2026-11-01\"},\"kind\":\"hr.leave\",\"requester_user_id\":\"<forged>\"}",
+      "external_path": "/api/me/approvals/hr",
+      "method": "POST",
+      "path": "/me/approvals/hr"
+    },
+    "response": {
+      "body": "{\"id\":\"<request>\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "19"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-appr1-oracle"
+        ]
+      },
+      "status": 201
+    }
+  },
+  "route": "POST /me/approvals/hr"
+}

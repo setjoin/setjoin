@@ -1,0 +1,32 @@
+{
+  "case": "jmap-recovery-raw-row-effects",
+  "effects": [
+    {
+      "change": "update",
+      "columns": {
+        "continuity_last_boot_at": {
+          "after": "<timestamp>",
+          "before": null
+        },
+        "continuity_last_boot_epoch": {
+          "after": "<boot-epoch>",
+          "before": null
+        },
+        "continuity_last_wall_clock": {
+          "after": "<timestamp>",
+          "before": null
+        }
+      },
+      "row": "singleton",
+      "table": "upgrade_control_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "all columns of the declared mailbox-scoped tables before and after; only changed columns or whole inserted/deleted rows are kept",
+    "fixture and generated IDs: stable names; timestamps: <timestamp>",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "GET /jmap/recovery-raw/{accountId}/{messageId}"
+}

@@ -1,0 +1,68 @@
+-- hr_approval_decide.pg — pgTAP tests for the HR consumer decide wrapper.
+-- Covers both hr.leave and hr.expense (same apply path — record-keeping only).
+BEGIN;
+SELECT plan(11);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (91300, 'hrdecide.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (91301, 'hrd_req',  91300, 'req@hrdecide.test',  'Requester', TRUE),
+  (91302, 'hrd_apr',  91300, 'apr@hrdecide.test',   'Approver',  TRUE),
+  (91303, 'hrd_other',91300, 'oth@hrdecide.test',   'Other',     TRUE),
+  (91304, 'hrd_rgmem',91300, 'rgm@hrdecide.test',   'RG Member', TRUE);
+
+-- ── hr.leave: approve → applied + audit ─────────────────────────────────────
+INSERT INTO approval_requests (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (91350, 'hr.leave', 91301, 'Leave: annual', '{"leave_type":"annual"}'::jsonb, 'user', 91302, now()+interval '1h');
+
+SELECT is(hr_approval_decide(91350, 91302, 'approve', 'ok'), 'applied', 'hr.leave approve → applied');
+SELECT is((SELECT status FROM approval_requests WHERE id=91350), 'applied', 'hr.leave row status applied');
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log WHERE action='approval_applied'
+     AND target_id=91350) >= 1,
+  'hr.leave approval_applied audit written'
+);
+
+-- ── hr.leave: deny → denied, NO applied audit ───────────────────────────────
+INSERT INTO approval_requests (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (91351, 'hr.leave', 91301, 'Leave: sick', '{"leave_type":"sick"}'::jsonb, 'user', 91302, now()+interval '1h');
+
+SELECT is(hr_approval_decide(91351, 91302, 'deny', 'no coverage'), 'denied', 'hr.leave deny → denied');
+SELECT is(
+  (SELECT count(*) FROM admin_audit_log WHERE action='approval_applied' AND target_id=91351),
+  0::bigint, 'hr.leave deny writes NO approval_applied audit'
+);
+
+-- ── hr.expense: approve → applied (same apply path) ─────────────────────────
+INSERT INTO approval_requests (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (91352, 'hr.expense', 91301, 'Expense: CNY 100.00', '{"currency":"CNY"}'::jsonb, 'user', 91302, now()+interval '1h');
+
+SELECT is(hr_approval_decide(91352, 91302, 'approve', NULL), 'applied', 'hr.expense approve → applied (identical to hr.leave)');
+
+-- ── SoD / authorization / idempotency (delegated to approval_decide) ───────
+-- Each needs its OWN fresh pending row — 91350/91351 are already decided above,
+-- and approval_decide's pending-guard means a non-pending row always yields
+-- BZ108 regardless of actor, which would mask the SoD/authorization checks.
+INSERT INTO approval_requests (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (91354, 'hr.leave', 91301, 'Leave: SoD target', '{"leave_type":"annual"}'::jsonb, 'user', 91302, now()+interval '1h'),
+  (91355, 'hr.leave', 91301, 'Leave: stranger target', '{"leave_type":"annual"}'::jsonb, 'user', 91302, now()+interval '1h'),
+  (91356, 'hr.leave', 91301, 'Leave: double-decide target', '{"leave_type":"annual"}'::jsonb, 'user', 91302, now()+interval '1h');
+
+SELECT throws_ok($$SELECT hr_approval_decide(91354, 91301, 'approve', NULL)$$, 'BZ106', NULL, 'SoD: requester cannot decide own request → BZ106');
+SELECT throws_ok($$SELECT hr_approval_decide(91355, 91303, 'approve', NULL)$$, 'BZ107', NULL, 'stranger not authorized → BZ107');
+SELECT is(hr_approval_decide(91356, 91302, 'approve', NULL), 'applied', 'first decide on 91356 succeeds (setup for double-decide)');
+SELECT throws_ok($$SELECT hr_approval_decide(91356, 91302, 'approve', NULL)$$, 'BZ108', NULL, 'double-decide → BZ108');
+
+-- ── role_group approver member can decide ───────────────────────────────────
+INSERT INTO admin_role_groups (id, name) OVERRIDING SYSTEM VALUE VALUES (91360, 'hrdecide_rg');
+INSERT INTO admin_role_assignments (user_id, role_group_id, eligible) VALUES (91304, 91360, FALSE);
+INSERT INTO approval_requests (id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (91353, 'hr.expense', 91301, 'Expense: role group', '{"currency":"CNY"}'::jsonb, 'role_group', 91360, now()+interval '1h');
+SELECT is(hr_approval_decide(91353, 91304, 'approve', NULL), 'applied', 'role_group member can decide hr.expense');
+
+SELECT * FROM finish();
+ROLLBACK;

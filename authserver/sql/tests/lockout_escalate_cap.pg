@@ -1,0 +1,168 @@
+-- pgTAP coverage for the lockout_escalate escalation cap (THREAT-LOCKOUT-UNCAPPED-SLEEP).
+-- The exponential locked_until growth is bounded at v_max_level = 5 (900s * 2^5 = 8h):
+-- below the cap the original doubling behaviour is unchanged, at the cap the level
+-- stops growing and every further escalation re-arms the maximum window, and a
+-- legacy pre-cap inflated level keeps its level but its window is capped too.
+BEGIN;
+SELECT plan(28);
+
+-- First call with the default threshold creates the row at level 0, no lockout.
+SELECT is(lockout_escalate('ip:203.0.113.61', 5), 0,
+    'lockout_escalate creates row at level 0');
+
+-- Below the cap the doubling behaviour is unchanged: crossing the threshold at
+-- old level 0 arms locked_until 900s * 2^1 = 1800s ahead (tolerance for clock
+-- drift between the UPDATE and the read).
+SELECT is(lockout_escalate('ip:203.0.113.61', 1), 1,
+    'lockout_escalate escalates to level 1 below the cap');
+SELECT ok(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT FROM auth_lockouts
+     WHERE lockout_key = 'ip:203.0.113.61') BETWEEN 1790 AND 1810,
+    'level-1 lockout window is the uncapped ~1800s doubling');
+
+-- Drive to the cap: three unasserted escalations reach level 4, the next one
+-- reaches v_max_level = 5.
+SELECT lockout_escalate('ip:203.0.113.61', 1);
+SELECT lockout_escalate('ip:203.0.113.61', 1);
+SELECT lockout_escalate('ip:203.0.113.61', 1);
+SELECT is(lockout_escalate('ip:203.0.113.61', 1), 5,
+    'lockout_escalate reaches the cap level 5');
+
+-- At the cap the level stops growing and the window re-arms at the 8h maximum
+-- (900s * 2^5 = 28800s) instead of doubling to 57600s.
+SELECT is(lockout_escalate('ip:203.0.113.61', 1), 5,
+    'lockout_escalate stays capped at level 5 beyond the cap');
+SELECT ok(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT FROM auth_lockouts
+     WHERE lockout_key = 'ip:203.0.113.61') BETWEEN 28700 AND 28810,
+    'capped lockout window re-arms at the 8h maximum, never above');
+
+-- A legacy pre-cap inflated level is preserved, but its window is capped at
+-- 8h going forward instead of compounding to days.
+INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
+VALUES ('ip:203.0.113.62', 99, now(), 9);
+SELECT is(lockout_escalate('ip:203.0.113.62', 1), 9,
+    'legacy inflated escalation level is preserved');
+SELECT ok(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT FROM auth_lockouts
+     WHERE lockout_key = 'ip:203.0.113.62') <= 28810,
+    'legacy inflated level lockout window is capped at the 8h maximum');
+
+-- ── Distributed-failure saturation (THREAT-LOCKOUT-UNCAPPED-SLEEP) ─────────
+-- One failure per source IP against ONE username (per-IP thresholds do not
+-- help): the shared user: key aggregates every failure. Pre-cap, ~39 such
+-- doublings overflowed the interval arithmetic and left locked_until
+-- ~244,000 years out — permanently defeating the prune and the Clear path.
+-- 40 failures must SATURATE at the 8h maximum instead.
+DO $test$
+BEGIN
+    FOR i IN 1..40 LOOP
+        PERFORM lockout_escalate('ip:203.0.113.' || i, 5);
+        PERFORM lockout_escalate('user:victim@test.local', 5);
+        PERFORM lockout_escalate('ip_user:203.0.113.' || i || ':victim@test.local', 5);
+    END LOOP;
+END
+$test$;
+
+SELECT is(
+    (SELECT escalation_level FROM auth_lockouts WHERE lockout_key = 'user:victim@test.local'), 5,
+    '40 distributed failures saturate at cap level 5');
+SELECT is(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT
+     FROM auth_lockouts WHERE lockout_key = 'user:victim@test.local'), 28800::BIGINT,
+    'distributed failures saturate the 8h interval — never far-future locked_until');
+SELECT is(
+    (SELECT failed_count FROM auth_lockouts WHERE lockout_key = 'user:victim@test.local'), 40,
+    'all 40 distributed failures stay accounted on the shared user key');
+
+-- The Check gate (store.IsLocked: EXISTS ... locked_until > now()) still sees
+-- the saturated lock, while a per-IP key that only ever saw one failure stays
+-- sub-threshold and admits its source.
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts
+            WHERE lockout_key = 'user:victim@test.local' AND locked_until > now()),
+    'Check gate still rejects the identity under the saturated lock');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM auth_lockouts
+                WHERE lockout_key = 'ip:203.0.113.7' AND locked_until > now()),
+    'a one-failure per-IP key does not lock its source');
+
+-- The successful-login Clear path (store.Clear: DELETE ... lockout_key = ANY)
+-- still behaves on a saturated row — pre-cap the absurd locked_until made the
+-- row effectively unmanageable. A successful login clears exactly the three
+-- keys of the connecting source IP + username.
+DELETE FROM auth_lockouts
+WHERE lockout_key = ANY(ARRAY[
+    'ip:203.0.113.7', 'user:victim@test.local', 'ip_user:203.0.113.7:victim@test.local']);
+
+SELECT is(
+    (SELECT count(*) FROM auth_lockouts WHERE lockout_key = 'user:victim@test.local'), 0::BIGINT,
+    'successful-login Clear removes the saturated lock');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM auth_lockouts
+                WHERE lockout_key = 'user:victim@test.local' AND locked_until > now()),
+    'Check gate admits the identity after the successful-login Clear');
+
+-- ── Threshold agreement: escalation ACROSS the threshold with intervening
+-- prune cycles (Astra wave89 med-shard2-007 HOLD item) ──────────────────────
+-- The threshold predicate must use POST-increment semantics: escalation fires
+-- on the p_threshold-th attempt itself. Pre-fix the predicate examined the
+-- pre-increment count, so five attempts left failed_count = 5 with the stale
+-- unlocked sentinel locked_until — and prune_old_lockouts' expired-threshold
+-- arm (failed_count >= threshold AND locked_until < now()) deleted exactly
+-- that fresh history before the next attempt could escalate. The @every 5m
+-- prune schedule makes that window real. now() is frozen for this whole pgTAP
+-- transaction, so each "aged sentinel" update emulates the separate
+-- per-attempt transactions a real interleaving produces: the previous
+-- attempt's locked_until sitting in the past when the next prune runs.
+SELECT is(lockout_escalate('ip:198.51.100.71', 5), 0,
+    'threshold agreement: attempt 1 creates the counter at level 0');
+SELECT is(prune_old_lockouts(), 0,
+    'threshold agreement: prune cycle 1 deletes nothing from the building counter');
+SELECT ok(
+    EXISTS (SELECT 1 FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.71'),
+    'threshold agreement: attempt-1 history survives its prune cycle');
+
+SELECT lockout_escalate('ip:198.51.100.71', 5);
+SELECT lockout_escalate('ip:198.51.100.71', 5);
+SELECT is(lockout_escalate('ip:198.51.100.71', 5), 0,
+    'threshold agreement: attempt 4 is still pre-threshold (post-increment count 4 < 5)');
+
+UPDATE auth_lockouts SET locked_until = now() - interval '1 minute'
+WHERE lockout_key = 'ip:198.51.100.71';
+SELECT is(prune_old_lockouts(), 0,
+    'threshold agreement: prune keeps fresh sub-threshold history even with an aged sentinel');
+SELECT is(
+    (SELECT failed_count FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.71'), 4,
+    'threshold agreement: the 4-failure history is intact before the threshold attempt');
+
+-- The threshold-th attempt itself must escalate (post-increment count 5 >= 5)
+-- and arm the lock — pre-fix it returned 0 and left the stale sentinel behind.
+SELECT is(lockout_escalate('ip:198.51.100.71', 5), 1,
+    'threshold agreement: escalation fires ON the threshold-th attempt');
+SELECT ok(
+    (SELECT EXTRACT(EPOCH FROM (locked_until - now()))::BIGINT FROM auth_lockouts
+     WHERE lockout_key = 'ip:198.51.100.71') BETWEEN 1790 AND 1810,
+    'threshold agreement: the threshold attempt arms the level-1 1800s window');
+
+-- The fresh post-threshold lock must survive an intervening prune: the
+-- expired-threshold arm requires locked_until < now(), and the threshold
+-- attempt just armed it.
+SELECT is(prune_old_lockouts(), 0,
+    'threshold agreement: prune spares the freshly armed post-threshold lock');
+SELECT is(
+    (SELECT escalation_level FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.71'), 1,
+    'threshold agreement: escalation level survives the prune cycle');
+
+-- Escalation continues ACROSS the threshold on later attempts, prune cycles
+-- interleaved, never losing the history.
+SELECT is(lockout_escalate('ip:198.51.100.71', 5), 2,
+    'threshold agreement: escalation continues past the threshold');
+SELECT is(prune_old_lockouts(), 0,
+    'threshold agreement: prune spares the active escalation');
+SELECT is(
+    (SELECT failed_count FROM auth_lockouts WHERE lockout_key = 'ip:198.51.100.71'), 6,
+    'threshold agreement: all attempts stay accounted across the prunes');
+
+SELECT * FROM finish();
+ROLLBACK;

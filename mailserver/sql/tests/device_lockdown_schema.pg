@@ -1,0 +1,22 @@
+-- pgTAP for V033 device-lockdown schema.
+BEGIN;
+SELECT plan(7);
+
+SELECT has_column('public', 'devices', 'enroll_state', 'devices.enroll_state exists');
+SELECT col_default_is('public', 'devices', 'enroll_state', 'unenrolled'::text,
+  'devices.enroll_state defaults to unenrolled');
+SELECT has_column('public', 'devices', 'credential_kind', 'devices.credential_kind exists');
+
+SELECT has_table('public', 'device_enroll_events', 'device_enroll_events table exists');
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.device_enroll_events'::regclass),
+  TRUE, 'device_enroll_events has RLS enabled');
+
+SELECT has_column('public', 'user_imap_settings', 'imap_enabled', 'user_imap_settings.imap_enabled exists');
+
+SELECT is(
+  (SELECT enabled FROM feature_toggles WHERE key = 'feature.device_lockdown'),
+  FALSE, 'feature.device_lockdown seeded FALSE');
+
+SELECT * FROM finish();
+ROLLBACK;

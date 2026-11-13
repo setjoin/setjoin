@@ -1,0 +1,250 @@
+{
+  "case": "go-json",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "office.provider.activated",
+        "after_state": {
+          "generation": 3,
+          "qualificationId": "<qualification:0>",
+          "routeState": "active_for_scope",
+          "scope": {
+            "parity": true
+          }
+        },
+        "before_state": {
+          "generation": 2,
+          "routeState": "connected_inactive"
+        },
+        "id": "<audit:0>",
+        "ip": null,
+        "notes": "Office1 parity",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "office_provider",
+        "user_id": "<actor>"
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "action": "office.provider.activated",
+            "after_state": {
+              "generation": 3,
+              "qualificationId": "<qualification:0>",
+              "routeState": "active_for_scope",
+              "scope": {
+                "parity": true
+              }
+            },
+            "before_state": {
+              "generation": 2,
+              "routeState": "connected_inactive"
+            },
+            "id": "<audit:0>",
+            "ip": null,
+            "notes": "Office1 parity",
+            "occurred_at": "<timestamp>",
+            "target_id": null,
+            "target_type": "office_provider",
+            "user_id": "<actor>"
+          }
+        ],
+        "before": [],
+        "table": "core_audit"
+      },
+      {
+        "after": [
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {},
+            "id": "<health:0>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          },
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {
+              "qualificationId": "<qualification:0>",
+              "source": "activation"
+            },
+            "id": "<health:1>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 3,
+            "provider_id": "office1",
+            "state": "healthy"
+          }
+        ],
+        "before": [
+          {
+            "app_revision_id": null,
+            "capacity_state": "available",
+            "expires_at": "<timestamp>",
+            "facts": {},
+            "id": "<health:0>",
+            "observed_at": "<timestamp>",
+            "provider_generation": 2,
+            "provider_id": "office1",
+            "state": "healthy"
+          }
+        ],
+        "table": "health"
+      },
+      {
+        "after": [
+          {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "https://editor.test/launch",
+              "proofMode": "test_disabled",
+              "wopiPublicBaseUrl": "https://setjoin.test"
+            },
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {
+              "parity": true
+            },
+            "draining": false,
+            "enabled": true,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 3,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "active_for_scope",
+            "updated_at": "<timestamp>",
+            "updated_by": "<actor>"
+          }
+        ],
+        "before": [
+          {
+            "active_qualification_id": "<qualification:0>",
+            "allowed_classifications": [
+              "regular"
+            ],
+            "allowed_file_families": [
+              "word",
+              "sheet",
+              "presentation"
+            ],
+            "allowed_platforms": [
+              "web",
+              "electron"
+            ],
+            "build_id": "test-1",
+            "config": {
+              "editorUrl": "https://editor.test/launch",
+              "proofMode": "test_disabled",
+              "wopiPublicBaseUrl": "https://setjoin.test"
+            },
+            "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "default_modes": {},
+            "draining": false,
+            "enabled": false,
+            "entitlement_ref": null,
+            "entitlement_state": "valid",
+            "generation": 2,
+            "provider_id": "office1",
+            "removed_at": null,
+            "route_state": "connected_inactive",
+            "updated_at": "<timestamp>",
+            "updated_by": null
+          }
+        ],
+        "table": "providers"
+      }
+    ],
+    "notify": [
+      {
+        "generation": 3,
+        "provider_id": "office1",
+        "route_state": "active_for_scope"
+      }
+    ],
+    "request": {
+      "body": "{\"ExpectedGeneration\":2,\"qualificationId\":\"<qualification>\",\"ſcope\":{\"parity\":true}}",
+      "external_path": "/api/admin/office/providers/{providerId}/activate",
+      "headers": {
+        "authorization": "<verified-session>",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-audit-reason": "Office1 parity"
+      },
+      "method": "POST",
+      "path": "/admin/office/providers/{providerId}/activate"
+    },
+    "response": {
+      "body": {
+        "generation": 3,
+        "providerId": "office1",
+        "qualificationId": "<qualification>",
+        "routeState": "active_for_scope",
+        "scope": {
+          "parity": true
+        }
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-admin"
+      },
+      "status": 200
+    },
+    "responses": [
+      {
+        "body": {
+          "generation": 3,
+          "providerId": "office1",
+          "qualificationId": "<qualification>",
+          "routeState": "active_for_scope",
+          "scope": {
+            "parity": true
+          }
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-admin"
+        },
+        "status": 200
+      }
+    ]
+  },
+  "route": "POST /admin/office/providers/{providerId}/activate"
+}

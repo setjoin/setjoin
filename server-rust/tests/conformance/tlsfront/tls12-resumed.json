@@ -1,0 +1,35 @@
+{
+  "certificate_pem": "-----BEGIN CERTIFICATE-----\nMIIBQTCB6KADAgECAhQLOQnRmv8Vr11GYQ3hw9ZLUs3+AzAKBggqhkjOPQQDAjAU\nMRIwEAYDVQQDDAlsb2NhbGhvc3QwHhcNNzUwMTAxMDAwMDAwWhcNMzcwMTAxMDAw\nMDAwWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjOPQMB\nBwNCAARe+99nLmxVAx+tUOZc5rZrZuIMn6BQ/dkdJqGnKTx1W9jzNse7wVRtdTQJ\nXupJfPg5Ms5WOEtR/QsWlMMQemwFoxgwFjAUBgNVHREEDTALgglsb2NhbGhvc3Qw\nCgYIKoZIzj0EAwIDSAAwRQIhAJRZ61xK9a+PcPMME1Zw3vPlidHj5NfX0s3QlSaS\njCK6AiAbamqi3VMp3cwH75QuVtCZVULFNwdJ06cYN38Wm+u+zw==\n-----END CERTIFICATE-----\n",
+  "client_session": {
+    "State": "AwMCwCsAAAAAauwZQzDAx5kdEhFOzoOR4tONlqt/qPj3u37x/tXZTTCnSace5NPFYtzw6iCdhk+0SGxMMxYAAAABAAABSgABRTCCAUEwgeigAwIBAgIUCzkJ0Zr/Fa9dRmEN4cPWS1LN/gMwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTc1MDEwMTAwMDAwMFoXDTM3MDEwMTAwMDAwMFowFDESMBAGA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEXvvfZy5sVQMfrVDmXOa2a2biDJ+gUP3ZHSahpyk8dVvY8zbHu8FUbXU0CV7qSXz4OTLOVjhLUf0LFpTDEHpsBaMYMBYwFAYDVR0RBA0wC4IJbG9jYWxob3N0MAoGCCqGSM49BAMCA0gAMEUCIQCUWetcSvWvj3DzDBNWcN7z5YnR4+TX19LN0JUmkowiugIgG2pqot1TKd3MB++ULlbQmVVCxTcHSdOnGDd/Fpvrvs8AAAAAAwAAAAAd",
+    "Ticket": "tAzmUlmPBK9JoVd9pL1A2z9oWGnVRT567blxqQTQUOPEDMMIOYZI+FKGtst8IkwRI7YMnP8M6zK0zv994BRPU29XgyGNpUwy5GzglNejM2MVjvQ0+hiAJPrR3Qga6x+tSGsdMIV1kbJfbexF4d4wn5LQXvP8lRd6UAFt"
+  },
+  "format": 1,
+  "go_source": "28d8e6392f759e5aecb77e1acf6dc53061739925",
+  "observation": [
+    {
+      "alpn": "http/1.1",
+      "body": "ok\n",
+      "chain": 1,
+      "cipher": 49195,
+      "resumed": false,
+      "subject": "localhost",
+      "version": 771
+    },
+    {
+      "alpn": "http/1.1",
+      "body": "ok\n",
+      "chain": 1,
+      "cipher": 49195,
+      "resumed": true,
+      "subject": "localhost",
+      "version": 771
+    }
+  ],
+  "public_test_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+HN8ziZHi/FjfpSV\npbLXRbr/DLNjzVc+7mkxja1Ynw+hRANCAARe+99nLmxVAx+tUOZc5rZrZuIMn6BQ\n/dkdJqGnKTx1W9jzNse7wVRtdTQJXupJfPg5Ms5WOEtR/QsWlMMQemwF\n-----END PRIVATE KEY-----\n",
+  "server_state": {
+    "plain": "AwMBwCsAAAAAauwZQzDAx5kdEhFOzoOR4tONlqt/qPj3u37x/tXZTTCnSace5NPFYtzw6iCdhk+0SGxMMxYAAAABAAAAAAAAAAAd",
+    "ticket": "tAzmUlmPBK9JoVd9pL1A2z9oWGnVRT567blxqQTQUOPEDMMIOYZI+FKGtst8IkwRI7YMnP8M6zK0zv994BRPU29XgyGNpUwy5GzglNejM2MVjvQ0+hiAJPrR3Qga6x+tSGsdMIV1kbJfbexF4d4wn5LQXvP8lRd6UAFt",
+    "version": 771
+  }
+}

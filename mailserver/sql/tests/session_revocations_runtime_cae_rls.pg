@@ -1,0 +1,58 @@
+-- session_revocations_runtime_cae_rls.pg
+-- pgTAP: V035 session_revocations + session_activity + session_control column + toggles.
+BEGIN;
+SELECT plan(10);
+
+-- Tables exist with the expected columns.
+SELECT has_table('public', 'session_revocations', 'session_revocations table exists');
+SELECT has_table('public', 'session_activity', 'session_activity table exists');
+SELECT has_column('public', 'conditional_access_policies', 'session_control',
+  'conditional_access_policies has session_control');
+
+-- scope CHECK rejects an unknown scope.
+SELECT throws_ok(
+  $$ INSERT INTO session_revocations(user_id, scope, reason, expires_at)
+     VALUES (1, 'bogus', 'test', statement_timestamp() + interval '1 day') $$,
+  '23514',
+  NULL,
+  'session_revocations.scope CHECK rejects an unknown scope'
+);
+
+-- Conditional NOT NULL constraints: scope='jti' requires jti; scope='family' requires family_id.
+SELECT throws_ok(
+  $$ INSERT INTO session_revocations(user_id, scope, reason, expires_at)
+     VALUES (1, 'jti', 'test', statement_timestamp() + interval '1 day') $$,
+  '23514',
+  NULL,
+  'session_revocations: scope=jti with jti=NULL is rejected'
+);
+SELECT throws_ok(
+  $$ INSERT INTO session_revocations(user_id, scope, reason, expires_at)
+     VALUES (1, 'family', 'test', statement_timestamp() + interval '1 day') $$,
+  '23514',
+  NULL,
+  'session_revocations: scope=family with family_id=NULL is rejected'
+);
+
+-- RLS is enabled AND forced on both new user-data tables.
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE relname = 'session_revocations'),
+  TRUE, 'session_revocations RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'session_revocations'),
+  TRUE, 'session_revocations RLS forced');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE relname = 'session_activity'),
+  TRUE, 'session_activity RLS forced');
+
+-- Fix 2: session_revocations_admin_read SELECT policy must exist so SessionEnforcementLog
+-- returns rows via the main pool (setjoin_app, NOBYPASSRLS) in the default deploy.
+SELECT ok(
+  EXISTS(SELECT 1 FROM pg_policies
+           WHERE tablename='session_revocations'
+             AND policyname='session_revocations_admin_read'
+             AND cmd='SELECT'),
+  'session_revocations_admin_read SELECT policy exists');
+
+SELECT finish();
+ROLLBACK;

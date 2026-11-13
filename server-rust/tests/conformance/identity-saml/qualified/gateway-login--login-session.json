@@ -1,0 +1,26 @@
+{
+  "case": "login-session",
+  "format": 1,
+  "go_source": "c6db4fccc08bd2df88f4a102b816a5a12fa09ddd",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "outbound": [],
+    "request": {
+      "method": "*",
+      "path": "/auth/saml/",
+      "wire_method": "GET",
+      "wire_path": "/auth/saml/idfed3/login"
+    },
+    "response": {
+      "body": "<a href=\"/\">Found</a>.\n\n",
+      "headers": {
+        "content-type": "text/html; charset=utf-8",
+        "location": "/"
+      },
+      "status": 302
+    }
+  },
+  "route": "* /auth/saml/ login"
+}

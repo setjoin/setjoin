@@ -1,0 +1,35 @@
+// Recording-only overlay: the unmodified claim/fetch/apply worker, real DB/HTTP/S3.
+package chat
+
+import (
+ "context"
+ "io"
+ "log/slog"
+ "net"
+ "net/http"
+ "os"
+ "strconv"
+ "testing"
+ "time"
+ "github.com/minio/minio-go/v7"
+ "github.com/minio/minio-go/v7/pkg/credentials"
+ "setjoin.com/shared/pgxutil"
+ "setjoin.com/shared/ssrf"
+)
+
+type gofreeChat3Store struct{*minio.Client}
+func(s gofreeChat3Store)GetObject(ctx context.Context,bucket,key string,opts minio.GetObjectOptions)(io.ReadCloser,error){return s.Client.GetObject(ctx,bucket,key,opts)}
+
+func TestGoFreeChat3UnfurlTick(t *testing.T){
+ ctx:=context.Background()
+ pool,err:=pgxutil.OpenPool(ctx,os.Getenv("GOFREE_CHAT_APP_DSN"),1,os.Getenv("GOFREE_CHAT_ENCRYPTION"),"")
+ if err!=nil{t.Fatal(err)};defer pool.Close()
+ object,err:=minio.New(os.Getenv("GOFREE_CHAT_S3"),&minio.Options{Creds:credentials.NewStaticV4("test-access","test-secret",""),Secure:false})
+ if err!=nil{t.Fatal(err)}
+ // Public injected peripheral seam; production's SSRF client is unchanged.
+ client:=&http.Client{Timeout:10*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse},Transport:&http.Transport{DialContext:func(ctx context.Context,network,address string)(net.Conn,error){var dialer net.Dialer;return dialer.DialContext(ctx,network,os.Getenv("GOFREE_CHAT_PEER"))}}}
+ if os.Getenv("GOFREE_CHAT_SAFE_CLIENT")=="1"{client=ssrf.SafeHTTPClient(10*time.Second)}
+ h:=NewHandler(pool,nil,slog.Default());h.SetUnfurl(gofreeChat3Store{object},"mailblobs",client)
+ message,err:=strconv.ParseInt(os.Getenv("GOFREE_CHAT_MESSAGE"),10,64);if err!=nil{t.Fatal(err)}
+ h.processUnfurl(ctx,message,os.Getenv("GOFREE_CHAT_URL"))
+}

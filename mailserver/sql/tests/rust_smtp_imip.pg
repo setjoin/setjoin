@@ -1,0 +1,33 @@
+-- Worker-only transport identity; body IDs cannot select another mailbox.
+BEGIN;
+SELECT plan(18);
+SELECT mk_account('smtp6-imip-owner') AS mb \gset
+SELECT mk_account('smtp6-imip-foreign') AS other \gset
+INSERT INTO calendars(mailbox_id,name,is_default) VALUES(:mb,'iMIP',true);
+SELECT ok(has_function_privilege('setjoin_worker','rust_smtp_imip_request_gate(jsonb,text)','EXECUTE'),'worker can resolve attendees');
+SELECT ok(NOT has_function_privilege('setjoin_app','rust_smtp_imip_request_gate(jsonb,text)','EXECUTE'),'app cannot resolve cross-tenant attendees');
+SELECT ok(NOT has_function_privilege('setjoin_app','rust_smtp_imip_request_apply(jsonb,jsonb,timestamptz)','EXECUTE'),'app cannot import across tenants');
+-- #544: the body's attendee list cannot pick a tenant the envelope recipient does not own.
+SELECT is((SELECT rust_smtp_imip_request_gate(jsonb_build_array(jsonb_build_object('email',v.email)),o.email) FROM mailboxes v,mailboxes o WHERE v.id=:mb AND o.id=:other),NULL::jsonb,'attendee outside the envelope recipient is refused');
+SELECT is((SELECT rust_smtp_imip_request_gate(jsonb_build_array(jsonb_build_object('email',email)),'') FROM mailboxes WHERE id=:mb),NULL::jsonb,'no envelope recipient has no authority');
+SELECT is((SELECT count(*)::int FROM rate_limit_counters WHERE key='itip:recipient:'||(SELECT user_id FROM mailboxes WHERE id=:mb)),0,'a refused attendee is not charged to the victim');
+SELECT is((SELECT (rust_smtp_imip_request_gate(jsonb_build_array(jsonb_build_object('email','nobody@smtp6.invalid'),jsonb_build_object('email',v.email)),upper(v.email))->>'mailbox')::bigint FROM mailboxes v WHERE v.id=:mb),:mb::bigint,'case-folded recipient resolves; a later attendee may match');
+DELETE FROM rate_limit_counters WHERE key='itip:recipient:'||(SELECT user_id FROM mailboxes WHERE id=:mb);
+CREATE TEMP TABLE smtp6_imip_ctx AS SELECT rust_smtp_imip_request_gate(jsonb_build_array(jsonb_build_object('email',email,'mailboxId',:other)),email) AS ctx FROM mailboxes WHERE id=:mb;
+SELECT is((SELECT (ctx->>'mailbox')::bigint FROM smtp6_imip_ctx),:mb::bigint,'recipient comes from enabled user primary mailbox');
+SELECT is((SELECT count FROM rate_limit_counters WHERE key='itip:recipient:'||(SELECT user_id FROM mailboxes WHERE id=:mb)),1,'gate charges rate');
+SELECT is(rust_smtp_imip_request_gate('[{"email":"unknown@smtp6.invalid"}]','unknown@smtp6.invalid'),NULL::jsonb,'unknown attendee has no authority');
+CREATE TEMP TABLE smtp6_imip_obj AS SELECT '{"uid":"smtp6-itip-unit","title":"Meeting","start":"2030-01-02T10:00:00Z","end":"2030-01-02T11:00:00Z","isAllDay":false,"timeZone":"UTC","status":"tentative"}'::jsonb AS obj;
+SELECT is(rust_smtp_imip_request_apply(jsonb_set((SELECT ctx FROM smtp6_imip_ctx),'{mailbox}',to_jsonb(:other::bigint)),(SELECT obj FROM smtp6_imip_obj),NULL),NULL::jsonb,'forged foreign mailbox fails same-call owner check');
+SELECT rust_smtp_imip_request_apply((SELECT ctx FROM smtp6_imip_ctx),(SELECT obj FROM smtp6_imip_obj),NULL);
+SELECT is((SELECT count(*)::int FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.uid='smtp6-itip-unit' AND c.mailbox_id=:mb),1,'recipient-owned event imported');
+SELECT is((SELECT count(*)::int FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.uid='smtp6-itip-unit' AND c.mailbox_id=:other),0,'other tenant untouched');
+SELECT rust_smtp_imip_request_apply((SELECT ctx FROM smtp6_imip_ctx),(SELECT obj FROM smtp6_imip_obj),NULL);
+SELECT is((SELECT count(*)::int FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.uid='smtp6-itip-unit' AND c.mailbox_id=:mb),1,'UID deduplicates in owning mailbox');
+SELECT is((SELECT status FROM calendar_events e JOIN calendars c ON c.id=e.calendar_id WHERE e.uid='smtp6-itip-unit' AND c.mailbox_id=:mb),'tentative','import remains tentative');
+SELECT ok(NOT has_function_privilege('setjoin_app','rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)','EXECUTE'),'app cannot impersonate organizer for occurrence');
+UPDATE calendar_events e SET organizer_email='organizer@smtp6.invalid' FROM calendars c WHERE c.id=e.calendar_id AND c.mailbox_id=:mb AND e.uid='smtp6-itip-unit';
+SELECT is(rust_smtp_imip_cancel_occurrence('smtp6-itip-unit',:other,'organizer@smtp6.invalid','2030-01-02 10:00Z'),NULL::jsonb,'occurrence cannot target foreign mailbox');
+SELECT is(rust_smtp_imip_cancel_occurrence('smtp6-itip-unit',:mb,'forged@smtp6.invalid','2030-01-02 10:00Z'),NULL::jsonb,'organizer re-proved inside mutation');
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,156 @@
+[
+  {
+    "greylist": true,
+    "greylist_rows": [
+      {
+        "ip": "127.0.0.1/32",
+        "sender": "sender@remote.test",
+        "recipient": "alice@smtp1.test",
+        "pass_count": 0
+      }
+    ],
+    "name": "fresh-triplet-repeats-defer",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cSender@REMOTE.TEST\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "450 Greylisted — please retry in a few minutes\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "450 Greylisted — please retry in a few minutes\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "greylist": true,
+    "greylist_rows": [
+      {
+        "ip": "127.0.0.1/32",
+        "sender": "sender@remote.test",
+        "recipient": "alice@smtp1.test",
+        "pass_count": 2
+      }
+    ],
+    "setup_sql": "INSERT INTO greylist(ip,sender,recipient,first_seen) VALUES ('127.0.0.1','sender@remote.test','alice@smtp1.test',now()-interval '10 minutes')",
+    "name": "mature-triplet-repeats-increment",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cSender@REMOTE.TEST\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "greylist": true,
+    "greylist_rows": [],
+    "setup_sql": "INSERT INTO greylist_whitelist(entry_type,entry_value) VALUES ('domain','whitelist.smtp1.test')",
+    "name": "whitelisted-domain-does-not-create-triplet",
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "EHLO peer\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003csender@whitelist.smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003calice@smtp1.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cmissing@remote.test\u003e\r\n",
+        "lines": 1,
+        "reply": "550 No such user here\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

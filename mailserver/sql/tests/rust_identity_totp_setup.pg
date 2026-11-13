@@ -1,0 +1,15 @@
+BEGIN;
+SELECT plan(4);
+SELECT set_config('app.encryption_key','idmfa1-pgtap-key',true);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-setup.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,totp_enabled,totp_secret_enc,factor_generation)
+VALUES('idmfa1-setup','setup@idmfa1-setup.test','setup',:dom,'x',true,pgp_sym_encrypt('ACTIVE','idmfa1-pgtap-key'),2) RETURNING id AS uid \gset
+INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at)
+VALUES('proof',:uid,'sid','totp.replace','totp',2,'session',now()+interval '5 minutes');
+SELECT rust_identity_totp_setup(:uid,'{"jti":"sid"}'::jsonb,'proof','STAGED') AS result \gset
+SELECT is(:'result'::jsonb->>'status','created','setup stages a target');
+SELECT is((SELECT pgp_sym_decrypt(totp_secret_enc::bytea,'idmfa1-pgtap-key') FROM users WHERE id=:uid),'ACTIVE','staging leaves active factor intact');
+SELECT is(rust_identity_totp_setup(:uid,'{"jti":"sid"}'::jsonb,'proof','NEW')->>'secret','STAGED','resume returns same staged secret');
+SELECT is((SELECT factor_generation FROM users WHERE id=:uid),2::bigint,'staging does not mutate factor generation');
+SELECT * FROM finish();
+ROLLBACK;

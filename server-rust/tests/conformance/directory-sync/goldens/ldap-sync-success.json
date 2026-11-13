@@ -1,0 +1,508 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "account_provision",
+        "after_state": {
+          "domain_id": "<id>",
+          "email": "alice@host-a.test",
+          "guest": false,
+          "mailbox_id": "<id>",
+          "sync_source": "ldap"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": "ldap",
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "revoke_user_sessions",
+        "after_state": {
+          "expires_at": "<timestamp>",
+          "family_id": null,
+          "jti": null,
+          "not_before": "<timestamp>",
+          "scope": "all",
+          "user_id": "<id>"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "revoke_user_sessions",
+        "after_state": {
+          "expires_at": "<timestamp>",
+          "family_id": null,
+          "jti": null,
+          "not_before": "<timestamp>",
+          "scope": "all",
+          "user_id": "<id>"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      },
+      {
+        "action": "account_provision",
+        "after_state": {
+          "domain_id": "<id>",
+          "email": "ivan@host-a.test",
+          "guest": false,
+          "mailbox_id": "<id>",
+          "sync_source": "ldap"
+        },
+        "before_state": null,
+        "checksum": "<masked>",
+        "id": "<masked>",
+        "ip": null,
+        "notes": "ldap",
+        "occurred_at": "<masked>",
+        "target_id": "<id>",
+        "target_type": "user",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ldap_sync_auto_create_depts",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_base_dn",
+              "value": "\"dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_bind_dn",
+              "value": "\"cn=svc,dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_enabled",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_last_absence_sweep",
+              "value": "<timestamp>"
+            },
+            {
+              "encrypted": true,
+              "key": "ldap_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_port",
+              "value": "\"<port>\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_tls",
+              "value": "\"true\""
+            }
+          ],
+          "conflicts": [
+            {
+              "field": "job_title",
+              "local_value": "\"Local Title\"",
+              "remote_value": "\"Director\"",
+              "resolution": null,
+              "resolved": false,
+              "source": "ldap",
+              "user": "bob@host-a.test"
+            },
+            {
+              "field": "krb5_principal",
+              "local_value": "bob@CORP.EXAMPLE",
+              "remote_value": "bob.new@CORP.EXAMPLE",
+              "resolution": "kept_local",
+              "resolved": false,
+              "source": "ldap",
+              "user": "bob@host-a.test"
+            },
+            {
+              "field": "email",
+              "local_value": "carol@host-a.test",
+              "remote_value": "carol@host-a.test",
+              "resolution": null,
+              "resolved": false,
+              "source": "ldap",
+              "user": "carol@host-a.test"
+            }
+          ],
+          "departments": [
+            {
+              "ldap_ou": "Engineering",
+              "path": "Engineering"
+            }
+          ],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [
+            {
+              "checked": 9,
+              "created": 2,
+              "details": {
+                "cursor_after": "20260101000009Z",
+                "full_enumeration": true
+              },
+              "disabled": 2,
+              "error": "1 directory entries failed",
+              "skipped": 5,
+              "source": "ldap",
+              "updated": 1
+            }
+          ],
+          "users": [
+            {
+              "ad_upn": "alice@host-a.test",
+              "department": "Engineering",
+              "display_name": "Alice A",
+              "email": "alice@host-a.test",
+              "enabled": true,
+              "first_name": "Alice",
+              "job_title": "Engineer",
+              "krb5_principal": "alice@host-a.test",
+              "last_name": "A",
+              "local_overrides": {},
+              "manager": "bob@host-a.test",
+              "phone": "+1 555 0001",
+              "sync_source": "ldap",
+              "username": "alice"
+            },
+            {
+              "ad_upn": null,
+              "department": "Engineering",
+              "display_name": "Bob Renamed",
+              "email": "bob@host-a.test",
+              "enabled": true,
+              "first_name": "Bob",
+              "job_title": null,
+              "krb5_principal": "bob@CORP.EXAMPLE",
+              "last_name": "B",
+              "local_overrides": {
+                "job_title": "Local Title"
+              },
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "bob@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Carol Local",
+              "email": "carol@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "carol@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Dave",
+              "email": "dave@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "dave@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Hank",
+              "email": "hank@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "hank@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Ivan UAC",
+              "email": "ivan@host-a.test",
+              "enabled": false,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "ivan"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ldap5-admin",
+              "email": "ldap5-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ldap5-admin@host-a.test"
+            }
+          ]
+        },
+        "before": {
+          "config": [
+            {
+              "encrypted": false,
+              "key": "ldap_sync_auto_create_depts",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_base_dn",
+              "value": "\"dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_bind_dn",
+              "value": "\"cn=svc,dc=example,dc=test\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_enabled",
+              "value": "\"true\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_host",
+              "value": "\"127.0.0.1\""
+            },
+            {
+              "encrypted": true,
+              "key": "ldap_sync_password_enc",
+              "value": "<sealed:\"pw\">"
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_port",
+              "value": "\"<port>\""
+            },
+            {
+              "encrypted": false,
+              "key": "ldap_sync_tls",
+              "value": "\"true\""
+            }
+          ],
+          "conflicts": [],
+          "departments": [],
+          "inbox": [],
+          "links": [],
+          "quarantine": [],
+          "source": [
+            {
+              "cursor": null,
+              "generation": 1,
+              "state": "paused"
+            }
+          ],
+          "sync_log": [],
+          "users": [
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Bob Old",
+              "email": "bob@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": "bob@CORP.EXAMPLE",
+              "last_name": null,
+              "local_overrides": {
+                "job_title": "Local Title"
+              },
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "bob@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Carol Local",
+              "email": "carol@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "carol@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Dave",
+              "email": "dave@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "dave@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "Hank",
+              "email": "hank@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "ldap",
+              "username": "hank@host-a.test"
+            },
+            {
+              "ad_upn": null,
+              "department": null,
+              "display_name": "ldap5-admin",
+              "email": "ldap5-admin@host-a.test",
+              "enabled": true,
+              "first_name": null,
+              "job_title": null,
+              "krb5_principal": null,
+              "last_name": null,
+              "local_overrides": {},
+              "manager": null,
+              "phone": null,
+              "sync_source": "local",
+              "username": "ldap5-admin@host-a.test"
+            }
+          ]
+        },
+        "directory": [
+          "bind dn=cn=svc,dc=example,dc=test password=ok",
+          "search base=dc=example,dc=test scope=2 sizeLimit=0 filter=(objectClass=person) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl page=500"
+        ],
+        "table": "ldap"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/ldap/sync",
+      "method": "POST",
+      "path": "/admin/ldap/sync"
+    },
+    "response": {
+      "body": "{\"checked\":9,\"created\":2,\"disabled\":2,\"duration\":\"<duration>\",\"errors\":1,\"skipped\":5,\"updated\":1}",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "97"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/ldap/sync"
+}

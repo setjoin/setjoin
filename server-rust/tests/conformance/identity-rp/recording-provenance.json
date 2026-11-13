@@ -1,0 +1,30 @@
+{
+  "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+  "go_version": "go1.26.6 linux/amd64",
+  "covered_packages": [
+    "setjoin.com/authserver/internal/handlers",
+    "setjoin.com/authserver/cmd/authserverd"
+  ],
+  "overlay_note": "Go1.26.6 coverage instrumentation reads original covered package sources; external transport overlay is in uninstrumented federation, frozen handlers remain covered. Exact synthetic hostname pin only; no shipped Go file modified.",
+  "binary_sha256": "3536611beaa2bdff61ca2ca1323a536dfc1af55c2c9aede82c798d2fa6b77364",
+  "inputs": {
+    "authserver/internal/federation/oidc_rp.go": "bfd261032053789ce50dd8d80e05af8cf94596cae01ddb5d55621127ea688fb0",
+    "authserver/internal/handlers/auth.go": "0250e9b37d2436ab766dafc0238d79da1539b627840bc0d74eeebdec6f54ff1f",
+    "authserver/internal/handlers/identity_links.go": "34827c8f44f72ea0c38777560a6824074f7f6568ba074e62e89d32612e65f222",
+    "server-rust/tests/conformance/identity-rp/record-transport.py": "4967576698c0dc586aee03eb89ed72cef193b5bece17bd46aeead38a6375d7e1",
+    "server-rust/tests/conformance/identity-rp/ca-cert.pem": "d25aed8f75492b84a753fc8ea0da55b97a9e4c2d44ab3752af8e758391fdaf4c",
+    "server-rust/tests/conformance/identity-rp/idp-cert.pem": "b07d16c094b7aaeb27b713e09b74b44ca873164d9bb2ea8bea992e357aa97053"
+  },
+  "startup_secret_oracle": {
+    "artifact": "secret-go.json",
+    "seam": "ResealOIDCProviderClientSecrets",
+    "go_source": "61e9cff379b4087b970c7637ab8af5c4c252af67",
+    "go_version": "go1.26.6 linux/amd64",
+    "production_source": "authserver/internal/federation/oidc_secret.go",
+    "production_sha256": "2c8e6fe79f85c10a1c87bd7cf7f0a38e0e2f28da1dae8fc292518fca912a97b3",
+    "recorder": "authserver/internal/federation/idfed2_oracle_test.go",
+    "recorder_sha256": "4dd58bb65a04f634a8e870e24b8c11c0e0860a42fd03b5317951c917cb42a06c",
+    "command": "go test -tags gofree_record ./internal/federation -run ^TestRecordIDFED2SecretReseal$ -count=1",
+    "transport_overlay": false
+  }
+}

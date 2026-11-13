@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/features",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/features/feature.demo",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"enabled\":false}"
+    }
+  ],
+  "stdout": "Feature feature.demo set to off.\n",
+  "stderr": "",
+  "exit": 0
+}

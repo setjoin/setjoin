@@ -1,0 +1,10 @@
+BEGIN;
+SELECT plan(3);
+INSERT INTO domains(name,is_local) VALUES('idmfa1-login.test',true) RETURNING id AS dom \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('idmfa1-login','login@idmfa1-login.test','login',:dom,'x') RETURNING id AS uid \gset
+SELECT ok(NOT rust_identity_mfa_bootstrap_grant(:uid,'stale','hash','sid'),'credential replacement refuses bootstrap publication');
+SELECT ok(rust_identity_mfa_bootstrap_grant(:uid,'x','hash','sid'),'current password proof issues bootstrap grant');
+SELECT is((SELECT count(*) FROM mfa_reauth_step_ups WHERE user_id=:uid AND token_hash='hash' AND session_jti='sid' AND operation='bootstrap.totp.enroll' AND token_scope='mfa_pending'),1::bigint,'pending grant binds the proved principal and token');
+SELECT * FROM finish();
+ROLLBACK;

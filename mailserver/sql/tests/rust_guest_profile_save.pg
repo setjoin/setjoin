@@ -1,0 +1,26 @@
+-- F11's public reducer seam: save/read parity and live same-assignment scope.
+BEGIN;
+SELECT plan(5);
+DO $$ BEGIN PERFORM set_config('app.encryption_key',repeat('22',32),true); END $$;
+INSERT INTO domains(name,is_local) VALUES('guests1-save-a.test',true),('guests1-save-b.test',true);
+INSERT INTO users(username,email,domain_id,display_name,enabled)
+ SELECT 'guests1-save@guests1-save-a.test','guests1-save@guests1-save-a.test',id,'Save actor',true FROM domains WHERE name='guests1-save-a.test';
+INSERT INTO admin_role_groups(name,permissions,domain_scope)
+ SELECT 'guests1-save',ARRAY['guests.manage','guests.view'],id FROM domains WHERE name='guests1-save-a.test';
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by)
+ SELECT u.id,r.id,u.id FROM users u CROSS JOIN admin_role_groups r WHERE u.email='guests1-save@guests1-save-a.test' AND r.name='guests1-save';
+CREATE TEMP TABLE guests1_save_input AS SELECT u.id actor,
+ jsonb_build_object('hostDomainId',d.id,'name','Profile','canPost',false,'historyFromJoin',true,
+ 'allowDownload',false,'allowMeetCreate',false,'allowMeetHost',false,'canInitiateDm',false,
+ 'allowNativeShell',true,'defaultExpiryDays',NULL,'apps','[]'::jsonb) body
+ FROM users u CROSS JOIN domains d WHERE u.email='guests1-save@guests1-save-a.test' AND d.name='guests1-save-a.test';
+CREATE TEMP TABLE guests1_saved AS SELECT actor,rust_guest_profile_save(actor,NULL,body) result FROM guests1_save_input;
+SELECT is((SELECT result->>'name' FROM guests1_saved),'Profile','save returns the saved profile');
+SELECT is((SELECT guest_profile_get(actor,(result->>'id')::bigint) FROM guests1_saved),(SELECT result FROM guests1_saved),'returned representation is the authorized public read');
+SELECT throws_ok(format('SELECT rust_guest_profile_save(%s,NULL,%L::jsonb)',actor,
+ body||jsonb_build_object('hostDomainId',(SELECT id FROM domains WHERE name='guests1-save-b.test'))),
+ 'BZ170',NULL,'actor cannot create in a foreign ownership domain') FROM guests1_save_input;
+SELECT throws_ok(format('SELECT rust_guest_profile_save(-1,NULL,%L::jsonb)',body),'BZ002',NULL,'no live assignment grants no authority') FROM guests1_save_input;
+SELECT is((SELECT jsonb_array_length(guest_profile_list(actor)) FROM guests1_save_input),1,'rejected saves leave the public collection unchanged');
+SELECT * FROM finish();
+ROLLBACK;

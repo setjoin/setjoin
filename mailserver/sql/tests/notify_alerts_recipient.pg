@@ -1,0 +1,56 @@
+-- notify_alerts_recipient.pg — pgTAP: health alert email is queued with a REAL
+-- recipient, not a NULL/broken one.
+--
+-- Regression for the bug where notify_alerts built the send() recipient with
+--   format('["{\"email\":\"%s\"}"]', replace(v_emails, ',', '","'))
+-- which casts to a JSONB array of STRING scalars (each element the literal text
+-- `{"email":"a@b.com"}`), so send() step-6 `array_agg(r->>'email')` collected
+-- {NULL} and every [ALERT] mail was queued to a NULL external recipient (and the
+-- comma path produced one broken fragment instead of N addresses). Pre-fix the
+-- queued rcpt_addrs is {NULL} and the multi-address case yields a single garbled
+-- recipient → both assertions below fail. Post-fix the recipient is a proper
+-- array of objects and send() extracts the real addresses.
+BEGIN;
+SELECT plan(3);
+
+-- Domains: local (sender) + remote (external alert recipients → outbound queue).
+INSERT INTO domains (name, is_local) VALUES ('alerts.local', TRUE);
+INSERT INTO domains (name, is_local) VALUES ('alerts.remote', FALSE);
+
+-- An admin sender mailbox (notify_alerts picks the first is_local_admin primary).
+INSERT INTO users (id, username, domain_id, email, display_name, is_local_admin)
+  VALUES (7777, 'hcadmin', (SELECT id FROM domains WHERE name='alerts.local'),
+          'admin@alerts.local', 'HC Admin', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (9777, 7777, (SELECT id FROM domains WHERE name='alerts.local'),
+          'admin@alerts.local', 'HC Admin', 'personal', TRUE);
+
+-- Config: two comma-separated EXTERNAL recipients + 3-consecutive threshold.
+INSERT INTO system_config (key, value) VALUES
+  ('alert_email_addresses', '"ops@alerts.remote,sec@alerts.remote"'::jsonb),
+  ('alert_min_consecutive', '3'::jsonb)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- Seed a 3-deep consecutive error streak for one check (most-recent-first all error).
+INSERT INTO health_history (check_name, status, value, threshold, details, checked_at) VALUES
+  ('zz_alert_check', 'error', 999, 100, 'boom', now() - interval '2 min'),
+  ('zz_alert_check', 'error', 999, 100, 'boom', now() - interval '1 min'),
+  ('zz_alert_check', 'error', 999, 100, 'boom', now());
+
+SELECT lives_ok($$ SELECT notify_alerts() $$, 'notify_alerts runs');
+
+-- The alert mail was queued with BOTH real external recipients (not {NULL}, not a
+-- single comma-mangled fragment).
+SELECT is(
+  (SELECT array_length(rcpt_addrs, 1) FROM outbound_queue_hot ORDER BY id DESC LIMIT 1),
+  2,
+  'health alert queues both comma-separated recipients (2 addresses)');
+
+SELECT is(
+  (SELECT rcpt_addrs FROM outbound_queue_hot ORDER BY id DESC LIMIT 1)
+    @> ARRAY['ops@alerts.remote','sec@alerts.remote'],
+  TRUE,
+  'queued recipients are the real addresses, not NULL');
+
+SELECT finish();
+ROLLBACK;

@@ -1,0 +1,196 @@
+-- review_remediation_audit.pg — WP3 audit-coverage proofs (review remediation
+-- wave). Proves the newly-covered MUST reducers land their admin_audit_log row
+-- in the same transaction, that routine-tier rows obey the audit_policy
+-- lean/full gate, that heartbeats and no-op arms stay silent, and that a
+-- failed mutation leaves no audit row behind.
+-- Requires: the loaded reducer tree (load-test-schema.sh) and fixtures below.
+BEGIN;
+SELECT plan(49);
+-- Scope the ledger: the schema fixtures seed audit rows; this file counts
+-- only its own deltas, so start from a known-empty table (rolled back with
+-- everything else at the end).
+TRUNCATE admin_audit_log;
+
+-- Distinct fixture range (96100 domain, 6100+ users) so this file never
+-- collides with the 96003/60x ranges other chat tests use.
+INSERT INTO domains (id, name, is_local) VALUES (96100, 'wp3-audit.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (6101, 'wp3a', 96100, 'wp3a@wp3-audit.test', 'WP3 Admin', TRUE),
+  (6102, 'wp3b', 96100, 'wp3b@wp3-audit.test', 'WP3 User', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- audit_write is the only INSERT path; count rows through it.
+CREATE OR REPLACE FUNCTION pgtemp_wp3_audit_count() RETURNS bigint AS $$
+  SELECT count(*) FROM admin_audit_log
+$$ LANGUAGE sql;
+
+-- ── 1. provision_account: created row audits; actor param is appended-NULL ──
+SELECT is(pgtemp_wp3_audit_count(), 0::bigint, 'clean audit ledger at start');
+SELECT ok(provision_account(p_email => 'wp3-prov@wp3-audit.test', p_display_name => 'WP3 Prov',
+          p_sync_source => 'local', p_actor => 6101)::text IS NOT NULL,
+  'provision_account accepts the appended p_actor (signature-compatible)');
+SELECT ok(pgtemp_wp3_audit_count() = 1, 'provision CREATE wrote one account_provision row');
+SELECT is((SELECT action FROM admin_audit_log ORDER BY id DESC LIMIT 1),
+  'account_provision', 'provision audit action recorded');
+-- Re-provision of the SAME person is the sync UPDATE arm: created=FALSE → no row.
+SELECT ok(provision_account(p_email => 'wp3-prov@wp3-audit.test', p_display_name => 'WP3 Prov Renamed',
+          p_sync_source => 'ad')::text IS NOT NULL,
+  're-provision (sync UPDATE arm) succeeds without an actor');
+SELECT is(pgtemp_wp3_audit_count(), 1::bigint, 'sync UPDATE arm writes NO audit row');
+
+-- ── 2. offline_device_register: new registration audits; re-seen is silent ──
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary)
+VALUES (961001, 6101, 96100, 'wp3a@wp3-audit.test', 'WP3A', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+SELECT ok(offline_device_register(961001, 'wp3-fp-1', 'ios') > 0,
+  'first device registration returns an id');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_device_register'),
+  1::bigint, 'new registration wrote one audit row');
+SELECT ok(offline_device_register(961001, 'wp3-fp-1', 'ios') > 0,
+  're-registration (heartbeat upsert) succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_device_register'),
+  1::bigint, 're-registration wrote NO second audit row');
+
+-- ── 3. offline_device_set_preferences: routine tier obeys the lean/full gate ──
+SELECT is((SELECT level FROM audit_policy WHERE id = 1), 'lean', 'audit_policy default is lean');
+SELECT lives_ok($$SELECT offline_device_set_preferences(961001, (SELECT id FROM user_devices
+            WHERE user_id = (SELECT s.user_id FROM account_scope(961001) s) LIMIT 1), TRUE, 7,
+          TRUE, 'unmetered', 'never')$$,
+  'preference set succeeds at lean');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_device_set_preferences'),
+  0::bigint, 'routine-tier row suppressed at lean');
+UPDATE audit_policy SET level = 'full' WHERE id = 1;
+SELECT lives_ok($$SELECT offline_device_set_preferences(961001, (SELECT id FROM user_devices
+            WHERE user_id = (SELECT s.user_id FROM account_scope(961001) s) LIMIT 1), TRUE, 7,
+          TRUE, 'unmetered', 'never')$$,
+  'preference set succeeds at full');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_device_set_preferences'),
+  1::bigint, 'routine-tier row lands at full');
+UPDATE audit_policy SET level = 'lean' WHERE id = 1;
+
+-- ── 4. rule_config_*: audit + actor containment + failure rollback ──────────
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, is_primary)
+VALUES (961002, 6102, 96100, 'wp3b@wp3-audit.test', 'WP3B', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+SELECT ok(rule_config_create(6102, 961002, 'wp3-rule', TRUE, 5, 'server',
+         FALSE, '{"all":[{"subject":"x"}]}'::jsonb, '[{"addTo":"y"}]'::jsonb, FALSE) > 0,
+  'rule create returns an id');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='rule_config_create'),
+  1::bigint, 'rule create audited');
+SELECT throws_ok($$ SELECT rule_config_create(6102, 961002, '  ', TRUE, 5, 'server',
+         FALSE, NULL, NULL, FALSE) $$, 'BZ162', NULL,
+  'blank rule name raises BZ162');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='rule_config_create'),
+  1::bigint, 'failed create left NO audit row (same-transaction rollback)');
+-- Actor containment: a different actor cannot update or delete someone's rule.
+SELECT is(rule_config_update(6101, (SELECT id FROM rules WHERE name='wp3-rule'),
+         NULL, NULL, FALSE, NULL, NULL, NULL, NULL, NULL, NULL),
+  FALSE, 'wrong-actor update is refused (FALSE, no mutation)');
+SELECT is(rule_config_delete(6101, (SELECT id FROM rules WHERE name='wp3-rule')),
+  FALSE, 'wrong-actor delete is refused');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action IN ('rule_config_update','rule_config_delete')),
+  0::bigint, 'refunded containment attempts wrote no audit rows');
+SELECT is(rule_config_delete(6102, (SELECT id FROM rules WHERE name='wp3-rule')),
+  TRUE, 'owner delete succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='rule_config_delete'),
+  1::bigint, 'owner delete audited');
+
+-- ── 5. chat authority: create/join/add/leave + no-op silence + succession ────
+SELECT ok(chat_channel_create(6102, 'wp3-eng') > 0, 'channel created');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_channel_create'),
+  1::bigint, 'channel creation audited');
+-- 6101 needs a real users row for dm_open-style validation only; joins use bare ids.
+SELECT lives_ok($$SELECT chat_channel_join(6101, (SELECT id FROM chat_channels WHERE name='wp3-eng'))$$,
+  'join succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_channel_join'),
+  1::bigint, 'actual join audited');
+SELECT lives_ok($$SELECT chat_channel_join(6101, (SELECT id FROM chat_channels WHERE name='wp3-eng'))$$,
+  're-join is a no-op');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_channel_join'),
+  1::bigint, 'no-op re-join wrote NO second row');
+-- 6199 is a bare id (chat_channel_members has no users FK); the owner add
+-- targets a NOT-yet-member so the actual-insert arm (not the F9 no-op) runs.
+SELECT lives_ok($$SELECT chat_member_add(6102, (SELECT id FROM chat_channels WHERE name='wp3-eng'), 6199)$$,
+  'owner adds member');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_member_add'),
+  1::bigint, 'member add audited');
+SELECT lives_ok($$SELECT chat_member_set_notif(6101, (SELECT id FROM chat_channels WHERE name='wp3-eng'), 'mentions')$$,
+  'member set_notif succeeds (lean: no row expected)');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_member_set_notif'),
+  0::bigint, 'routine notif preference suppressed at lean');
+-- Owner succession: the owner leaves their own single-owner channel → promotion row.
+SELECT lives_ok($$SELECT chat_member_remove(6102, (SELECT id FROM chat_channels WHERE name='wp3-eng'), 6102)$$,
+  'last owner leaves (succession fires)');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_member_leave'),
+  1::bigint, 'self-leave audited as chat_member_leave');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='chat_owner_succession'),
+  1::bigint, 'owner succession audited');
+-- One transaction ⇒ joined_at is now()-constant for 6101 and 6199, so the
+-- longest-tenured tie-break is engine-chosen. Assert the DETERMINISTIC
+-- property: exactly one owner remains and it is a remaining member.
+SELECT is((SELECT count(*) FROM chat_channel_members m
+           JOIN chat_channels c ON c.id = m.channel_id
+           WHERE c.name = 'wp3-eng' AND m.role = 'owner'),
+  1::bigint, 'succession left exactly one owner');
+SELECT ok((SELECT EXISTS (
+             SELECT 1 FROM chat_channel_members m
+              JOIN chat_channels c ON c.id = m.channel_id
+              WHERE c.name = 'wp3-eng' AND m.role = 'owner'
+                AND m.user_id IN (6101, 6199))),
+  'succession promoted a remaining member');
+
+-- ── 5a. Authority transitions on an EXISTING account audit (astra P2-5) ────
+SELECT ok(provision_account(p_email => 'wp3-prov@wp3-audit.test',
+          p_sync_source => 'scim', p_enabled => FALSE)::text IS NOT NULL,
+  'SCIM re-provision disabling the account succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='account_authority_change'),
+  1::bigint, 'enabled flip on an existing account wrote one authority row');
+SELECT ok(provision_account(p_email => 'wp3-prov@wp3-audit.test',
+          p_sync_source => 'scim', p_display_name => 'No Flip',
+          p_enabled => FALSE)::text IS NOT NULL,
+  'unchanged-authority re-provision succeeds (enabled stays FALSE)');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='account_authority_change'),
+  1::bigint, 'an ordinary sync update wrote NO authority row');
+
+-- ── 5b. MDM first check-in audits creation (astra P2-7) ─────────────────────
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (6103, 'wp3mdm', 96100, 'wp3mdm@wp3-audit.test', 'WP3 MDM', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+SELECT lives_ok($$SELECT mdm_device_checkin(
+  gen_random_uuid(), 6103,
+  '{"passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"os_version":"1","app_version":"1","device_name":"d","platform":"ios"}'::jsonb,
+  '{"heartbeat_interval_secs":60}'::jsonb)$$,
+  'first MDM check-in succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='mdm_device_checkin'),
+  1::bigint, 'device-record CREATION is audited (not just transitions)');
+SELECT lives_ok($$SELECT mdm_device_checkin(
+  (SELECT device_id FROM mdm_device_state WHERE user_id=6103 LIMIT 1), 6103,
+  '{"passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"os_version":"1","app_version":"1","device_name":"d","platform":"ios"}'::jsonb,
+  '{"heartbeat_interval_secs":60}'::jsonb)$$,
+  'unchanged follow-up check-in succeeds');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='mdm_device_checkin'),
+  1::bigint, 'an unchanged heartbeat writes NO second row');
+
+-- ── 6. Upgrade path: the appended p_actor retires every prior signature ────
+-- Simulate a pre-wave database carrying the 23-parameter form, apply the
+-- wave's file, then require exactly ONE overload and an unambiguous
+-- actor-less call (the astra P1: 42725 ambiguity on upgraded DBs).
+CREATE OR REPLACE FUNCTION provision_account(
+  p_email TEXT, p_display_name TEXT, p_username TEXT, p_password_hash TEXT,
+  p_is_local_admin BOOLEAN, p_enabled BOOLEAN, p_sync_source TEXT,
+  p_first_name TEXT, p_last_name TEXT, p_job_title TEXT, p_phone TEXT,
+  p_department_id BIGINT, p_quota_bytes BIGINT, p_ad_object_guid UUID,
+  p_ad_usn_changed BIGINT, p_ad_upn TEXT, p_krb5_principal TEXT,
+  p_scim_external_id TEXT, p_aliases TEXT[], p_guest BOOLEAN,
+  p_invited_by BIGINT, p_guest_expires_at TIMESTAMPTZ, p_create_only BOOLEAN
+) RETURNS JSONB LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
+\i mailserver/sql/reducers/provision_account.sql
+SELECT is((SELECT count(*) FROM pg_proc WHERE proname='provision_account'),
+  1::bigint, 'upgrade path leaves exactly one provision_account overload');
+SELECT ok((SELECT (provision_account(p_email => 'upgrade-proof@wp3-audit.test',
+                p_display_name => 'Up', p_sync_source => 'local')->>'created') IS NOT NULL),
+  'actor-less call resolves unambiguously after the retirement');
+
+SELECT * FROM finish();
+ROLLBACK;

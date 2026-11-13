@@ -1,0 +1,165 @@
+{
+  "case": "empty-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ldap_sync_auto_create_depts",
+            "value": "\"false\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_base_dn",
+            "value": "\"dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_bind_dn",
+            "value": "\"cn=svc,dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_enabled",
+            "value": "\"true\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ldap_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_port",
+            "value": "\"<port>\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_tls",
+            "value": "\"true\""
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": null,
+            "generation": 1,
+            "state": "paused"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ldap5-admin",
+            "email": "ldap5-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ldap5-admin@host-a.test"
+          }
+        ]
+      },
+      "before": {
+        "config": [
+          {
+            "encrypted": false,
+            "key": "ldap_sync_auto_create_depts",
+            "value": "\"false\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_base_dn",
+            "value": "\"dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_bind_dn",
+            "value": "\"cn=svc,dc=example,dc=test\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_enabled",
+            "value": "\"true\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_host",
+            "value": "\"127.0.0.1\""
+          },
+          {
+            "encrypted": true,
+            "key": "ldap_sync_password_enc",
+            "value": "<sealed:\"pw\">"
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_port",
+            "value": "\"<port>\""
+          },
+          {
+            "encrypted": false,
+            "key": "ldap_sync_tls",
+            "value": "\"true\""
+          }
+        ],
+        "conflicts": [],
+        "departments": [],
+        "inbox": [],
+        "links": [],
+        "quarantine": [],
+        "source": [
+          {
+            "cursor": null,
+            "generation": 1,
+            "state": "paused"
+          }
+        ],
+        "sync_log": [],
+        "users": [
+          {
+            "ad_upn": null,
+            "department": null,
+            "display_name": "ldap5-admin",
+            "email": "ldap5-admin@host-a.test",
+            "enabled": true,
+            "first_name": null,
+            "job_title": null,
+            "krb5_principal": null,
+            "last_name": null,
+            "local_overrides": {},
+            "manager": null,
+            "phone": null,
+            "sync_source": "local",
+            "username": "ldap5-admin@host-a.test"
+          }
+        ]
+      },
+      "directory": [
+        "bind dn=cn=svc,dc=example,dc=test password=ok",
+        "search base=dc=example,dc=test scope=2 sizeLimit=0 filter=(objectClass=person) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl page=500"
+      ],
+      "table": "ldap"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/ldap/preview"
+}

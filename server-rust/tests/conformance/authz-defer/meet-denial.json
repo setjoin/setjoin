@@ -1,0 +1,299 @@
+{
+  "cases": {
+    "full-create-0": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "full-create-1": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "full-get-0": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet/0\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "full-get-1": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet/0\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "full-list-0": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "full-list-1": {
+      "audit": [
+        {
+          "action": "app_blocked",
+          "after_state": null,
+          "before_state": null,
+          "ip": "127.0.0.1",
+          "notes": "meet",
+          "target_id": null,
+          "target_type": "app",
+          "user_id": "<actor>"
+        }
+      ],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-create-0": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-create-1": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-get-0": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet/0\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-get-1": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet/0\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-list-0": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    },
+    "lean-list-1": {
+      "audit": [],
+      "response": {
+        "body": "{\"type\":\"https://setjoin.com/errors/forbidden\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Access to this application is not permitted for your account.\",\"instance\":\"/meet\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "authzdefer-oracle"
+        },
+        "status": 403
+      }
+    }
+  },
+  "go_source": "e3333b005d960d24b3e55d21ff6f3526bf4fdecc"
+}

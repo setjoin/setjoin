@@ -1,0 +1,26 @@
+[
+  {
+    "baseline": "goldens/create-project-group-scope.json",
+    "sha256": "81936f8d7251fc6bd88c557789a42ed50a3e4ffa37c1e55926a8768e5744bd46",
+    "expectation": "security/create-project-group-scope.json",
+    "reason": "owner-approved security fix 2026-11-05 (#434: the role group's domain_scope now confines an Exchange assessment admin when the assignment override is NULL; creating a project for a foreign domain answers 404 and creates nothing)",
+    "issue": "#434",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::exchange_group_domain_scope_confines_a_scoped_admin",
+    "mutant": "sql:exchange-group-scope-ignored"
+  },
+  {
+    "baseline": "goldens/create-project-group-scope-row-effects.json",
+    "sha256": "7be18df051e6ace844cc8885c31bcaffbf1eba40ff08a0b59248adb152d5ed65",
+    "expectation": "security/create-project-group-scope-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#434: the role group's domain_scope now confines an Exchange assessment admin when the assignment override is NULL; creating a project for a foreign domain answers 404 and creates nothing)",
+    "issue": "#434",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix5.rs::exchange_group_domain_scope_confines_a_scoped_admin",
+    "mutant": "sql:exchange-group-scope-ignored"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -from: parse error\nUsage of audit verify-chain:\n  -from int\n    \tStart row ID (inclusive; 0 = from the beginning)\n  -to int\n    \tEnd row ID (inclusive; 0 = to the end)\nError: invalid value \"not-an-integer\" for flag -from: parse error\n",
+  "exit": 1
+}

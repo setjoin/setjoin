@@ -1,0 +1,284 @@
+-- chat_anchor.pg — Chat A4a Task 9: the daily chain anchor (chat_chain_anchor /
+-- chat_chain_anchor_verify) — what makes "tamper-evident" true. HARD-COUPLED
+-- to Task 6/7's chat_purge_expired destroyedElems shape
+-- ({id: "id:author_id:epoch:sha256(original_body)"}) and to Task 2's
+-- chat_access_audit/verify_chat_audit_chain.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 9.
+--
+-- now() is FROZEN for the whole transaction (chat_purge.pg precedent) — every
+-- `now() - interval 'N days'` literal below evaluates to the identical instant
+-- everywhere it is repeated, which is what lets the digest assertions below
+-- recompute an independent expected value and match byte-for-byte.
+BEGIN;
+SELECT plan(37);
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── toggle belt: feature.chat_compliance is seeded OFF ─────────────────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-toggle-off', 97001)
+  RETURNING id AS ch_off \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_off, 1, 97001, 'off body', now() - interval '2 days');
+
+SELECT is(chat_chain_anchor(), 0, 'feature.chat_compliance OFF -> chat_chain_anchor writes nothing (returns 0)');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_off AND action = 'chain.anchor')::int,
+  0, 'no chain.anchor act while the toggle is OFF, even for an old message');
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── ch_basic: two past-day messages + one TODAY message ────────────────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-basic', 97101)
+  RETURNING id AS ch_basic \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_basic, 1, 97101, 'basic one', now() - interval '2 days')
+  RETURNING id AS msg1 \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_basic, 2, 97101, 'basic two', now() - interval '2 days')
+  RETURNING id AS msg2 \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_basic, 3, 97101, 'basic today', now())
+  RETURNING id AS msg_today \gset
+
+-- ── ch_empty: no messages at all -> must be skipped, no act ever ───────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-empty', 97102)
+  RETURNING id AS ch_empty \gset
+
+-- ── ch_edit: will be legitimately edited AFTER the first anchor ────────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-edit', 97103)
+  RETURNING id AS ch_edit \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:ch_edit, 97103, 'owner');
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_edit, 1, 97103, 'edit-original', now() - interval '2 days')
+  RETURNING id AS msg_edit \gset
+
+-- ── ch_rewrite: attacker rewrites chat_messages.body directly by SQL ───────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-rewrite', 97104)
+  RETURNING id AS ch_rewrite \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_rewrite, 1, 97104, 'rewrite-original', now() - interval '2 days')
+  RETURNING id AS msg_rewrite \gset
+
+-- ── ch_delete: attacker deletes an anchored row directly by SQL ────────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-delete', 97105)
+  RETURNING id AS ch_delete \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_delete, 1, 97105, 'delete-original', now() - interval '2 days')
+  RETURNING id AS msg_delete \gset
+
+-- ── ch_purge_benign/attack/forge: retention override so chat_purge_expired
+--    later destroys msg_purge (11d, > 10-day ceiling) but not msg_survive (3d) ─
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'anchor-purge-benign', 97106, 10)
+  RETURNING id AS ch_purge_benign \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_benign, 1, 97106, 'benign-purge-target', now() - interval '11 days')
+  RETURNING id AS msg_pb_purge \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_benign, 2, 97106, 'benign-survivor', now() - interval '3 days')
+  RETURNING id AS msg_pb_survive \gset
+
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'anchor-purge-attack', 97107, 10)
+  RETURNING id AS ch_purge_attack \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_attack, 1, 97107, 'attack-purge-target', now() - interval '11 days')
+  RETURNING id AS msg_pa_purge \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_attack, 2, 97107, 'attack-survivor-original', now() - interval '3 days')
+  RETURNING id AS msg_pa_survive \gset
+
+INSERT INTO chat_channels (kind, name, created_by, retention_days)
+  VALUES ('channel', 'anchor-purge-forge', 97108, 10)
+  RETURNING id AS ch_purge_forge \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_forge, 1, 97108, 'forge-purge-target', now() - interval '11 days')
+  RETURNING id AS msg_pf_purge \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_purge_forge, 2, 97108, 'forge-survivor', now() - interval '3 days')
+  RETURNING id AS msg_pf_survive \gset
+
+-- ── ch_fab: N6 — a fabricated revision launders a body rewrite ─────────────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-fab', 97109)
+  RETURNING id AS ch_fab \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_fab, 1, 97109, 'fab-original', now() - interval '2 days')
+  RETURNING id AS msg_fab \gset
+
+-- ── ch_truncation: FIX 1 — chain-head notary defeats tail truncation ───────
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-truncation', 97110)
+  RETURNING id AS ch_truncation \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_truncation, 1, 97110, 'trunc-original', now() - interval '2 days')
+  RETURNING id AS msg_trunc \gset
+
+-- ── ch_preflip_a/b: FIX 2 — the compliance-flip revision floor ─────────────
+-- chat.compliance_enabled_at is stamped lazily on the FIRST toggle-ON anchor
+-- run below, at the frozen now() -- identical to every other now() call in
+-- this transaction. ch_preflip_a's revision predates that instant (real
+-- pre-flip edit, no message.edit act -- must NOT be flagged); ch_preflip_b's
+-- revision is created AT that same instant (>= flip -- a fabricated
+-- post-flip revision with no act -- MUST be flagged).
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-preflip-a', 97111)
+  RETURNING id AS ch_preflip_a \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_preflip_a, 1, 97111, 'preflip-a-body', now() - interval '5 days')
+  RETURNING id AS msg_preflip_a \gset
+INSERT INTO chat_message_revisions (channel_id, message_id, prior_body, edited_by, created_at)
+  VALUES (:ch_preflip_a, :msg_preflip_a, 'preflip-a-original', 97111, now() - interval '3 days');
+
+INSERT INTO chat_channels (kind, name, created_by)
+  VALUES ('channel', 'anchor-preflip-b', 97112)
+  RETURNING id AS ch_preflip_b \gset
+INSERT INTO chat_messages (channel_id, seq, author_id, body, created_at)
+  VALUES (:ch_preflip_b, 1, 97112, 'preflip-b-body', now() - interval '5 days')
+  RETURNING id AS msg_preflip_b \gset
+INSERT INTO chat_message_revisions (channel_id, message_id, prior_body, edited_by, created_at)
+  VALUES (:ch_preflip_b, :msg_preflip_b, 'preflip-b-original', 97112, now());
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── RUN1: the first toggle-ON anchor run ───────────────────────────────────
+SELECT chat_chain_anchor();
+
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor')::int,
+  1, 'ch_basic gets exactly one chain.anchor act');
+SELECT is((SELECT (after_state->>'idFrom')::bigint FROM chat_audit_log
+            WHERE channel_id = :ch_basic AND action = 'chain.anchor'), :msg1::bigint,
+  'chain.anchor idFrom = msg1');
+SELECT is((SELECT (after_state->>'idTo')::bigint FROM chat_audit_log
+            WHERE channel_id = :ch_basic AND action = 'chain.anchor'), :msg2::bigint,
+  'chain.anchor idTo = msg2 (today''s msg_today excluded — only whole past days anchored)');
+SELECT is((SELECT (after_state->>'count')::int FROM chat_audit_log
+            WHERE channel_id = :ch_basic AND action = 'chain.anchor'), 2,
+  'chain.anchor count = 2, not 3');
+SELECT is(
+  (SELECT after_state->>'digest' FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor'),
+  encode(sha256(convert_to(
+    (:msg1)::text || ':' || 97101::text || ':' || extract(epoch from (now() - interval '2 days'))::text || ':' ||
+      encode(sha256(convert_to('basic one', 'UTF8')), 'hex') || '|' ||
+    (:msg2)::text || ':' || 97101::text || ':' || extract(epoch from (now() - interval '2 days'))::text || ':' ||
+      encode(sha256(convert_to('basic two', 'UTF8')), 'hex')
+  , 'UTF8')), 'hex'),
+  'chain.anchor digest matches an independently recomputed sha256 over the two leaf elements');
+
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_empty AND action = 'chain.anchor')::int,
+  0, 'ch_empty (no messages) is skipped — no act ever written');
+
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_basic)), TRUE, 'ch_basic verifies valid=true right after anchoring');
+SELECT is((SELECT revisions_unchained FROM chat_chain_anchor_verify(:ch_basic)), 0, 'ch_basic revisions_unchained=0');
+SELECT is((SELECT reconciled_from_purge FROM chat_chain_anchor_verify(:ch_basic)), 0, 'ch_basic reconciled_from_purge=0 (no purge involved)');
+
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log WHERE action = 'chat.chain_notary'),
+  'the chain-head notary wrote one admin_audit_log row after the loop');
+SELECT is(
+  (SELECT (after_state->'heads'->(:ch_basic::text)->>'id')::bigint FROM admin_audit_log
+    WHERE action = 'chat.chain_notary' ORDER BY id DESC LIMIT 1),
+  (SELECT id FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor'),
+  'notary heads map records ch_basic''s chain.anchor act id');
+SELECT is(
+  (SELECT after_state->'heads'->(:ch_basic::text)->>'checksum' FROM admin_audit_log
+    WHERE action = 'chat.chain_notary' ORDER BY id DESC LIMIT 1),
+  (SELECT after_state->>'_checksum' FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor'),
+  'notary heads map records ch_basic''s chain.anchor row''s own checksum');
+
+-- ── FIX 2: the pre-flip revision floor ──────────────────────────────────────
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_preflip_a)), TRUE,
+  'ch_preflip_a: a revision predating the compliance flip with no act does NOT flag revisions_unchained');
+SELECT is((SELECT revisions_unchained FROM chat_chain_anchor_verify(:ch_preflip_a)), 0,
+  'ch_preflip_a revisions_unchained=0');
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_preflip_b)), FALSE,
+  'ch_preflip_b: a fabricated revision at/after the compliance flip with no act DOES flag it — verdict false');
+SELECT is((SELECT revisions_unchained FROM chat_chain_anchor_verify(:ch_preflip_b)), 1,
+  'ch_preflip_b revisions_unchained=1');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── RUN1b: a second run the SAME night is a no-op (nothing new to anchor) ──
+SELECT chat_chain_anchor();
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor')::int,
+  1, 'a second same-night run does not write a duplicate chain.anchor act for ch_basic');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── the adversarial matrix ──────────────────────────────────────────────────
+
+-- editing an anchored message through the reducer keeps valid=true + leaves an act
+SELECT chat_message_edit(97103, :msg_edit, 'edit-changed');
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log WHERE channel_id = :ch_edit AND action = 'message.edit' AND target_id = :msg_edit),
+  'chat_message_edit left a message.edit act');
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_edit)), TRUE,
+  'a LEGITIMATE later edit through chat_message_edit keeps the anchor valid=true (original-body invariant)');
+
+-- rewriting chat_messages.body directly by SQL on a never-edited anchored message
+UPDATE chat_messages SET body = 'rewrite-tampered' WHERE id = :msg_rewrite;
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_rewrite)), FALSE,
+  'a direct SQL body rewrite of a never-edited anchored message flips valid to false');
+
+-- deleting an anchored row directly by SQL
+DELETE FROM chat_messages WHERE id = :msg_delete;
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_delete)), FALSE,
+  'a direct SQL delete of an anchored row flips valid to false');
+
+-- N6: fabricate a revision carrying the TRUE original body, then rewrite freely
+INSERT INTO chat_message_revisions (channel_id, message_id, prior_body, edited_by)
+  VALUES (:ch_fab, :msg_fab, 'fab-original', 97109);
+UPDATE chat_messages SET body = 'fab-attacker-rewrite' WHERE id = :msg_fab;
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_fab)), FALSE,
+  'N6: fabricated revision + free rewrite is caught — verdict false');
+SELECT is((SELECT revisions_unchained FROM chat_chain_anchor_verify(:ch_fab)), 1,
+  'N6: the digest still matches (original_body unchanged) BUT revisions_unchained=1 is what catches it');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── N1: purge reconciliation (benign, attack, forgery) ─────────────────────
+SELECT chat_purge_expired();
+
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :msg_pb_purge)::int, 0,
+  'ch_purge_benign: the 11-day-old message was actually purged');
+SELECT is((SELECT count(*) FROM chat_messages WHERE id = :msg_pb_survive)::int, 1,
+  'ch_purge_benign: the 3-day-old survivor remains');
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log WHERE channel_id = :ch_purge_benign AND action = 'purge.execute'),
+  'ch_purge_benign has a purge.execute act');
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_purge_benign)), TRUE,
+  'N1 benign: a lawful purge inside an anchored range still verifies valid=true (reconciled)');
+SELECT is((SELECT reconciled_from_purge FROM chat_chain_anchor_verify(:ch_purge_benign)), 1,
+  'N1 benign: reconciled_from_purge=1');
+
+-- N1 attack: purge touched the range, AND a surviving message is rewritten
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_purge_attack)), TRUE,
+  'ch_purge_attack verifies true immediately after its own lawful purge, before any attack');
+UPDATE chat_messages SET body = 'attack-survivor-tampered' WHERE id = :msg_pa_survive;
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_purge_attack)), FALSE,
+  'N1 attack: rewriting a SURVIVING message inside a purge-touched range is still caught — verdict false');
+
+-- N1 forgery: tamper with the purge.execute act's destroyedElems directly
+UPDATE chat_audit_log
+   SET after_state = jsonb_set(after_state, ARRAY['destroyedElems', :msg_pf_purge::text], '"forged-element"')
+ WHERE channel_id = :ch_purge_forge AND action = 'purge.execute';
+SELECT is((SELECT valid FROM verify_chat_audit_chain(:ch_purge_forge)
+             WHERE row_id = (SELECT id FROM chat_audit_log WHERE channel_id = :ch_purge_forge AND action = 'purge.execute')),
+  FALSE, 'N1 forgery: tampering with destroyedElems breaks the HMAC chain — verify_chat_audit_chain reports the row broken');
+SELECT is((SELECT valid FROM chat_chain_anchor_verify(:ch_purge_forge)), FALSE,
+  'N1 forgery: the anchor reconciliation also fails to match once destroyedElems is forged');
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── FIX 1: tail-truncation attack — the notary refuses to re-bless it ──────
+UPDATE chat_messages SET body = 'trunc-tampered' WHERE id = :msg_trunc;
+DELETE FROM chat_audit_log WHERE channel_id = :ch_truncation;  -- contiguous tail: the ONLY act this channel had
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_truncation)::int, 0,
+  'ch_truncation: chain fully truncated (0 rows) before the next anchor run');
+
+SELECT chat_chain_anchor();
+
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_truncation)::int, 0,
+  'FIX 1: the next anchor run detects the notarized floor mismatch and SKIPS — does NOT re-anchor the rewritten range');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch_basic AND action = 'chain.anchor')::int,
+  1, 'ch_basic (an unrelated channel) is unaffected by ch_truncation''s skip — still exactly one act');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,35 @@
+// Recording-only overlay (#305): frozen Go's :80 https redirect (HTTP_MODE=redirect).
+package main
+
+import (
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"testing"
+)
+
+func TestGoFreeHTTPSRedirect(t *testing.T) {
+	handler := httpsRedirectHandler("mail.example.test")
+	requests := []struct{ Method, Target string }{
+		{"GET", "/a?b=c"},
+		{"HEAD", "/x"},
+		{"POST", "/p?q=1"},
+		{"GET", "/a%20b/c%2Fd?x=1&y=%3Cz%3E"},
+		{"GET", "/"},
+		{"GET", "/q?"},
+	}
+	var out []map[string]any
+	for _, c := range requests {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(c.Method, c.Target, nil))
+		out = append(out, map[string]any{
+			"method": c.Method, "path": c.Target, "status": rec.Code,
+			"location": rec.Header().Get("Location"), "content_type": rec.Header().Get("Content-Type"),
+			"body": rec.Body.String(),
+		})
+	}
+	data, _ := json.Marshal(out)
+	if err := os.WriteFile(os.Getenv("GOFREE_HTTP80_OUT"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

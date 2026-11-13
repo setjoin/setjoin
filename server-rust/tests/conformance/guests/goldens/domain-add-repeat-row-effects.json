@@ -1,0 +1,56 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "added_by": "<admin>",
+          "added_by_email": "admin@host.test",
+          "created_at": "<timestamp>",
+          "domain": "invite.test",
+          "host_domain_id": "<domain>"
+        }
+      ],
+      "before": [
+        {
+          "added_by": "<admin>",
+          "added_by_email": "admin@host.test",
+          "created_at": "<timestamp>",
+          "domain": "invite.test",
+          "host_domain_id": "<domain>"
+        }
+      ],
+      "table": "guest_invite_domains"
+    },
+    {
+      "after": [
+        {
+          "email": 0,
+          "mailbox": "<admin-mailbox>",
+          "tags": 0
+        },
+        {
+          "email": 0,
+          "mailbox": "<other-mailbox>",
+          "tags": 0
+        }
+      ],
+      "before": [
+        {
+          "email": 0,
+          "mailbox": "<admin-mailbox>",
+          "tags": 0
+        },
+        {
+          "email": 0,
+          "mailbox": "<other-mailbox>",
+          "tags": 0
+        }
+      ],
+      "table": "mailbox_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/guest-invite-domains"
+}

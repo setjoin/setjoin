@@ -1,0 +1,24 @@
+{
+  "case": "ws-state-batches",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [],
+  "observation": {
+    "audit": [],
+    "effects": {},
+    "notify": [],
+    "request": {
+      "method": "GET",
+      "path": "/jmap/ws"
+    },
+    "response": {
+      "frames": [
+        "{\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"11\",\"Mailbox\":\"12\",\"Task\":\"0\",\"Thread\":\"13\"}}}",
+        "{\"type\":\"offline.wipe\",\"why\":\"fixture\"}",
+        "{\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Email\":\"11\",\"Mailbox\":\"12\",\"Thread\":\"13\"}}}"
+      ],
+      "status": 101
+    }
+  },
+  "route": "GET /jmap/ws"
+}

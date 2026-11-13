@@ -1,0 +1,350 @@
+-- pgTAP: admin_sod_precheck.pg — OFF→ON enablement gate violation scanner
+--
+-- Tests the admin_sod_precheck() reducer across 5 fixture scenarios:
+--   (a) cross_class        — principal with system + audit assignments
+--   (b) unclassified_role  — assignment to a NULL-sod_class role
+--   (c) super_admin_role   — a NON-id-1 role spanning ≥2 classes (generic detection)
+--   (d) unclassifiable_perm — role holding users.write (no-class perm)
+--   (e) clean fixture incl. 3 等保 presets → zero rows (false-positive guard)
+--
+-- Priority rule: cross_class > super_admin_role > unclassifiable_perm >
+--               unclassified_role.
+-- A single subject emits at most ONE row (highest priority wins).
+--
+-- The legacy_admin_role axis was RETIRED by the RBAC cut-over (users.admin_role
+-- dropped): there is no enum to be "legacy" against, so the reducer no longer
+-- emits legacy_admin_role rows and this suite no longer fixtures them.
+--
+-- Pure-read assertion: calling admin_sod_precheck() must not bump any
+-- jmap_*_state value.
+BEGIN;
+SELECT plan(19);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Shared fixture infrastructure
+-- ═══════════════════════════════════════════════════════════════════════════
+
+INSERT INTO domains (name, is_local)
+  VALUES ('precheck.test', TRUE)
+  ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE v_dom BIGINT;
+BEGIN
+  SELECT id INTO v_dom FROM domains WHERE name = 'precheck.test';
+
+  -- u1: will hold system + audit assignments → cross_class
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (88001, 'sod_pc_u1', v_dom, 'sod_pc_u1@precheck.test', 'PC U1', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- u2: will hold assignment to a NULL-sod_class role → unclassified_role
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (88002, 'sod_pc_u2', v_dom, 'sod_pc_u2@precheck.test', 'PC U2', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- u3: will hold assignment to a custom super-role spanning 2 classes → super_admin_role
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (88003, 'sod_pc_u3', v_dom, 'sod_pc_u3@precheck.test', 'PC U3', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- u4: will hold assignment to a role with users.write (no-class) → unclassifiable_perm
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (88004, 'sod_pc_u4', v_dom, 'sod_pc_u4@precheck.test', 'PC U4', 'x')
+    ON CONFLICT (id) DO NOTHING;
+
+  -- (u5/u6/u7 retired) The legacy admin_role axis is gone — the cut-over dropped
+  -- users.admin_role and the reducer no longer emits legacy_admin_role rows, so
+  -- there is nothing to fixture here. A bare is_admin user can no longer produce
+  -- an SoD violation (it resolves to an empty perm set and is denied everywhere).
+
+  -- u8: clean user for the clean-fixture scenario (governed assignment only)
+  INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+    VALUES (88008, 'sod_pc_u8', v_dom, 'sod_pc_u8@precheck.test', 'PC U8', 'x')
+    ON CONFLICT (id) DO NOTHING;
+END;
+$$;
+
+-- Role: unclassified (NULL sod_class)
+INSERT INTO admin_role_groups (name, description, permissions, sod_class, is_builtin)
+  VALUES ('pc_unclassified_role', 'Test role — NULL sod_class', ARRAY['users.read'], NULL, false)
+  ON CONFLICT (name) DO NOTHING;
+
+-- Role: custom super-role spanning system + security — NOT id=1 (generic detection test)
+INSERT INTO admin_role_groups (name, description, permissions, sod_class, is_builtin)
+  VALUES (
+    'pc_super_custom_role',
+    'Test role — spans system+security classes (generic super_admin_role detection)',
+    ARRAY['users.create', 'users.suspend'],  -- users.create=system, users.suspend=security
+    NULL,
+    false
+  )
+  ON CONFLICT (name) DO NOTHING;
+
+-- Role: role with users.write (a no-class perm) → unclassifiable_perm
+INSERT INTO admin_role_groups (name, description, permissions, sod_class, is_builtin)
+  VALUES (
+    'pc_noclass_perm_role',
+    'Test role — holds users.write (no-class perm)',
+    ARRAY['users.read', 'users.write'],
+    NULL,
+    false
+  )
+  ON CONFLICT (name) DO NOTHING;
+
+-- Assignments (all unexpired):
+-- u1 → 系統管理員 (system) + 審計管理員 (audit) → cross_class
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88001, g.id, 88001 FROM admin_role_groups g WHERE g.name = '系统管理员'
+  ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88001, g.id, 88001 FROM admin_role_groups g WHERE g.name = '审计管理员'
+  ON CONFLICT DO NOTHING;
+
+-- u2 → pc_unclassified_role → unclassified_role
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88002, g.id, 88002 FROM admin_role_groups g WHERE g.name = 'pc_unclassified_role'
+  ON CONFLICT DO NOTHING;
+
+-- u3 → pc_super_custom_role (spans ≥2 classes) → super_admin_role
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88003, g.id, 88003 FROM admin_role_groups g WHERE g.name = 'pc_super_custom_role'
+  ON CONFLICT DO NOTHING;
+
+-- u4 → pc_noclass_perm_role → unclassifiable_perm
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88004, g.id, 88004 FROM admin_role_groups g WHERE g.name = 'pc_noclass_perm_role'
+  ON CONFLICT DO NOTHING;
+
+-- u8 → 安全管理員 (governed, clean)
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by)
+  SELECT 88008, g.id, 88008 FROM admin_role_groups g WHERE g.name = '安全管理员'
+  ON CONFLICT DO NOTHING;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (a) cross_class fixture
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Exactly 1 cross_class row for u1
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'cross_class'
+      AND subject = 'sod_pc_u1'$$,
+  $$SELECT 1$$,
+  '(a) cross_class: exactly 1 row for sod_pc_u1 spanning system+audit');
+
+-- 2. u1 emits only 1 total row (priority suppresses unclassified_role for that subject)
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE subject = 'sod_pc_u1'$$,
+  $$SELECT 1$$,
+  '(a) cross_class priority: sod_pc_u1 yields at most 1 row total');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (b) unclassified_role fixture
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 3. Exactly 1 unclassified_role row for u2
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'unclassified_role'
+      AND subject = 'sod_pc_u2'$$,
+  $$SELECT 1$$,
+  '(b) unclassified_role: exactly 1 row for sod_pc_u2 with NULL-sod_class role');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (c) super_admin_role on a NON-id-1 role (generic detection)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 4. The pc_super_custom_role is NOT id=1 (key assertion: generic detection)
+SELECT isnt(
+  (SELECT id FROM admin_role_groups WHERE name = 'pc_super_custom_role'),
+  1::bigint,
+  '(c) pc_super_custom_role id is not 1 — confirms generic detection path');
+
+-- 5. Exactly 1 super_admin_role row emitted for u3
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'super_admin_role'
+      AND subject = 'sod_pc_u3'$$,
+  $$SELECT 1$$,
+  '(c) super_admin_role: exactly 1 row for sod_pc_u3 assigned to a non-id-1 spanning role');
+
+-- 6. u3 emits only 1 total row
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE subject = 'sod_pc_u3'$$,
+  $$SELECT 1$$,
+  '(c) super_admin_role priority: sod_pc_u3 yields exactly 1 row total');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (d) unclassifiable_perm fixture
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 7. Exactly 1 unclassifiable_perm row for u4
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'unclassifiable_perm'
+      AND subject = 'sod_pc_u4'$$,
+  $$SELECT 1$$,
+  '(d) unclassifiable_perm: exactly 1 row for sod_pc_u4 (role holds users.write)');
+
+-- 8. u4 emits only 1 total row
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE subject = 'sod_pc_u4'$$,
+  $$SELECT 1$$,
+  '(d) unclassifiable_perm priority: sod_pc_u4 yields exactly 1 row total');
+
+-- 9. (retired) The legacy_admin_role axis was removed by the RBAC cut-over —
+--    the reducer must NEVER emit a legacy_admin_role row for anyone now.
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'legacy_admin_role'$$,
+  $$SELECT 0$$,
+  'legacy_admin_role axis retired: zero legacy_admin_role rows ever emitted (column dropped)');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (e) Clean fixture — u8 (governed assignment to 安全管理員) + 3 等保 presets
+--     → ZERO rows for those subjects (false-positive guard)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 10. u8 (clean governed user) → zero rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE subject = 'sod_pc_u8'$$,
+  $$SELECT 0$$,
+  '(f) clean fixture: sod_pc_u8 with single governed assignment emits no rows');
+
+-- 11. 系统管理員 preset role → zero super_admin_role or unclassifiable_perm rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type IN ('super_admin_role','unclassifiable_perm')
+      AND subject = '系统管理员'$$,
+  $$SELECT 0$$,
+  '(f) 系统管理员 preset does not trigger super_admin_role or unclassifiable_perm');
+
+-- 12. 安全管理員 preset role → zero rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type IN ('super_admin_role','unclassifiable_perm')
+      AND subject = '安全管理员'$$,
+  $$SELECT 0$$,
+  '(f) 安全管理员 preset does not trigger super_admin_role or unclassifiable_perm');
+
+-- 13. 審計管理員 preset role → zero rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type IN ('super_admin_role','unclassifiable_perm')
+      AND subject = '审计管理员'$$,
+  $$SELECT 0$$,
+  '(f) 审计管理员 preset does not trigger super_admin_role or unclassifiable_perm');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Expired-assignment guard: u1's audit assignment expires in the past →
+-- only 1 unexpired active class → cross_class disappears
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Temporarily expire u1's audit assignment
+UPDATE admin_role_assignments ara
+   SET expires_at = now() - interval '1 second'
+  FROM admin_role_groups rg
+ WHERE ara.user_id = 88001
+   AND ara.role_group_id = rg.id
+   AND rg.name = '审计管理员';
+
+-- 14. After expiry, u1 should emit 0 cross_class rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE violation_type = 'cross_class'
+      AND subject = 'sod_pc_u1'$$,
+  $$SELECT 0$$,
+  'expired assignment is ignored: u1 cross_class disappears when audit assignment expires');
+
+-- Restore u1 for subsequent assertions
+UPDATE admin_role_assignments ara
+   SET expires_at = NULL
+  FROM admin_role_groups rg
+ WHERE ara.user_id = 88001
+   AND ara.role_group_id = rg.id
+   AND rg.name = '审计管理员';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Pure-read assertion: no jmap_*_state bumped by admin_sod_precheck()
+-- State is stored as columns on mailboxes; capture a checksum before and
+-- after to confirm no row was mutated.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+DO $$
+DECLARE
+  v_hash_before text;
+  v_hash_after  text;
+BEGIN
+  SELECT md5(string_agg(
+      id::text || ':' ||
+      jmap_email_state::text || ':' ||
+      jmap_mailbox_state::text || ':' ||
+      jmap_thread_state::text || ':' ||
+      jmap_tag_state::text,
+      ',' ORDER BY id
+  )) INTO v_hash_before
+    FROM mailboxes;
+
+  PERFORM admin_sod_precheck();
+
+  SELECT md5(string_agg(
+      id::text || ':' ||
+      jmap_email_state::text || ':' ||
+      jmap_mailbox_state::text || ':' ||
+      jmap_thread_state::text || ':' ||
+      jmap_tag_state::text,
+      ',' ORDER BY id
+  )) INTO v_hash_after
+    FROM mailboxes;
+
+  IF v_hash_before IS DISTINCT FROM v_hash_after THEN
+    RAISE EXCEPTION 'admin_sod_precheck() mutated mailbox jmap_*_state — it must be pure read';
+  END IF;
+END;
+$$;
+
+-- 15. If we got here the DO block did not throw — the function is pure.
+SELECT ok(true, 'admin_sod_precheck() is pure-read: no jmap_*_state mutation in mailboxes');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Row-structure assertions (columns present and typed correctly)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 16. violation_type is non-null for all rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck() WHERE violation_type IS NULL$$,
+  $$SELECT 0$$,
+  'all returned rows have non-null violation_type');
+
+-- 17. subject is non-null for all rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck() WHERE subject IS NULL$$,
+  $$SELECT 0$$,
+  'all returned rows have non-null subject');
+
+-- 18. detail is non-null for all rows
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck() WHERE detail IS NULL$$,
+  $$SELECT 0$$,
+  'all returned rows have non-null detail');
+
+-- 19. Total rows from the full fixture = exactly 4:
+--     u1=cross_class(1) + u2=unclassified_role(1) + u3=super_admin_role(1) +
+--     u4=unclassifiable_perm(1). The legacy_admin_role axis is retired, so the
+--     three former legacy fixtures no longer contribute. u8 is clean (0).
+--     We scope this count to our test usernames only.
+SELECT results_eq(
+  $$SELECT count(*)::int FROM admin_sod_precheck()
+    WHERE subject IN (
+      'sod_pc_u1','sod_pc_u2','sod_pc_u3','sod_pc_u4','sod_pc_u8'
+    )$$,
+  $$SELECT 4$$,
+  'fixture total: exactly 4 violation rows across our 5 test subjects (u8 is clean)');
+
+SELECT * FROM finish();
+ROLLBACK;

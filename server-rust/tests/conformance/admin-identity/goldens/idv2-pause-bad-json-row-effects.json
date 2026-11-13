@@ -1,0 +1,291 @@
+{
+  "case": "bad-json-row-effects",
+  "effects": [
+    {
+      "after": {
+        "candidates": [
+          {
+            "decided": false,
+            "decided_by": null,
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000001",
+            "reason": null,
+            "status": "pending"
+          },
+          {
+            "decided": true,
+            "decided_by": "<admin>",
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000002",
+            "reason": "later",
+            "status": "deferred"
+          },
+          {
+            "decided": false,
+            "decided_by": null,
+            "generation": 5,
+            "id": "95000000-0000-4000-8000-000000000003",
+            "reason": null,
+            "status": "pending"
+          },
+          {
+            "decided": true,
+            "decided_by": "<admin>",
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000004",
+            "reason": "no",
+            "status": "rejected"
+          }
+        ],
+        "decisions": [
+          {
+            "candidate": "95000000-0000-4000-8000-000000000001",
+            "decided_by": "<admin>",
+            "decision": "defer",
+            "has_link": false,
+            "has_person": false,
+            "reason": "earlier"
+          },
+          {
+            "candidate": "95000000-0000-4000-8000-000000000002",
+            "decided_by": "<admin>",
+            "decision": "defer",
+            "has_link": false,
+            "has_person": false,
+            "reason": "later"
+          }
+        ],
+        "events": [],
+        "jobs": [
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000001",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000002",
+            "next_action": "wait",
+            "state": "queued",
+            "terminal": false
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000003",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000004",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          }
+        ],
+        "links": [
+          {
+            "source": "admin7-alpha",
+            "state": "active",
+            "subject": "admin7-subject-b",
+            "user_id": "<other>"
+          },
+          {
+            "source": "admin7-alpha",
+            "state": "active",
+            "subject": "admin7-subject-t",
+            "user_id": "<third>"
+          },
+          {
+            "source": "admin7-beta",
+            "state": "detached",
+            "subject": "admin7-subject-a",
+            "user_id": "<admin>"
+          }
+        ],
+        "operations": [],
+        "sources": [
+          {
+            "config_key_version": 1,
+            "generation": 3,
+            "key": "admin7-alpha",
+            "mapping_version": 2,
+            "state": "active",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 5,
+            "key": "admin7-beta",
+            "mapping_version": 2,
+            "state": "paused",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 2,
+            "key": "admin7-delta",
+            "mapping_version": 1,
+            "state": "validated",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 1,
+            "key": "admin7-gamma",
+            "mapping_version": 2,
+            "state": "draft",
+            "updated_by": null
+          }
+        ]
+      },
+      "before": {
+        "candidates": [
+          {
+            "decided": false,
+            "decided_by": null,
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000001",
+            "reason": null,
+            "status": "pending"
+          },
+          {
+            "decided": true,
+            "decided_by": "<admin>",
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000002",
+            "reason": "later",
+            "status": "deferred"
+          },
+          {
+            "decided": false,
+            "decided_by": null,
+            "generation": 5,
+            "id": "95000000-0000-4000-8000-000000000003",
+            "reason": null,
+            "status": "pending"
+          },
+          {
+            "decided": true,
+            "decided_by": "<admin>",
+            "generation": 3,
+            "id": "95000000-0000-4000-8000-000000000004",
+            "reason": "no",
+            "status": "rejected"
+          }
+        ],
+        "decisions": [
+          {
+            "candidate": "95000000-0000-4000-8000-000000000001",
+            "decided_by": "<admin>",
+            "decision": "defer",
+            "has_link": false,
+            "has_person": false,
+            "reason": "earlier"
+          },
+          {
+            "candidate": "95000000-0000-4000-8000-000000000002",
+            "decided_by": "<admin>",
+            "decision": "defer",
+            "has_link": false,
+            "has_person": false,
+            "reason": "later"
+          }
+        ],
+        "events": [],
+        "jobs": [
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000001",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000002",
+            "next_action": "wait",
+            "state": "queued",
+            "terminal": false
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000003",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          },
+          {
+            "cancel_requested": false,
+            "id": "95100000-0000-4000-8000-000000000004",
+            "next_action": "wait",
+            "state": "completed",
+            "terminal": true
+          }
+        ],
+        "links": [
+          {
+            "source": "admin7-alpha",
+            "state": "active",
+            "subject": "admin7-subject-b",
+            "user_id": "<other>"
+          },
+          {
+            "source": "admin7-alpha",
+            "state": "active",
+            "subject": "admin7-subject-t",
+            "user_id": "<third>"
+          },
+          {
+            "source": "admin7-beta",
+            "state": "detached",
+            "subject": "admin7-subject-a",
+            "user_id": "<admin>"
+          }
+        ],
+        "operations": [],
+        "sources": [
+          {
+            "config_key_version": 1,
+            "generation": 3,
+            "key": "admin7-alpha",
+            "mapping_version": 2,
+            "state": "active",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 5,
+            "key": "admin7-beta",
+            "mapping_version": 2,
+            "state": "paused",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 2,
+            "key": "admin7-delta",
+            "mapping_version": 1,
+            "state": "validated",
+            "updated_by": null
+          },
+          {
+            "config_key_version": 1,
+            "generation": 1,
+            "key": "admin7-gamma",
+            "mapping_version": 2,
+            "state": "draft",
+            "updated_by": null
+          }
+        ]
+      },
+      "table": "identity"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/identity/v2/sources/{sourceKey}/pause"
+}

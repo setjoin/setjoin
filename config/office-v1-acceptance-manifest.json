@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "setjoin.office.acceptance-manifest/v1",
+  "manifestVersion": 1,
+  "releaseClaimState": "blocked_until_exact_evidence",
+  "featureDefaults": {
+    "feature.drive": "on",
+    "feature.drive_history": "on",
+    "feature.office_editing": "on",
+    "feature.office_local_open": "on"
+  },
+  "browserCells": [
+    {"id": "chromium-current-at-freeze", "family": "chromium", "versionPolicy": "current_at_freeze", "status": "unassessed"},
+    {"id": "chromium-previous-at-freeze", "family": "chromium", "versionPolicy": "previous_stable_at_freeze", "status": "unassessed"},
+    {"id": "firefox-current-at-freeze", "family": "firefox", "versionPolicy": "current_at_freeze", "status": "unassessed"},
+    {"id": "firefox-previous-at-freeze", "family": "firefox", "versionPolicy": "previous_stable_at_freeze", "status": "unassessed"}
+  ],
+  "electronCells": [
+    {"id": "electron-windows-pinned", "platform": "windows", "runtime": "repository_pinned", "status": "unassessed"},
+    {"id": "electron-macos-pinned", "platform": "macos", "runtime": "repository_pinned", "status": "unassessed"},
+    {"id": "electron-linux-pinned", "platform": "linux", "runtime": "repository_pinned", "status": "unassessed"}
+  ],
+  "localOpenCells": [
+    {"id": "customer-installed-microsoft-office", "application": "microsoft_office", "license": "customer_managed", "status": "external_gate"},
+    {"id": "customer-installed-wps-office", "application": "wps_office", "license": "customer_managed", "status": "external_gate"},
+    {"id": "customer-installed-libreoffice", "application": "libreoffice", "license": "customer_managed", "status": "external_gate"},
+    {"id": "customer-installed-collabora-office", "application": "collabora_office", "license": "customer_managed", "status": "external_gate"}
+  ],
+  "corpus": {
+    "id": "office-v1-50-file-corpus",
+    "minimumFiles": 50,
+    "fixtureDigests": "required_before_claim",
+    "producers": ["microsoft_office", "wps_office", "macos_office", "iwork_conversion", "legacy_office"],
+    "requiredFonts": "licensed_and_retained",
+    "referenceRenderer": "licensed_external_reference_required",
+    "upstreamRenderingKernel": "excluded_from_compatibility_tests",
+    "customerData": "forbidden_in_repository_fixture"
+  },
+  "performance": {
+    "openCohortsPerShard": 500,
+    "activeEditorsPerShard": 50,
+    "fixtureSizeBytes": 10485760,
+    "p95LaunchToEditableSeconds": 5,
+    "p95AcceptedSaveSeconds": 3,
+    "historyP95FreshnessSeconds": 5,
+    "historyWorstCaseAlertSeconds": 30
+  },
+  "limits": {
+    "requestHeaderBytes": 65536,
+    "fileBodyBytes": 209715200,
+    "callbackTimeoutSeconds": 120,
+    "launchProofSeconds": 300,
+    "accessTokenMaximumSeconds": 28800,
+    "lockLeaseSeconds": 1800,
+    "lockRefreshMaximumSeconds": 600
+  },
+  "historyEventClasses": [
+    "office_save",
+    "office_noop",
+    "office_rejection",
+    "drive_upload",
+    "conflict_branch",
+    "restore",
+    "rename",
+    "move",
+    "trash_recover",
+    "share_acl_change",
+    "checkout_lock_transition",
+    "editor_launch_leave_revoke_failure",
+    "rendition_success_failure"
+  ],
+  "requiredCases": [
+    "OFFICE-CONTRACT-LAUNCH",
+    "OFFICE-CONTRACT-LOCK",
+    "OFFICE-CONTRACT-ACCEPTED-RECEIPT",
+    "OFFICE-CONTRACT-HISTORY-REPLAY",
+    "OFFICE-CONTRACT-STALE-BRANCH",
+    "OFFICE-WOPI-AUTHORITY",
+    "OFFICE-WOPI-REVOCATION",
+    "OFFICE-REMOVAL-DRIVE-RECOVERY"
+  ],
+  "evidence": {
+    "owner": "unassigned_before_o0_close",
+    "root": "test-results/office-foundation",
+    "retention": "run_manifest_and_sanitized_logs_only",
+    "requiredFields": ["runId", "stageDuration", "environmentDigest", "sourceDigest", "firstFailure", "verdict"],
+    "credentials": "never_retained",
+    "documentBytes": "never_retained"
+  },
+  "externalGates": [
+    "collabora_source_or_image_digest",
+    "whole_artifact_license_notice_sbom_review",
+    "security_response_owner_and_sla",
+    "licensed_font_and_reference_renderer_evidence",
+    "customer_design_partner_and_exact_support_cells"
+  ],
+  "retryPolicy": {
+    "functionalCaseRetries": 0,
+    "infrastructureRetryMaximum": 1,
+    "retryVerdict": "flaky_red_until_root_caused"
+  }
+}

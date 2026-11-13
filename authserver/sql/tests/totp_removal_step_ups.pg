@@ -1,0 +1,147 @@
+-- pgTAP tests for totp_removal_step_ups (V250, med-webmail-mfa-lifecycle-001).
+--
+-- The table is the server-side state for the single-use, session-bound step-up
+-- token in the TOTP de-enrollment lifecycle. The Go handler tests
+-- (authserver/internal/handlers/totp_removal_test.go) own the HTTP decision
+-- table; these SQL tests pin the table's structural guarantees:
+--
+--   1. consumption is DELETE-once: exactly one concurrent/expiring consumer
+--      can claim a token (PRIMARY KEY on token_hash + DELETE ... RETURNING);
+--   2. the expiry guard in the consumption predicate refuses expired tokens;
+--   3. the session binding (session_jti) is part of the consumption predicate,
+--      so a token stolen from one session is inert in another;
+--   4. rows cascade-delete with their user.
+BEGIN;
+SELECT plan(6);
+
+-- ── 1. Single consumption: the first DELETE claims the row, a second affects
+--      zero rows (replay refused).
+DO $$
+DECLARE
+    v_uid   BIGINT;
+    v_hash  TEXT := 'pgtap-hash-single-use';
+    v_claim TEXT;
+    v_second INT := 0;
+BEGIN
+    v_uid := mk_auth_user('totp-removal-once@test.local', 'x', 'Removal Once');
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES (v_hash, v_uid, 'sess-once', now() + interval '5 minutes');
+
+    DELETE FROM totp_removal_step_ups
+     WHERE token_hash = v_hash AND user_id = v_uid AND session_jti = 'sess-once'
+       AND expires_at > now()
+    RETURNING token_hash INTO v_claim;
+
+    IF v_claim IS NULL THEN
+        RAISE EXCEPTION 'first consumption must claim the token';
+    END IF;
+
+    GET DIAGNOSTICS v_second = ROW_COUNT;
+    DELETE FROM totp_removal_step_ups
+     WHERE token_hash = v_hash AND user_id = v_uid AND session_jti = 'sess-once'
+       AND expires_at > now();
+    GET DIAGNOSTICS v_second = ROW_COUNT;
+
+    PERFORM set_config('app.removal_second_claims', v_second::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    current_setting('app.removal_second_claims')::INT, 0,
+    'a replayed step-up token affects zero rows on the second consumption');
+
+-- ── 2. Expiry guard: an expired token never claims.
+DO $$
+DECLARE
+    v_uid   BIGINT;
+    v_hash  TEXT := 'pgtap-hash-expired';
+    v_claim TEXT;
+BEGIN
+    v_uid := mk_auth_user('totp-removal-expired@test.local', 'x', 'Removal Expired');
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES (v_hash, v_uid, 'sess-exp', now() - interval '1 minute');
+
+    DELETE FROM totp_removal_step_ups
+     WHERE token_hash = v_hash AND user_id = v_uid AND session_jti = 'sess-exp'
+       AND expires_at > now()
+    RETURNING token_hash INTO v_claim;
+    PERFORM set_config('app.removal_expired_claim', COALESCE(v_claim, ''), TRUE);
+END;
+$$;
+SELECT is(
+    current_setting('app.removal_expired_claim'), '',
+    'an expired step-up token is refused by the expiry guard');
+
+-- ── 3. Session binding: a token bound to one jti does not claim under another.
+DO $$
+DECLARE
+    v_uid   BIGINT;
+    v_hash  TEXT := 'pgtap-hash-foreign-session';
+    v_claim TEXT;
+BEGIN
+    v_uid := mk_auth_user('totp-removal-foreign@test.local', 'x', 'Removal Foreign');
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES (v_hash, v_uid, 'sess-mine', now() + interval '5 minutes');
+
+    DELETE FROM totp_removal_step_ups
+     WHERE token_hash = v_hash AND user_id = v_uid AND session_jti = 'sess-other'
+       AND expires_at > now()
+    RETURNING token_hash INTO v_claim;
+    PERFORM set_config('app.removal_foreign_claim', COALESCE(v_claim, ''), TRUE);
+END;
+$$;
+SELECT is(
+    current_setting('app.removal_foreign_claim'), '',
+    'a step-up token is inert under a foreign session jti');
+
+-- ── 4. Serial re-check leg: the removal transaction's enabled-factor guard is
+--      the users row itself (FOR UPDATE), so the table only needs to stay
+--      consistent per user: at most one live row per user after re-issuance.
+DO $$
+DECLARE
+    v_uid  BIGINT;
+    v_live INT;
+BEGIN
+    v_uid := mk_auth_user('totp-removal-unique@test.local', 'x', 'Removal Unique');
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES ('pgtap-hash-issuance-1', v_uid, 'sess-1', now() + interval '5 minutes');
+    -- Re-issuance deletes the user's prior rows first (service contract).
+    DELETE FROM totp_removal_step_ups WHERE user_id = v_uid;
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES ('pgtap-hash-issuance-2', v_uid, 'sess-2', now() + interval '5 minutes');
+
+    SELECT count(*) INTO v_live FROM totp_removal_step_ups WHERE user_id = v_uid;
+    PERFORM set_config('app.removal_live_rows', v_live::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    current_setting('app.removal_live_rows')::INT, 1,
+    're-issuance leaves at most one live step-up row per user');
+
+-- ── 5. Expiry shape: expires_at is NOT NULL and newer rows expire later than
+--      creation (created_at default fires).
+SELECT ok(
+    (SELECT expires_at > created_at
+       FROM totp_removal_step_ups WHERE token_hash = 'pgtap-hash-issuance-2'),
+    'step-up rows carry a creation timestamp and a later expiry');
+
+-- ── 6. Cascade: deleting the user deletes their step-up rows.
+DO $$
+DECLARE
+    v_uid   BIGINT;
+    v_after INT;
+BEGIN
+    v_uid := mk_auth_user('totp-removal-cascade@test.local', 'x', 'Removal Cascade');
+    INSERT INTO totp_removal_step_ups (token_hash, user_id, session_jti, expires_at)
+    VALUES ('pgtap-hash-cascade', v_uid, 'sess-c', now() + interval '5 minutes');
+
+    DELETE FROM users WHERE id = v_uid;
+    SELECT count(*) INTO v_after FROM totp_removal_step_ups WHERE token_hash = 'pgtap-hash-cascade';
+    PERFORM set_config('app.removal_cascade_rows', v_after::TEXT, TRUE);
+END;
+$$;
+SELECT is(
+    current_setting('app.removal_cascade_rows')::INT, 0,
+    'deleting the user cascades to their step-up rows');
+
+SELECT * FROM finish();
+ROLLBACK;

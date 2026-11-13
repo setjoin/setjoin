@@ -1,0 +1,10 @@
+-- pgTAP: user_spam_model table for per-user FTRL spam classifier
+BEGIN;
+SELECT plan(4);
+
+SELECT has_table('user_spam_model', 'user_spam_model table exists');
+SELECT has_column('user_spam_model', 'user_id', 'user_id column exists');
+SELECT has_column('user_spam_model', 'model_bytes', 'model_bytes column exists');
+SELECT col_type_is('user_spam_model', 'model_bytes', 'bytea', 'model_bytes is bytea');
+
+ROLLBACK;

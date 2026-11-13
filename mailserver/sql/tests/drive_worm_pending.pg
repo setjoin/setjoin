@@ -1,0 +1,123 @@
+-- mailserver/sql/tests/drive_worm_pending.pg — G1 derived-pending predicate,
+-- the drive_worm_pending admin surface, and the blocks it drives at export
+-- request/consume + member grant (P5 Task 6), including the AUTOPLAN
+-- batch-2 #1 SET LOCAL ROLE setjoin_app leg (a non-member admin must get a
+-- REAL count under RLS, not just superuser pgTAP — that's what proves the
+-- drive_worm_pending DEFINER/setjoin_worker footer is load-bearing; without
+-- it the I-4 anti-oracle SELECT policy on drive_chunks would silently
+-- return '[]').
+BEGIN;
+SELECT plan(17);
+
+UPDATE feature_toggles SET enabled = true WHERE key IN ('feature.drive','feature.drive_compliance');
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (94400, 'dwp7.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled, manager_id) OVERRIDING SYSTEM VALUE VALUES
+  (94401, 'dwp_owner', 94400, 'own@dwp7.test', 'Owner', TRUE, 94402),
+  (94402, 'dwp_admin', 94400, 'adm@dwp7.test', 'Admin', TRUE, NULL),
+  (94403, 'dwp_grant', 94400, 'grt@dwp7.test', 'Grantee', TRUE, NULL);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by) VALUES (94402, 1, 94402);
+
+SELECT drive_space_create(94401, 'GxpPending7', 'gxp', false, 30, 'compliance') AS id \gset gxp_
+SELECT drive_node_create(94401, :gxp_id, NULL, 'file', 'p.pdf') AS fid \gset
+SELECT drive_chunk_register(94401, :gxp_id, repeat('1',64), 10);
+SELECT (drive_file_put_version(94401, :fid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, 'v1', 'test')->>'versionId')::bigint AS vid \gset
+
+-- 1: right after put_version, worm_applied_until is NULL -> pending.
+SELECT is((SELECT (elem->>'pending')::int FROM jsonb_array_elements(drive_worm_pending(94402)) elem
+            WHERE (elem->>'spaceId')::bigint = :gxp_id), 1,
+          'pending=1 right after put_version (worm_applied_until NULL)');
+
+-- 2: mark applied -> not pending, count drops to 0.
+UPDATE drive_chunks SET worm_applied_until = retain_until WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT is((SELECT count(*) FROM jsonb_array_elements(drive_worm_pending(94402)) elem
+            WHERE (elem->>'spaceId')::bigint = :gxp_id), 0::bigint,
+          'worm_applied_until = retain_until -> not pending, count 0');
+
+-- 3: re-reference extends retain_until past worm_applied_until -> pending again.
+UPDATE drive_chunks SET retain_until = retain_until + interval '10 days'
+ WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT is((SELECT (elem->>'pending')::int FROM jsonb_array_elements(drive_worm_pending(94402)) elem
+            WHERE (elem->>'spaceId')::bigint = :gxp_id), 1,
+          'retain_until extended past worm_applied_until -> pending again');
+
+-- 4: export request on a version with a pending chunk -> BZ145; clears after mark-applied.
+SELECT throws_ok(format($$ SELECT drive_export_request(94401, %s, 'download', %L) $$, :vid, repeat('4',64)),
+                 'BZ145', NULL, 'export request on a version with a pending chunk -> BZ145');
+UPDATE drive_chunks SET worm_applied_until = retain_until WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT is(drive_export_request(94401, :vid, 'download', repeat('4',64))->>'status', 'pending',
+          'after mark-applied, export request proceeds (gxp still routes to drive.export approval)');
+
+-- 5: member grant while the SPACE has WORM locks pending -> BZ145; clears after.
+UPDATE drive_chunks SET retain_until = retain_until + interval '10 days'
+ WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT throws_ok(format($$ SELECT drive_member_grant(94401, %s, 94403, 'viewer') $$, :gxp_id),
+                 'BZ145', NULL, 'member grant while space has WORM locks pending -> BZ145');
+UPDATE drive_chunks SET worm_applied_until = retain_until WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT is(drive_member_grant(94401, :gxp_id, 94403, 'viewer')->>'status', 'pending',
+          'after mark-applied, member grant proceeds (routes to drive.share approval)');
+
+-- 6: drive_worm_pending by a non-admin (no drive.view) -> BZ140.
+SELECT throws_ok($$ SELECT drive_worm_pending(94401) $$, 'BZ140', NULL, 'non-admin caller -> BZ140');
+
+-- 7: export consume of a VALID grant while pending -> BZ145 (stays
+-- unconsumed); after clearing, consume succeeds. Mint the grant WHILE NOT
+-- pending (the chunk was left applied at the end of step 5/6) -- request
+-- itself also blocks on G1, so pending must be induced AFTER the grant exists.
+SELECT drive_export_request(94401, :vid, 'download', repeat('7',64));
+SELECT id AS reqid FROM approval_requests WHERE payload->>'token_hash' = repeat('7',64) \gset
+SELECT drive_export_approval_decide(:reqid, 94402, 'approve', 'sig');
+UPDATE drive_chunks SET retain_until = retain_until + interval '10 days'
+ WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT throws_ok(format($$ SELECT drive_export_consume(94401, %L) $$, repeat('7',64)),
+                 'BZ145', NULL, 'consume of a valid grant while WORM pending -> BZ145 (stays unconsumed)');
+SELECT ok((SELECT consumed_at IS NULL FROM drive_export_grants WHERE token_hash = repeat('7',64)),
+          'grant remains unconsumed while pending');
+UPDATE drive_chunks SET worm_applied_until = retain_until WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+SELECT is((drive_export_consume(94401, repeat('7',64))->>'versionId')::bigint, (:vid)::bigint,
+          'after clearing pending, consume succeeds');
+
+-- AUTOPLAN batch-2 #1: non-member admin gets a REAL pending count under
+-- setjoin_app (real RLS), not superuser. 94402 holds no drive_space_members
+-- row in the gxp space.
+UPDATE drive_chunks SET retain_until = retain_until + interval '10 days'
+ WHERE scope_key = 's'||:gxp_id AND sha256 = repeat('1',64);
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '94402', true);
+SELECT is((SELECT (elem->>'pending')::int FROM jsonb_array_elements(drive_worm_pending(94402)) elem
+            WHERE (elem->>'spaceId')::bigint = :gxp_id), 1,
+          'non-member admin gets a real pending count under setjoin_app -- DEFINER footer proof');
+RESET ROLE;
+
+-- C3: drive_chunks.worm_pending is a STORED generated column, not a
+-- 6-site copy-pasted predicate. Seed one row per state directly (bypassing
+-- the reducers) and assert the column against the literal old expression.
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g', repeat('c1',32), 10, 'drive/g/c1', NULL, NULL);
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g', repeat('c2',32), 10, 'drive/g/c2', now() + interval '10 days', NULL);
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g', repeat('c3',32), 10, 'drive/g/c3', now() + interval '10 days', now() + interval '10 days');
+INSERT INTO drive_chunks (scope_key, sha256, size_bytes, storage_ref, retain_until, worm_applied_until) VALUES
+  ('g', repeat('c4',32), 10, 'drive/g/c4', now() + interval '10 days', now());
+
+SELECT is((SELECT worm_pending FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('c1',32)),
+          FALSE, 'no retain_until -> not pending');
+SELECT is((SELECT worm_pending FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('c2',32)),
+          TRUE, 'retain_until set, worm_applied_until NULL -> pending');
+SELECT is((SELECT worm_pending FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('c3',32)),
+          FALSE, 'worm_applied_until = retain_until (applied-current) -> not pending');
+SELECT is((SELECT worm_pending FROM drive_chunks WHERE scope_key='g' AND sha256=repeat('c4',32)),
+          TRUE, 'worm_applied_until < retain_until (applied-stale) -> pending');
+
+-- The column agrees with the literal old predicate for every seeded row.
+SELECT is(
+  (SELECT count(*) FROM drive_chunks
+    WHERE scope_key='g' AND sha256 IN (repeat('c1',32),repeat('c2',32),repeat('c3',32),repeat('c4',32))
+      AND worm_pending IS DISTINCT FROM
+          (retain_until IS NOT NULL AND (worm_applied_until IS NULL OR worm_applied_until < retain_until)))::int,
+  0, 'worm_pending column agrees with the literal old expression for every seeded state');
+
+SELECT * FROM finish();
+ROLLBACK;

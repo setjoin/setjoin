@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -json: parse error\nUsage of identity transition preview:\n  -idempotency-key string\n    \tUUID idempotency key\n  -json\n    \tJSON output\n  -person string\n    \ttarget person id\n  -quiet\n    \tSuppress output\n  -reason string\n    \taudited reason\n  -user string\n    \tdeprecated alias for --person\nError: invalid boolean value \"not-a-bool\" for -json: parse error\n",
+  "exit": 1
+}

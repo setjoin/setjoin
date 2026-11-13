@@ -1,0 +1,20 @@
+-- mailserver/sql/tests/drive_no_downgrade.pg — I-2 (spec §10). Raw-UPDATE arm;
+-- the reducer arm is re-asserted in drive_space_create.pg (Task 6).
+BEGIN;
+SELECT plan(6);
+SELECT mk_account('dnd') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+INSERT INTO drive_spaces (name, owner_user_id, classification, retention_days, worm_mode)
+  VALUES ('gxp', :u, 'gxp', 30, 'compliance');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS gid \gset
+INSERT INTO drive_spaces (name, owner_user_id, classification) VALUES ('sec', :u, 'secure');
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid2 \gset
+
+SELECT throws_ok(format($$ UPDATE drive_spaces SET classification='secure'  WHERE id=%s $$, :gid),  'BZ142', NULL, 'gxp→secure blocked');
+SELECT throws_ok(format($$ UPDATE drive_spaces SET classification='regular' WHERE id=%s $$, :gid),  'BZ142', NULL, 'gxp→regular blocked');
+SELECT throws_ok(format($$ UPDATE drive_spaces SET classification='regular' WHERE id=%s $$, :sid2), 'BZ142', NULL, 'secure→regular blocked');
+SELECT throws_ok(format($$ UPDATE drive_spaces SET retention_days=7 WHERE id=%s $$, :gid), 'BZ142', NULL, 'gxp retention_days decrease blocked');
+SELECT throws_ok(format($$ UPDATE drive_spaces SET worm_mode='governance' WHERE id=%s $$, :gid), 'BZ142', NULL, 'compliance→governance blocked');
+SELECT lives_ok(format($$ UPDATE drive_spaces SET classification='gxp', retention_days=30, worm_mode='governance' WHERE id=%s $$, :sid2), 'secure→gxp upgrade allowed');
+SELECT * FROM finish();
+ROLLBACK;

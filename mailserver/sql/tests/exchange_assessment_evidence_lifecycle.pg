@@ -1,0 +1,76 @@
+BEGIN;
+SELECT plan(21);
+SELECT set_config('app.capture_notify','on',true);
+
+INSERT INTO domains(id,name,is_local) OVERRIDING SYSTEM VALUE VALUES(98301,'exchange-evidence.test',true);
+INSERT INTO users(id,username,domain_id,email,display_name,enabled) VALUES
+  (98301,'collector',98301,'collector@exchange-evidence.test','Collector',true),
+  (98302,'attester',98301,'attester@exchange-evidence.test','Attester',true),
+  (98303,'outsider',98301,'outsider@exchange-evidence.test','Outsider',true);
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(98301,1,98301),(98302,1,98301);
+UPDATE feature_toggles SET enabled=true WHERE key='feature.exchange_replacement_assessment';
+SELECT exchange_assessment_project_create(98301,98301,'Evidence project',NULL);
+SELECT exchange_assessment_run_create(98301,(SELECT id FROM exchange_assessment_projects WHERE name='Evidence project'),
+  'EX2019-ONPREM-INITIAL','26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963',1,'cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09',1,'1');
+SELECT exchange_assessment_run_transition(98301,(SELECT id FROM exchange_assessment_runs),1,'preflight',NULL);
+SELECT exchange_assessment_run_transition(98301,(SELECT id FROM exchange_assessment_runs),2,'uploading',NULL);
+SELECT exchange_assessment_run_transition(98301,(SELECT id FROM exchange_assessment_runs),3,'validating',NULL);
+SELECT exchange_assessment_run_transition(98301,(SELECT id FROM exchange_assessment_runs),4,'processing',NULL);
+SELECT exchange_assessment_run_transition(98301,(SELECT id FROM exchange_assessment_runs),5,'partial',NULL);
+
+SELECT throws_ok(
+  $$SELECT exchange_assessment_decision_set(98303,(SELECT id FROM exchange_assessment_runs),6,'EX-CALENDAR-VISIBILITY','native','accepted','reviewed',NULL)$$,
+  'BZ317',NULL,'decision authorization precedes existence disclosure');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_decision_set(98301,(SELECT id FROM exchange_assessment_runs),6,'EX-CALENDAR-VISIBILITY','native','accepted','reviewed',NULL)$$,
+  'authorized decider records one capability decision');
+SELECT is((SELECT generation FROM exchange_assessment_runs),7::bigint,'decision advances run generation');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_decisions),1,'decision is unique per run and capability');
+SELECT throws_ok(
+  $$SELECT exchange_assessment_attestation_create(98301,(SELECT id FROM exchange_assessment_runs),'collection_zero',repeat('b',64),'{}')$$,
+  'BZ320',NULL,'collector cannot attest the same zero result');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_attestation_create(98302,(SELECT id FROM exchange_assessment_runs),'collection_zero',repeat('b',64),'{"basis":"independent review"}')$$,
+  'independent actor attests zero result');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_attestation_create(98302,(SELECT id FROM exchange_assessment_runs),'collection_zero',repeat('b',64),'{"basis":"independent review"}')$$,
+  'exact attestation replay is idempotent');
+SELECT is((SELECT count(*)::integer FROM exchange_assessment_attestations),1,'attestation replay creates no duplicate');
+INSERT INTO exchange_assessment_artifacts(run_id,kind,object_key,sha256,crypto_profile,key_id)
+VALUES((SELECT id FROM exchange_assessment_runs),'report_json','exchange/evidence.json',repeat('e',64),'standard','test-key');
+INSERT INTO exchange_assessment_probe_results(run_id,root_id,probe_id,capability_id,stable_instance_id,terminal_state,facts,observed_at)
+VALUES((SELECT id FROM exchange_assessment_runs),'calendar','calendar-visibility','EX-CALENDAR-VISIBILITY','estate','collected','{"count":1}',statement_timestamp());
+INSERT INTO exchange_assessment_evidence(run_id,capability_id,tier,artifact_id,support_cell_digest,case_ids,captured_at,expires_at)
+VALUES((SELECT id FROM exchange_assessment_runs),'EX-CALENDAR-VISIBILITY','T1',(SELECT id FROM exchange_assessment_artifacts),'26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963',ARRAY['EX-T1-CALENDAR'],statement_timestamp(),statement_timestamp()+interval '30 days');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_claim_resolve(98302,(SELECT id FROM exchange_assessment_runs),7)$$,
+  'auditor resolves deterministic claim snapshot');
+SELECT is((SELECT projection->>'replacementReady' FROM exchange_assessment_claim_snapshots),'false','V1A resolver can never claim replacement ready');
+SELECT ok((SELECT jsonb_array_length(projection->'rows')>0 FROM exchange_assessment_claim_snapshots),'claim snapshot covers registry rows');
+SELECT is((SELECT row->>'assessmentState' FROM exchange_assessment_claim_snapshots CROSS JOIN LATERAL jsonb_array_elements(projection->'rows') row WHERE row->>'capabilityId'='EX-CALENDAR-VISIBILITY'),'complete','collected probe resolves complete assessment state');
+SELECT is((SELECT row->>'claimState' FROM exchange_assessment_claim_snapshots CROSS JOIN LATERAL jsonb_array_elements(projection->'rows') row WHERE row->>'capabilityId'='EX-CALENDAR-VISIBILITY'),'experimental','registry experimental ceiling caps accepted T1 evidence');
+SELECT throws_ok(
+  $$SELECT exchange_assessment_publish(98302,(SELECT id FROM exchange_assessment_runs),(SELECT projection_digest FROM exchange_assessment_claim_snapshots),1)$$,
+  'BZ320',NULL,'publication fails closed while evidence is unassessed');
+UPDATE exchange_assessment_claim_snapshots snapshot
+SET projection = jsonb_set(
+  jsonb_set(snapshot.projection,'{supportCellStale}','true'::jsonb),
+  '{rows}',
+  (SELECT jsonb_agg(jsonb_set(row,'{claimState}','"experimental"'::jsonb))
+   FROM jsonb_array_elements(snapshot.projection->'rows') row)
+);
+UPDATE exchange_assessment_runs SET state='ready';
+SELECT throws_ok(
+  $$SELECT exchange_assessment_publish(98302,(SELECT id FROM exchange_assessment_runs),(SELECT projection_digest FROM exchange_assessment_claim_snapshots),1)$$,
+  'BZ320',NULL,'unsigned publication also fails closed for a stale support cell');
+SELECT lives_ok(
+  $$SELECT exchange_assessment_delete_request(98302,(SELECT id FROM exchange_assessment_projects),'project',NULL,NULL,'retention expired')$$,
+  'authorized actor requests project deletion');
+SELECT is((SELECT state FROM exchange_assessment_projects),'deletion_pending','project deletion is explicit pending state');
+SELECT is((SELECT count(*)::integer FROM admin_audit_log WHERE action LIKE 'exchange.assessment.%'),12,'all material lifecycle mutations and exact replays are audited');
+SELECT ok((SELECT count(*)>0 FROM _test_notify_log WHERE channel='exchange_assessment' AND payload::jsonb->>'event'='deletion.requested'),'deletion request notifies observers');
+SELECT ok((SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='exchange_assessment_claim_snapshots'::regclass),'claim table has ENABLE + FORCE RLS backstop');
+SELECT ok(has_function_privilege('setjoin_worker','exchange_assessment_claim_resolve(bigint,bigint,bigint)','EXECUTE'),'worker role owns claim resolver execution');
+
+SELECT * FROM finish();
+ROLLBACK;

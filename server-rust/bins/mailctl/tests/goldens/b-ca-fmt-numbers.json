@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"huge\": 1e+21,\n  \"large\": 1000000,\n  \"rounded\": 9007199254740992,\n  \"small\": 0.000001,\n  \"tiny\": 1e-7,\n  \"whole\": 1\n}\n",
+  "stderr": "",
+  "exit": 0
+}

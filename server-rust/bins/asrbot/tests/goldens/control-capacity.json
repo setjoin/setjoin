@@ -1,0 +1,422 @@
+{
+  "max_meetings": "1",
+  "scenario": "capacity",
+  "steps": [
+    {
+      "name": "start-a",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "start-b-busy",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"busy\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 409
+      }
+    },
+    {
+      "name": "start-a-idempotent",
+      "request": {
+        "body_len": 33,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-a",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[\"room-a\"]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "21"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "bad-body-not-admitted",
+      "request": {
+        "body_len": 17,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"bad_request\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "24"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 400
+      }
+    },
+    {
+      "name": "stop-a",
+      "request": {
+        "body_len": 17,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-stopping-keeps-room",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[\"room-a\"]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "21"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "start-a-while-stopping",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"busy\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 409
+      }
+    },
+    {
+      "name": "start-b-while-stopping",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{\"error\":\"busy\"}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "17"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 409
+      }
+    },
+    {
+      "name": "stop-a-again",
+      "request": {
+        "body_len": 17,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/stop"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-drained",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "13"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "start-b-after-drain",
+      "request": {
+        "body_len": 29,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "POST",
+        "path": "/start"
+      },
+      "response": {
+        "body": "{}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "3"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    },
+    {
+      "name": "status-b",
+      "request": {
+        "body_len": 0,
+        "headers": [
+          [
+            "Authorization",
+            "Bearer oracle-token"
+          ]
+        ],
+        "method": "GET",
+        "path": "/status"
+      },
+      "response": {
+        "body": "{\"rooms\":[\"room-b\"]}\n",
+        "headers": [
+          [
+            "connection",
+            "close"
+          ],
+          [
+            "content-length",
+            "21"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "status": 200
+      }
+    }
+  ]
+}

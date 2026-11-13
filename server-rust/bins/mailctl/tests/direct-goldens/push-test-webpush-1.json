@@ -1,0 +1,11 @@
+{
+  "stdout": "  FAIL device 9900305 (webpush): webpush send: Post \"{HTTP}/[redacted]\": URL is not allowed (must be http/https to a public host)\nDone: 0 sent, 1 failed\n",
+  "stderr": "Error: no test push delivered\n",
+  "exit": 1,
+  "database_effects": {
+    "outbound": [],
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

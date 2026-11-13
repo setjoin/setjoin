@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -json: parse error\nUsage of identity transition list:\n  -json\n    \tJSON output\n  -quiet\n    \tSuppress output\nError: invalid boolean value \"not-a-bool\" for -json: parse error\n",
+  "exit": 1
+}

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/coverage",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"gaps\": 2,\n  \"shadowed\": 1\n}\n",
+  "stderr": "Error: coverage: 2 gap(s) found\n",
+  "exit": 1
+}

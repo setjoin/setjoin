@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "{\n  \"collectorVersion\": \"1\",\n  \"counts\": {\n    \"unassessed\": 31\n  },\n  \"excludedByDefault\": [\n    \"credentials\",\n    \"tokens\",\n    \"message content\",\n    \"raw identities\",\n    \"customer documents\"\n  ],\n  \"importable\": false,\n  \"originDigest\": \"8c2a3f6795c2402adc34362b5bc9a830609a29e1a2b84a95bf668ffd5aa257c1\",\n  \"phase\": \"V1A assessment only — replacement readiness not established\",\n  \"supportCellId\": \"EX2019-ONPREM-INITIAL\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

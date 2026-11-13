@@ -1,0 +1,33 @@
+{
+  "case": "stale-running-reclaimed",
+  "format": 1,
+  "go_source": "d88e3f481f08e62bd4eb7b05368d797fa3d1340d",
+  "observation": {
+    "after": {
+      "audit": [
+        "bulk_role_assign:admin_role_assignment:bulk job 880001",
+        "bulk_role_assign:admin_role_assignment:bulk job 880001"
+      ],
+      "rows": {
+        "assignments": [
+          "<t1>:880002:true:true",
+          "<t2>:880002:true:true"
+        ],
+        "jobs": [
+          "880001:done:2/2::[{\"reason\": null, \"status\": \"assigned\", \"userId\": <t1>}, {\"reason\": null, \"status\": \"assigned\", \"userId\": <t2>}]"
+        ]
+      }
+    },
+    "before": {
+      "audit": [],
+      "rows": {
+        "assignments": [],
+        "jobs": [
+          "880001:running:0/2::[]"
+        ]
+      }
+    },
+    "notifies": []
+  },
+  "worker": "bulk-role-jobs"
+}

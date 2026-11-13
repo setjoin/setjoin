@@ -1,0 +1,33 @@
+-- External SQL boundary: existing authority, atomic evidence and scope restoration.
+BEGIN;
+SELECT plan(14);
+CREATE TEMP TABLE offline_fixture AS SELECT mk_account('rust-offline') AS mailbox;
+SELECT set_config('app.current_user_id',(SELECT user_id::text FROM account_scope((SELECT mailbox FROM offline_fixture))),true);
+CREATE TEMP TABLE offline_created AS SELECT rust_offline_command(
+ current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'create',
+ '{"name":"Rust offline contract","scope_type":"global","enabled":true,"max_offline_days":37,"require_approval":true,"wipe_on_logout":"admin_default","priority":9}',true)::bigint AS id;
+SELECT ok((SELECT id>0 FROM offline_created),'create returns its persistent identifier');
+SELECT is(current_setting('app.current_user_id'),(SELECT user_id::text FROM account_scope((SELECT mailbox FROM offline_fixture))),'the no-GUC adapter restores authenticated scope');
+SELECT is((SELECT max_offline_days FROM offline_policies WHERE id=(SELECT id FROM offline_created)),37,'existing policy authority stores the requested value');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_policy_set' AND target_id=(SELECT id FROM offline_created)),1::bigint,'exactly one durable policy audit');
+SELECT is((SELECT user_id FROM admin_audit_log WHERE action='offline_policy_set' AND target_id=(SELECT id FROM offline_created)),current_setting('app.current_user_id')::bigint,'audit ownership comes from the explicit authenticated actor');
+SELECT throws_ok($$SELECT rust_offline_command(1,1,'unknown','{}',true)$$,'22023','unknown offline command','operation vocabulary fails closed');
+SELECT throws_ok($$SELECT rust_offline_command(current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'update',jsonb_build_object('id',(SELECT id FROM offline_created),'scope_type','bad'),true)$$,'BZ099','invalid offline policy scope','existing reducer business refusal survives');
+SELECT is((SELECT count(*) FROM admin_audit_log WHERE action='offline_policy_set' AND target_id=(SELECT id FROM offline_created)),1::bigint,'a refused update commits no second evidence row');
+INSERT INTO devices(id,user_id,fingerprint,hmac_secret)
+VALUES(987010,current_setting('app.current_user_id')::bigint,'rust-offline-rls','secret');
+INSERT INTO user_devices(id,user_id,device_id,device_name,platform,offline_approval)
+VALUES(987011,current_setting('app.current_user_id')::bigint,987010,'RLS desktop','desktop','pending');
+SELECT lives_ok($$SELECT rust_offline_command(current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'approve','{"id":987011}',true)$$,'owner credential uses existing device authority');
+UPDATE user_devices SET offline_approval='pending' WHERE id=987011;
+GRANT SELECT ON offline_fixture TO setjoin_app;
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok($$SELECT rust_offline_command(current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'approve','{"id":987011}',true)$$,'BZ100',NULL,'Go absent user GUC filters even an own-device update');
+SELECT is(current_setting('app.current_user_id'),(SELECT user_id::text FROM account_scope((SELECT mailbox FROM offline_fixture))),'failed command restores the caller user GUC');
+SELECT is((SELECT offline_approval FROM user_devices WHERE id=987011),'pending','RLS refusal rolls back the transition');
+RESET ROLE;
+-- #440: an out-of-reach device (p_reach false or unknown) answers like a missing one.
+SELECT throws_ok($$SELECT rust_offline_command(current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'wipe','{"id":987011}',false)$$,'BZ100','device 987011 not found','a foreign device cannot be wiped');
+SELECT throws_ok($$SELECT rust_offline_command(current_setting('app.current_user_id')::bigint,(SELECT mailbox FROM offline_fixture),'approve','{"id":987011}',NULL)$$,'BZ100','device 987011 not found','an unknown reach fails closed');
+SELECT * FROM finish();
+ROLLBACK;

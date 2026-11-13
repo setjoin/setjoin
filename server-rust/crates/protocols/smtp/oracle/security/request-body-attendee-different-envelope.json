@@ -1,0 +1,432 @@
+{
+  "blobs": {
+    "inbound/dd07077da684514f2af584d6840b449e25958b7147ddd0a096044255c14d80aa": "RnJvbTogVmlzaXRvciA8dmlzaXRvckBleHRlcm5hbC50ZXN0PgpUbzogYm9iQHNtdHAxLW90aGVyLnRlc3QKTWVzc2FnZS1JRDogPHJlcXVlc3QtYm9keS1hdHRlbmRlZS1kaWZmZXJlbnQtZW52ZWxvcGUtMEBzbXRwNi50ZXN0PgpTdWJqZWN0OiBDYWxlbmRhcgpDb250ZW50LVR5cGU6IHRleHQvY2FsZW5kYXI7IG1ldGhvZD1SRVFVRVNUOyBjaGFyc2V0PXV0Zi04CgpCRUdJTjpWQ0FMRU5EQVIKTUVUSE9EOlJFUVVFU1QKQkVHSU46VkVWRU5UClVJRDpzbXRwNi1yZXF1ZXN0ClNVTU1BUlk6VGVhbSBzeW5jCkRUU1RBUlQ6MjAzMDAxMDJUMTAwMDAwWgpEVEVORDoyMDMwMDEwMlQxMTAwMDBaCk9SR0FOSVpFUjptYWlsdG86dmlzaXRvckBleHRlcm5hbC50ZXN0CkFUVEVOREVFO0NOPUFsaWNlOm1haWx0bzphbGljZUBzbXRwMS50ZXN0CkRFU0NSSVBUSU9OOkFnZW5kYVxuU2Vjb25kIGxpbmUKTE9DQVRJT046Um9vbSAxCkVORDpWRVZFTlQKRU5EOlZDQUxFTkRBUgo="
+  },
+  "capture_blobs": true,
+  "effects": {
+    "audit": [],
+    "journal": [
+      {
+        "datatype": "Calendar",
+        "mailbox_id": 9348021,
+        "op": "created",
+        "state_seq": 1
+      },
+      {
+        "datatype": "Calendar",
+        "mailbox_id": 9348022,
+        "op": "created",
+        "state_seq": 1
+      },
+      {
+        "datatype": "email",
+        "mailbox_id": 9348022,
+        "op": "created",
+        "state_seq": 1
+      }
+    ],
+    "mailboxes": [
+      {
+        "id": 9348021,
+        "jmap_email_state": 0,
+        "jmap_tag_state": 0,
+        "used_bytes": 0
+      },
+      {
+        "id": 9348022,
+        "jmap_email_state": 1,
+        "jmap_tag_state": 1,
+        "used_bytes": 491
+      },
+      {
+        "id": 9348023,
+        "jmap_email_state": 0,
+        "jmap_tag_state": 0,
+        "used_bytes": 0
+      }
+    ],
+    "messages": [
+      {
+        "bcc_addrs": [],
+        "body_html": "",
+        "body_text": "BEGIN:VCALENDAR\nMETHOD:REQUEST\nBEGIN:VEVENT\nUID:smtp6-request\nSUMMARY:Team sync\nDTSTART:20300102T100000Z\nDTEND:20300102T110000Z\nORGANIZER:mailto:visitor@external.test\nATTENDEE;CN=Alice:mailto:alice@smtp1.test\nDESCRIPTION:Agenda\\nSecond line\nLOCATION:Room 1\nEND:VEVENT\nEND:VCALENDAR",
+        "cc_addrs": [],
+        "crypto_type": "none",
+        "dkim_result": "none",
+        "dmarc_result": "none",
+        "from_addr": "visitor@external.test",
+        "from_name": "Visitor",
+        "is_deleted": false,
+        "is_draft": false,
+        "is_read": false,
+        "mailbox_id": 9348022,
+        "message_id": "<request-body-attendee-different-envelope-0@smtp6.test>",
+        "raw_ref": "inbound/dd07077da684514f2af584d6840b449e25958b7147ddd0a096044255c14d80aa",
+        "size_bytes": 491,
+        "spam_headers": null,
+        "spam_score": 0,
+        "spf_result": "none",
+        "subject": "Calendar",
+        "to_addrs": [
+          {
+            "email": "bob@smtp1-other.test"
+          }
+        ]
+      }
+    ],
+    "tags": [
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Inbox",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 3,
+        "jmap_state": 1,
+        "mailbox_id": 9348022,
+        "name": "Inbox",
+        "total_count": 1,
+        "unread_count": 1
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Drafts",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Important",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Inbox",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Muted",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Other",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Scheduled",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Sent",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Snoozed",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Spam",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Starred",
+        "total_count": 0,
+        "unread_count": 0
+      },
+      {
+        "imap_uid_next": 1,
+        "jmap_state": 0,
+        "mailbox_id": 9348023,
+        "name": "Trash",
+        "total_count": 0,
+        "unread_count": 0
+      }
+    ]
+  },
+  "imip_effects": {
+    "attendees": [],
+    "rates": [],
+    "states": [
+      {
+        "event_state": null,
+        "exdate": null,
+        "is_meeting": null,
+        "jmap_state": 0,
+        "mailbox_id": 9348021,
+        "name": "Alice calendar",
+        "organizer_email": null,
+        "recurrence_override": null,
+        "sequence": null,
+        "uid": null
+      },
+      {
+        "event_state": null,
+        "exdate": null,
+        "is_meeting": null,
+        "jmap_state": 0,
+        "mailbox_id": 9348022,
+        "name": "Bob calendar",
+        "organizer_email": null,
+        "recurrence_override": null,
+        "sequence": null,
+        "uid": null
+      }
+    ]
+  },
+  "name": "request-body-attendee-different-envelope",
+  "observe_effects": true,
+  "pipeline_effects": {
+    "events": [],
+    "harvest": [],
+    "held": [],
+    "locations": [
+      {
+        "mailbox_id": 9348022,
+        "message_id": "<request-body-attendee-different-envelope-0@smtp6.test>",
+        "name": "Inbox"
+      }
+    ],
+    "quarantine": []
+  },
+  "security_effects": [
+    {
+      "is_external": false,
+      "is_name_spoof": false,
+      "mailbox_id": 9348022,
+      "message_id": "<request-body-attendee-different-envelope-0@smtp6.test>",
+      "smime_issuer_cn": null,
+      "smime_signer_cn": null,
+      "smime_signer_email": null,
+      "smime_status": null,
+      "spam_headers": null,
+      "spam_score": 0
+    }
+  ],
+  "setup_sql": "DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');INSERT INTO calendars(id,mailbox_id,name,is_default) VALUES(9348051,9348021,'Alice calendar',true),(9348052,9348022,'Bob calendar',true);",
+  "steps": [
+    {
+      "lines": 1,
+      "reply": "220 mailserver ESMTP\r\n",
+      "send": ""
+    },
+    {
+      "lines": 5,
+      "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n",
+      "send": "EHLO smtp6.test\r\n"
+    },
+    {
+      "lines": 3,
+      "reply": "250 OK\r\n250 OK\r\n354 Start mail input; end with <CRLF>.<CRLF>\r\n",
+      "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<bob@smtp1-other.test>\r\nDATA\r\n"
+    },
+    {
+      "lines": 1,
+      "reply": "250 OK\r\n",
+      "send": "From: Visitor <visitor@external.test>\r\nTo: bob@smtp1-other.test\r\nMessage-ID: <request-body-attendee-different-envelope-0@smtp6.test>\r\nSubject: Calendar\r\nContent-Type: text/calendar; method=REQUEST; charset=utf-8\r\n\r\nBEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:smtp6-request\r\nSUMMARY:Team sync\r\nDTSTART:20300102T100000Z\r\nDTEND:20300102T110000Z\r\nORGANIZER:mailto:visitor@external.test\r\nATTENDEE;CN=Alice:mailto:alice@smtp1.test\r\nDESCRIPTION:Agenda\\nSecond line\r\nLOCATION:Room 1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n.\r\n"
+    },
+    {
+      "lines": 1,
+      "reply": "221 Bye\r\n",
+      "send": "QUIT\r\n"
+    }
+  ],
+  "teardown_sql": "DELETE FROM calendars WHERE mailbox_id BETWEEN 9348021 AND 9348023;DELETE FROM rate_limit_counters WHERE key IN ('itip:recipient:9348011','itip:recipient:9348012','itip:recipient:9348013');"
+}

@@ -1,0 +1,38 @@
+//! Frozen Go guestgate allowRules, source e3333b005 (#406).
+//! Kept as native data so deleting Go source cannot break the Rust build.
+pub(super) const RULES: &[(&str, &str, &str)] = &[
+    ("", "prefix", "/chat/"),
+    ("GET", "exact", "/jmap/ws"),
+    ("GET", "exact", "/jmap/eventsource"),
+    ("GET", "exact", "/.well-known/jmap"),
+    ("GET", "exact", "/auth/me"),
+    ("POST", "exact", "/auth/refresh"),
+    ("POST", "exact", "/auth/logout"),
+    ("HEAD", "prefix", "/drive/chunks/"),
+    ("PUT", "prefix", "/drive/chunks/"),
+    ("GET", "exact", "/drive/nodes"),
+    ("GET", "regex", "^/drive/versions/[0-9]+/content$"),
+    ("GET", "regex", "^/drive/versions/[0-9]+/preview$"),
+    ("GET", "exact", "/auth/guest-invite/accept"),
+    ("POST", "exact", "/auth/guest-invite/accept"),
+    ("GET", "root-prefix", "/guest-invite/"),
+    ("GET", "exact", "/meet"),
+    ("POST", "exact", "/meet"),
+    ("GET", "regex", "^/meet/by-slug/[^/]+$"),
+    ("GET", "regex", "^/meet/[0-9]+$"),
+    (
+        "POST",
+        "regex",
+        "^/meet/[0-9]+/(join|lock|settings|role|kick|end|knock|recording|captions)$",
+    ),
+    ("DELETE", "regex", "^/meet/[0-9]+/(recording|captions)$"),
+    ("POST", "regex", "^/meet/[0-9]+/requests/[0-9]+$"),
+    (
+        "POST",
+        "regex",
+        "^/meet/[0-9]+/breakouts(/(assign|close|join))?$",
+    ),
+    ("GET", "regex", "^/public/meet/[^/]+/join-request/[0-9]+$"),
+    ("GET", "exact", "/rtc"),
+    ("GET", "prefix", "/rtc/"),
+];

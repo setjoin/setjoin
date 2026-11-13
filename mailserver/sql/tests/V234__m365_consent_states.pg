@@ -1,0 +1,70 @@
+-- pgTAP: V234__m365_consent_states.pg — server-side single-use M365 consent
+-- authorization store (D-MAILSERVER-INTERNAL-USER-F-002 remediation).
+-- Requires: m365_consent_states, users, _fixtures.mk_account.
+BEGIN;
+SELECT plan(13);
+
+-- ── Shape ────────────────────────────────────────────────────────────────────
+SELECT has_table('m365_consent_states');
+SELECT has_column('m365_consent_states', 'state_token');
+SELECT has_column('m365_consent_states', 'actor_user_id');
+SELECT has_column('m365_consent_states', 'cloud');
+SELECT has_column('m365_consent_states', 'consumed_at');
+
+-- RLS is enabled AND forced (R4).
+SELECT is(
+  (SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE relname = 'm365_consent_states'),
+  TRUE, 'm365_consent_states has RLS enabled + forced');
+
+-- ── Constraints ──────────────────────────────────────────────────────────────
+CREATE TEMP TABLE _mk AS SELECT mk_account('m365consent') AS mb_id;
+-- Materialize the fixture actor id BEFORE switching roles: temp tables created
+-- by the provisioning role are not readable as setjoin_app.
+SELECT user_id AS actor_id FROM mailboxes WHERE id = (SELECT mb_id FROM _mk) \gset
+
+-- Expiry CHECK rejects a non-positive TTL.
+SELECT throws_ok(
+  format($f$INSERT INTO m365_consent_states (state_token, actor_user_id, expires_at)
+    VALUES ('tap-expired-token', %s, statement_timestamp() - interval '1 minute')$f$, :'actor_id'),
+  '23514', NULL, 'expires_at must be after issued_at');
+
+-- Cloud CHECK rejects an unknown cloud.
+SELECT throws_ok(
+  format($f$INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, expires_at)
+    VALUES ('tap-cloud-token', %s, 'usgov', now() + interval '10 minutes')$f$, :'actor_id'),
+  '23514', NULL, 'cloud CHECK rejects unknown cloud');
+
+-- ── Per-actor visibility isolation (the RLS policy) ─────────────────────────
+-- As setjoin_app (NOBYPASSRLS): with the actor GUC set, the minted row is
+-- visible and writable (this is the production RunUserScoped seam); with a
+-- DIFFERENT actor GUC, and with the GUC unset, nothing is visible —
+-- fail-closed.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', :'actor_id', true);
+SELECT lives_ok(
+  format($f$INSERT INTO m365_consent_states (state_token, actor_user_id, cloud, expires_at)
+    VALUES ('tap-scoped-token', %s, 'global', now() + interval '10 minutes')$f$, :'actor_id'),
+  'setjoin_app can mint a consent state under its own actor GUC');
+
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-scoped-token'),
+  1, 'actor GUC admits the actor''s own consent row');
+
+SELECT set_config('app.current_user_id', '999999', true);
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-scoped-token'),
+  0, 'a different actor GUC sees NO consent rows (cross-actor isolation)');
+
+SELECT set_config('app.current_user_id', '', true);
+SELECT is(
+  (SELECT count(*)::int FROM m365_consent_states WHERE state_token = 'tap-scoped-token'),
+  0, 'unset actor GUC sees NO consent rows (fail-closed)');
+RESET ROLE;
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is(
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 234),
+  1, 'schema_migrations records version 234');
+
+SELECT * FROM finish();
+ROLLBACK;

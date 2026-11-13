@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/quarantine/stats",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"active\": 3,\n  \"rejected\": 2,\n  \"released\": 1\n}\n",
+  "stderr": "",
+  "exit": 0
+}

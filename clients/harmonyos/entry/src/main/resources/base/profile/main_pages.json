@@ -1,0 +1,6 @@
+{
+  "src": [
+    "pages/ServerConfigPage",
+    "pages/MainPage"
+  ]
+}

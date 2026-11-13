@@ -1,0 +1,115 @@
+{
+  "case": "foreign-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "guest_accounts"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "users"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "guest_invites"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "user_app_entitlements"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "identity_auth_link_elevations"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "oauth_tokens"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "oidc_tokens"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "ws_subscriptions"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "sessions"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "mfa_reauth_step_ups"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "webauthn_ceremonies"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "session_revocations"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "guest_live_eviction_intents"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "chat_channel_members"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "meeting_participants"
+    },
+    {
+      "after": [],
+      "before": [],
+      "table": "meeting_join_requests"
+    },
+    {
+      "after": [
+        {
+          "email": 0,
+          "mailbox": "<admin-mailbox>",
+          "tags": 0
+        },
+        {
+          "email": 0,
+          "mailbox": "<other-mailbox>",
+          "tags": 0
+        }
+      ],
+      "before": [
+        {
+          "email": 0,
+          "mailbox": "<admin-mailbox>",
+          "tags": 0
+        },
+        {
+          "email": 0,
+          "mailbox": "<other-mailbox>",
+          "tags": 0
+        }
+      ],
+      "table": "mailbox_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/guests"
+}

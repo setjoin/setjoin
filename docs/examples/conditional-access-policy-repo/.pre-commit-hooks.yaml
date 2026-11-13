@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ca-validate
+        name: Validate CA policy documents
+        language: system
+        # Runs `mailctl ca validate --strict` on any staged .policy/*.json file.
+        # Authors get instant feedback without a CI round-trip.
+        # Requires: mailctl in PATH with MAILCTL_SERVER / MAILCTL_TOKEN set,
+        #   OR mailctl can run validate offline (no server needed for validate).
+        entry: mailctl ca validate --strict
+        files: ^\.policy/.*\.json$
+        types: [file]
+
+      - id: ca-fmt-check
+        name: Check CA policy document formatting
+        language: system
+        # Ensures policy files are canonically formatted (stable key order).
+        # If this hook fails, run: mailctl ca fmt <file> > <file>
+        entry: bash -c 'for f in "$@"; do
+            out=$(mailctl ca fmt "$f") &&
+            current=$(cat "$f") &&
+            if [ "$out" != "$current" ]; then
+              echo "ERROR: $f is not canonically formatted.";
+              echo "Run: mailctl ca fmt $f > $f";
+              exit 1;
+            fi;
+          done' --
+        files: ^\.policy/.*\.json$
+        types: [file]

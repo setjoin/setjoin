@@ -1,0 +1,74 @@
+-- access_review_start.pg
+-- pgTAP tests for access_review_start reducer.
+-- Verifies: global snapshot, is_sso derivation, Rule B domain-scope confinement,
+-- and D3 — eligible-dormant assignments are captured with their state columns.
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (90201, 'arv-d1.test', TRUE), (90202, 'arv-d2.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (90201, 'arv_g', 90201, 'g@arv-d1.test', 'G', TRUE),   -- global-role holder
+  (90202, 'arv_d1', 90201, 'd1@arv-d1.test', 'D1', TRUE),-- domain-1 holder
+  (90203, 'arv_d2', 90202, 'd2@arv-d2.test', 'D2', TRUE),-- domain-2 holder
+  (90204, 'arv_act', 90201, 'act@arv-d1.test', 'Act', TRUE);
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (90201, 'arv-global', ARRAY['mail.pipeline'], NULL),   -- global role
+  (90202, 'arv-dom1', ARRAY['mail.pipeline'], 90201);    -- domain-1 role
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, domain_override, granted_by)
+  OVERRIDING SYSTEM VALUE VALUES
+  (90201, 90201, 90201, NULL, 90204),   -- global assignment, admin-granted
+  (90202, 90202, 90202, NULL, NULL),    -- domain-1 assignment, SSO (granted_by NULL)
+  (90203, 90203, 90201, 90202, 90204);  -- global role overridden to domain-2
+
+-- GLOBAL start (scope 0) snapshots ALL three seeded assignments (filter by id to be fixture-safe).
+SELECT lives_ok($$ SELECT access_review_start(90204, 'global recert', 0) $$, 'global start runs');
+SELECT is(
+  (SELECT count(*)::int FROM access_review_items i
+     JOIN access_review_campaigns c ON c.id=i.campaign_id
+    WHERE c.name='global recert' AND i.assignment_id IN (90201, 90202, 90203)),
+  3, 'global start snapshots all in-scope assignments');
+
+-- is_sso correctly derived from granted_by
+SELECT is(
+  (SELECT is_sso FROM access_review_items i JOIN access_review_campaigns c ON c.id=i.campaign_id
+    WHERE c.name='global recert' AND i.assignment_id=90202), TRUE,
+  'granted_by NULL ⇒ is_sso TRUE');
+
+-- SCOPED start (scope=90201) snapshots ONLY domain-1 effective-scope assignments — NOT
+-- the global one (90201) and NOT the domain-2 override (90203).
+SELECT access_review_start(90204, 'd1 recert', 90201);
+SELECT is(
+  (SELECT array_agg(i.assignment_id ORDER BY i.assignment_id) FROM access_review_items i
+     JOIN access_review_campaigns c ON c.id=i.campaign_id WHERE c.name='d1 recert'),
+  ARRAY[90202]::bigint[], 'scoped start snapshots only in-scope (Rule B headline guard)');
+
+-- D3: eligible-dormant assignment is captured by a global campaign + state columns snapshotted.
+-- Seed: user 90205 holds an eligible (dormant) Super Admin assignment — activated_until NULL.
+UPDATE feature_toggles SET enabled = true WHERE key = 'rbac.jit';
+-- Insert user before assignment (FK order).
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (90205, 'arv_elig', 90201, 'elig@arv-d1.test', 'Elig', TRUE);
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, domain_override, granted_by, eligible, activated_until)
+  OVERRIDING SYSTEM VALUE VALUES
+  (90205, 90205, 90201, NULL, 90204, true, NULL);
+
+SELECT access_review_start(90204, 'jit recert', 0);
+
+-- (a) Eligible-dormant assignment is included in the campaign (fixture-safe: check by id).
+SELECT ok(
+  EXISTS(SELECT 1 FROM access_review_items i
+           JOIN access_review_campaigns c ON c.id=i.campaign_id
+          WHERE c.name='jit recert' AND i.assignment_id=90205),
+  'D3: eligible-dormant assignment captured in global campaign');
+
+-- (b) Snapshotted row carries eligible=true + activated_until NULL (dormant state preserved).
+SELECT is(
+  (SELECT ROW(eligible, activated_until)::text
+     FROM access_review_items i JOIN access_review_campaigns c ON c.id=i.campaign_id
+    WHERE c.name='jit recert' AND i.assignment_id=90205),
+  ROW(true, NULL::timestamptz)::text,
+  'D3: eligible=true, activated_until NULL snapshotted for dormant-eligible assignment');
+
+SELECT * FROM finish();
+ROLLBACK;

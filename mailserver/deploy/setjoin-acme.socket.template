@@ -1,0 +1,11 @@
+[Unit]
+Description=Setjoin native HTTP-01 and HTTPS redirect socket
+
+[Socket]
+ListenStream=80
+FileDescriptorName=acme
+Service=setjoin-gateway.service
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

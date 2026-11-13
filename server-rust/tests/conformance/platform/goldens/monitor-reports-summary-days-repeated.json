@@ -1,0 +1,62 @@
+{
+  "case": "days-repeated",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "none"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/reports/summary",
+      "method": "GET",
+      "path": "/admin/reports/summary",
+      "query": "?days=2&days=3"
+    },
+    "response": {
+      "body": "{\"period\":\"2\",\"totalSent\":5,\"totalReceived\":8,\"totalBounced\":1,\"spamCount\":1,\"daily\":[{\"date\":\"<date-27h>\",\"sent\":1,\"received\":1,\"bounced\":0,\"spam\":0},{\"date\":\"<date-1h>\",\"sent\":4,\"received\":7,\"bounced\":1,\"spam\":1}],\"topSenders\":[{\"email\":\"alice@x.test\",\"count\":8},{\"email\":\"bob@y.test\",\"count\":4},{\"email\":\"carol@y.test\",\"count\":1}],\"topRecipients\":[{\"email\":\"bob@y.test\",\"count\":6},{\"email\":\"alice@x.test\",\"count\":4},{\"email\":\"carol@y.test\",\"count\":2},{\"email\":\"dave@z.test\",\"count\":1}],\"ruleTriggers\":[{\"ruleName\":\"tag-it\",\"count\":2},{\"ruleName\":\"unknown\",\"count\":1}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "572"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat5-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/reports/summary"
+}

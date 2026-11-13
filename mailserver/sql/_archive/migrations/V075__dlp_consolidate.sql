@@ -1,0 +1,14 @@
+-- SETJOIN-ARCHIVE-NONEXECUTED: do not load; provenance only (ARCH-007). Loaders reject this tree.
+-- V075: Wire the orphaned DLP consolidation into the migration chain.
+--
+-- mailserver/sql/schema/047_dlp_consolidate.sql defines the authoritative
+-- dlp_check() function (the consolidated, single-source-of-truth version) plus
+-- the dlp_policies.is_pattern column and the migration of legacy
+-- system_config.dlp_patterns rows into dlp_policies. schema/024_dlp.sql (applied
+-- in V001) only documents in a comment that "dlp_check is defined in 047" but
+-- never \i's it, so on a fresh database dlp_check() did not exist and send.pg
+-- failed with "function dlp_check does not exist". 047 depends on dlp_policies
+-- and system_config, both created by V001, so this runs safely after it. The
+-- file is idempotent (ADD COLUMN IF NOT EXISTS, INSERT ... ON CONFLICT DO
+-- NOTHING, CREATE OR REPLACE FUNCTION), so re-runs are no-ops.
+\i ../schema/047_dlp_consolidate.sql

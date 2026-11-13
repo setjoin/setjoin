@@ -1,0 +1,84 @@
+-- pgTAP: tasks_assigned.pg — "Assigned to me" cross-mailbox read + assignee
+-- status-only mutation. Plan: 2026-07-08-shared-team-task-lists.md, Task 5.
+BEGIN;
+SELECT plan(14);
+
+-- A = task owner/creator, B = assignee, C = stranger.
+SELECT mk_account('taA') AS mba \gset
+SELECT mk_account('taB') AS mbb \gset
+SELECT mk_account('taC') AS mbc \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS uc FROM mailboxes WHERE id = :mbc \gset
+
+-- ── personal task assigned to B → cross-mailbox visible in B's view ────────
+INSERT INTO tasks (mailbox_id, title, status, assignee_user_id, jmap_state)
+  VALUES (:mba, 'Review the doc', 'needs-action', :ub, 1) RETURNING id AS pid \gset
+
+SELECT is(
+  jsonb_array_length(tasks_assigned_to_me(:ub)), 1,
+  'THE cross-mailbox assertion: B sees A''s personal task assigned to them');
+SELECT ok(
+  tasks_assigned_to_me(:ub) @> jsonb_build_array(jsonb_build_object('ownerEmail', (SELECT email FROM mailboxes WHERE id = :mba))),
+  'the assigned-to-me row carries the owner''s provenance');
+SELECT is(tasks_assigned_to_me(:uc), '[]'::jsonb, 'C (not assigned anything) sees nothing');
+
+-- ── B sets in-progress: row updated + activity author B + push on A's channel ─
+SET LOCAL app.capture_notify = 'on';
+SELECT task_assignee_set_status(:ub, :pid, 'in-progress') AS status_json \gset
+SELECT is((:'status_json'::jsonb)->>'status', 'in-progress', 'status update returns the new status');
+SELECT is((SELECT status FROM tasks WHERE id = :pid), 'in-progress', 'the row actually changed');
+SELECT is(
+  (SELECT author_user_id FROM task_activity WHERE task_id = :pid AND kind = 'status_change'),
+  :ub::BIGINT, 'the activity row is authored by B (the assignee), not the owner');
+SELECT is(notify_count('task:' || :mba), 1, 'push landed on the OWNER''s task channel (their view syncs)');
+
+-- ── B on a task NOT assigned to them → BZ132 ────────────────────────────────
+INSERT INTO tasks (mailbox_id, title, status, jmap_state) VALUES (:mba, 'Not B''s task', 'needs-action', 1)
+  RETURNING id AS other_pid \gset
+SELECT throws_ok(
+  format($$ SELECT task_assignee_set_status(%s, %s, 'in-progress') $$, :ub, :other_pid),
+  'BZ132', NULL, 'status update on an unassigned task → BZ132 (no oracle)');
+
+-- ── bad status → BZ133 ──────────────────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT task_assignee_set_status(%s, %s, 'bogus') $$, :ub, :pid),
+  'BZ133', NULL, 'invalid status value → BZ133');
+
+-- ── list task assigned to B appears with listName ───────────────────────────
+SELECT task_list_create(:ua, 'Assign-visibility list', NULL) AS list_json \gset
+SELECT list_id AS lid FROM (SELECT ((:'list_json'::jsonb)->>'id')::BIGINT AS list_id) s \gset
+SELECT task_list_add_member(:ua, :lid, (SELECT email FROM mailboxes WHERE id = :mbb)) AS _ig1 \gset
+SELECT task_list_task_set(:ua, :lid,
+  jsonb_build_object('c1', jsonb_build_object('title', 'List task for B',
+    'assigneeEmail', (SELECT email FROM mailboxes WHERE id = :mbb))), NULL, NULL) AS lset \gset
+SELECT ltid AS ltid FROM (SELECT (((:'lset'::jsonb)->'created'->'c1')->>'id')::BIGINT AS ltid) s \gset
+SELECT ok(
+  tasks_assigned_to_me(:ub) @> jsonb_build_array(jsonb_build_object('id', :ltid::TEXT, 'listName', 'Assign-visibility list')),
+  'the list task assigned to B appears with listName');
+
+-- ── B removed from the list → the list task DROPS from B''s assigned view ──
+SELECT task_list_remove_member(:ua, :lid, :ub) AS _ig2 \gset
+SELECT ok(
+  NOT (tasks_assigned_to_me(:ub) @> jsonb_build_array(jsonb_build_object('id', :ltid::TEXT))),
+  'membership-revokes-visibility: the list task is gone from B''s assigned view after removal');
+SELECT throws_ok(
+  format($$ SELECT task_assignee_set_status(%s, %s, 'completed') $$, :ub, :ltid),
+  'BZ132', NULL, 'B can no longer mutate the list task either, post-removal');
+
+-- ── completing does not spawn a recurring successor ─────────────────────────
+INSERT INTO tasks (mailbox_id, title, status, assignee_user_id, rrule, due_at, jmap_state)
+  VALUES (:mba, 'Recurring for B', 'needs-action', :ub, 'FREQ=DAILY', now(), 1) RETURNING id AS rec_pid \gset
+SELECT task_assignee_set_status(:ub, :rec_pid, 'completed') AS _ig3 \gset
+SELECT is(
+  (SELECT count(*)::INT FROM tasks WHERE mailbox_id = :mba AND title = 'Recurring for B'), 1,
+  'assignee completion of a recurring task spawns NO successor (owner path owns the series)');
+
+-- ── unassigned task vanishes from the old assignee's view ───────────────────
+UPDATE tasks SET assignee_user_id = NULL WHERE id = :pid;
+SELECT ok(
+  NOT (tasks_assigned_to_me(:ub) @> jsonb_build_array(jsonb_build_object('id', :pid::TEXT))),
+  'unassigning removes the task from the former assignee''s view');
+
+SELECT * FROM finish();
+ROLLBACK;

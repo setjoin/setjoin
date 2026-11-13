@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/mam/policies",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"policies\":{\"screen\":\"on\"}}"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/mam/policies/group",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"group_id\":7,\"group_type\":\"domain\",\"policies\":{\"screen\":\"off\"}}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0
+}

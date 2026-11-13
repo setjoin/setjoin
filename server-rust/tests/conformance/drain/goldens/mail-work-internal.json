@@ -1,0 +1,101 @@
+{
+  "case": "mail-work-internal",
+  "format": 1,
+  "go_source": "09ee09c13808cb7fe0cb3d956a8db2adc27810c8",
+  "observation": {
+    "audit": [],
+    "chat": [
+      [
+        "Shared mailbox work: /inbox?accountId=<shared>&threadId=actions",
+        "text"
+      ]
+    ],
+    "links": [
+      [
+        "chat",
+        false,
+        true
+      ],
+      [
+        "drive",
+        false,
+        true
+      ],
+      [
+        "task",
+        true,
+        true
+      ]
+    ],
+    "notify": [
+      "{\"op\": \"updated\", \"type\": \"MailWorkEvent\", \"state\": \"1\", \"objectId\": \"actions\", \"accountId\": \"<shared>\", \"objectKind\": \"work\"}",
+      "{\"op\": \"updated\", \"type\": \"MailWorkEvent\", \"state\": \"2\", \"objectId\": \"actions\", \"accountId\": \"<shared>\", \"objectKind\": \"work\"}",
+      "{\"op\": \"updated\", \"type\": \"MailWorkEvent\", \"state\": \"3\", \"objectId\": \"actions\", \"accountId\": \"<shared>\", \"objectKind\": \"work\"}"
+    ],
+    "outbox": [
+      [
+        "task",
+        "completed",
+        1,
+        null,
+        "task",
+        "completed"
+      ],
+      [
+        "chat",
+        "completed",
+        1,
+        null,
+        "chat",
+        "completed"
+      ],
+      [
+        "drive",
+        "completed",
+        1,
+        null,
+        "drive",
+        "completed"
+      ],
+      [
+        "task",
+        "pending",
+        2,
+        "ERROR: mail-work internal action authority is unavailable (SQLSTATE BZ005)",
+        null,
+        null
+      ],
+      [
+        "chat",
+        "pending",
+        2,
+        "ERROR: mail-work internal action authority is unavailable (SQLSTATE BZ005)",
+        null,
+        null
+      ],
+      [
+        "drive",
+        "pending",
+        2,
+        "ERROR: mail-work internal action authority is unavailable (SQLSTATE BZ005)",
+        null,
+        null
+      ]
+    ],
+    "state": [
+      [
+        4,
+        3
+      ]
+    ],
+    "tasks": [
+      [
+        "Internal & <sample>",
+        [
+          "shared-mail"
+        ],
+        "needs-action"
+      ]
+    ]
+  }
+}

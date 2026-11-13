@@ -1,0 +1,38 @@
+{
+  "case": "opportunistic-row-effects",
+  "effects": [
+    {
+      "after": {
+        "config": [
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "outbound_tls_enforce_domains",
+            "value": []
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "outbound_tls_global_mode",
+            "value": "opportunistic"
+          },
+          {
+            "description": null,
+            "encrypted": false,
+            "key": "outbound_tls_skip_domains",
+            "value": []
+          }
+        ],
+        "files": []
+      },
+      "before": {
+        "config": [],
+        "files": []
+      },
+      "table": "tls"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /admin/outbound-tls-policy"
+}

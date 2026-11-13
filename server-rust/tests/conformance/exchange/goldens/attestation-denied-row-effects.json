@@ -1,0 +1,137 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": {
+        "attestations": [],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "before": {
+        "attestations": [],
+        "projects": [
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<admin>",
+            "domain_id": "<domain-a>",
+            "id": "<project-a>",
+            "name": "Project A",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "domain_id": "<domain-b>",
+            "id": "<project-b>",
+            "name": "Project B",
+            "retention_until": null,
+            "state": "active",
+            "updated_at": "<timestamp>"
+          }
+        ],
+        "runs": [
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-a>",
+            "project_id": "<project-a>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          },
+          {
+            "catalog_version": 1,
+            "checkpoint": {},
+            "collector_version": "1",
+            "completed_at": null,
+            "created_at": "<timestamp>",
+            "created_by": "<other>",
+            "error_code": null,
+            "generation": 1,
+            "id": "<run-b>",
+            "project_id": "<project-b>",
+            "registry_digest": "cf6f4a008b80a10314b120fb058802bae42386c92af7fa187d18745cf7f50f09",
+            "registry_version": 1,
+            "state": "created",
+            "support_cell_digest": "26c4218b97c770ad8b0b7a5e976f5c95949299a909aace622d6cdc252c19a963",
+            "support_cell_id": "EX2019-ONPREM-INITIAL",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "table": "exchange_assessment"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/exchange-replacement/runs/{runId}/attestations"
+}

@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "PUT",
+      "path": "/api/admin/conditional-access/policies/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"name\":\"Changed\",\"state\":\"off\"}"
+    }
+  ],
+  "stdout": "Policy 7 updated.\n",
+  "stderr": "",
+  "exit": 0
+}

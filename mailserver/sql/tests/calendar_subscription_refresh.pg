@@ -1,0 +1,109 @@
+-- pgTAP: calendar_subscription_refresh.sql — diff-by-uid sync for a webcal/ICS
+-- subscription (WAVE-5 #10). Unlike calendar_import_ics's delete-recreate
+-- 'overwrite' strategy, a refresh must NEVER churn event ids on every tick (a
+-- surviving uid keeps its row — only changed columns move); this is the
+-- reducer that proves that diff, plus the ownership check that rejects a
+-- calendar_id that does not actually belong to the given subscription (mirrors
+-- calendar_import_ics's up-front ownership check — never a raw id bypass).
+BEGIN;
+SELECT plan(11);
+
+CREATE TEMP TABLE _own AS SELECT mk_account('websubowner') AS mb;
+CREATE TEMP TABLE _other AS SELECT mk_account('websubother') AS mb;
+SELECT mb AS own_mb FROM _own \gset
+SELECT mb AS other_mb FROM _other \gset
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7801, :own_mb, 'Subscribed', FALSE);
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7802, :other_mb, 'Theirs', FALSE);
+
+INSERT INTO calendar_subscriptions (user_id, calendar_id, url)
+  VALUES ((SELECT user_id FROM mailboxes WHERE id = :own_mb), 7801, 'https://example.test/feed.ics')
+  RETURNING id AS own_sub \gset
+INSERT INTO calendar_subscriptions (user_id, calendar_id, url)
+  VALUES ((SELECT user_id FROM mailboxes WHERE id = :other_mb), 7802, 'https://example.test/other.ics')
+  RETURNING id AS other_sub \gset
+
+CREATE TEMP TABLE _payload AS SELECT '[
+  {"uid":"wc-1","title":"Standup","start":"2040-01-01T09:00:00Z","end":"2040-01-01T09:30:00Z"},
+  {"uid":"wc-2","title":"Review","start":"2040-01-02T14:00:00Z","end":"2040-01-02T15:00:00Z"}
+]'::JSONB AS events;
+
+-- Test 1: refreshing subscription :own_sub against calendar 7802 (owned by a
+-- DIFFERENT subscription/mailbox) is rejected — a foreign calendar id is never
+-- silently written to.
+SELECT throws_ok(
+  format($$SELECT calendar_subscription_refresh(%s, 7802, %L::jsonb)$$, :own_sub, (SELECT events FROM _payload)),
+  'BZ118',
+  NULL,
+  'refreshing with a calendar_id foreign to the subscription is rejected (BZ118)'
+);
+
+-- Test 2: nothing leaked into the foreign calendar.
+SELECT is(
+  (SELECT count(*)::INT FROM calendar_events WHERE calendar_id = 7802),
+  0,
+  'foreign calendar has no rows from the rejected call'
+);
+
+-- ── First refresh: two new events. ──────────────────────────────────────────
+SELECT jmap_state AS pre1 FROM calendars WHERE id = 7801 \gset
+CREATE TEMP TABLE _r1 AS
+  SELECT calendar_subscription_refresh(:own_sub, 7801, (SELECT events FROM _payload)) AS res;
+
+SELECT is(
+  ((SELECT res FROM _r1)->>'added')::INT, 2,
+  'first refresh adds both new events'
+);
+SELECT is(
+  (SELECT count(*)::INT FROM calendar_events WHERE calendar_id = 7801 AND uid IN ('wc-1', 'wc-2')),
+  2,
+  'both events persisted in the subscribed calendar'
+);
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 7801) - :pre1,
+  1::BIGINT,
+  'refresh bumps calendars.jmap_state by exactly ONE regardless of event count'
+);
+
+-- Remember wc-1's row id — the second refresh must NOT churn it.
+SELECT id AS wc1_id FROM calendar_events WHERE calendar_id = 7801 AND uid = 'wc-1' \gset
+
+-- ── Second refresh: wc-1 changes, wc-2 disappears, wc-3 is new. ─────────────
+SELECT jmap_state AS pre2 FROM calendars WHERE id = 7801 \gset
+CREATE TEMP TABLE _payload2 AS SELECT '[
+  {"uid":"wc-1","title":"Standup (moved)","start":"2040-01-01T10:00:00Z","end":"2040-01-01T10:30:00Z"},
+  {"uid":"wc-3","title":"Planning","start":"2040-01-03T09:00:00Z","end":"2040-01-03T09:30:00Z"}
+]'::JSONB AS events;
+CREATE TEMP TABLE _r2 AS
+  SELECT calendar_subscription_refresh(:own_sub, 7801, (SELECT events FROM _payload2)) AS res;
+
+SELECT is(
+  ((SELECT res FROM _r2)->>'added')::INT, 1,
+  'second refresh adds the one new uid (wc-3)'
+);
+SELECT is(
+  ((SELECT res FROM _r2)->>'updated')::INT, 1,
+  'second refresh updates the one changed uid (wc-1)'
+);
+SELECT is(
+  ((SELECT res FROM _r2)->>'deleted')::INT, 1,
+  'second refresh deletes the one absent uid (wc-2)'
+);
+SELECT is(
+  (SELECT id FROM calendar_events WHERE calendar_id = 7801 AND uid = 'wc-1'),
+  :wc1_id::BIGINT,
+  'wc-1 keeps its ORIGINAL row id — no delete-recreate churn'
+);
+SELECT is(
+  (SELECT title FROM calendar_events WHERE calendar_id = 7801 AND uid = 'wc-1'),
+  'Standup (moved)',
+  'wc-1''s title actually moved to the new value'
+);
+SELECT is(
+  (SELECT jmap_state FROM calendars WHERE id = 7801) - :pre2,
+  1::BIGINT,
+  'second refresh ALSO bumps jmap_state by exactly ONE (add+update+delete together)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

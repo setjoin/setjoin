@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/admin/webhooks/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "Delete webhook 7 — are you sure? (type 'yes' to confirm): Error: HTTP 599: unexpected request\n",
+  "exit": 1
+}

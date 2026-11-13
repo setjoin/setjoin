@@ -1,0 +1,20 @@
+{
+  "case": "webhook-publication-prune-old-terminal-rows",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [],
+    "publications": [
+      {
+        "attempts": 0,
+        "completed": true,
+        "event_id": "evt_pub_new_done",
+        "last_error": null,
+        "leased": false,
+        "state": "delivered"
+      }
+    ],
+    "requests": [],
+    "subscriptions": []
+  }
+}

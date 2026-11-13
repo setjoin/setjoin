@@ -1,0 +1,287 @@
+{
+  "case": "deactivate",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "revoke_user_sessions",
+        "after_state": {
+          "expires_at": "<timestamp>",
+          "family_id": null,
+          "jti": null,
+          "not_before": "<timestamp>",
+          "scope": "all",
+          "user_id": "<bob>"
+        },
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": null,
+        "occurred_at": "<timestamp>",
+        "target_id": "<bob>",
+        "target_type": "user",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": {
+          "groups": [
+            {
+              "display": "Team <A>",
+              "email": "ext-group-a-s<source-a>@scim.test",
+              "external": "ext-group-a",
+              "id": "<group-a>",
+              "members": [
+                "ext-alice"
+              ],
+              "source": "<source-a>"
+            },
+            {
+              "display": "Team B",
+              "email": "ext-group-b-s<source-b>@scim.test",
+              "external": "ext-group-b",
+              "id": "<group-b>",
+              "members": [
+                "ext-carol"
+              ],
+              "source": "<source-b>"
+            }
+          ],
+          "tokens": [
+            {
+              "name": "A",
+              "source": "<source-a>",
+              "used": true
+            },
+            {
+              "name": "B",
+              "source": "<source-b>",
+              "used": false
+            },
+            {
+              "name": "Expired",
+              "source": "<source-a>",
+              "used": false
+            },
+            {
+              "name": "Hard",
+              "source": "<source-a>",
+              "used": false
+            },
+            {
+              "name": "Legacy",
+              "source": "<source-a>",
+              "used": false
+            }
+          ],
+          "users": [
+            {
+              "department": null,
+              "display": "Alice <A>",
+              "email": "alice-<u>@scim.test",
+              "enabled": true,
+              "first": "Alice",
+              "id": "<alice>",
+              "last": "Anderson",
+              "phone": "100",
+              "source": "<source-a>",
+              "state": "active",
+              "subject": "ext-alice",
+              "title": "Engineer",
+              "username": "alice-<u>"
+            },
+            {
+              "department": null,
+              "display": "Bob B",
+              "email": "bob-<u>@scim.test",
+              "enabled": false,
+              "first": "Bob",
+              "id": "<bob>",
+              "last": "Brown",
+              "phone": "100",
+              "source": "<source-a>",
+              "state": "active",
+              "subject": "ext-bob",
+              "title": "Engineer",
+              "username": "bob-<u>"
+            },
+            {
+              "department": null,
+              "display": "Carol C",
+              "email": "carol-<u>@scim.test",
+              "enabled": true,
+              "first": "Carol",
+              "id": "<carol>",
+              "last": "Clark",
+              "phone": "100",
+              "source": "<source-b>",
+              "state": "active",
+              "subject": "ext-carol",
+              "title": "Engineer",
+              "username": "carol-<u>"
+            }
+          ],
+          "welcome": []
+        },
+        "before": {
+          "groups": [
+            {
+              "display": "Team <A>",
+              "email": "ext-group-a-s<source-a>@scim.test",
+              "external": "ext-group-a",
+              "id": "<group-a>",
+              "members": [
+                "ext-alice"
+              ],
+              "source": "<source-a>"
+            },
+            {
+              "display": "Team B",
+              "email": "ext-group-b-s<source-b>@scim.test",
+              "external": "ext-group-b",
+              "id": "<group-b>",
+              "members": [
+                "ext-carol"
+              ],
+              "source": "<source-b>"
+            }
+          ],
+          "tokens": [
+            {
+              "name": "A",
+              "source": "<source-a>",
+              "used": false
+            },
+            {
+              "name": "B",
+              "source": "<source-b>",
+              "used": false
+            },
+            {
+              "name": "Expired",
+              "source": "<source-a>",
+              "used": false
+            },
+            {
+              "name": "Hard",
+              "source": "<source-a>",
+              "used": false
+            },
+            {
+              "name": "Legacy",
+              "source": "<source-a>",
+              "used": false
+            }
+          ],
+          "users": [
+            {
+              "department": null,
+              "display": "Alice <A>",
+              "email": "alice-<u>@scim.test",
+              "enabled": true,
+              "first": "Alice",
+              "id": "<alice>",
+              "last": "Anderson",
+              "phone": "100",
+              "source": "<source-a>",
+              "state": "active",
+              "subject": "ext-alice",
+              "title": "Engineer",
+              "username": "alice-<u>"
+            },
+            {
+              "department": null,
+              "display": "Bob B",
+              "email": "bob-<u>@scim.test",
+              "enabled": true,
+              "first": "Bob",
+              "id": "<bob>",
+              "last": "Brown",
+              "phone": "100",
+              "source": "<source-a>",
+              "state": "active",
+              "subject": "ext-bob",
+              "title": "Engineer",
+              "username": "bob-<u>"
+            },
+            {
+              "department": null,
+              "display": "Carol C",
+              "email": "carol-<u>@scim.test",
+              "enabled": true,
+              "first": "Carol",
+              "id": "<carol>",
+              "last": "Clark",
+              "phone": "100",
+              "source": "<source-b>",
+              "state": "active",
+              "subject": "ext-carol",
+              "title": "Engineer",
+              "username": "carol-<u>"
+            }
+          ],
+          "welcome": []
+        },
+        "table": "scim"
+      }
+    ],
+    "notify": [
+      {
+        "authorization": "Bearer scim-oracle-internal-key",
+        "body": "{\"user_id\":\"<bob>\"}",
+        "content_type": "application/json",
+        "method": "POST",
+        "path": "/auth/scim/disable"
+      }
+    ],
+    "request": {
+      "body": "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[{\"op\":\"replace\",\"path\":\"active\",\"value\":false}]}",
+      "external_path": "/scim/v2/Users/{id}",
+      "method": "PATCH",
+      "path": "/scim/v2/Users/{id}"
+    },
+    "response": {
+      "body": "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:User\",\"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User\"],\"id\":\"<bob>\",\"externalId\":\"ext-bob\",\"userName\":\"bob-<u>\",\"name\":{\"formatted\":\"Bob Brown\",\"familyName\":\"Brown\",\"givenName\":\"Bob\"},\"displayName\":\"Bob B\",\"emails\":[{\"value\":\"bob-<u>@scim.test\",\"type\":\"work\",\"primary\":true}],\"phoneNumbers\":[{\"value\":\"100\",\"type\":\"work\"}],\"title\":\"Engineer\",\"active\":false,\"meta\":{\"resourceType\":\"User\",\"created\":\"2026-10-01T12:00:02Z\",\"lastModified\":\"<time>\",\"location\":\"/scim/v2/Users/<bob>\"}}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "544"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/scim+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-dirsync3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "PATCH /scim/v2/Users/{id}"
+}

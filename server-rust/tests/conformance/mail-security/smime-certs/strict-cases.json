@@ -1,0 +1,202 @@
+[
+  {
+    "name": "duplicate-extension",
+    "rejected": true,
+    "sha256": "a00f850d2388085b588ad2dc5eb8f62d95847ccac64e9b04bbbdb026809ac20d"
+  },
+  {
+    "name": "negative-serial",
+    "rejected": true,
+    "sha256": "638ebe99c6ed5fe0677fbcc8f8178b0f71f78fb0d13e1e8ded61b725479e7b87"
+  },
+  {
+    "name": "padded-serial",
+    "rejected": true,
+    "sha256": "4902ce7922ab2da6b3c2bc8e83201fcab206a5168f9f34ff1858d1cbbe0a3fd3"
+  },
+  {
+    "name": "invalid-version",
+    "rejected": true,
+    "sha256": "95983df6b718e3413ba7523346bff13158779fa59c9e2f7093cb725047015255"
+  },
+  {
+    "name": "signature-mismatch",
+    "rejected": true,
+    "sha256": "649a2c81cc0160930d5ee3596eda43409a0f3a8b1f6d559e08b33db57b4e42ed"
+  },
+  {
+    "name": "critical-ski",
+    "rejected": true,
+    "sha256": "9683ad83baf32fbc1f4090dbf5afc4244a1f1ea747e8a07c212cb3215a748d67"
+  },
+  {
+    "name": "critical-aki",
+    "rejected": true,
+    "sha256": "4f1190a8fc0b202fc84045d2adb2e5a92ccd9fef51e964747b810717e2710638"
+  },
+  {
+    "name": "critical-aia",
+    "rejected": true,
+    "sha256": "e7ad06252afa01cf5eee16d36a472be3e2ad580ecccd4428cb77c4bfdb9c897c"
+  },
+  {
+    "name": "malformed-key-usage",
+    "rejected": true,
+    "sha256": "7c054a9ef29e94a1580a3807d6e54d23f2b3f332e58db05910bba1a60ee094b0"
+  },
+  {
+    "name": "malformed-basic-constraints",
+    "rejected": true,
+    "sha256": "e25e4efafc46ee4f6ae9216412dea6b7ddc2894e588d09da6b24346a87b1ba5c"
+  },
+  {
+    "name": "malformed-san-ip",
+    "rejected": true,
+    "sha256": "a74e472774ea6a645da963e265fd73135046d3d9002800a9abed81166a3fa0f1"
+  },
+  {
+    "name": "malformed-san-uri",
+    "rejected": true,
+    "sha256": "eb23fc5a92a894cd86556bd79636cbec8b13ec0d59f825f27d71bf027aa8f0ad"
+  },
+  {
+    "name": "malformed-san-opaque-fragment",
+    "rejected": true,
+    "sha256": "14a3ad2a4745f64fc0784461b3910027e4d2e8702f1332432a496c14b06d7631"
+  },
+  {
+    "name": "empty-name-constraints",
+    "rejected": true,
+    "sha256": "a3c3c29ac0a571e84e8bbb10e28d72c9de606b945fa2f043e17193e56c914b70"
+  },
+  {
+    "name": "duplicate-policies",
+    "rejected": true,
+    "sha256": "f7d1e5274bea2194ceb0236f314c30f31b1a7de37e59f74986dcd8cc9e955d44"
+  },
+  {
+    "name": "invalid-utf8-subject",
+    "rejected": true,
+    "sha256": "24c200f3b7355c607ee20270931357cce791a78e1f2bba60d793691037432e9a"
+  },
+  {
+    "name": "invalid-printable-subject",
+    "rejected": true,
+    "sha256": "98c097b535744da01344c3c6089d651001393c65cc67368d1c5510f8b16f2a29"
+  },
+  {
+    "name": "invalid-bmp-subject",
+    "rejected": true,
+    "sha256": "178e163dd5d097d748331d91117cba6caf0ff7e0822ceed764136d79b3b40874"
+  },
+  {
+    "name": "invalid-ec-point",
+    "rejected": true,
+    "sha256": "d01d545bb7fd761839e2087cc94f3aa961c2ed17808505c2694f50263eb2fa9c"
+  },
+  {
+    "name": "unsupported-curve",
+    "rejected": true,
+    "sha256": "4effc78b3de0a64fd53e9bf337df8616447196c62e9b363998c7a7f183a38904"
+  },
+  {
+    "name": "trailing-der",
+    "rejected": true,
+    "sha256": "13ddd3e6e5b526b148865643fece1ce8adc54bcc663123a2fc9d9ec647f651ab"
+  },
+  {
+    "name": "nonminimal-length",
+    "rejected": true,
+    "sha256": "0b889f4f4aab36acce111835342cdc0bcaefe6195fe73b42200be3b75dc650a4"
+  },
+  {
+    "name": "bad-oid-extension",
+    "rejected": true,
+    "sha256": "d4608c7b4e9f2c8f435d8c1b3005a0bc81dd1326dfc8492695696c56734f5a6a"
+  },
+  {
+    "name": "malformed-key-usage-padding",
+    "rejected": true,
+    "sha256": "7e5190ab330f98dbcf2a6b6be18c4b87ac2b830d6013014939ced06a6dde97b1"
+  },
+  {
+    "name": "unknown-critical",
+    "rejected": false,
+    "sha256": "ca3c1c4cc2c5cd077897027bbc40daf0d71932a36bd29349bce725cf33831282"
+  },
+  {
+    "name": "bad-signature",
+    "rejected": false,
+    "sha256": "d07ecd9343f83f63f6898a53c12939b634fcfb5b747c168ac12192e1765cabf6"
+  },
+  {
+    "name": "unknown-public-key",
+    "rejected": false,
+    "sha256": "6535a7179c25ddcc621367ca561f11d97f00a9d09102039b4e6df0c1c5815410"
+  },
+  {
+    "name": "valid-bmp-subject",
+    "rejected": false,
+    "sha256": "9c32884c51c56ebe51ee852e475b0da2493b51200374f4edd5333655d145724e"
+  },
+  {
+    "name": "valid-teletex-subject",
+    "rejected": false,
+    "sha256": "0ec01d92e8930f7adb11845ababf599cedd19ed17190d25a66c10c91950a3143"
+  },
+  {
+    "name": "valid-v1-duplicate",
+    "rejected": false,
+    "sha256": "6fbdc9ae77356db4cbe30770aeea01f1052fe75123de71036606638c3c96b59c"
+  },
+  {
+    "name": "valid-serial-zero",
+    "rejected": false,
+    "sha256": "ea1a5faa48c598a9112dec40f15c5989e8371f8bbb1c35c18ade1ee5b594017f"
+  },
+  {
+    "name": "valid-long-serial",
+    "rejected": false,
+    "sha256": "d78bcb2338b7d935ec91ad4c70476677b7a5200116a289c4a93982206f40c279"
+  },
+  {
+    "name": "valid-basic-constraints-wide",
+    "rejected": false,
+    "sha256": "447a54422997a934ab1d1789d81d7a6cb51a0c5e7c97f220e9b9cdeba492ec9b"
+  },
+  {
+    "name": "valid-inhibit-negative",
+    "rejected": false,
+    "sha256": "99e0be5e825c1bfd596d8c3da8655a87c354c837eeb664990d56e8076f695651"
+  },
+  {
+    "name": "oversized-oid-extension",
+    "rejected": true,
+    "sha256": "4939b7308fa2d1154cb9890f500932aec24f4d534e168d4ea9b7fb1fa6c53efc"
+  },
+  {
+    "name": "valid-long-oid",
+    "rejected": false,
+    "sha256": "2bb2c15292aee5abda7be78bbf62829d6c5a78f54cdf8643cc4abe266789d302"
+  },
+  {
+    "name": "valid-p224",
+    "rejected": false,
+    "sha256": "436db5f0eecebd63792dc3e7ab421c1b714470fd7abfa122f6895ffbbb31456c"
+  },
+  {
+    "name": "invalid-p224",
+    "rejected": true,
+    "sha256": "b941867f86b35fa87063801507e92524d4270894591c1aab427f8da65ea634fd"
+  },
+  {
+    "name": "valid-wide-policy",
+    "rejected": false,
+    "sha256": "5825352bd3261d85b6bf412373c77b0cd8949ca885cb4894b437e96cebeea269"
+  },
+  {
+    "name": "nonminimal-policy-oid",
+    "rejected": true,
+    "sha256": "f4b02a814a4f57c519aecbaf2c7493912874e2cd574d16503c0712c253c5b25f"
+  }
+]

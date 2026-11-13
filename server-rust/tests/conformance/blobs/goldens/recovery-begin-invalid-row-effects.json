@@ -1,0 +1,7 @@
+{
+  "case": "invalid-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "8c44edc060426fed95e181c853d71583ff759f40",
+  "route": "POST /recovery/uploads"
+}

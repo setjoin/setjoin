@@ -1,0 +1,7 @@
+{
+  "frames": {
+    "dm": "{\"kind\":\"ephemeral\",\"payload\":{\"op\":\"typing\",\"fromAddr\":\"alice@zulu.test\",\"toAddr\":\"bob@alpha.test\"}}",
+    "room": "{\"kind\":\"ephemeral\",\"payload\":{\"op\":\"typing\",\"roomId\":\"room@zulu.test\"}}"
+  },
+  "go_source": "2ab18c4ef0b3ea1c2e463fcb9848aaf43867c472"
+}

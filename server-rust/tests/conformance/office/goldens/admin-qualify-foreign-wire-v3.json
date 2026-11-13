@@ -1,0 +1,115 @@
+{
+  "case": "foreign",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture IDs by field and relation; timestamps validated as RFC3339; receipt metadata excluded; JSON response whitespace; response Date, framing/length headers; temporary S3 key; independently verified SigV4 nonces"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "<actor-email>",
+          "missingPermission": "office.manage",
+          "target": "/admin/office/providers/office1/qualify"
+        },
+        "id": "<audit:0>",
+        "ip": null,
+        "notes": "/admin/office/providers/office1/qualify",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": [
+          {
+            "action": "console.denied",
+            "after_state": null,
+            "before_state": {
+              "actor": "<actor-email>",
+              "missingPermission": "office.manage",
+              "target": "/admin/office/providers/office1/qualify"
+            },
+            "id": "<audit:0>",
+            "ip": null,
+            "notes": "/admin/office/providers/office1/qualify",
+            "occurred_at": "<timestamp>",
+            "target_id": null,
+            "target_type": "console",
+            "user_id": null
+          }
+        ],
+        "before": [],
+        "table": "core_audit"
+      }
+    ],
+    "notify": [],
+    "provider": [],
+    "request": {
+      "body": {
+        "expectedGeneration": 2,
+        "routeRevision": 1,
+        "syntheticReceiptId": "<synthetic-receipt>"
+      },
+      "external_path": "/api/admin/office/providers/{providerId}/qualify",
+      "headers": {
+        "authorization": "<verified-session>",
+        "host": "mail.test",
+        "origin": "http://mail.test",
+        "x-audit-reason": "Office1 parity"
+      },
+      "method": "POST",
+      "path": "/admin/office/providers/{providerId}/qualify"
+    },
+    "response": {
+      "body": {
+        "detail": "Forbidden",
+        "instance": "",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      },
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "office1-admin"
+      },
+      "status": 403
+    },
+    "responses": [
+      {
+        "body": {
+          "detail": "Forbidden",
+          "instance": "",
+          "status": 403,
+          "title": "Forbidden",
+          "type": "about:blank"
+        },
+        "headers": {
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+          "content-type": "application/problem+json",
+          "cross-origin-opener-policy": "same-origin",
+          "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY",
+          "x-request-id": "office1-admin"
+        },
+        "status": 403
+      }
+    ]
+  },
+  "route": "POST /admin/office/providers/{providerId}/qualify"
+}

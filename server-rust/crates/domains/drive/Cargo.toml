@@ -1,0 +1,16 @@
+[package]
+name = "setjoin-drive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+setjoin-pg = { path = "../../pg" }
+setjoin-authz = { path = "../../authz" }
+serde_json = "=1.0.145"
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+sha2 = "=0.10.9"
+tokio = { version = "=1.54.1", features = ["rt", "time", "macros", "sync"] }
+tokio-postgres = "0.7.18"

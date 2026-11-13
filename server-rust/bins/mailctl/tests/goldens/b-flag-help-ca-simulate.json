@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of ca simulate:\n  -device-trust string\n    \tDevice trust tier\n  -expect string\n    \tExpected decision (fails if mismatch)\n  -ip string\n    \tSource IP address\n  -user string\n    \tUser email or ID (required)\nError: flag: help requested\n",
+  "exit": 1
+}

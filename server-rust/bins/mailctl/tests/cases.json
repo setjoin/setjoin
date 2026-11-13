@@ -1,0 +1,3245 @@
+[
+  {
+    "name": "version",
+    "args": [
+      "version"
+    ]
+  },
+  {
+    "name": "help",
+    "args": [
+      "help"
+    ]
+  },
+  {
+    "name": "health-check",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "health-json",
+    "args": [
+      "health",
+      "check",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "domain-add",
+    "args": [
+      "domain",
+      "add",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7}"
+      }
+    ]
+  },
+  {
+    "name": "domain-list",
+    "args": [
+      "domain",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"name\":\"example.test\"}]",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "domain-delete",
+    "args": [
+      "domain",
+      "delete",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{}",
+        "status": 200
+      }
+    ],
+    "stdin": "yes\n"
+  },
+  {
+    "name": "config-list",
+    "args": [
+      "config",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"key\":\"demo\"}]",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "config-get",
+    "args": [
+      "config",
+      "get",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-list",
+    "args": [
+      "migration",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"key\":\"demo\"}]",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-status",
+    "args": [
+      "migration",
+      "status",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-cancel",
+    "args": [
+      "migration",
+      "cancel",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-status",
+    "args": [
+      "storage",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-verify",
+    "args": [
+      "storage",
+      "verify",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}",
+        "status": 200
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-migrate",
+    "args": [
+      "storage",
+      "migrate",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"running\"}",
+        "status": 200
+      }
+    ],
+    "stdin": "",
+    "env": {
+      "STORAGE_PROVIDER": "s3"
+    }
+  },
+  {
+    "name": "user-create",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--display",
+      "Ada",
+      "--password-stdin"
+    ],
+    "stdin": "test-password\n",
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "user-list",
+    "args": [
+      "user",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "user-delete",
+    "args": [
+      "user",
+      "delete",
+      "-y",
+      "ada@example.test"
+    ]
+  },
+  {
+    "name": "user-password",
+    "args": [
+      "user",
+      "password",
+      "ada@example.test",
+      "--new-password-stdin"
+    ],
+    "stdin": "changed\n"
+  },
+  {
+    "name": "user-quota-get",
+    "args": [
+      "user",
+      "quota",
+      "get",
+      "ada@example.test"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {
+        "body": "{\"quotaBytes\":1024}"
+      }
+    ]
+  },
+  {
+    "name": "user-quota-set",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "4096"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {}
+    ]
+  },
+  {
+    "name": "user-bulk-create",
+    "args": [
+      "user",
+      "bulk-create",
+      "$HOME/users.csv"
+    ],
+    "files": {
+      "users.csv": "email,display_name,password\nada@example.test,Ada,test\nbob@example.test,Bob,test2\n"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      },
+      {
+        "status": 409,
+        "body": "{\"code\":\"exists\",\"detail\":\"already exists\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-list",
+    "args": [
+      "webhook",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":7}]"
+      }
+    ]
+  },
+  {
+    "name": "webhook-events",
+    "args": [
+      "webhook",
+      "events",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":7}]"
+      }
+    ]
+  },
+  {
+    "name": "webhook-deliveries",
+    "args": [
+      "webhook",
+      "deliveries",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":7}]"
+      }
+    ]
+  },
+  {
+    "name": "webhook-create",
+    "args": [
+      "webhook",
+      "create",
+      "--url",
+      "https://example.test/hook",
+      "--events",
+      "mail.new,mail.deleted"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7,\"secret\":\"test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-rotate-secret",
+    "args": [
+      "webhook",
+      "rotate-secret",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"secret\":\"new-test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-delete",
+    "args": [
+      "webhook",
+      "delete",
+      "7"
+    ],
+    "stdin": "YES\n"
+  },
+  {
+    "name": "system-status",
+    "args": [
+      "system",
+      "status"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"running\",\"pid\":42,\"uptime_sec\":10,\"version\":\"test\",\"goroutines\":12,\"memory_mb\":3,\"started_at\":\"yesterday\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-restart",
+    "args": [
+      "system",
+      "restart",
+      "--full"
+    ],
+    "stdin": "yes\n",
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\",\"mode\":\"full_restart\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-stop",
+    "args": [
+      "system",
+      "stop",
+      "--yes"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\"}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-status",
+    "args": [
+      "auto-update",
+      "status"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"channel\":\"stable\",\"check_interval\":\"daily\",\"auto_apply_safe\":false}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-enable",
+    "args": [
+      "auto-update",
+      "enable"
+    ]
+  },
+  {
+    "name": "auto-update-disable",
+    "args": [
+      "auto-update",
+      "disable"
+    ]
+  },
+  {
+    "name": "tls-set",
+    "args": [
+      "tls",
+      "set",
+      "--challenge",
+      "dns-01",
+      "--domains",
+      "example.test,mail.test",
+      "--email",
+      "admin@example.test",
+      "--dns-provider",
+      "cloudflare"
+    ]
+  },
+  {
+    "name": "tls-status",
+    "args": [
+      "tls",
+      "status"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"challenge\":\"dns-01\",\"domains\":[\"example.test\"],\"email\":\"admin@example.test\",\"dns_provider\":\"cloudflare\",\"cert_info\":{\"subject\":\"example.test\",\"issuer\":\"test\",\"not_before\":\"2026\",\"not_after\":\"2027\",\"days_left\":30},\"cache_dir\":\"/test\"}"
+      }
+    ]
+  },
+  {
+    "name": "spam-status",
+    "args": [
+      "spam",
+      "status"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"total_models\":3,\"total_samples\":300,\"avg_samples\":100,\"active_week\":2,\"disabled_users\":1,\"total_fp\":2,\"total_classified\":500,\"fp_rate\":0.004}"
+      }
+    ]
+  },
+  {
+    "name": "spam-reset",
+    "args": [
+      "spam",
+      "reset",
+      "--yes",
+      "8"
+    ]
+  },
+  {
+    "name": "ad-sync",
+    "args": [
+      "ad",
+      "sync"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-log",
+    "args": [
+      "ad",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ad-health",
+    "args": [
+      "ad",
+      "health"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync",
+    "args": [
+      "ldap",
+      "sync"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-log",
+    "args": [
+      "ldap",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ldap-health",
+    "args": [
+      "ldap",
+      "health"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "domain-list-human",
+    "args": [
+      "domain",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[{\"name\":\"example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "health-check-json",
+    "args": [
+      "health",
+      "check",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "health-check-quiet",
+    "args": [
+      "health",
+      "check",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "domain-add-json",
+    "args": [
+      "domain",
+      "add",
+      "--json",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7}"
+      }
+    ]
+  },
+  {
+    "name": "domain-add-quiet",
+    "args": [
+      "domain",
+      "add",
+      "--quiet",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7}"
+      }
+    ]
+  },
+  {
+    "name": "domain-delete-json",
+    "args": [
+      "domain",
+      "delete",
+      "--json",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{}",
+        "status": 200
+      }
+    ],
+    "stdin": "yes\n"
+  },
+  {
+    "name": "domain-delete-quiet",
+    "args": [
+      "domain",
+      "delete",
+      "--quiet",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "body": "{}",
+        "status": 200
+      }
+    ],
+    "stdin": "yes\n"
+  },
+  {
+    "name": "user-create-json",
+    "args": [
+      "user",
+      "create",
+      "--json",
+      "--email",
+      "ada@example.test",
+      "--display",
+      "Ada",
+      "--password-stdin"
+    ],
+    "stdin": "test-password\n",
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "user-create-quiet",
+    "args": [
+      "user",
+      "create",
+      "--quiet",
+      "--email",
+      "ada@example.test",
+      "--display",
+      "Ada",
+      "--password-stdin"
+    ],
+    "stdin": "test-password\n",
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "user-delete-json",
+    "args": [
+      "user",
+      "delete",
+      "--json",
+      "-y",
+      "ada@example.test"
+    ]
+  },
+  {
+    "name": "user-delete-quiet",
+    "args": [
+      "user",
+      "delete",
+      "--quiet",
+      "-y",
+      "ada@example.test"
+    ]
+  },
+  {
+    "name": "user-password-json",
+    "args": [
+      "user",
+      "password",
+      "--json",
+      "ada@example.test",
+      "--new-password-stdin"
+    ],
+    "stdin": "changed\n"
+  },
+  {
+    "name": "user-password-quiet",
+    "args": [
+      "user",
+      "password",
+      "--quiet",
+      "ada@example.test",
+      "--new-password-stdin"
+    ],
+    "stdin": "changed\n"
+  },
+  {
+    "name": "user-quota-get-json",
+    "args": [
+      "user",
+      "quota",
+      "--json",
+      "get",
+      "ada@example.test"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {
+        "body": "{\"quotaBytes\":1024}"
+      }
+    ]
+  },
+  {
+    "name": "user-quota-get-quiet",
+    "args": [
+      "user",
+      "quota",
+      "--quiet",
+      "get",
+      "ada@example.test"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {
+        "body": "{\"quotaBytes\":1024}"
+      }
+    ]
+  },
+  {
+    "name": "user-quota-set-json",
+    "args": [
+      "user",
+      "quota",
+      "--json",
+      "set",
+      "ada@example.test",
+      "4096"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {}
+    ]
+  },
+  {
+    "name": "user-quota-set-quiet",
+    "args": [
+      "user",
+      "quota",
+      "--quiet",
+      "set",
+      "ada@example.test",
+      "4096"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      },
+      {}
+    ]
+  },
+  {
+    "name": "user-bulk-create-json",
+    "args": [
+      "user",
+      "bulk-create",
+      "--json",
+      "$HOME/users.csv"
+    ],
+    "files": {
+      "users.csv": "email,display_name,password\nada@example.test,Ada,test\nbob@example.test,Bob,test2\n"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      },
+      {
+        "status": 409,
+        "body": "{\"code\":\"exists\",\"detail\":\"already exists\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-bulk-create-quiet",
+    "args": [
+      "user",
+      "bulk-create",
+      "--quiet",
+      "$HOME/users.csv"
+    ],
+    "files": {
+      "users.csv": "email,display_name,password\nada@example.test,Ada,test\nbob@example.test,Bob,test2\n"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      },
+      {
+        "status": 409,
+        "body": "{\"code\":\"exists\",\"detail\":\"already exists\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-create-json",
+    "args": [
+      "webhook",
+      "create",
+      "--json",
+      "--url",
+      "https://example.test/hook",
+      "--events",
+      "mail.new,mail.deleted"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7,\"secret\":\"test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-create-quiet",
+    "args": [
+      "webhook",
+      "create",
+      "--quiet",
+      "--url",
+      "https://example.test/hook",
+      "--events",
+      "mail.new,mail.deleted"
+    ],
+    "responses": [
+      {
+        "body": "{\"id\":7,\"secret\":\"test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-rotate-secret-json",
+    "args": [
+      "webhook",
+      "rotate-secret",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"secret\":\"new-test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-rotate-secret-quiet",
+    "args": [
+      "webhook",
+      "rotate-secret",
+      "--quiet",
+      "7"
+    ],
+    "responses": [
+      {
+        "body": "{\"secret\":\"new-test-secret\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-delete-json",
+    "args": [
+      "webhook",
+      "delete",
+      "--json",
+      "7"
+    ],
+    "stdin": "YES\n"
+  },
+  {
+    "name": "webhook-delete-quiet",
+    "args": [
+      "webhook",
+      "delete",
+      "--quiet",
+      "7"
+    ],
+    "stdin": "YES\n"
+  },
+  {
+    "name": "system-status-json",
+    "args": [
+      "system",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"running\",\"pid\":42,\"uptime_sec\":10,\"version\":\"test\",\"goroutines\":12,\"memory_mb\":3,\"started_at\":\"yesterday\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-status-quiet",
+    "args": [
+      "system",
+      "status",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"running\",\"pid\":42,\"uptime_sec\":10,\"version\":\"test\",\"goroutines\":12,\"memory_mb\":3,\"started_at\":\"yesterday\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-restart-json",
+    "args": [
+      "system",
+      "restart",
+      "--json",
+      "--full"
+    ],
+    "stdin": "yes\n",
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\",\"mode\":\"full_restart\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-restart-quiet",
+    "args": [
+      "system",
+      "restart",
+      "--quiet",
+      "--full"
+    ],
+    "stdin": "yes\n",
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\",\"mode\":\"full_restart\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-stop-json",
+    "args": [
+      "system",
+      "stop",
+      "--json",
+      "--yes"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-stop-quiet",
+    "args": [
+      "system",
+      "stop",
+      "--quiet",
+      "--yes"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"queued\"}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-status-json",
+    "args": [
+      "auto-update",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"channel\":\"stable\",\"check_interval\":\"daily\",\"auto_apply_safe\":false}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-status-quiet",
+    "args": [
+      "auto-update",
+      "status",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"channel\":\"stable\",\"check_interval\":\"daily\",\"auto_apply_safe\":false}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-enable-json",
+    "args": [
+      "auto-update",
+      "enable",
+      "--json"
+    ]
+  },
+  {
+    "name": "auto-update-enable-quiet",
+    "args": [
+      "auto-update",
+      "enable",
+      "--quiet"
+    ]
+  },
+  {
+    "name": "auto-update-disable-json",
+    "args": [
+      "auto-update",
+      "disable",
+      "--json"
+    ]
+  },
+  {
+    "name": "auto-update-disable-quiet",
+    "args": [
+      "auto-update",
+      "disable",
+      "--quiet"
+    ]
+  },
+  {
+    "name": "tls-set-json",
+    "args": [
+      "tls",
+      "set",
+      "--json",
+      "--challenge",
+      "dns-01",
+      "--domains",
+      "example.test,mail.test",
+      "--email",
+      "admin@example.test",
+      "--dns-provider",
+      "cloudflare"
+    ]
+  },
+  {
+    "name": "tls-set-quiet",
+    "args": [
+      "tls",
+      "set",
+      "--quiet",
+      "--challenge",
+      "dns-01",
+      "--domains",
+      "example.test,mail.test",
+      "--email",
+      "admin@example.test",
+      "--dns-provider",
+      "cloudflare"
+    ]
+  },
+  {
+    "name": "tls-status-json",
+    "args": [
+      "tls",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"challenge\":\"dns-01\",\"domains\":[\"example.test\"],\"email\":\"admin@example.test\",\"dns_provider\":\"cloudflare\",\"cert_info\":{\"subject\":\"example.test\",\"issuer\":\"test\",\"not_before\":\"2026\",\"not_after\":\"2027\",\"days_left\":30},\"cache_dir\":\"/test\"}"
+      }
+    ]
+  },
+  {
+    "name": "tls-status-quiet",
+    "args": [
+      "tls",
+      "status",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"challenge\":\"dns-01\",\"domains\":[\"example.test\"],\"email\":\"admin@example.test\",\"dns_provider\":\"cloudflare\",\"cert_info\":{\"subject\":\"example.test\",\"issuer\":\"test\",\"not_before\":\"2026\",\"not_after\":\"2027\",\"days_left\":30},\"cache_dir\":\"/test\"}"
+      }
+    ]
+  },
+  {
+    "name": "spam-status-json",
+    "args": [
+      "spam",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"total_models\":3,\"total_samples\":300,\"avg_samples\":100,\"active_week\":2,\"disabled_users\":1,\"total_fp\":2,\"total_classified\":500,\"fp_rate\":0.004}"
+      }
+    ]
+  },
+  {
+    "name": "spam-status-quiet",
+    "args": [
+      "spam",
+      "status",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"enabled\":true,\"total_models\":3,\"total_samples\":300,\"avg_samples\":100,\"active_week\":2,\"disabled_users\":1,\"total_fp\":2,\"total_classified\":500,\"fp_rate\":0.004}"
+      }
+    ]
+  },
+  {
+    "name": "spam-reset-json",
+    "args": [
+      "spam",
+      "reset",
+      "--json",
+      "--yes",
+      "8"
+    ]
+  },
+  {
+    "name": "spam-reset-quiet",
+    "args": [
+      "spam",
+      "reset",
+      "--quiet",
+      "--yes",
+      "8"
+    ]
+  },
+  {
+    "name": "ad-sync-json",
+    "args": [
+      "ad",
+      "sync",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-quiet",
+    "args": [
+      "ad",
+      "sync",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-log-json",
+    "args": [
+      "ad",
+      "sync-log",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-log-quiet",
+    "args": [
+      "ad",
+      "sync-log",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ad-health-json",
+    "args": [
+      "ad",
+      "health",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "ad-health-quiet",
+    "args": [
+      "ad",
+      "health",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-json",
+    "args": [
+      "ldap",
+      "sync",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-quiet",
+    "args": [
+      "ldap",
+      "sync",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"checked\":5,\"created\":1,\"errors\":2,\"duration\":\"3s\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-log-json",
+    "args": [
+      "ldap",
+      "sync-log",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-log-quiet",
+    "args": [
+      "ldap",
+      "sync-log",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "[{\"source\":\"test\",\"checked\":2,\"created\":1,\"syncedAt\":\"2026-10-31\",\"durationSeconds\":3}]"
+      }
+    ]
+  },
+  {
+    "name": "ldap-health-json",
+    "args": [
+      "ldap",
+      "health",
+      "--json"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-health-quiet",
+    "args": [
+      "ldap",
+      "health",
+      "--quiet"
+    ],
+    "responses": [
+      {
+        "body": "{\"status\":\"healthy\",\"lastSync\":\"yesterday\",\"checked\":2,\"pendingConflicts\":1}"
+      }
+    ]
+  },
+  {
+    "name": "user-bare",
+    "args": [
+      "user"
+    ]
+  },
+  {
+    "name": "user-help",
+    "args": [
+      "user",
+      "--help"
+    ]
+  },
+  {
+    "name": "user-invalid",
+    "args": [
+      "user",
+      "bogus"
+    ]
+  },
+  {
+    "name": "domain-bare",
+    "args": [
+      "domain"
+    ]
+  },
+  {
+    "name": "domain-help",
+    "args": [
+      "domain",
+      "--help"
+    ]
+  },
+  {
+    "name": "domain-invalid",
+    "args": [
+      "domain",
+      "bogus"
+    ]
+  },
+  {
+    "name": "health-bare",
+    "args": [
+      "health"
+    ]
+  },
+  {
+    "name": "health-help",
+    "args": [
+      "health",
+      "--help"
+    ]
+  },
+  {
+    "name": "health-invalid",
+    "args": [
+      "health",
+      "bogus"
+    ],
+    "responses": [
+      {
+        "body": "{}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-bare",
+    "args": [
+      "webhook"
+    ]
+  },
+  {
+    "name": "webhook-help",
+    "args": [
+      "webhook",
+      "--help"
+    ]
+  },
+  {
+    "name": "webhook-invalid",
+    "args": [
+      "webhook",
+      "bogus"
+    ]
+  },
+  {
+    "name": "config-bare",
+    "args": [
+      "config"
+    ]
+  },
+  {
+    "name": "config-help",
+    "args": [
+      "config",
+      "--help"
+    ]
+  },
+  {
+    "name": "config-invalid",
+    "args": [
+      "config",
+      "bogus"
+    ]
+  },
+  {
+    "name": "migration-bare",
+    "args": [
+      "migration"
+    ]
+  },
+  {
+    "name": "migration-help",
+    "args": [
+      "migration",
+      "--help"
+    ]
+  },
+  {
+    "name": "migration-invalid",
+    "args": [
+      "migration",
+      "bogus"
+    ]
+  },
+  {
+    "name": "auto-update-bare",
+    "args": [
+      "auto-update"
+    ]
+  },
+  {
+    "name": "auto-update-help",
+    "args": [
+      "auto-update",
+      "--help"
+    ]
+  },
+  {
+    "name": "auto-update-invalid",
+    "args": [
+      "auto-update",
+      "bogus"
+    ]
+  },
+  {
+    "name": "system-bare",
+    "args": [
+      "system"
+    ]
+  },
+  {
+    "name": "system-help",
+    "args": [
+      "system",
+      "--help"
+    ]
+  },
+  {
+    "name": "system-invalid",
+    "args": [
+      "system",
+      "bogus"
+    ]
+  },
+  {
+    "name": "tls-bare",
+    "args": [
+      "tls"
+    ]
+  },
+  {
+    "name": "tls-help",
+    "args": [
+      "tls",
+      "--help"
+    ]
+  },
+  {
+    "name": "tls-invalid",
+    "args": [
+      "tls",
+      "bogus"
+    ]
+  },
+  {
+    "name": "spam-bare",
+    "args": [
+      "spam"
+    ]
+  },
+  {
+    "name": "spam-help",
+    "args": [
+      "spam",
+      "--help"
+    ]
+  },
+  {
+    "name": "spam-invalid",
+    "args": [
+      "spam",
+      "bogus"
+    ]
+  },
+  {
+    "name": "storage-bare",
+    "args": [
+      "storage"
+    ]
+  },
+  {
+    "name": "storage-help",
+    "args": [
+      "storage",
+      "--help"
+    ]
+  },
+  {
+    "name": "storage-invalid",
+    "args": [
+      "storage",
+      "bogus"
+    ]
+  },
+  {
+    "name": "ad-bare",
+    "args": [
+      "ad"
+    ]
+  },
+  {
+    "name": "ad-help",
+    "args": [
+      "ad",
+      "--help"
+    ]
+  },
+  {
+    "name": "ad-invalid",
+    "args": [
+      "ad",
+      "bogus"
+    ]
+  },
+  {
+    "name": "ldap-bare",
+    "args": [
+      "ldap"
+    ]
+  },
+  {
+    "name": "ldap-help",
+    "args": [
+      "ldap",
+      "--help"
+    ]
+  },
+  {
+    "name": "ldap-invalid",
+    "args": [
+      "ldap",
+      "bogus"
+    ]
+  },
+  {
+    "name": "incomplete-0",
+    "args": []
+  },
+  {
+    "name": "incomplete-1",
+    "args": [
+      "unknown"
+    ]
+  },
+  {
+    "name": "incomplete-2",
+    "args": [
+      "--help"
+    ]
+  },
+  {
+    "name": "incomplete-3",
+    "args": [
+      "-h"
+    ]
+  },
+  {
+    "name": "incomplete-4",
+    "args": [
+      "version",
+      "--help"
+    ]
+  },
+  {
+    "name": "incomplete-5",
+    "args": [
+      "version",
+      "arbitrary"
+    ]
+  },
+  {
+    "name": "incomplete-6",
+    "args": [
+      "domain",
+      "add"
+    ]
+  },
+  {
+    "name": "incomplete-7",
+    "args": [
+      "domain",
+      "delete"
+    ]
+  },
+  {
+    "name": "incomplete-8",
+    "args": [
+      "user",
+      "delete"
+    ]
+  },
+  {
+    "name": "incomplete-9",
+    "args": [
+      "user",
+      "password"
+    ]
+  },
+  {
+    "name": "incomplete-10",
+    "args": [
+      "user",
+      "quota"
+    ]
+  },
+  {
+    "name": "incomplete-11",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "incomplete-12",
+    "args": [
+      "user",
+      "bulk-create"
+    ]
+  },
+  {
+    "name": "incomplete-13",
+    "args": [
+      "config",
+      "get"
+    ]
+  },
+  {
+    "name": "incomplete-14",
+    "args": [
+      "migration",
+      "status"
+    ]
+  },
+  {
+    "name": "incomplete-15",
+    "args": [
+      "migration",
+      "cancel"
+    ]
+  },
+  {
+    "name": "incomplete-16",
+    "args": [
+      "webhook",
+      "create"
+    ]
+  },
+  {
+    "name": "incomplete-17",
+    "args": [
+      "webhook",
+      "delete"
+    ]
+  },
+  {
+    "name": "incomplete-18",
+    "args": [
+      "webhook",
+      "rotate-secret"
+    ]
+  },
+  {
+    "name": "incomplete-19",
+    "args": [
+      "webhook",
+      "deliveries"
+    ]
+  },
+  {
+    "name": "incomplete-20",
+    "args": [
+      "spam",
+      "reset"
+    ]
+  },
+  {
+    "name": "incomplete-21",
+    "args": [
+      "storage",
+      "migrate"
+    ]
+  },
+  {
+    "name": "user-create-flag-h",
+    "args": [
+      "user",
+      "create",
+      "-h"
+    ]
+  },
+  {
+    "name": "user-create-flag-help",
+    "args": [
+      "user",
+      "create",
+      "--help"
+    ]
+  },
+  {
+    "name": "user-create-flag-unknown",
+    "args": [
+      "user",
+      "create",
+      "--unknown"
+    ]
+  },
+  {
+    "name": "user-create-flag-email",
+    "args": [
+      "user",
+      "create",
+      "--email"
+    ]
+  },
+  {
+    "name": "user-password-flag-h",
+    "args": [
+      "user",
+      "password",
+      "-h"
+    ]
+  },
+  {
+    "name": "user-password-flag-help",
+    "args": [
+      "user",
+      "password",
+      "--help"
+    ]
+  },
+  {
+    "name": "user-password-flag-unknown",
+    "args": [
+      "user",
+      "password",
+      "--unknown"
+    ]
+  },
+  {
+    "name": "user-password-flag-email",
+    "args": [
+      "user",
+      "password",
+      "--email"
+    ]
+  },
+  {
+    "name": "webhook-create-flag-h",
+    "args": [
+      "webhook",
+      "create",
+      "-h"
+    ]
+  },
+  {
+    "name": "webhook-create-flag-help",
+    "args": [
+      "webhook",
+      "create",
+      "--help"
+    ]
+  },
+  {
+    "name": "webhook-create-flag-unknown",
+    "args": [
+      "webhook",
+      "create",
+      "--unknown"
+    ]
+  },
+  {
+    "name": "webhook-create-flag-email",
+    "args": [
+      "webhook",
+      "create",
+      "--email"
+    ]
+  },
+  {
+    "name": "tls-set-flag-h",
+    "args": [
+      "tls",
+      "set",
+      "-h"
+    ]
+  },
+  {
+    "name": "tls-set-flag-help",
+    "args": [
+      "tls",
+      "set",
+      "--help"
+    ]
+  },
+  {
+    "name": "tls-set-flag-unknown",
+    "args": [
+      "tls",
+      "set",
+      "--unknown"
+    ]
+  },
+  {
+    "name": "tls-set-flag-email",
+    "args": [
+      "tls",
+      "set",
+      "--email"
+    ]
+  },
+  {
+    "name": "health-check-denied",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "health-json-denied",
+    "args": [
+      "health",
+      "check",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "domain-add-denied",
+    "args": [
+      "domain",
+      "add",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "domain-list-denied",
+    "args": [
+      "domain",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "domain-delete-denied",
+    "args": [
+      "domain",
+      "delete",
+      "example.test"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": "yes\n"
+  },
+  {
+    "name": "config-list-denied",
+    "args": [
+      "config",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "config-get-denied",
+    "args": [
+      "config",
+      "get",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-list-denied",
+    "args": [
+      "migration",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-status-denied",
+    "args": [
+      "migration",
+      "status",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "migration-cancel-denied",
+    "args": [
+      "migration",
+      "cancel",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-status-denied",
+    "args": [
+      "storage",
+      "status",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-verify-denied",
+    "args": [
+      "storage",
+      "verify",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": ""
+  },
+  {
+    "name": "storage-migrate-denied",
+    "args": [
+      "storage",
+      "migrate",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ],
+    "stdin": "",
+    "env": {
+      "STORAGE_PROVIDER": "s3"
+    }
+  },
+  {
+    "name": "user-create-denied",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--display",
+      "Ada",
+      "--password-stdin"
+    ],
+    "stdin": "test-password\n",
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-list-denied",
+    "args": [
+      "user",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-quota-get-denied",
+    "args": [
+      "user",
+      "quota",
+      "get",
+      "ada@example.test"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-quota-set-denied",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "4096"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-bulk-create-denied",
+    "args": [
+      "user",
+      "bulk-create",
+      "$HOME/users.csv"
+    ],
+    "files": {
+      "users.csv": "email,display_name,password\nada@example.test,Ada,test\nbob@example.test,Bob,test2\n"
+    },
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-list-denied",
+    "args": [
+      "webhook",
+      "list",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-events-denied",
+    "args": [
+      "webhook",
+      "events",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-deliveries-denied",
+    "args": [
+      "webhook",
+      "deliveries",
+      "--json",
+      "7"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-create-denied",
+    "args": [
+      "webhook",
+      "create",
+      "--url",
+      "https://example.test/hook",
+      "--events",
+      "mail.new,mail.deleted"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "webhook-rotate-secret-denied",
+    "args": [
+      "webhook",
+      "rotate-secret",
+      "7"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-status-denied",
+    "args": [
+      "system",
+      "status"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-restart-denied",
+    "args": [
+      "system",
+      "restart",
+      "--full"
+    ],
+    "stdin": "yes\n",
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "system-stop-denied",
+    "args": [
+      "system",
+      "stop",
+      "--yes"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "auto-update-status-denied",
+    "args": [
+      "auto-update",
+      "status"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "tls-status-denied",
+    "args": [
+      "tls",
+      "status"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "spam-status-denied",
+    "args": [
+      "spam",
+      "status"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-denied",
+    "args": [
+      "ad",
+      "sync"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-log-denied",
+    "args": [
+      "ad",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ad-health-denied",
+    "args": [
+      "ad",
+      "health"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-denied",
+    "args": [
+      "ldap",
+      "sync"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-log-denied",
+    "args": [
+      "ldap",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-health-denied",
+    "args": [
+      "ldap",
+      "health"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"code\":\"denied\",\"detail\":\"outside scope\",\"remediation\":\"use scoped token\"}"
+      }
+    ]
+  },
+  {
+    "name": "env-token-wins",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_API_KEY": "api-key"
+    },
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "env-api-key",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": "",
+      "MAILCTL_API_KEY": "api-key"
+    },
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "config-token",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  token: cfg-token\n  api_key: cfg-key\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "config-api-key",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  api_key: cfg-key\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "config-server",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": "",
+      "MAILCTL_SERVER": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  token: cfg-token\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "anonymous",
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": ""
+    },
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "password-file",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/password"
+    ],
+    "stdin": "",
+    "files": {
+      "password": "test\r\n"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-argv-refused",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password",
+      "nope"
+    ],
+    "stdin": "",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-sources-conflict",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/password",
+      "--password-stdin"
+    ],
+    "stdin": "test",
+    "files": {
+      "password": "test"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-empty",
+    "args": [
+      "user",
+      "password",
+      "ada@example.test",
+      "--new-password-stdin"
+    ],
+    "stdin": "",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-large",
+    "args": [
+      "user",
+      "password",
+      "ada@example.test",
+      "--new-password-stdin"
+    ],
+    "stdin": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-file-newline",
+    "args": [
+      "user",
+      "password",
+      "ada@example.test",
+      "--new-password-file",
+      "$HOME/password"
+    ],
+    "stdin": "",
+    "files": {
+      "password": "one\ntwo"
+    },
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-file-missing",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/missing"
+    ],
+    "stdin": "",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-absent-allowed",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test"
+    ],
+    "stdin": "",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-required",
+    "args": [
+      "user",
+      "password",
+      "ada@example.test"
+    ],
+    "stdin": "",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-flags-before-email",
+    "args": [
+      "user",
+      "password",
+      "--new-password-stdin",
+      "ada@example.test"
+    ],
+    "stdin": "test\n",
+    "files": {},
+    "responses": [
+      {
+        "body": "{\"id\":8}"
+      }
+    ]
+  },
+  {
+    "name": "password-file-public",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/password"
+    ],
+    "files": {
+      "password": "test"
+    },
+    "file_modes": {
+      "password": 420
+    }
+  },
+  {
+    "name": "password-file-symlink",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/link"
+    ],
+    "files": {
+      "password": "test"
+    },
+    "symlinks": {
+      "link": "password"
+    }
+  },
+  {
+    "name": "password-file-empty",
+    "args": [
+      "user",
+      "create",
+      "--email",
+      "ada@example.test",
+      "--password-file",
+      "$HOME/password"
+    ],
+    "files": {
+      "password": ""
+    }
+  },
+  {
+    "name": "user-delete-cancelled",
+    "args": [
+      "user",
+      "delete",
+      "ada@example.test"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "domain-delete-cancelled",
+    "args": [
+      "domain",
+      "delete",
+      "example.test"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "webhook-delete-cancelled",
+    "args": [
+      "webhook",
+      "delete",
+      "7"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "spam-reset-cancelled",
+    "args": [
+      "spam",
+      "reset",
+      "8"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "system-restart-cancelled",
+    "args": [
+      "system",
+      "restart"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "system-stop-cancelled",
+    "args": [
+      "system",
+      "stop"
+    ],
+    "stdin": "no\n"
+  },
+  {
+    "name": "quota-invalid-0",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "0"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "quota-invalid--1",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "-1"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "quota-invalid-bad",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "bad"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "quota-invalid-9223372036854775808",
+    "args": [
+      "user",
+      "quota",
+      "set",
+      "ada@example.test",
+      "9223372036854775808"
+    ],
+    "responses": [
+      {
+        "body": "[{\"id\":8,\"email\":\"ada@example.test\"}]"
+      }
+    ]
+  },
+  {
+    "name": "quota-no-user",
+    "args": [
+      "user",
+      "quota",
+      "get",
+      "absent@example.test"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "user-list-empty",
+    "args": [
+      "user",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "domain-list-empty",
+    "args": [
+      "domain",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "webhook-list-empty",
+    "args": [
+      "webhook",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "config-list-empty",
+    "args": [
+      "config",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "migration-list-empty",
+    "args": [
+      "migration",
+      "list"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-zero",
+    "args": [
+      "ad",
+      "sync"
+    ],
+    "responses": [
+      {
+        "body": "{}"
+      }
+    ]
+  },
+  {
+    "name": "ad-sync-log-zero",
+    "args": [
+      "ad",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "ad-health-zero",
+    "args": [
+      "ad",
+      "health"
+    ],
+    "responses": [
+      {
+        "body": "{}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-zero",
+    "args": [
+      "ldap",
+      "sync"
+    ],
+    "responses": [
+      {
+        "body": "{}"
+      }
+    ]
+  },
+  {
+    "name": "ldap-sync-log-zero",
+    "args": [
+      "ldap",
+      "sync-log"
+    ],
+    "responses": [
+      {
+        "body": "[]"
+      }
+    ]
+  },
+  {
+    "name": "ldap-health-zero",
+    "args": [
+      "ldap",
+      "health"
+    ],
+    "responses": [
+      {
+        "body": "{}"
+      }
+    ]
+  },
+  {
+    "name": "problem-empty",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 401,
+        "body": "",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "problem-text",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 502,
+        "body": "  bad\ngateway  ",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "problem-retry",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 429,
+        "body": "{\"status\":200,\"detail\":\"slow\ndown\",\"retryAfter\":\"2m\",\"remediation\":\"try\nlater\"}",
+        "headers": {
+          "Retry-After": "30"
+        }
+      }
+    ]
+  },
+  {
+    "name": "problem-no-detail",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 403,
+        "body": "{\"type\":\"custom\",\"code\":\"deny\"}",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "response-empty",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 204,
+        "body": "",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "json-html-escapes",
+    "args": [
+      "health",
+      "check",
+      "--json"
+    ],
+    "responses": [
+      {
+        "status": 200,
+        "body": "{\"value\":\"<>&\\u2028\\u2029\"}",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "ignore-tail-json",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "status": 200,
+        "body": "{\"status\":\"ok\"} trailing",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "local-bool-invalid",
+    "args": [
+      "user",
+      "create",
+      "--password-stdin=maybe"
+    ],
+    "responses": [
+      {
+        "status": 200,
+        "body": "{}",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "global-bool-invalid",
+    "args": [
+      "health",
+      "check",
+      "--json=maybe"
+    ],
+    "responses": [
+      {
+        "status": 200,
+        "body": "{\"status\":\"ok\"}",
+        "headers": {}
+      }
+    ]
+  },
+  {
+    "name": "private-config-token",
+    "isolated_user": true,
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  token: cfg-token\n  api_key: cfg-key\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "private-config-key",
+    "isolated_user": true,
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  api_key: cfg-key\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "private-config-server",
+    "isolated_user": true,
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": "",
+      "MAILCTL_SERVER": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: $SERVER\nauth:\n  token: cfg-token\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "private-config-env-overrides",
+    "isolated_user": true,
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": "env-token"
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: https://invalid.test\nauth:\n  token: cfg-token\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "private-config-inline-yaml",
+    "isolated_user": true,
+    "args": [
+      "health",
+      "check"
+    ],
+    "env": {
+      "MAILCTL_TOKEN": "",
+      "MAILCTL_SERVER": ""
+    },
+    "files": {
+      ".mailctl/config.yaml": "server: \"$SERVER\"\nauth: { token: cfg-token }\n"
+    },
+    "responses": [
+      {
+        "body": "{\"status\":\"ok\"}"
+      }
+    ]
+  },
+  {
+    "name": "user-list-table",
+    "args": [
+      "user",
+      "list"
+    ],
+    "map_table": true,
+    "responses": [
+      {
+        "body": "[{\"email\":\"ada@example.test\",\"id\":8},{\"email\":\"bob@example.test\",\"id\":9}]"
+      }
+    ]
+  },
+  {
+    "name": "health-large-number",
+    "args": [
+      "health",
+      "check"
+    ],
+    "responses": [
+      {
+        "body": "{\"quotaBytes\":1073741824,\"fraction\":0.00001}"
+      }
+    ]
+  }
+]

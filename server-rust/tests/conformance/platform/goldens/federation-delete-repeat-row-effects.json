@@ -1,0 +1,81 @@
+{
+  "case": "repeat-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+          "peer_domain": "alpha.example",
+          "scope": "dm",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "last_acked_seq": 2,
+          "last_seq": 5,
+          "peer_domain": "alpha.example",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "acked_at": "2026-10-01T10:05:00+00:00",
+          "content_type": "m.test",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "payload": {},
+          "peer_domain": "alpha.example",
+          "peer_seq": 1,
+          "stanza_id": "s1"
+        },
+        {
+          "acked_at": null,
+          "content_type": "m.test",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "payload": {},
+          "peer_domain": "alpha.example",
+          "peer_seq": 3,
+          "stanza_id": "s3"
+        }
+      ],
+      "before": [
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "enabled": true,
+          "peer_anchor": "-----BEGIN CERTIFICATE-----\nMIIBizCCATGgAwIBAgIUffrna6Jptw7wG6lfDlaYmOelzWQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQcGVlci1vbmUuZXhhbXBsZTAeFw0yNjExMDMwNjQxNDZaFw00\nNjEwMjkwNjQxNDZaMBsxGTAXBgNVBAMMEHBlZXItb25lLmV4YW1wbGUwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAARisb5vBEVbplZ64RqspOxGF5H0wva8MexzDRRs\nH20AAJl+mVOoTAYCFvjULtPDATtgYY2zqsphocmuuk0eOsuso1MwUTAdBgNVHQ4E\nFgQUGNS+fRqac35aKfuByOZVM1z5XKswHwYDVR0jBBgwFoAUGNS+fRqac35aKfuB\nyOZVM1z5XKswDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNIADBFAiEAmfx6\n0XcYdvUg2D0ITVeZxOwb/Rt/lRvZIseQErL+90ACIDNjLZvx2/OiWfkAYTkc1Hmu\niXjroL4h6glyQ1Q33cJV\n-----END CERTIFICATE-----\n",
+          "peer_domain": "alpha.example",
+          "scope": "dm",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "last_acked_seq": 2,
+          "last_seq": 5,
+          "peer_domain": "alpha.example",
+          "updated_at": "2026-10-01T10:00:00+00:00"
+        },
+        {
+          "acked_at": "2026-10-01T10:05:00+00:00",
+          "content_type": "m.test",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "payload": {},
+          "peer_domain": "alpha.example",
+          "peer_seq": 1,
+          "stanza_id": "s1"
+        },
+        {
+          "acked_at": null,
+          "content_type": "m.test",
+          "created_at": "2026-10-01T10:00:00+00:00",
+          "payload": {},
+          "peer_domain": "alpha.example",
+          "peer_seq": 3,
+          "stanza_id": "s3"
+        }
+      ],
+      "table": "federation_allowlist"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "DELETE /admin/federation/peers/{domain}"
+}

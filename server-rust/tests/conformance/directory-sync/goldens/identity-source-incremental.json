@@ -1,0 +1,687 @@
+{
+  "case": "incremental",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "batches": [
+        {
+          "applied": 0,
+          "cursor": {
+            "modifyTimestamp": "20260101000004Z"
+          },
+          "entries": 2,
+          "error": "BZ230",
+          "generation": 1,
+          "quarantined": 0,
+          "source": "ldap:alpha",
+          "state": "blocked"
+        },
+        {
+          "applied": 1,
+          "cursor": {
+            "usn": "1003"
+          },
+          "entries": 2,
+          "error": "IDENTITY_PENDING",
+          "generation": 1,
+          "quarantined": 0,
+          "source": "ad:beta",
+          "state": "blocked"
+        },
+        {
+          "applied": 2,
+          "cursor": {
+            "modifyTimestamp": "20260101000006Z"
+          },
+          "entries": 2,
+          "error": null,
+          "generation": 1,
+          "quarantined": 0,
+          "source": "ldap:gamma",
+          "state": "completed"
+        },
+        {
+          "applied": 1,
+          "cursor": {
+            "usn": "2001"
+          },
+          "entries": 1,
+          "error": null,
+          "generation": 1,
+          "quarantined": 0,
+          "source": "ad:consist",
+          "state": "completed"
+        }
+      ],
+      "inbox": [
+        {
+          "attempts": 1,
+          "error": "BZ230",
+          "object_key": "25240242-2726-2928-2a2b-2c2d2e2f2021",
+          "payload": {
+            "cursorValue": "1002",
+            "department": "Ops",
+            "displayName": "abe",
+            "email": "abe@host-a.test",
+            "enabled": false,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "",
+            "operation": "disable",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ad:beta",
+          "state": "pending",
+          "subject": "25240242-2726-2928-2a2b-2c2d2e2f2021"
+        },
+        {
+          "attempts": 1,
+          "error": "BZ230",
+          "object_key": "uuid-1-cat",
+          "payload": {
+            "cursorValue": "20260101000003Z",
+            "department": "",
+            "displayName": "cat",
+            "email": "cat@host-a.test",
+            "enabled": false,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "",
+            "operation": "disable",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ldap:alpha",
+          "state": "pending",
+          "subject": "uuid-1-cat"
+        },
+        {
+          "attempts": 1,
+          "error": "BZ231",
+          "object_key": "uuid-1-bob",
+          "payload": {
+            "cursorValue": "20260101000002Z",
+            "department": "",
+            "displayName": "bob",
+            "email": "bob@host-a.test",
+            "enabled": true,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "uuid-1-ann",
+            "operation": "upsert",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ldap:alpha",
+          "state": "pending",
+          "subject": "uuid-1-bob"
+        },
+        {
+          "attempts": 1,
+          "error": null,
+          "object_key": "26250342-2827-2a29-2b2c-2d2e2f202122",
+          "payload": {
+            "cursorValue": "1003",
+            "department": "",
+            "displayName": "ada",
+            "email": "ada@host-a.test",
+            "enabled": true,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "",
+            "operation": "upsert",
+            "phone": "",
+            "upn": "ada@corp.example.test"
+          },
+          "source": "ad:beta",
+          "state": "applied",
+          "subject": "26250342-2827-2a29-2b2c-2d2e2f202122"
+        },
+        {
+          "attempts": 1,
+          "error": null,
+          "object_key": "RAFDREVGR0hJSktMTU5PQA==",
+          "payload": {
+            "cursorValue": "2001",
+            "department": "Eng",
+            "displayName": "dee",
+            "email": "dee@host-a.test",
+            "enabled": true,
+            "firstName": "",
+            "jobTitle": "Dev",
+            "lastName": "",
+            "managerSubject": "",
+            "operation": "upsert",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ad:consist",
+          "state": "applied",
+          "subject": "RAFDREVGR0hJSktMTU5PQA=="
+        },
+        {
+          "attempts": 1,
+          "error": null,
+          "object_key": "uuid-3-gina",
+          "payload": {
+            "cursorValue": "20260101000006Z",
+            "department": "",
+            "displayName": "gina",
+            "email": "gina@host-a.test",
+            "enabled": true,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "",
+            "operation": "upsert",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ldap:gamma",
+          "state": "applied",
+          "subject": "uuid-3-gina"
+        },
+        {
+          "attempts": 1,
+          "error": null,
+          "object_key": "uuid-3-gus",
+          "payload": {
+            "cursorValue": "20260101000005Z",
+            "department": "",
+            "displayName": "gus",
+            "email": "gus@host-a.test",
+            "enabled": true,
+            "firstName": "",
+            "jobTitle": "",
+            "lastName": "",
+            "managerSubject": "uuid-3-gina",
+            "operation": "upsert",
+            "phone": "",
+            "upn": ""
+          },
+          "source": "ldap:gamma",
+          "state": "applied",
+          "subject": "uuid-3-gus"
+        }
+      ],
+      "leases": [],
+      "links": [
+        {
+          "method": "hard_anchor",
+          "purposes": [
+            "provision"
+          ],
+          "source": "ad:beta",
+          "state": "active",
+          "subject": "26250342-2827-2a29-2b2c-2d2e2f202122",
+          "user": "ada@host-a.test"
+        },
+        {
+          "method": "hard_anchor",
+          "purposes": [
+            "provision"
+          ],
+          "source": "ad:consist",
+          "state": "active",
+          "subject": "RAFDREVGR0hJSktMTU5PQA==",
+          "user": "dee@host-a.test"
+        },
+        {
+          "method": "hard_anchor",
+          "purposes": [
+            "provision"
+          ],
+          "source": "ldap:gamma",
+          "state": "active",
+          "subject": "uuid-3-gina",
+          "user": "gina@host-a.test"
+        },
+        {
+          "method": "hard_anchor",
+          "purposes": [
+            "provision"
+          ],
+          "source": "ldap:gamma",
+          "state": "active",
+          "subject": "uuid-3-gus",
+          "user": "gus@host-a.test"
+        }
+      ],
+      "quarantine": [
+        {
+          "object_key": "uuid-1-nomail",
+          "occurrences": 1,
+          "reason": "NO_USABLE_MAIL_ATTRIBUTE",
+          "source": "ldap:alpha"
+        }
+      ],
+      "sources": [
+        {
+          "cursor": {
+            "usn": "1002"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:beta",
+          "pending": {
+            "usn": "1003"
+          },
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": {
+            "usn": "2001"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:consist",
+          "pending": null,
+          "state": "active",
+          "success": true
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:noenvelope",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:retired",
+          "pending": null,
+          "state": "retired",
+          "success": false
+        },
+        {
+          "cursor": {
+            "modifyTimestamp": "20260101000002Z"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:alpha",
+          "pending": {
+            "modifyTimestamp": "20260101000004Z"
+          },
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:draft",
+          "pending": null,
+          "state": "draft",
+          "success": false
+        },
+        {
+          "cursor": {
+            "modifyTimestamp": "20260101000006Z"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:gamma",
+          "pending": null,
+          "state": "active",
+          "success": true
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:nosecret",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:paused",
+          "pending": null,
+          "state": "paused",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "legacy:ad",
+          "pending": null,
+          "state": "active",
+          "success": false
+        }
+      ],
+      "sync_log": [
+        {
+          "checked": 1,
+          "conflicts": 0,
+          "created": 1,
+          "details": {
+            "batchId": "<uuid>",
+            "cursorDigest": "39799496e03c3045cc1df90117b049ffffb7bc853afcc72aa1be8daa37d1b7ee",
+            "quarantined": 0
+          },
+          "disabled": 0,
+          "error": null,
+          "key": "ad:consist",
+          "skipped": 0,
+          "source": "ad",
+          "updated": 0
+        },
+        {
+          "checked": 2,
+          "conflicts": 0,
+          "created": 2,
+          "details": {
+            "batchId": "<uuid>",
+            "cursorDigest": "51a8bd96c57d9d43a2650c07c84a8052d3c7eb7882ffff847ba6eaaceda808c1",
+            "quarantined": 0
+          },
+          "disabled": 0,
+          "error": null,
+          "key": "ldap:gamma",
+          "skipped": 0,
+          "source": "ldap",
+          "updated": 0
+        }
+      ],
+      "users": [
+        {
+          "ad_upn": "ada@corp.example.test",
+          "department": null,
+          "display_name": "ada",
+          "email": "ada@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": "ada@corp.example.test",
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "ad",
+          "username": "ada"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "Bob Local",
+          "email": "bob@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "bob@host-a.test"
+        },
+        {
+          "ad_upn": null,
+          "department": "Eng",
+          "display_name": "dee",
+          "email": "dee@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": "Dev",
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "ad",
+          "username": "dee"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "gina",
+          "email": "gina@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "ldap",
+          "username": "gina"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "gus",
+          "email": "gus@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": "gina@host-a.test",
+          "phone": null,
+          "sync_source": "ldap",
+          "username": "gus"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "is7-admin",
+          "email": "is7-admin@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "is7-admin@host-a.test"
+        }
+      ]
+    },
+    "before": {
+      "batches": [],
+      "inbox": [],
+      "leases": [],
+      "links": [],
+      "quarantine": [],
+      "sources": [
+        {
+          "cursor": {
+            "usn": "1002"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:beta",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:consist",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:noenvelope",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ad:retired",
+          "pending": null,
+          "state": "retired",
+          "success": false
+        },
+        {
+          "cursor": {
+            "modifyTimestamp": "20260101000002Z"
+          },
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:alpha",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:draft",
+          "pending": null,
+          "state": "draft",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:gamma",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:nosecret",
+          "pending": null,
+          "state": "active",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "ldap:paused",
+          "pending": null,
+          "state": "paused",
+          "success": false
+        },
+        {
+          "cursor": null,
+          "error": null,
+          "failure": false,
+          "generation": 1,
+          "key": "legacy:ad",
+          "pending": null,
+          "state": "active",
+          "success": false
+        }
+      ],
+      "sync_log": [],
+      "users": [
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "Bob Local",
+          "email": "bob@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "bob@host-a.test"
+        },
+        {
+          "ad_upn": null,
+          "department": null,
+          "display_name": "is7-admin",
+          "email": "is7-admin@host-a.test",
+          "enabled": true,
+          "first_name": null,
+          "job_title": null,
+          "krb5_principal": null,
+          "last_name": null,
+          "local_overrides": {},
+          "manager": null,
+          "phone": null,
+          "sync_source": "local",
+          "username": "is7-admin@host-a.test"
+        }
+      ]
+    },
+    "case": "incremental",
+    "directory": {
+      "ad:beta": [
+        "bind dn=CN=svc,DC=corp,DC=example,DC=test password=ok",
+        "search base=DC=corp,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(&(objectClass=user)(objectCategory=person))(uSNChanged>=1002)) attrs=objectGUID,mail,displayName,givenName,sn,sAMAccountName,userPrincipalName,userAccountControl,department,title,manager,telephoneNumber,proxyAddresses,uSNChanged page=500"
+      ],
+      "ad:consist": [
+        "bind dn=CN=svc,DC=corp,DC=example,DC=test password=ok",
+        "search base=DC=corp,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(&(objectClass=user)(objectCategory=person)(department=Eng*))(uSNChanged>=0)) attrs=msDS-ConsistencyGuid,mail,displayName,givenName,sn,sAMAccountName,userPrincipalName,userAccountControl,department,title,manager,telephoneNumber,proxyAddresses,uSNChanged page=500"
+      ],
+      "ad:noenvelope": [],
+      "ad:retired": [],
+      "ldap:alpha": [
+        "bind dn=CN=svc,DC=corp,DC=example,DC=test password=ok",
+        "search base=DC=corp,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(objectClass=person)(modifyTimestamp>=20260101000002Z)) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl,entryUUID page=500",
+        "search base=DC=corp,DC=example,DC=test scope=2 sizeLimit=0 filter=(|(distinguishedName=CN=ann,OU=People,DC=corp,DC=example,DC=test)) attrs=entryUUID page=0"
+      ],
+      "ldap:draft": [],
+      "ldap:gamma": [
+        "starttls",
+        "bind dn=CN=svc,DC=corp,DC=example,DC=test password=ok",
+        "search base=DC=corp,DC=example,DC=test scope=2 sizeLimit=0 filter=(&(objectClass=person)(mail=*)) attrs=dn,mail,displayName,givenName,sn,title,telephoneNumber,department,userPrincipalName,modifyTimestamp,manager,nsAccountLock,pwdAccountLockedTime,userAccountControl,entryUUID page=500"
+      ],
+      "ldap:nosecret": [],
+      "ldap:paused": []
+    },
+    "gate": true
+  }
+}

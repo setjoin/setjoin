@@ -1,0 +1,34 @@
+{
+  "case": "secevents-retention-bad-config",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "deliveries": [
+      {
+        "attempts": 1,
+        "payload": "{\"label\": \"due\"}",
+        "type": "sec.ok"
+      }
+    ],
+    "rows": [
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "done-100d",
+        "last_error": "<null>",
+        "next_attempt_s": "unchanged",
+        "status": "done"
+      },
+      {
+        "attempts": "1",
+        "claim_generation": "0",
+        "delivered": "true",
+        "label": "due",
+        "last_error": "<null>",
+        "next_attempt_s": "0",
+        "status": "done"
+      }
+    ]
+  }
+}

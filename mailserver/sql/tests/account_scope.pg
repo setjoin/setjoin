@@ -1,0 +1,83 @@
+-- pgTAP: account_scope.pg
+-- ADR-003: account_scope(p_mailbox_id) → (mailbox_id, user_id, domain_id) is the
+-- single resolver seam for the mailbox→user→domain mapping. The account-slot
+-- argument is ALWAYS a mailbox_id; this function owns the lookup so reducers stop
+-- hand-joining `mailboxes` (which re-introduces the user_id/mailbox_id confusion).
+--
+-- DIVERGENT ids on purpose (user_id != mailbox_id): the whole bug class this ADR
+-- kills is masked by coincident ids. The personal fixture uses user_id 71001 with
+-- mailbox_id 91001 so a regression that returns the wrong column is observable.
+-- The shared fixture proves user_id is returned AS NULL (not the mailbox id).
+BEGIN;
+SELECT plan(8);
+
+INSERT INTO domains (id, name, is_local) VALUES (91000, 'acctscope.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- (a) Personal mailbox — DIVERGENT ids: user_id 71001 != mailbox_id 91001.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (71001, 'as_personal', 91000, 'personal@acctscope.test', 'Personal', TRUE);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (91001, 71001, 91000, 'personal@acctscope.test', 'Personal', 'personal', TRUE);
+
+-- (b) Shared mailbox — user_id IS NULL, has a mailbox_delegates row.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (91002, NULL, 91000, 'shared@acctscope.test', 'Shared', 'personal', FALSE);
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+  VALUES (91002, 71001, 'full_access', 71001);
+
+-- 1) Personal: mailbox_id column echoes the argument.
+SELECT is(
+  (SELECT mailbox_id FROM account_scope(91001)),
+  91001::BIGINT,
+  'account_scope returns the mailbox_id it was given'
+);
+
+-- 2) Personal: user_id is the DIVERGENT users.id, not the mailbox id.
+SELECT is(
+  (SELECT user_id FROM account_scope(91001)),
+  71001::BIGINT,
+  'account_scope returns the real divergent user_id (not the mailbox id)'
+);
+
+-- 3) Personal: domain_id resolved off the mailbox.
+SELECT is(
+  (SELECT domain_id FROM account_scope(91001)),
+  91000::BIGINT,
+  'account_scope returns the mailbox domain_id'
+);
+
+-- 4) Personal: exactly one row for a known mailbox.
+SELECT is(
+  (SELECT count(*) FROM account_scope(91001)),
+  1::BIGINT,
+  'account_scope returns exactly one row for a known mailbox'
+);
+
+-- 5) Shared/resource: user_id is NULL (returned as-is, never substituted).
+SELECT ok(
+  (SELECT user_id FROM account_scope(91002)) IS NULL,
+  'account_scope returns NULL user_id for a shared (user_id IS NULL) mailbox'
+);
+
+-- 6) Shared: still resolves mailbox_id + domain_id correctly.
+SELECT is(
+  (SELECT mailbox_id FROM account_scope(91002)),
+  91002::BIGINT,
+  'account_scope resolves mailbox_id for a shared mailbox'
+);
+SELECT is(
+  (SELECT domain_id FROM account_scope(91002)),
+  91000::BIGINT,
+  'account_scope resolves domain_id for a shared mailbox'
+);
+
+-- 7) Unknown mailbox: zero rows (caller decides not-found handling).
+SELECT is(
+  (SELECT count(*) FROM account_scope(99999999)),
+  0::BIGINT,
+  'account_scope returns zero rows for an unknown mailbox'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

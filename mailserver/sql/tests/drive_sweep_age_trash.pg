@@ -1,0 +1,81 @@
+-- mailserver/sql/tests/drive_sweep_age_trash.pg — Task 11 (C6 part 2):
+-- focused coverage for drive_sweep_age_trash(), extracted from
+-- drive_maintenance_sweep.sql's two-level trash cadence leg. Fixtures are
+-- deliberately the same shape as drive_watch_prune_sweep.pg's trash-cadence
+-- block (tier-1 aging, tier-2 leaf-first grace-expiry, gxp-in-retention
+-- survival, I-16) so the two suites stay comparable; this file calls the
+-- extracted reducer DIRECTLY (no journal/claims/grants/alarm noise) and
+-- closes the loop with an equivalence check against the full sweep, the
+-- same pattern Task 10 used for drive_alarm_evaluate().
+BEGIN;
+SELECT plan(9);
+
+SELECT mk_account('dsat') AS mb \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT drive_space_create(:u, 'AT', 'regular') AS sid \gset
+
+-- (a) tier-1 row trashed 31 days ago -> ages to tier 2, purged_by NULL
+-- (system-aged, not a manager action), and gets a 'destroy' journal row.
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'old.txt') AS old_node \gset
+SELECT drive_node_trash(:u, :old_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '31 days' WHERE id = :old_node;
+
+-- (b) tier-1 row trashed 2 days ago -> untouched.
+SELECT drive_node_create(:u, :sid, NULL, 'file', 'fresh.txt') AS fresh_node \gset
+SELECT drive_node_trash(:u, :fresh_node);
+UPDATE drive_nodes SET deleted_at = now() - interval '2 days' WHERE id = :fresh_node;
+
+-- (c) tier-2 folder+child destroyed by a manager, purged 31 days ago ->
+-- hard-destroyed leaf-first (child first, then the now-childless folder).
+SELECT drive_node_create(:u, :sid, NULL, 'folder', 'oldfolder') AS old_folder \gset
+SELECT drive_node_create(:u, :sid, :old_folder, 'file', 'child.bin') AS old_child \gset
+SELECT drive_chunk_register(:u, :sid, repeat('7',64), 10);
+SELECT drive_file_put_version(:u, :old_child, repeat('e',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('7',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:u, :old_folder);
+SELECT drive_node_destroy(:u, :old_folder);
+UPDATE drive_nodes SET purged_at = now() - interval '31 days' WHERE id IN (:old_folder, :old_child);
+
+-- (d) gxp file destroyed (tier 2) 31 days ago, version still inside its
+-- 30-day retention window (created_at = now()) -> the grace-expiry loop
+-- must refuse (drive_node_destroy_hard returns false; I-16) and it stays
+-- in tier 2.
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.drive_compliance';
+SELECT drive_space_create(:u, 'GX', 'gxp', false, 30, 'compliance') AS gxp_sid \gset
+SELECT drive_node_create(:u, :gxp_sid, NULL, 'file', 'gxp.bin') AS gxp_node \gset
+SELECT drive_chunk_register(:u, :gxp_sid, repeat('8',64), 10);
+SELECT drive_file_put_version(:u, :gxp_node, repeat('f',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('8',64))::jsonb, NULL, 't');
+SELECT drive_node_trash(:u, :gxp_node);
+SELECT drive_node_destroy(:u, :gxp_node);
+UPDATE drive_nodes SET purged_at = now() - interval '31 days' WHERE id = :gxp_node;
+
+-- savepoint: run the direct reducer first so we can rewind and re-run the
+-- SAME seeded state through the full sweep for the equivalence check below.
+SAVEPOINT before_cadence;
+SELECT p_aged AS aged, p_destroyed AS destroyed FROM drive_sweep_age_trash() \gset direct_
+
+SELECT ok((SELECT purged_at IS NOT NULL AND purged_by IS NULL FROM drive_nodes WHERE id = :old_node),
+          'tier-1 aged row falls to tier 2, purged_by NULL = system-aged');
+SELECT ok((SELECT count(*) FROM drive_changes WHERE node_id = :old_node AND op = 'destroy')::int >= 1,
+          'tier-1 aging journals a destroy row for the aged node');
+SELECT is((SELECT purged_at FROM drive_nodes WHERE id = :fresh_node), NULL,
+          'fresh tier-1 row (2 days) untouched by aging');
+SELECT is((SELECT count(*) FROM drive_nodes WHERE id IN (:old_folder, :old_child))::int, 0,
+          'tier-2 grace-expired folder+child hard-destroyed leaf-first');
+SELECT ok((SELECT purged_at IS NOT NULL FROM drive_nodes WHERE id = :gxp_node),
+          'gxp-in-retention purged file survives the grace-expiry hard-destroy, stays tier 2');
+SELECT ok(:direct_aged >= 1, 'reducer reports an aged count');
+SELECT ok(:direct_destroyed >= 2, 'reducer reports a destroyed count (folder + child)');
+
+-- equivalence: rewind to before the direct call and prove the FULL sweep's
+-- trashAged/trashDestroyed on the exact same seeded state fold in the same
+-- counts (regression pin — the extraction must not change what the
+-- dispatcher reports).
+ROLLBACK TO SAVEPOINT before_cadence;
+SELECT drive_maintenance_sweep() AS sweep_result \gset
+SELECT is((:'sweep_result')::jsonb->>'trashAged', :'direct_aged', 'sweep trashAged matches the direct reducer call');
+SELECT is((:'sweep_result')::jsonb->>'trashDestroyed', :'direct_destroyed', 'sweep trashDestroyed matches the direct reducer call');
+
+SELECT * FROM finish();
+ROLLBACK;

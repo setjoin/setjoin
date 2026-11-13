@@ -1,0 +1,59 @@
+-- pgTAP: V242__smime_cert_revocations.pg — durable certificate-level S/MIME
+-- revocation (med-smime-revocation-001). The durability half of the settled
+-- transition matrix: one row per CONFIRMED revocation, keyed by the
+-- lowercase-hex SHA-256 DER fingerprint that smime.FingerprintCert computes
+-- (the repo-wide fingerprint convention), so the Go-side
+-- NewCertRevocationStore.IsRevoked lookup is a single-index EXISTS. Fresh
+-- authenticated non-listing evidence is never persisted here. No user-owned
+-- data → no RLS (the smime_revocation_blocklist posture).
+BEGIN;
+SELECT plan(10);
+
+-- ── Shape ────────────────────────────────────────────────────────────────────
+SELECT has_table('smime_cert_revocations');
+SELECT has_column('smime_cert_revocations', 'id');
+SELECT has_column('smime_cert_revocations', 'fingerprint');
+SELECT has_column('smime_cert_revocations', 'evidence');
+SELECT has_column('smime_cert_revocations', 'revoked_at');
+
+-- fingerprint is the durability key: one confirmed revocation per certificate,
+-- ever — re-confirmation must never duplicate. The migration creates a UNIQUE
+-- INDEX (not a table constraint), so assert the index itself — col_is_unique
+-- checks pg_constraint 'u' and would never match.
+SELECT has_index('smime_cert_revocations', 'smime_cert_revocations_fingerprint_key',
+  'one confirmed revocation per certificate: the unique fingerprint index exists');
+
+-- ── Behavior: record + idempotent re-record + the lookups the Go store issues
+INSERT INTO smime_cert_revocations (fingerprint, evidence) VALUES
+  ('v242tap-fp-a', 'crl'),
+  ('v242tap-fp-b', 'crl');
+
+SELECT is(
+  (SELECT EXISTS(
+     SELECT 1 FROM smime_cert_revocations WHERE fingerprint = 'v242tap-fp-a')),
+  true,
+  'the exact EXISTS predicate CertRevocationStore.IsRevoked issues matches a recorded revocation');
+
+-- The Go store's RecordRevoked re-confirm path: ON CONFLICT DO NOTHING must
+-- keep exactly one row per fingerprint.
+INSERT INTO smime_cert_revocations (fingerprint, evidence) VALUES
+  ('v242tap-fp-a', 'crl')
+ON CONFLICT (fingerprint) DO NOTHING;
+
+SELECT is(
+  (SELECT count(*) FROM smime_cert_revocations WHERE fingerprint = 'v242tap-fp-a'),
+  1::bigint,
+  're-confirming an already recorded revocation must not duplicate the row');
+
+SELECT is(
+  (SELECT count(*) FROM smime_cert_revocations WHERE fingerprint LIKE 'v242tap-%'),
+  2::bigint,
+  'exactly the two seeded fixture rows exist (durability key held)');
+
+-- ── Migration bookkeeping ────────────────────────────────────────────────────
+SELECT is(
+  (SELECT count(*)::int FROM schema_migrations WHERE version = 242),
+  1, 'schema_migrations records version 242');
+
+SELECT * FROM finish();
+ROLLBACK;

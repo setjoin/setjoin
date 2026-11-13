@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main webview: the native bridge (notify, dialog, opener, deep-link) plus the in-app updater. The opener plugin permission is URL-scoped to exactly the bridge's external-URL allowlist (https/http/mailto, src/bridge.rs ALLOWED_EXTERNAL_SCHEMES) so the plugin surface cannot bypass the app allowlist with other schemes.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:allow-open",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://*" },
+        { "url": "mailto:*" }
+      ]
+    },
+    "deep-link:default",
+    "updater:default"
+  ]
+}

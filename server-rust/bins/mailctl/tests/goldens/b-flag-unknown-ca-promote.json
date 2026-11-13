@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "flag provided but not defined: -unrecognized-option\nUsage of ca promote:\n  -id int\n    \tPolicy ID (required)\n  -yes\n    \tSkip would-block confirmation\nError: flag provided but not defined: -unrecognized-option\n",
+  "exit": 1
+}

@@ -1,0 +1,15 @@
+-- pgTAP: cjk_to_ascii() — CJK→pinyin transliteration with surname tuning.
+BEGIN;
+SELECT plan(8);
+
+SELECT is( cjk_to_ascii('John'),  'John',     'latin passes through unchanged' );
+SELECT is( cjk_to_ascii(''),      '',         'empty string returns empty' );
+SELECT is( cjk_to_ascii('伟'),    'wei',      'single given-name char via cjk_pinyin' );
+SELECT is( cjk_to_ascii('单'),    'shan',     'polyphonic surname 单 -> shan (not dan)' );
+SELECT is( cjk_to_ascii('单伟'),  'shanwei',  'surname + given name' );
+SELECT is( cjk_to_ascii('欧阳'),  'ouyang',   'compound surname longest-match' );
+SELECT is( cjk_to_ascii('欧阳修'),'ouyangxiu','compound surname + given name' );
+SELECT is( cjk_to_ascii('A伟'),   'Awei',     'mixed latin + cjk' );
+
+SELECT * FROM finish();
+ROLLBACK;

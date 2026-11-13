@@ -1,0 +1,70 @@
+{
+  "case": "bad-range-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "n": 0
+        }
+      ],
+      "before": [
+        {
+          "n": 0
+        }
+      ],
+      "table": "upgrade_history"
+    },
+    {
+      "after": [
+        {
+          "json": {
+            "expires_at": "<expiry>",
+            "filename": "bundle.bin",
+            "key_id": "offline-oracle",
+            "metadata_version": 1,
+            "platform": "desktop",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size_bytes": 31,
+            "slug": "linux-amd64",
+            "target_metadata": "<verified-signed-target>",
+            "uploaded_at": "2026-10-01T00:00:00Z",
+            "version": "1.2.3"
+          },
+          "name": "linux-amd64.json"
+        },
+        {
+          "name": "linux-amd64_bundle.bin",
+          "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+          "size": 31
+        }
+      ],
+      "before": [
+        {
+          "json": {
+            "expires_at": "<expiry>",
+            "filename": "bundle.bin",
+            "key_id": "offline-oracle",
+            "metadata_version": 1,
+            "platform": "desktop",
+            "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+            "size_bytes": 31,
+            "slug": "linux-amd64",
+            "target_metadata": "<verified-signed-target>",
+            "uploaded_at": "2026-10-01T00:00:00Z",
+            "version": "1.2.3"
+          },
+          "name": "linux-amd64.json"
+        },
+        {
+          "name": "linux-amd64_bundle.bin",
+          "sha256": "a66e79ad0e797b7aabdb6f640f29cb970ef2f4748110415d75a7cb376f0700e1",
+          "size": 31
+        }
+      ],
+      "table": "airgap_files"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "GET /updates/{slug}/{filename}"
+}

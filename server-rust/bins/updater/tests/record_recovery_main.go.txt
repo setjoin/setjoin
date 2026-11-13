@@ -1,0 +1,12 @@
+// Test-only overlay: bind frozen recovery's fixed paths to an isolated install.
+// Build this alongside the unchanged cmd/setjoin-recovery/main.go.
+package main
+
+import "os"
+
+func init() {
+ installRoot = os.Getenv("REL3_INSTALL_ROOT")
+ journalDir = os.Getenv("REL3_JOURNAL_DIR")
+ evidenceDir = os.Getenv("REL3_EVIDENCE_DIR")
+ dsnFile = os.Getenv("REL3_DSN_FILE")
+}

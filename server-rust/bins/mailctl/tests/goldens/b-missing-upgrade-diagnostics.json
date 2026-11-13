@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl upgrade diagnostics <intent-id> --output <file>\n",
+  "exit": 1
+}

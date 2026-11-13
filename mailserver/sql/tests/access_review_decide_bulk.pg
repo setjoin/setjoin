@@ -1,0 +1,59 @@
+-- access_review_decide_bulk.pg
+-- pgTAP tests for access_review_decide_bulk reducer.
+-- Verifies: bulk keep applies to all items; exactly one summary audit row;
+-- bulk revoke skips SSO items (skipped=1); SSO item decision untouched.
+BEGIN;
+SELECT plan(5);
+
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90401, 'arv-bulk.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) VALUES
+  (90401, 'b_act', 90401, 'act@arv-bulk.test', 'A', TRUE),
+  (90402, 'b_u1',  90401, 'u1@arv-bulk.test',  'U1', TRUE),
+  (90403, 'b_u2',  90401, 'u2@arv-bulk.test',  'U2', TRUE),
+  (90404, 'b_sso', 90401, 'sso@arv-bulk.test', 'S', TRUE);
+INSERT INTO admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (90401, 'b-role', ARRAY['mail.pipeline'], NULL);
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by) OVERRIDING SYSTEM VALUE VALUES
+  (90401, 90402, 90401, 90401),  -- admin-granted
+  (90402, 90403, 90401, 90401),  -- admin-granted
+  (90403, 90404, 90401, NULL);   -- SSO
+SELECT access_review_start(90401, 'bulk recert', 0);
+CREATE TEMP TABLE _bi AS SELECT i.id, i.assignment_id, i.is_sso FROM access_review_items i
+  JOIN access_review_campaigns c ON c.id=i.campaign_id WHERE c.name='bulk recert';
+CREATE TEMP TABLE _bc AS SELECT id FROM access_review_campaigns WHERE name='bulk recert';
+
+-- bulk KEEP all three → applied=3
+SELECT is(
+  (SELECT access_review_decide_bulk(90401, (SELECT id FROM _bc),
+     (SELECT array_agg(id) FROM _bi), 'keep', 0)->>'applied')::int,
+  3, 'bulk keep applies to all listed items');
+SELECT is(
+  (SELECT count(*)::int FROM admin_audit_log WHERE action='access_review_decide_bulk'), 1,
+  'bulk writes exactly one summary audit row');
+
+-- bulk REVOKE all three → skips the SSO one (applied=2, skipped=1), SSO row untouched
+SELECT is(
+  (SELECT access_review_decide_bulk(90401, (SELECT id FROM _bc),
+     (SELECT array_agg(id) FROM _bi), 'revoke', 0)->>'skipped')::int,
+  1, 'bulk revoke reports 1 skipped (the SSO item)');
+SELECT is(
+  (SELECT decision FROM access_review_items WHERE id=(SELECT id FROM _bi WHERE is_sso)),
+  'keep', 'bulk revoke leaves the SSO item at its prior decision (untouched)');
+
+-- SoD: bulk decide ALWAYS skips the actor's own item (self-certification guard,
+-- mirrors _decide's BZ069). Give the actor (90401) its own assignment, snapshot a
+-- fresh campaign, and assert a bulk keep on just that self item applies 0 / skips 1.
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by) OVERRIDING SYSTEM VALUE VALUES
+  (90404, 90401, 90401, 90401);  -- the ACTOR's own assignment
+SELECT access_review_start(90401, 'bulk self', 0);
+SELECT is(
+  (SELECT access_review_decide_bulk(90401,
+     (SELECT id FROM access_review_campaigns WHERE name='bulk self'),
+     (SELECT array_agg(i.id) FROM access_review_items i
+        JOIN access_review_campaigns c ON c.id=i.campaign_id
+       WHERE c.name='bulk self' AND i.user_id=90401),
+     'keep', 0)->>'skipped')::int,
+  1, 'bulk decide skips the actor''s own item (SoD self-cert guard)');
+
+SELECT * FROM finish();
+ROLLBACK;

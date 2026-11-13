@@ -1,0 +1,19 @@
+{
+  "stdout": "SCIM token created successfully.\n\n  Name:            oracle\n  Source:          scim:gofree-mctl3\n  Deletion policy: soft\n  Expires:         never\n\n  Token (save now \u2014 cannot be recovered):\n  {TOKEN}\n\n  Authorization header:\n  Authorization: Bearer {TOKEN}\n\nCopy this header into your IdP provisioning configuration:\n  - Entra ID: Enterprise Applications \u2192 Provisioning \u2192 Admin Credentials\n  - Okta: Applications \u2192 Provisioning \u2192 API Integration\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "tokens": [
+      {
+        "name": "oracle",
+        "source": "scim:gofree-mctl3",
+        "policy": "soft",
+        "created_by": "mailctl",
+        "expires": false,
+        "hash_format": "$2a$10$"
+      }
+    ],
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

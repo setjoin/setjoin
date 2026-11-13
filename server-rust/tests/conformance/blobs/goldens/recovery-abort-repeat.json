@@ -1,0 +1,90 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "e144c714a9a94d73a8032e2467181e927efbbc72",
+  "normalization": [
+    "fixture ids and token",
+    "response date",
+    "S3 signed date and signature"
+  ],
+  "observation": {
+    "audit": [
+      {
+        "action": "mail_recovery_upload_abort",
+        "actor": "<owner>",
+        "resource_type": "mail_recovery_incident",
+        "state": {
+          "incidentId": "<incident>",
+          "mailboxId": "<mailbox>",
+          "sessionId": "<session>"
+        }
+      }
+    ],
+    "effects": {
+      "item_status": "aborted",
+      "remaining_chunks": 1,
+      "session_status": "aborted",
+      "terminal_reason": "user_cancelled"
+    },
+    "notify": [],
+    "request": {
+      "case": "repeat",
+      "method": "DELETE",
+      "path": "/recovery/uploads/{sessionId}"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "blobs1-abort-oracle"
+        ]
+      },
+      "status": 204
+    },
+    "s3": [
+      {
+        "body": "",
+        "method": "DELETE",
+        "scope": "test-access/<date>/eu-central-1/s3/aws4_request",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature_valid": true,
+        "signed_headers": "host;x-amz-content-sha256;x-amz-date",
+        "uri": "/mailblobs/<chunk-key>"
+      },
+      {
+        "body": "",
+        "method": "DELETE",
+        "scope": "test-access/<date>/eu-central-1/s3/aws4_request",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "signature_valid": true,
+        "signed_headers": "host;x-amz-content-sha256;x-amz-date",
+        "uri": "/mailblobs/<chunk-key>"
+      }
+    ]
+  },
+  "route": "DELETE /recovery/uploads/{sessionId}"
+}

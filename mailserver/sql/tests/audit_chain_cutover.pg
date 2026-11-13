@@ -1,0 +1,38 @@
+BEGIN;
+SELECT plan(8);
+
+SELECT has_table('audit_chain_cutover');
+SELECT has_function('audit_chain_activate_v3', ARRAY[]::text[]);
+
+INSERT INTO domains (id,name,is_local) OVERRIDING SYSTEM VALUE VALUES (97232,'audit-cutover.test',TRUE);
+INSERT INTO users (id,username,domain_id,email,display_name,enabled)
+VALUES (97232,'audit_cutover',97232,'audit@audit-cutover.test','Audit',TRUE);
+
+SELECT set_config('app.audit_hmac_key','cutover-test-hmac-key',false);
+SELECT ok(audit_chain_activate_v3() > 0, 'cutover activates with a key');
+SELECT is(audit_chain_activate_v3(), (SELECT first_v3_id FROM audit_chain_cutover),
+  'cutover activation is idempotent');
+
+INSERT INTO admin_audit_log(user_id,ip,action,target_type,before_state,after_state)
+VALUES (97232,'10.0.0.1','cutover_valid','system','{}','{}');
+SELECT ok((SELECT checksum LIKE 'v3:%' FROM admin_audit_log WHERE action='cutover_valid'),
+  'post-cutover write is HMAC v3');
+
+SELECT set_config('app.audit_hmac_key','',false);
+SELECT throws_ok(
+  $$INSERT INTO admin_audit_log(user_id,ip,action,target_type,before_state,after_state)
+    VALUES (97232,'10.0.0.2','cutover_keyless','system','{}','{}')$$,
+  NULL, NULL, 'post-cutover keyless write fails closed');
+
+SELECT set_config('app.audit_hmac_key','cutover-test-hmac-key',false);
+ALTER TABLE admin_audit_log DISABLE TRIGGER admin_audit_append_only;
+UPDATE admin_audit_log SET checksum=substring(checksum from 4) WHERE action='cutover_valid';
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='cutover_valid'),
+  'stripping the v3 prefix cannot downgrade a post-cutover row');
+UPDATE admin_audit_log SET checksum='v3:' WHERE action='cutover_valid';
+SELECT ok(NOT (SELECT valid FROM verify_audit_chain(NULL,NULL) WHERE action='cutover_valid'),
+  'truncated v3 checksum is invalid');
+ALTER TABLE admin_audit_log ENABLE TRIGGER admin_audit_append_only;
+
+SELECT * FROM finish();
+ROLLBACK;

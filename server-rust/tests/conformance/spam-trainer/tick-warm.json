@@ -1,0 +1,21 @@
+{
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "row": {
+      "bytes": 25165840,
+      "disabled": false,
+      "sample_count": 8,
+      "sha256": "bd4cd118ed5fd18ffa9dacc1b7066743d2a056e4469b7d917f5ab3e1d8f9ff72",
+      "trained": true
+    },
+    "s3": [
+      {
+        "body": "",
+        "method": "GET",
+        "scope": "test-access/<date>/us-east-1/s3/aws4_request",
+        "signature_valid": true,
+        "uri": "/mail/inbound/raw"
+      }
+    ]
+  }
+}

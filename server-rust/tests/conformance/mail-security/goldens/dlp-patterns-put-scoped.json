@@ -1,0 +1,314 @@
+{
+  "case": "scoped",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "audit_rows": 0,
+          "config": [],
+          "policies": [
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p1 ssn",
+              "priority": 0,
+              "regex_patterns": [
+                "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+              ]
+            },
+            {
+              "action": "quarantine",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p2 <card> & co",
+              "priority": 1,
+              "regex_patterns": [
+                "\\b\\d{16}\\b"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p5 same-priority",
+              "priority": 1,
+              "regex_patterns": [
+                "tie"
+              ]
+            },
+            {
+              "action": "notify_admin",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p3 mail",
+              "priority": 2,
+              "regex_patterns": [
+                "[a-z]+@[a-z]+"
+              ]
+            },
+            {
+              "action": "warn",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": false,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p4 low",
+              "priority": 3,
+              "regex_patterns": [
+                "secret"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "a-own",
+              "priority": 4,
+              "regex_patterns": [
+                "alpha"
+              ]
+            },
+            {
+              "action": "quarantine",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "b-own",
+              "priority": 5,
+              "regex_patterns": [
+                "bravo"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": false,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "policy-not-pattern",
+              "priority": 6,
+              "regex_patterns": [
+                "x"
+              ]
+            }
+          ],
+          "violations": 0
+        },
+        "before": {
+          "audit_rows": 0,
+          "config": [],
+          "policies": [
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p1 ssn",
+              "priority": 0,
+              "regex_patterns": [
+                "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+              ]
+            },
+            {
+              "action": "quarantine",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p2 <card> & co",
+              "priority": 1,
+              "regex_patterns": [
+                "\\b\\d{16}\\b"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p5 same-priority",
+              "priority": 1,
+              "regex_patterns": [
+                "tie"
+              ]
+            },
+            {
+              "action": "notify_admin",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p3 mail",
+              "priority": 2,
+              "regex_patterns": [
+                "[a-z]+@[a-z]+"
+              ]
+            },
+            {
+              "action": "warn",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": false,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "p4 low",
+              "priority": 3,
+              "regex_patterns": [
+                "secret"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "a-own",
+              "priority": 4,
+              "regex_patterns": [
+                "alpha"
+              ]
+            },
+            {
+              "action": "quarantine",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": true,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "b-own",
+              "priority": 5,
+              "regex_patterns": [
+                "bravo"
+              ]
+            },
+            {
+              "action": "block",
+              "applies_to_all": true,
+              "blocked_file_types": [],
+              "enabled": true,
+              "is_pattern": false,
+              "keywords": [],
+              "max_attachment_size": 0,
+              "min_confidence": 0.7,
+              "name": "policy-not-pattern",
+              "priority": 6,
+              "regex_patterns": [
+                "x"
+              ]
+            }
+          ],
+          "violations": 0
+        },
+        "table": "dlp"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "[{\"id\":99,\"name\":\"ssn\",\"regex\":\"\\\\d{3}\",\"severity\":\"critical\",\"enabled\":true},{\"name\":\"card\",\"regex\":\"\\\\d{16}\",\"severity\":\"high\",\"enabled\":false}]",
+      "external_path": "/api/admin/dlp/patterns",
+      "method": "PUT",
+      "path": "/admin/dlp/patterns"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"scoped admins cannot modify global DLP patterns\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "129"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "PUT /admin/dlp/patterns"
+}

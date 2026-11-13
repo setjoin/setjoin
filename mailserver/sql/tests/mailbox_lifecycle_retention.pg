@@ -1,0 +1,169 @@
+BEGIN;
+SELECT plan(53);
+SET LOCAL app.capture_notify='on';
+
+SELECT mk_account('ml-actor') AS actor_mb \gset
+SELECT mk_account('ml-approver') AS approver_mb \gset
+SELECT mk_account('ml-executor') AS executor_mb \gset
+SELECT mk_account('ml-target') AS target_mb \gset
+SELECT user_id AS actor FROM mailboxes WHERE id=:actor_mb \gset
+SELECT user_id AS approver FROM mailboxes WHERE id=:approver_mb \gset
+SELECT user_id AS executor FROM mailboxes WHERE id=:executor_mb \gset
+SELECT user_id AS target_user FROM mailboxes WHERE id=:target_mb \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES(:actor,1,:actor);
+
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.mailbox_lifecycle_retention'),false,
+  'mailbox lifecycle behavior defaults OFF');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_lifecycle WHERE mailbox_id=:target_mb AND binding_state='bound'),
+  'new personal mailbox is shadow-populated as bound');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_address_claims WHERE mailbox_id=:target_mb AND address_kind='primary'),
+  'new primary address is reserved in the canonical claim registry');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'suspend',1,%L,%L)$q$,
+  :actor,:target_mb,gen_random_uuid(),repeat('a',64),'contain incident'),'BZ300',NULL,
+  'mutations fail closed while the feature is OFF');
+
+UPDATE feature_toggles SET enabled=true WHERE key='feature.mailbox_lifecycle_retention';
+SELECT (mailbox_lifecycle_read(:target_mb)->>'generation')::bigint AS gen1 \gset
+SELECT (mailbox_lifecycle_preview(:actor,:target_mb)->>'previewDigest') AS preview1 \gset
+SELECT matches(:'preview1'::text,'^[0-9a-f]{64}$','preview is bound to a SHA-256 digest');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_preview(%s,%s)$q$,:approver,:target_mb),
+  'BZ302','mailbox lifecycle target not found','unauthorized lifecycle preview hides the target');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'suspend',%s,%L,%L)$q$,
+  :approver,:target_mb,gen_random_uuid(),:gen1,repeat('a',64),'unauthorized transition'),
+  'BZ302','personal mailbox not found','unauthorized lifecycle transition hides the target');
+
+SELECT gen_random_uuid() AS suspend_op \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,:'suspend_op','suspend',:gen1,repeat('b',64),'security containment') AS suspend_result \gset
+SELECT is((SELECT access_state FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),'suspended','suspend changes access state');
+SELECT is((SELECT enabled FROM mailboxes WHERE id=:target_mb),false,'suspend disables interactive mailbox access');
+SELECT is((SELECT user_id FROM mailboxes WHERE id=:target_mb),:target_user::bigint,'suspend preserves the user binding');
+SELECT is((mailbox_lifecycle_transition(:actor,:target_mb,:'suspend_op','suspend',:gen1,repeat('b',64),'security containment')->>'replayed')::boolean,true,
+  'exact operation replay returns the recorded result');
+SELECT is((SELECT generation FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),(:gen1+1)::bigint,
+  'exact replay does not bump generation again');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'resume',%s,%L,%L)$q$,
+  :actor,:target_mb,:'suspend_op',:gen1+1,repeat('c',64),'different request'),'BZ303',NULL,
+  'reusing an operation UUID with different content is rejected');
+
+SELECT gen_random_uuid() AS resume_op \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,:'resume_op','resume',:gen1+1,repeat('d',64),'containment cleared');
+SELECT is((SELECT access_state FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),'active','resume restores access');
+SELECT is((SELECT enabled FROM mailboxes WHERE id=:target_mb),true,'resume re-enables the same mailbox');
+
+INSERT INTO aliases(mailbox_id,email,domain_id,is_primary)
+SELECT id,'retained-alias@mk.test',domain_id,false FROM mailboxes WHERE id=:target_mb;
+SELECT gen_random_uuid() AS detach_op \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,:'detach_op','detach_retain',:gen1+2,repeat('e',64),
+  'employee departure',NULL,NULL,NULL,NULL,NULL,statement_timestamp(),'accepting',NULL);
+SELECT is((SELECT binding_state FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),'retained','detach creates retained state');
+SELECT is((SELECT user_id FROM mailboxes WHERE id=:target_mb),NULL,'detach clears only the active mailbox binding');
+SELECT is((SELECT delivery_state FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),'accepting','detached mailbox keeps inbound delivery');
+SELECT is((SELECT count(*) FROM mailbox_address_claims WHERE mailbox_id=:target_mb AND claim_state='retained')::integer,2,
+  'primary and alias addresses remain reserved');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_binding_history WHERE mailbox_id=:target_mb AND from_user_id=:target_user AND to_user_id IS NULL),
+  'detach records durable binding evidence');
+SELECT throws_ok(format($q$DELETE FROM aliases WHERE mailbox_id=%s AND email='retained-alias@mk.test'$q$,:target_mb),
+  'BZ314',NULL,'retained aliases cannot be released through the compatibility path');
+SELECT is(mailbox_lifecycle_access_allowed(:target_mb),false,'retained mailbox denies interactive access');
+SELECT is(mailbox_lifecycle_delivery_mode(:target_mb),'accepting','retained mailbox still accepts inbound mail');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'suspend',%s,%L,%L)$q$,
+  :actor,:target_mb,gen_random_uuid(),:gen1+3,repeat('a',64),'invalid retained suspend'),
+  'BZ305','only bound mailboxes can be suspended','retained mailbox cannot use the bound suspend transition');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'reconnect',%s,%L,%L,%s,'local_user')$q$,
+  :actor,:target_mb,gen_random_uuid(),:gen1+3,repeat('a',64),'duplicate primary',:approver),
+  'BZ306','target already has a primary mailbox','reconnect refuses a second primary mailbox');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'reconnect',%s,%L,%L,%s,NULL)$q$,
+  :actor,:target_mb,gen_random_uuid(),:gen1+3,repeat('a',64),'missing evidence',:target_user),
+  'BZ307','verified reconnect evidence is required','reconnect requires verified identity evidence');
+
+SELECT gen_random_uuid() AS reconnect_op \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,:'reconnect_op','reconnect',:gen1+3,repeat('f',64),
+  'verified employee return',:target_user,'local_user',NULL,NULL,NULL,statement_timestamp());
+SELECT is((SELECT user_id FROM mailboxes WHERE id=:target_mb),:target_user::bigint,'reconnect restores the same mailbox ID to the stable user');
+SELECT is((SELECT binding_state FROM mailbox_lifecycle WHERE mailbox_id=:target_mb),'bound','reconnect restores bound state');
+SELECT is((SELECT count(*) FROM mailbox_address_claims WHERE mailbox_id=:target_mb AND claim_state='active')::integer,2,
+  'reconnect reactivates retained address claims');
+SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'suspend',1,%L,%L)$q$,
+  :actor,:target_mb,gen_random_uuid(),repeat('1',64),'stale command'),'BZ304',NULL,
+  'stale lifecycle generation is rejected');
+
+-- Held retained mailbox: scheduling is allowed, execution is independently
+-- approved but still fails closed on a fresh blocker evaluation.
+UPDATE mailboxes SET litigation_hold=true,hold_since=statement_timestamp() WHERE id=:target_mb;
+SELECT (mailbox_lifecycle_read(:target_mb)->>'generation')::bigint AS detach_gen2 \gset
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,gen_random_uuid(),'detach_retain',:detach_gen2,repeat('2',64),'retained under legal hold');
+SELECT (mailbox_lifecycle_preview(:actor,:target_mb)->>'previewDigest') AS held_preview \gset
+SELECT ok(jsonb_array_length(mailbox_purge_blockers(:target_mb))>0,'legal hold appears in the central blocker projection');
+SELECT throws_ok(format($q$SELECT mailbox_purge_schedule(%s,%s,%L,%s,%L,%L,%L,%s)$q$,
+  :actor,:target_mb,gen_random_uuid(),:detach_gen2+1,:'held_preview',repeat('3',64),'same-person approval',:actor),
+  'BZ308','independent purge approval is required','purge scheduling requires an independent approver');
+SELECT throws_ok(format($q$SELECT mailbox_purge_schedule(%s,%s,%L,%s,%L,%L,%L,%s)$q$,
+  :actor,:target_mb,gen_random_uuid(),:detach_gen2+1,repeat('0',64),repeat('3',64),'stale preview',:approver),
+  'BZ309','purge preview is stale','purge scheduling rejects a stale preview digest');
+SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,
+  :actor,gen_random_uuid(),gen_random_uuid(),repeat('8',64),'unknown purge'),
+  'BZ310','purge request not found','purge cancellation hides an unknown request');
+SELECT gen_random_uuid() AS purge_schedule_op \gset
+SELECT mailbox_purge_schedule(:actor,:target_mb,:'purge_schedule_op',:detach_gen2+1,:'held_preview',repeat('3',64),
+  'requested destruction',:approver) AS held_schedule \gset
+SELECT approval_request_id AS held_approval FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op' \gset
+SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,:executor,
+  (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('b',64),'foreign cancel'),
+  'BZ310','purge request not found','unrelated actor cannot cancel another purge request');
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:executor,
+  (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('4',64)),
+  'BZ311','purge is not independently approved and eligible','purge execution rejects an unapproved request');
+SELECT is((mailbox_purge_approval_apply(:held_approval,:approver,'approve','independent review')->>'state'),'approved',
+  'a distinct assigned approver can approve purge');
+UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE operation_id=:'purge_schedule_op';
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:executor,
+  (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('4',64)),
+  'BZ312',NULL,'fresh legal-hold evaluation blocks an approved purge');
+SELECT ok(EXISTS(SELECT 1 FROM mailboxes WHERE id=:target_mb),'blocked purge preserves the mailbox');
+SELECT gen_random_uuid() AS cancel_op \gset
+SELECT is((mailbox_purge_cancel(:actor,(SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),
+  :'cancel_op',repeat('8',64),'legal hold prevents destruction')->>'state'),'cancelled','blocked purge remains explicitly cancellable');
+SELECT is((SELECT state FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),'cancelled','cancellation closes the purge request');
+SELECT is((SELECT status FROM approval_requests WHERE id=:held_approval),'cancelled','cancellation closes the related approval');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_lifecycle_outbox WHERE operation_id=:'cancel_op' AND event_kind='mailbox.purge_cancelled'),
+  'cancellation commits its durable event');
+SELECT is((mailbox_purge_cancel(:actor,(SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),
+  :'cancel_op',repeat('8',64),'legal hold prevents destruction')->>'replayed')::boolean,true,'exact cancellation replay returns its receipt');
+SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,:actor,
+  (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),:'cancel_op',repeat('9',64),'different cancellation'),
+  'BZ303',NULL,'cancellation operation UUID cannot be reused with different content');
+SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,:actor,
+  (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('a',64),'too late'),
+  'BZ313','purge can no longer be cancelled','terminal purge cancellation is rejected');
+
+-- Empty, unheld mailbox follows the complete destructive protocol.
+SELECT mk_account('ml-purge') AS purge_mb \gset
+SELECT user_id AS purge_user FROM mailboxes WHERE id=:purge_mb \gset
+SELECT (mailbox_lifecycle_read(:purge_mb)->>'generation')::bigint AS purge_gen \gset
+SELECT mailbox_lifecycle_transition(:actor,:purge_mb,gen_random_uuid(),'detach_retain',:purge_gen,repeat('5',64),'test retention complete');
+UPDATE mailbox_lifecycle SET retention_until=statement_timestamp()-interval '1 second' WHERE mailbox_id=:purge_mb;
+SELECT (mailbox_lifecycle_preview(:actor,:purge_mb)->>'previewDigest') AS clean_preview \gset
+SELECT gen_random_uuid() AS clean_schedule_op \gset
+SELECT mailbox_purge_schedule(:actor,:purge_mb,:'clean_schedule_op',:purge_gen+1,:'clean_preview',repeat('6',64),
+  'approved empty mailbox purge',:approver);
+SELECT approval_request_id AS clean_approval,id AS clean_request FROM mailbox_purge_requests WHERE operation_id=:'clean_schedule_op' \gset
+SELECT mailbox_purge_approval_apply(:clean_approval,:approver,'approve','second-person approval');
+UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE id=:'clean_request';
+SELECT is((mailbox_purge_execute(:executor,:'clean_request',gen_random_uuid(),repeat('7',64))->>'state'),'completed',
+  'eligible independently approved unblocked purge completes');
+SELECT ok(NOT EXISTS(SELECT 1 FROM mailboxes WHERE id=:purge_mb),'completed purge removes the logical mailbox');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_tombstones WHERE mailbox_id=:purge_mb AND evidence_digest~'^[0-9a-f]{64}$'),
+  'completed purge leaves a body-free evidence tombstone');
+SELECT ok(EXISTS(SELECT 1 FROM mailbox_lifecycle_outbox WHERE event_kind='mailbox.purged' AND payload->>'mailboxId'=:purge_mb::text),
+  'purge event is committed through the durable outbox');
+
+SELECT is((mailbox_lifecycle_parity_report()->>'schemaVersion')::integer,1,
+  'parity report has a versioned operator contract');
+SELECT is((mailbox_lifecycle_parity_report()->>'eligible')::boolean,true,
+  'lifecycle projection remains internally complete after lifecycle operations');
+SELECT ok(EXISTS(SELECT 1 FROM jsonb_array_elements(mailbox_retained_list(:actor,0,200)) x
+  WHERE x->>'mailboxId'=:target_mb::text AND x->>'access'='detached'),
+  'retained inventory is reducer-authoritative and includes the visible detached mailbox');
+
+SELECT * FROM finish();
+ROLLBACK;

@@ -1,0 +1,40 @@
+{
+  "stdout": "  SENT device 9900301 (hms)\n  SKIP device 9900302 (fcm): provider not configured here\nDone: 1 sent, 0 failed\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "outbound": [
+      {
+        "method": "POST",
+        "path": "/oauth2/v3/token",
+        "content_type": "application/x-www-form-urlencoded",
+        "authorization": "",
+        "body": {
+          "client_id": "fixture-app",
+          "client_secret": "synthetic-secret",
+          "grant_type": "client_credentials"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v3/fixture-app/messages:send",
+        "content_type": "application/json",
+        "authorization": "Bearer synthetic-access",
+        "body": {
+          "message": {
+            "android": {
+              "urgency": "HIGH"
+            },
+            "data": "7b22626f6479223a225365744a6f696e206d61696c63746c20707573682074657374222c2274797065223a2274657374227d",
+            "token": [
+              "fixture-device-alice-hms"
+            ]
+          }
+        }
+      }
+    ],
+    "tables": {},
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,114 @@
+[
+  {
+    "max_conns": 1,
+    "name": "global-limit",
+    "steps": [
+      {
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "conn": 1,
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "421 Too many connections, try again later\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      },
+      {
+        "conn": 2,
+        "observe": true,
+        "wait_ms": 50,
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "conn": 2,
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "conn": 2,
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "max_conns": 0,
+    "name": "zero-limit",
+    "steps": [
+      {
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "421 Too many connections, try again later\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "setup_sql": "INSERT INTO rate_limit_counters(key,count,window_start) VALUES ('smtp:conn:127.0.0.1',20,now())",
+    "name": "ip-budget-20",
+    "steps": [
+      {
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "421 Too many connections from your IP\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "setup_sql": "INSERT INTO rate_limit_counters(key,count,window_start) VALUES ('smtp:conn:127.0.0.1',25,now()-interval '2 minutes')",
+    "name": "expired-counter-retains-count",
+    "steps": [
+      {
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      },
+      {
+        "conn": 1,
+        "observe": true,
+        "send": "",
+        "lines": 1,
+        "reply": "421 Too many connections from your IP\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

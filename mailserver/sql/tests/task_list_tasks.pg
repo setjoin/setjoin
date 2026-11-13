@@ -1,0 +1,122 @@
+-- pgTAP: task_list_tasks.pg — member-scoped list task read/write +
+-- task_activity membership arm + personal-view split (jmap_task.sql).
+-- Plan: 2026-07-08-shared-team-task-lists.md, Task 4.
+BEGIN;
+SELECT plan(21);
+
+-- A = owner/creator, B = member, C = stranger.
+SELECT mk_account('lttA') AS mba \gset
+SELECT mk_account('lttB') AS mbb \gset
+SELECT mk_account('lttC') AS mbc \gset
+SELECT user_id AS ua FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS ub FROM mailboxes WHERE id = :mbb \gset
+SELECT user_id AS uc FROM mailboxes WHERE id = :mbc \gset
+
+SELECT task_list_create(:ua, 'Shared board', NULL) AS list_json \gset
+SELECT list_id AS lid FROM (SELECT ((:'list_json'::jsonb)->>'id')::BIGINT AS list_id) s \gset
+SELECT task_list_add_member(:ua, :lid, (SELECT email FROM mailboxes WHERE id = :mbb)) AS _ig \gset
+
+-- ── stranger cannot read the list ──────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT task_list_tasks(%s, %s) $$, :uc, :lid),
+  'BZ132', NULL, 'stranger read → BZ132 (no membership oracle)');
+
+-- ── member B creates a task in the list → visible cross-mailbox to A ──────
+SET LOCAL app.capture_notify = 'on';
+SELECT task_list_task_set(:ub, :lid,
+  jsonb_build_object('c1', jsonb_build_object('title', 'Ship it')),
+  NULL, NULL) AS set_json \gset
+SELECT is(jsonb_object_keys((:'set_json'::jsonb)->'created')::TEXT, 'c1', 'B''s create landed under client key c1');
+SELECT task_id AS tid FROM (
+  SELECT (((:'set_json'::jsonb)->'created'->'c1')->>'id')::BIGINT AS task_id) s \gset
+
+SELECT task_list_tasks(:ua, :lid) AS a_view \gset
+SELECT ok(
+  (:'a_view'::jsonb)->'list' @> jsonb_build_array(jsonb_build_object('id', :tid::TEXT, 'title', 'Ship it')),
+  'THE cross-mailbox read: A (owner, not the creator) sees B''s created task');
+SELECT is(
+  (SELECT mailbox_id FROM tasks WHERE id = :tid), :mbb::BIGINT,
+  'provenance: the task''s mailbox_id is the CREATING member''s own mailbox');
+
+-- push fanned to BOTH A and B, never the stranger C
+SELECT is(notify_count('task:' || :mba), 1, 'create pushed to owner A''s task channel');
+SELECT is(notify_count('task:' || :mbb), 1, 'create pushed to creator B''s own task channel');
+SELECT is(notify_count('task:' || :mbc), 0, 'create never reached the stranger''s channel');
+
+-- ── A (not the creator) edits B's task: title + status ─────────────────────
+SELECT task_list_task_set(:ua, :lid, NULL,
+  jsonb_build_object(:tid::TEXT, jsonb_build_object('title', 'Ship it today', 'status', 'in-progress')),
+  NULL) AS upd_json \gset
+SELECT is(
+  jsonb_array_length((:'upd_json'::jsonb)->'updated'), 1,
+  'A''s edit of B''s task succeeds (any member may edit any task)');
+SELECT is(
+  (SELECT title FROM tasks WHERE id = :tid), 'Ship it today', 'title actually changed');
+SELECT is(
+  (SELECT author_user_id FROM task_activity WHERE task_id = :tid AND kind = 'status_change'),
+  :ua::BIGINT, 'task_activity status_change row is authored by A (the editor), not the creator');
+
+-- ── assign to a non-member → notUpdated (BZ133 inside the per-key block) ──
+SELECT task_list_task_set(:ua, :lid, NULL,
+  jsonb_build_object(:tid::TEXT, jsonb_build_object('assigneeEmail', (SELECT email FROM mailboxes WHERE id = :mbc))),
+  NULL) AS bad_assign_json \gset
+SELECT ok(
+  (:'bad_assign_json'::jsonb)->'notUpdated' ? :'tid',
+  'assigning to a non-member lands the key in notUpdated');
+
+-- ── assign to A (a member) → notify_task_assignee delivers ────────────────
+SELECT count(*)::INT AS before_count FROM messages WHERE mailbox_id = :mba \gset
+SELECT task_list_task_set(:ub, :lid, NULL,
+  jsonb_build_object(:tid::TEXT, jsonb_build_object('assigneeEmail', (SELECT email FROM mailboxes WHERE id = :mba))),
+  NULL) AS assign_json \gset
+SELECT is(
+  jsonb_array_length((:'assign_json'::jsonb)->'updated'), 1, 'assign to A (member) succeeds');
+SELECT ok(
+  (SELECT count(*)::INT FROM messages WHERE mailbox_id = :mba) > :before_count,
+  'notify_task_assignee delivered an assignment message into A''s mailbox');
+
+-- ── personal view split: the shared task never appears in B's personal query,
+--    but B (the creator) can still reach it by explicit id (deep link) ──────
+SELECT is(
+  jmap_task_query(:mbb, NULL, NULL, 0, 50)->'ids', '[]'::jsonb,
+  'B''s personal Task/query does NOT list the shared task');
+SELECT ok(
+  jsonb_array_length(jmap_task_get(:mbb, ARRAY[:tid])->'list') = 1,
+  'B''s explicit-id Task/get (deep link) still resolves the shared task');
+
+-- ── destroy: any member may destroy; a foreign/personal id is unreachable ──
+INSERT INTO tasks (mailbox_id, title, jmap_state) VALUES (:mbb, 'Personal task', 1)
+  RETURNING id AS personal_tid \gset
+SELECT ok(
+  ((task_list_task_set(:ua, :lid, NULL, NULL, jsonb_build_array(:personal_tid::TEXT)))->'notDestroyed') ? :'personal_tid',
+  'destroying a personal (non-list) task id through the list path → notDestroyed');
+SELECT is(
+  jsonb_array_length((task_list_task_set(:ub, :lid, NULL, NULL, jsonb_build_array(:tid::TEXT)))->'destroyed'), 1,
+  'B (a non-creator member) destroys the shared task successfully');
+SELECT is(
+  (SELECT count(*)::INT FROM tasks WHERE id = :tid), 0, 'the task row is actually gone');
+
+-- ── task_activity / comments membership arm ────────────────────────────────
+SELECT task_list_task_set(:ua, :lid,
+  jsonb_build_object('c2', jsonb_build_object('title', 'Feed test')), NULL, NULL) AS feed_set \gset
+SELECT feed_tid AS ftid FROM (
+  SELECT (((:'feed_set'::jsonb)->'created'->'c2')->>'id')::BIGINT AS feed_tid) s \gset
+
+-- B comments via their OWN mailbox id (CallScoped surface)
+SELECT task_comment_create(:mbb, :ftid, 'looks good to me') AS comment_json \gset
+-- A reads the feed via THEIR OWN mailbox id — must see B's comment (the bug
+-- this membership arm closes: a naive a.mailbox_id filter would hide it).
+SELECT task_activity_list(:mba, :ftid) AS feed_a \gset
+SELECT ok(
+  (:'feed_a'::jsonb)->'list' @> jsonb_build_array(jsonb_build_object('body', 'looks good to me')),
+  'A reads B''s comment on the shared task via task_activity_list (membership arm)');
+-- stranger C is denied
+SELECT throws_ok(
+  format($$ SELECT task_activity_list(%s, %s) $$, :mbc, :ftid),
+  'BZ041', NULL, 'stranger task_activity_list → BZ041 (not owned / not a member)');
+SELECT throws_ok(
+  format($$ SELECT task_comment_create(%s, %s, 'hijack') $$, :mbc, :ftid),
+  'BZ041', NULL, 'stranger task_comment_create → BZ041');
+
+SELECT * FROM finish();
+ROLLBACK;

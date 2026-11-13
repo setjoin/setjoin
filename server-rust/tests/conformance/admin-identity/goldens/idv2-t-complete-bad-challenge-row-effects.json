@@ -1,0 +1,143 @@
+{
+  "case": "bad-challenge-row-effects",
+  "effects": [
+    {
+      "after": {
+        "approvals": [],
+        "challenges": [
+          {
+            "actor_user_id": "<admin>",
+            "completed": false,
+            "digest": "<digest1>",
+            "generation": 2,
+            "has_elevation": false,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          }
+        ],
+        "effects": [],
+        "elevations": [],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": false
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<admin>",
+            "approver_elevation": false,
+            "authorized_generation": null,
+            "boundary": "not_committed",
+            "committed": false,
+            "completed": false,
+            "decided_by": null,
+            "execution_elevation": false,
+            "failure": null,
+            "generation": 2,
+            "has_approval": false,
+            "has_rollback_approval": false,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest1>",
+            "protected": false,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": false,
+            "rollback_digest": null,
+            "rollback_execution_elevation": false,
+            "rollback_reason": null,
+            "rollback_requester_elevation": false,
+            "state": "previewed",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "before": {
+        "approvals": [],
+        "challenges": [
+          {
+            "actor_user_id": "<admin>",
+            "completed": false,
+            "digest": "<digest1>",
+            "generation": 2,
+            "has_elevation": false,
+            "idempotency_key": "95400000-0000-4000-8000-000000000013",
+            "invalidated": false
+          }
+        ],
+        "effects": [],
+        "elevations": [],
+        "events": [
+          {
+            "action": "transition_previewed",
+            "actor_user_id": "<admin>",
+            "metadata": {
+              "expiresAt": "<timestamp>",
+              "previewVersion": 1,
+              "protected": false
+            },
+            "reason": "admin8 reason <&>",
+            "user_id": "<target>"
+          }
+        ],
+        "steps": [
+          {
+            "attempts": 1,
+            "error": null,
+            "ordinal": 1,
+            "stage": "preview",
+            "state": "completed",
+            "user_id": "<target>"
+          }
+        ],
+        "transitions": [
+          {
+            "actor_user_id": "<admin>",
+            "approver_elevation": false,
+            "authorized_generation": null,
+            "boundary": "not_committed",
+            "committed": false,
+            "completed": false,
+            "decided_by": null,
+            "execution_elevation": false,
+            "failure": null,
+            "generation": 2,
+            "has_approval": false,
+            "has_rollback_approval": false,
+            "kind": "directory_to_local",
+            "preview_digest": "<digest1>",
+            "protected": false,
+            "reason": "admin8 reason <&>",
+            "requester_elevation": false,
+            "rollback_digest": null,
+            "rollback_execution_elevation": false,
+            "rollback_reason": null,
+            "rollback_requester_elevation": false,
+            "state": "previewed",
+            "user_id": "<target>"
+          }
+        ]
+      },
+      "table": "identity"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/identity/v2/transitions/{id}/step-up/complete"
+}

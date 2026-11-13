@@ -1,0 +1,19 @@
+[package]
+name = "setjoin-compliance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Test-only: restores the frozen-Go KQL NUL defect (SETJOIN_SECFIX3_MUTANT).
+oracle-mutants = ["setjoin-contracts/oracle-mutants"]
+
+[dependencies]
+setjoin-authz = { path = "../../authz" }
+setjoin-contracts = { path = "../../contracts" }
+setjoin-db = { path = "../../db" }
+setjoin-pg = { path = "../../pg" }
+serde_json = { version = "=1.0.145", features = ["raw_value"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+sha2 = "=0.10.9"

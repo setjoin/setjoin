@@ -1,0 +1,163 @@
+-- chat_audit.pg — Chat A4a Task 2: audit-chain substrate (catalog + writer +
+-- verifier). HIGHEST-RISK uncoded step in the plan (verify C4) — chat_access_audit
+-- is a hand-transcribed clone of drive_access_audit.sql and is the root of trust
+-- for every evidentiary claim A4a makes. This suite proves the writer really
+-- chains (not just self-consistent per row): a corrupted row's checksum must
+-- also break the row immediately after it, not merely itself.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-chat-A4a-records-lifecycle.md Task 2.
+--
+-- Task 3 extension (below the ROLLBACK-safe seam): wiring existing acts
+-- (edit/delete/pin/unpin/membership) onto the chain. feature.chat_compliance
+-- is seeded OFF, so every act producer must be a no-op chain-wise until it is
+-- flipped ON here, and back to zero rows once restored OFF.
+BEGIN;
+SELECT plan(32);
+
+INSERT INTO chat_channels (kind, name, created_by) VALUES ('channel', 'audit-c1', 92001), ('channel', 'audit-c2', 92002);
+SELECT id AS c1 FROM chat_channels WHERE name = 'audit-c1' \gset
+SELECT id AS c2 FROM chat_channels WHERE name = 'audit-c2' \gset
+
+-- ── V2 era: no app.audit_hmac_key set yet ────────────────────────────────
+SELECT is(chat_access_audit(92001, :c1, 'message.edit', 'message', 501, '{"body":"a"}'::jsonb, '{"body":"b"}'::jsonb, NULL, NULL),
+  1::bigint, 'first row of channel 1 has id 1');
+SELECT ok((SELECT after_state->>'_checksum' NOT LIKE 'v3:%' FROM chat_audit_log WHERE channel_id = :c1 AND id = 1),
+  'checksum is plain sha256 (V2) when no HMAC key is set');
+SELECT is(chat_access_audit(92001, :c2, 'message.edit', 'message', 601, NULL, '{"body":"x"}'::jsonb, NULL, NULL),
+  1::bigint, 'first row of channel 2 has id 1 too (per-channel chain, independent ids)');
+SELECT is(chat_access_audit(92001, :c1, 'message.delete', 'message', 501, '{"body":"b"}'::jsonb, NULL, NULL, NULL),
+  2::bigint, 'second row of channel 1 has id 2');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:c1)), 'channel-1 chain verifies green (V2, no key)');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:c2)), 'channel-2 chain verifies green, independent of channel 1');
+
+-- ── closed catalog ────────────────────────────────────────────────────────
+SELECT throws_ok($$ SELECT chat_access_audit(1, 1, 'not.a.chat.action', NULL, NULL, NULL, NULL, NULL, NULL) $$,
+  'BZ191', NULL, 'unknown action rejected (closed catalog)');
+
+-- ── V3 era begins mid-chain (session HMAC key now set) ───────────────────
+SELECT set_config('app.audit_hmac_key', 'test-hmac-key-32-bytes-cccccccccc', true);
+SELECT is(chat_access_audit(92001, :c1, 'pin.add', 'message', 501, NULL, '{"pinned":true}'::jsonb, NULL, NULL),
+  3::bigint, 'third row of channel 1 has id 3');
+SELECT ok((SELECT after_state->>'_checksum' LIKE 'v3:%' FROM chat_audit_log WHERE channel_id = :c1 AND id = 3),
+  'checksum is V3 HMAC once the session key is set');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:c1)), 'mixed V2+V3 channel-1 chain still verifies green');
+
+-- ── tamper: corrupt row 1's chain checksum directly ──────────────────────
+-- (a body-only edit that leaves _checksum untouched only breaks the tampered
+-- row itself — the prev-linkage the NEXT row's checksum was computed against
+-- is unaffected. Corrupting the checksum value itself is what proves row 2's
+-- checksum genuinely chains off row 1's, not an independent per-row hash.)
+UPDATE chat_audit_log SET after_state = jsonb_set(after_state, '{_checksum}', '"deadbeef"')
+  WHERE channel_id = :c1 AND id = 1;
+SELECT is((SELECT valid FROM verify_chat_audit_chain(:c1) WHERE row_id = 1), FALSE,
+  'tampered row 1 reported broken');
+SELECT is((SELECT valid FROM verify_chat_audit_chain(:c1) WHERE row_id = 2), FALSE,
+  'row 2 (chained off row 1''s checksum) also reported broken — not just the tampered row');
+SELECT ok((SELECT bool_and(valid) FROM verify_chat_audit_chain(:c2)), 'sibling channel-2 chain unaffected by channel-1 tamper');
+
+-- ── two channels stay independent under DELETE too (FK is ON DELETE CASCADE) ─
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :c2)::int, 1,
+  'channel-2 chain untouched by any channel-1 activity');
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :c1)::int, 3,
+  'channel-1 chain has all three rows (writer never dropped one silently)');
+
+-- ══ Task 3: wiring existing acts onto the chain ═══════════════════════════
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+
+-- ── founding membership: chat_channel_create writes one member.add ───────
+SELECT chat_channel_create(801, 'audit-t3-chan') AS ch1 \gset
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'member.add')::int,
+  1, 'chat_channel_create wrote one founding member.add act');
+SELECT ok((SELECT after_state @> jsonb_build_object('userId', 801, 'role', 'owner')
+             FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'member.add'),
+  'founding member.add carries {userId, role} for the creator/owner');
+
+-- ── chat_member_add → member.add ──────────────────────────────────────────
+SELECT chat_member_add(801, :ch1, 802);
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'member.add')::int,
+  2, 'chat_member_add wrote a second member.add act');
+SELECT ok((SELECT after_state @> jsonb_build_object('userId', 802, 'role', 'member')
+             FROM chat_audit_log WHERE channel_id = :ch1 AND action = 'member.add' AND target_id = 802),
+  'chat_member_add''s act carries {userId, role} for the added member');
+
+-- ── chat_channel_join → member.join (self is both actor and target) ──────
+SELECT chat_channel_create(801, 'audit-t3-join-chan') AS ch2 \gset
+SELECT chat_channel_join(803, :ch2);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch2 AND action = 'member.join' AND target_id = 803),
+  'chat_channel_join wrote a member.join act for the joiner');
+
+-- ── chat_member_remove → member.remove (someone else removes them) ───────
+SELECT chat_member_remove(801, :ch1, 802);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'member.remove' AND target_id = 802),
+  'chat_member_remove (non-self) wrote member.remove');
+
+-- ── chat_member_remove self-leave → member.leave ──────────────────────────
+SELECT chat_member_add(801, :ch1, 804);
+SELECT chat_member_remove(804, :ch1, 804);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'member.leave' AND target_id = 804),
+  'a self-leave wrote member.leave, not member.remove');
+
+-- ── message.edit / message.delete ─────────────────────────────────────────
+SELECT (chat_message_send(801, :ch1, 'audit t3 body') ->> 'messageId')::bigint AS msg1 \gset
+SELECT chat_message_edit(801, :msg1, 'audit t3 body v2');
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'message.edit' AND target_id = :msg1),
+  'chat_message_edit wrote a message.edit act');
+SELECT ok((SELECT before_state IS NULL FROM chat_audit_log
+             WHERE channel_id = :ch1 AND action = 'message.edit' AND target_id = :msg1),
+  'message.edit before_state is NULL (prior body already lives in chat_message_revisions)');
+SELECT ok((SELECT after_state ? 'seq' FROM chat_audit_log
+             WHERE channel_id = :ch1 AND action = 'message.edit' AND target_id = :msg1),
+  'message.edit after_state carries seq, never message content');
+SELECT chat_message_delete(801, :msg1);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'message.delete' AND target_id = :msg1),
+  'chat_message_delete wrote a message.delete act');
+
+-- ── pin.add / pin.remove ──────────────────────────────────────────────────
+SELECT (chat_message_send(801, :ch1, 'pin me') ->> 'messageId')::bigint AS msg2 \gset
+SELECT chat_pin_toggle(801, :msg2);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'pin.add' AND target_id = :msg2),
+  'chat_pin_toggle (pin) wrote pin.add');
+SELECT chat_pin_toggle(801, :msg2);
+SELECT ok(EXISTS(SELECT 1 FROM chat_audit_log
+                   WHERE channel_id = :ch1 AND action = 'pin.remove' AND target_id = :msg2),
+  'chat_pin_toggle (unpin) wrote pin.remove');
+
+-- ── chat_dm_open → one member.add per founding member ─────────────────────
+-- chat_dm_open now validates its OTHER/target member ids against `users`
+-- (BZ170) — 806 is used here as a target, so it needs a real row (this file
+-- otherwise uses bare ids throughout, matching chat_channel.pg's fixture
+-- posture).
+INSERT INTO domains (id, name, is_local) VALUES (92099, 'chat-audit.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES
+  (806, 'audit806', 92099, 'audit806@chat-audit.test', 'Audit 806')
+  ON CONFLICT (id) DO NOTHING;
+SELECT chat_dm_open(805, ARRAY[806]::bigint[]) AS dm1 \gset
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :dm1 AND action = 'member.add')::int,
+  2, 'chat_dm_open wrote one member.add per founding member (2 for a 1:1 DM)');
+SELECT is((SELECT array_agg(target_id ORDER BY target_id) FROM chat_audit_log
+             WHERE channel_id = :dm1 AND action = 'member.add'),
+  ARRAY[805, 806]::bigint[], 'dm founding member.add acts target both members');
+-- re-opening the SAME dm re-selects the existing channel — no new acts.
+SELECT chat_dm_open(805, ARRAY[806]::bigint[]);
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :dm1 AND action = 'member.add')::int,
+  2, 're-opening an existing dm does not write duplicate member.add acts');
+
+-- ══ toggle OFF: zero chain rows for every act type above ══════════════════
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat_compliance'; -- restore seeded-OFF for the rest of the suite
+SELECT chat_channel_create(901, 'audit-t3-off-chan') AS ch3 \gset
+SELECT chat_member_add(901, :ch3, 902);
+SELECT (chat_message_send(901, :ch3, 'off body') ->> 'messageId')::bigint AS msg3 \gset
+SELECT chat_message_edit(901, :msg3, 'off body v2');
+SELECT chat_pin_toggle(901, :msg3);
+SELECT chat_message_delete(901, :msg3);
+SELECT is((SELECT count(*) FROM chat_audit_log WHERE channel_id = :ch3)::int,
+  0, 'with feature.chat_compliance OFF, create/add/send/edit/pin/delete write zero chain rows');
+
+SELECT * FROM finish();
+ROLLBACK;

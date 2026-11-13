@@ -1,0 +1,1582 @@
+[
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "block",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "allow",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "allow"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "empty-grants",
+    "reason": "policy \"p\" blocked (empty grants — fail-closed)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "auth_method-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "auth_method-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "auth_method"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "client_type-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "client_type-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "client_type"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "device_platform-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "device_platform-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "device_platform"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "country_in-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "country_in-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "country_in"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "device_bound-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "device_bound-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "device_bound"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "user_group-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "user_group-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "user_group"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "require_approved_client_app-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "require_approved_client_app-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "require_approved_client_app"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "device_trust-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "device_trust-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "device_trust"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "ip_reputation-match",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "user-scope-True",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "user",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "user-scope-False",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "user",
+          "outcome": "skipped",
+          "first_failed": "scope:user"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "group-scope-True",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "group",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "group-scope-False",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "group",
+          "outcome": "skipped",
+          "first_failed": "scope:group"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "role-scope-True",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "role",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "role-scope-False",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "role",
+          "outcome": "skipped",
+          "first_failed": "scope:role"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "guests-scope-True",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "guests",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "guests-scope-False",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "guests",
+          "outcome": "skipped",
+          "first_failed": "scope:guests"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "exclude-user",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "excluded"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "exclude-group",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "excluded"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "break-glass",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "excluded"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "time-utc",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "time-shanghai",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "time-overnight-miss",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "time_of_day"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "time-unknown-zone",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "named-192.0.2.5",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "named-198.51.100.5",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "location_in"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "named-bad",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "skipped",
+          "first_failed": "location_in"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "step_up",
+    "limited_web": false,
+    "name": "acr-aal2-aal1",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "step_up",
+      "grants": [
+        {
+          "type": "require_acr",
+          "acr": "aal2"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "acr-aal2-aal2",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "require_acr",
+          "acr": "aal2"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "acr-aal1-aal2",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "require_acr",
+          "acr": "aal1"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "acr-custom-custom",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "require_acr",
+          "acr": "custom"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "step_up",
+    "limited_web": false,
+    "name": "acr-custom-aal2",
+    "reason": "policy \"p\" matched (operator=all)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "step_up",
+      "grants": [
+        {
+          "type": "require_acr",
+          "acr": "custom"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "all-allow",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "allow"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "all-notify",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "notify"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "all-step_up",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "step_up"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "all-limited_web",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "limited_web"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "all-bogus",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "bogus"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "one-allow",
+    "reason": "policy \"p\" matched (operator=one, grant \"allow\" satisfied)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "allow"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "one-notify",
+    "reason": "policy \"p\" matched (operator=one)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "notify"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "one-step_up",
+    "reason": "policy \"p\" matched (operator=one)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "step_up"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": true,
+    "name": "one-limited_web",
+    "reason": "policy \"p\" matched (operator=one, grant \"limited_web\" satisfied)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "limited_web"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "one-bogus",
+    "reason": "policy \"p\" matched (operator=one)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        },
+        {
+          "type": "bogus"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "grant-dual-mismatch",
+    "reason": "policy \"p\" blocked (grant type=\"\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": ""
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "grant-non-object",
+    "reason": "policy \"p\" blocked (empty grants — fail-closed)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "terms",
+    "reason": "terms of use acceptance required",
+    "remediation": "terms",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "require_terms"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 12
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "risk-none",
+    "reason": "require_risk_remediation: user risk not elevated",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "grants": [
+        {
+          "type": "require_risk_remediation"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "risk-medium",
+    "reason": "risk remediation required (re-authenticate)",
+    "remediation": "risk",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "require_risk_remediation"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "risk-high",
+    "reason": "risk remediation required (re-authenticate)",
+    "remediation": "risk",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "require_risk_remediation"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "compliant-False",
+    "reason": "device not enrolled/approved under lockdown",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "compliant-True",
+    "reason": "compliant device (bound + approved)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "allow",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "allow",
+    "limited_web": false,
+    "name": "report-only",
+    "reason": "no matching policy (default allow)",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": null,
+      "decision": "applied",
+      "evaluated": [
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "would_block"
+        }
+      ]
+    },
+    "terms_id": 0
+  },
+  {
+    "decision": "block",
+    "limited_web": false,
+    "name": "first-on-after-report",
+    "reason": "policy \"p\" blocked (grant type=\"block\")",
+    "remediation": "",
+    "simulation": {
+      "matched_policy": 1,
+      "decision": "block",
+      "grants": [
+        {
+          "type": "block"
+        }
+      ],
+      "evaluated": [
+        {
+          "policy_id": 2,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "would_block"
+        },
+        {
+          "policy_id": 1,
+          "name": "p",
+          "priority": 1,
+          "scope": "global",
+          "outcome": "applied"
+        }
+      ]
+    },
+    "terms_id": 0
+  }
+]

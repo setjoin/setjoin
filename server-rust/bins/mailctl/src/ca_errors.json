@@ -1,0 +1,15 @@
+{
+  "BZ080": "BZ080: CA policy lockout guard — would lock out all break-glass users. Add at least one break-glass user_id before enabling this policy. #BZ080",
+  "BZ081": "BZ081: Conditional access resource not found — the policy, named location, or auth strength referenced by this request does not exist. #BZ081",
+  "BZ082": "BZ082: Break-glass set is empty — a break-glass replacement requires at least one user_id in the new set (cannot leave the system locked out). #BZ082",
+  "BZ085": "BZ085: Unknown template slug — the policy template slug supplied does not match any registered template. Valid actions: check `ca list` templates or use a known grant type from: allow, block, limited_web, notify, require_acr, require_risk_remediation, require_strength, require_terms, step_up. Canonical actions shape: {\"grants\":[{\"type\":\"<allow|block|limited_web|notify|require_acr|require_risk_remediation|require_strength|require_terms|step_up>\"}]} #BZ085",
+  "BZ086": "BZ086: Audit row missing or not a CA-policy snapshot — the audit_log row referenced for promote/rollback is absent or was not written by the CA policy system. Check the audit_log entry exists and has the correct slug. #BZ086",
+  "BZ087": "BZ087: Priority conflict — the target priority slot is already held by a live (non-deleted) policy. Reorder existing policies first or choose a different priority. #BZ087",
+  "BZ088": "BZ088: Import document schemaVersion mismatch — the document's schemaVersion does not match the server-supported version. Re-export from a compatible server or update the schemaVersion field. #BZ088",
+  "BZ089": "BZ089: Import policy name collision in merge mode — a policy with the same name already exists and merge mode does not overwrite. Use replace mode or rename the policy. #BZ089",
+  "BZ090": "BZ090: Invalid import document shape — the document is missing required fields or contains an unrecognised structure. Check the schemaVersion and document format. #BZ090",
+  "BZ091": "BZ091: Unknown named-location or auth-strength slug in import document — a policy references a slug not present in the same document's named_locations or auth_strengths. Add the missing entry or fix the reference. #BZ091",
+  "BZ092": "BZ092: Invalid import mode — the ?mode= query parameter must be one of: merge, replace, prune. #BZ092",
+  "BZ093": "BZ093: Named location restore name clash — restoring a soft-deleted named location would collide with an existing live location of the same name. Rename or delete the existing location first. #BZ093",
+  "BZ094": "BZ094: Built-in auth-strength guard — built-in auth strengths (phishing-resistant, passwordless, mfa) cannot be deleted or mutated. Create a custom auth strength instead. #BZ094"
+}

@@ -1,0 +1,73 @@
+-- pgTAP: jmap_thread.sql — thread operations
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (name, is_local) VALUES ('thr.test', TRUE);
+-- ADR-003: DIVERGENT ids (user 105601 != mailbox 5601). Reducer takes the MAILBOX id.
+INSERT INTO users (id, username, domain_id, email, display_name) VALUES (105601, 'thruser', (SELECT id FROM domains WHERE name='thr.test'), 'u@thr.test', 'User');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) VALUES (5601, 105601, (SELECT id FROM domains WHERE name='thr.test'), 'u@thr.test', 'User', 'personal', TRUE);
+
+-- Test 1: thread get returns array (pass TEXT[] as required by reducer)
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_thread_get(5601, ARRAY['t1']::TEXT[])->'list') = 'array'),
+  'thread get returns array'
+);
+
+-- Test 2: thread changes runs without error (jmap_thread_query does not exist)
+SELECT ok(
+  (SELECT jsonb_typeof(jmap_thread_changes(5601, '0')->'created') = 'array'),
+  'thread changes returns array'
+);
+
+-- ── GOLDEN ENVELOPE (seam adoption, behavior-preserving) ──────────────────────
+-- jmap_thread_get routes through build_jmap_get_response. The TEXT-id thread
+-- variant passes its emitted thread-id list as p_found_ids. Pin the FULL envelope
+-- byte-for-byte: one live thread ('tA') + one missing ('tZ').
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at)
+  VALUES (5650, 5601, get_tag_id('Inbox', 5601), '<m1@thr>', 'S', 'x@e.com', 10, 'tA', 's3://r1', '2030-01-01T00:00:00Z');
+
+-- Test 3: state is the mailbox's jmap_email_state ::TEXT (here 0 — no email mutation).
+SELECT is(
+  jmap_thread_get(5601, ARRAY['tA','tZ']::TEXT[])->>'state',
+  (SELECT jmap_email_state::TEXT FROM mailboxes WHERE id = 5601),
+  'thread_get state echoes the mailbox jmap_email_state'
+);
+
+-- Test 4: GOLDEN — full envelope (accountId/state/list/notFound) byte-for-byte.
+SELECT is(
+  jmap_thread_get(5601, ARRAY['tA','tZ']::TEXT[]),
+  jsonb_build_object(
+    'accountId', '5601',
+    'state',     (SELECT jmap_email_state::TEXT FROM mailboxes WHERE id = 5601),
+    'list',      jsonb_build_array(jsonb_build_object('id','tA','emailIds', jsonb_build_array('5650'))),
+    'notFound',  jsonb_build_array('tZ')
+  ),
+  'thread_get golden envelope: list has the live thread, notFound has the missing id'
+);
+-- (No NULL-ids edge for thread_get: its FOREACH-over-p_ids requires a non-NULL
+-- array — pre-existing contract, unchanged by the seam, so not exercised here.)
+
+-- ── DESYNC REGRESSION (arch A4): thread_get and thread_changes MUST read the same
+-- counter. Bump jmap_email_state to simulate email activity, then prove the state
+-- thread_get hands out is one thread_changes accepts as current.
+UPDATE mailboxes SET jmap_email_state = 7 WHERE id = 5601;
+
+-- Test 5: an up-to-date client (sinceState = the state thread_get returned) does
+-- NOT get BZ011. BEFORE the fix, thread_get returned jmap_email_state (7) but
+-- thread_changes compared jmap_thread_state (0, never bumped), so 7 != 0 raised
+-- BZ011 on EVERY call — Thread/changes was permanently unusable.
+SELECT lives_ok(
+  $$ SELECT jmap_thread_changes(5601, (jmap_thread_get(5601, ARRAY['tA']::TEXT[])->>'state')) $$,
+  'thread_changes accepts the state thread_get hands out (get/changes agree — no perpetual BZ011)'
+);
+
+-- Test 6: a stale sinceState still forces a full resync via BZ011.
+SELECT throws_ok(
+  $$ SELECT jmap_thread_changes(5601, '6') $$,
+  'BZ011',
+  NULL,
+  'thread_changes raises BZ011 on a stale sinceState (coarse resync, no thread journal yet)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

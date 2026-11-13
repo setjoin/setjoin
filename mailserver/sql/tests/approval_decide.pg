@@ -1,0 +1,62 @@
+-- approval_decide.pg — pgTAP tests for approval_decide reducer.
+-- Covers: SoD (BZ106), non-approver (BZ107), approve happy path, idempotency (BZ108), audit row,
+-- and the JIT gate on role_group approvers (admin_assignment_active): a dormant eligible
+-- assignment must NOT decide while rbac.jit is ON (BZ107), may after activation, and the
+-- gate is inert while rbac.jit is OFF. Mirrors the V073 RLS policy's inline gate.
+-- Note: audit table is admin_audit_log (not audit_log — adapted from brief).
+BEGIN;
+SELECT plan(9);
+
+-- fixtures: domain + users + a pending request, approver=user 20, requester=user 10
+INSERT INTO domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES (90900, 'appdec.test', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (10, 'appdec_req',      90900, 'req@appdec.test', 'Requester', TRUE),
+  (20, 'appdec_approver', 90900, 'apr@appdec.test', 'Approver',  TRUE);
+INSERT INTO approval_requests(id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE
+  VALUES (900, 'rbac.jit_activation', 10, 'x', '{}'::jsonb, 'user', 20, now()+interval '1h');
+
+-- SoD: requester cannot decide their own request
+SELECT throws_ok($$ SELECT approval_decide(900, 10, 'approve', null) $$, 'BZ106');
+-- non-approver cannot decide
+SELECT throws_ok($$ SELECT approval_decide(900, 99, 'approve', null) $$, 'BZ107');
+-- approver approves
+SELECT is(approval_decide(900, 20, 'approve', 'ok'), 'approved', 'approver approves');
+-- idempotent: second decide on non-pending rejects
+SELECT throws_ok($$ SELECT approval_decide(900, 20, 'deny', null) $$, 'BZ108');
+-- audit row written
+SELECT ok((SELECT count(*) FROM admin_audit_log WHERE action='approval_approved') >= 1, 'audit written');
+
+-- ── role_group approver × JIT gate (admin_assignment_active) ──────────────────
+-- Fixtures: a role group as approver_ref; user 30 holds a standing (active) grant,
+-- user 40 holds an eligible (dormant-until-activated) grant.
+INSERT INTO users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (30, 'appdec_rg_active',  90900, 'rga@appdec.test', 'RG Active',  TRUE),
+  (40, 'appdec_rg_dormant', 90900, 'rgd@appdec.test', 'RG Dormant', TRUE);
+INSERT INTO admin_role_groups (id, name) OVERRIDING SYSTEM VALUE VALUES (90901, 'appdec_approvers');
+INSERT INTO admin_role_assignments (id, user_id, role_group_id, granted_by, eligible) OVERRIDING SYSTEM VALUE VALUES
+  (90910, 30, 90901, 20, FALSE),
+  (90911, 40, 90901, 20, TRUE);
+INSERT INTO approval_requests(id, consumer_type, requester_user_id, subject, payload, approver_kind, approver_ref, expires_at)
+  OVERRIDING SYSTEM VALUE VALUES
+  (901, 'rbac.jit_activation', 10, 'x', '{}'::jsonb, 'role_group', 90901, now()+interval '1h'),
+  (902, 'rbac.jit_activation', 10, 'x', '{}'::jsonb, 'role_group', 90901, now()+interval '1h'),
+  (903, 'rbac.jit_activation', 10, 'x', '{}'::jsonb, 'role_group', 90901, now()+interval '1h');
+
+-- jit OFF (seed default): the dormant eligible member decides fine — gate inert.
+SELECT is(approval_decide(901, 40, 'approve', null), 'approved', 'jit off: eligible member decides (gate inert)');
+
+-- jit ON: dormant eligible member is NOT an authorized approver.
+INSERT INTO feature_toggles (key, enabled) VALUES ('rbac.jit', TRUE)
+  ON CONFLICT (key) DO UPDATE SET enabled = TRUE;
+SELECT throws_ok($$ SELECT approval_decide(902, 40, 'approve', null) $$, 'BZ107');
+
+-- jit ON: after self-activation the same member decides.
+UPDATE admin_role_assignments SET activated_until = now() + interval '1h' WHERE id = 90911;
+SELECT is(approval_decide(902, 40, 'approve', null), 'approved', 'jit on: activated eligible member decides');
+
+-- jit ON: a standing (eligible=false) grant is unaffected.
+SELECT is(approval_decide(903, 30, 'approve', null), 'approved', 'jit on: standing grant decides');
+
+SELECT * FROM finish();
+ROLLBACK;

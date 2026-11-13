@@ -1,0 +1,147 @@
+-- pgTAP: ca_policy_restore_from_audit.pg — CA-1 C3: rebuild a purged policy
+-- from an admin_audit_log before_state snapshot; BZ087 on priority clash.
+BEGIN;
+SELECT plan(10);
+SET app.capture_notify = 'on';
+
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('ca_policy_restore_from_audit(bigint,bigint)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM ca_reachability_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('ca_policy_restore_from_audit(bigint,bigint)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM ca_reachability_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('ca_policy_restore_from_audit(bigint,bigint)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'SELECT before_state'),
+  'loaded audit restore enters the CA fence before reading its immutable snapshot');
+
+INSERT INTO domains (id, name, is_local) VALUES (96300, 'rfa.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (83201, 'rfa_actor', 96300, 'actor@rfa.test', 'Actor', TRUE);
+
+-- Give the actor an admin role so ca_lockout_guard always finds a reachable admin
+-- (the guard fires for on+global+block/step_up; the new operator/grants actions format
+-- returns NULL for p_actions->>'action', so the guard runs for all on+global policies
+-- and needs at least one reachable admin in the test DB).
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (91401, 'rfa-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES (83201, 91401, NULL);
+
+-- Manufacture a ca_policy_delete audit row with a before_state snapshot
+-- (simulates a hard-deleted policy that we want to recreate).
+-- ponytail: insert audit row directly — the hard-delete reducer already tests
+-- itself; here we test restore-from-audit in isolation.
+-- Use state='on': the partial-unique index covers state='on' AND deleted_at IS NULL;
+-- only on-state policies can clash. An off snapshot can never trigger BZ087 by design.
+-- Use old bare {"action":"allow"} format in the snapshot so ca_lockout_guard's
+-- action short-circuit fires (guard checks p_actions->>'action'; new operator/grants
+-- format returns NULL, bypassing the short-circuit and triggering the lockout check).
+INSERT INTO admin_audit_log
+    (user_id, ip, action, target_type, target_id, before_state)
+  VALUES (83201, '127.0.0.1'::inet, 'ca_policy_delete',
+          'conditional_access_policy', 900001,
+          '{"id":900001,"priority":300,"name":"rfa-victim","state":"on",
+            "scope_type":"global","scope_target":"","conditions":{},
+            "actions":{"action":"allow"},
+            "exclude_users":[],"exclude_groups":[],"created_from_template":""}'::jsonb)
+  RETURNING id;
+
+-- Use the last inserted audit row id.
+DO $$
+DECLARE v_audit_id bigint;
+BEGIN
+  SELECT id INTO v_audit_id
+    FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND action='ca_policy_delete'
+   ORDER BY id DESC LIMIT 1;
+
+  PERFORM ca_policy_restore_from_audit(v_audit_id, 83201);
+END $$;
+
+-- A policy with the name from before_state now exists.
+SELECT ok(
+  EXISTS (SELECT 1 FROM conditional_access_policies WHERE name = 'rfa-victim'),
+  'restore_from_audit recreates the policy from before_state');
+
+-- The restored policy has priority from the snapshot.
+SELECT is(
+  (SELECT priority FROM conditional_access_policies WHERE name = 'rfa-victim')::text,
+  '300',
+  'restored policy has priority from before_state snapshot');
+
+-- Returns a BIGINT (new id).
+SELECT ok(
+  (SELECT id IS NOT NULL FROM conditional_access_policies WHERE name = 'rfa-victim'),
+  'restored policy has a new id');
+
+-- Audit row written for the restore action.
+SELECT is(
+  (SELECT action FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND action='ca_policy_restore_from_audit'
+   ORDER BY id DESC LIMIT 1),
+  'ca_policy_restore_from_audit',
+  'restore_from_audit writes a ca_policy_restore_from_audit audit row');
+
+-- Audit after_state captured.
+SELECT ok(
+  (SELECT after_state IS NOT NULL FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND action='ca_policy_restore_from_audit'
+   ORDER BY id DESC LIMIT 1),
+  'restore_from_audit captures after_state in audit row');
+
+-- F2 notify fired.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'restore_from_audit fires ca_notify_policy_change → conditional_access channel');
+
+-- BZ087: if a live on policy already holds priority=300, restore fails with BZ087.
+DO $$
+DECLARE v_audit_id bigint;
+BEGIN
+  -- Soft-delete the restored policy first, then block priority=300 with a live on policy.
+  UPDATE conditional_access_policies SET deleted_at = now() WHERE name = 'rfa-victim';
+  INSERT INTO conditional_access_policies
+      (id, priority, name, state, scope_type, conditions, actions)
+    VALUES (900099, 300, 'rfa-blocker', 'on', 'global',
+            '{}'::jsonb, '{"action":"allow"}'::jsonb);
+END $$;
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore_from_audit(
+       (SELECT id FROM admin_audit_log
+        WHERE target_type='conditional_access_policy' AND action='ca_policy_delete'
+        ORDER BY id DESC LIMIT 1),
+       83201) $$,
+  'BZ087', NULL,
+  'restore_from_audit raises BZ087 when priority is held by a live on policy');
+
+-- BZ086: audit row not found or not a CA-policy snapshot.
+-- (BZ082 was incorrectly used in the original implementation; BZ082 is already
+-- allocated to ca_break_glass_empty. This condition uses BZ086.)
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore_from_audit(9999999, 83201) $$,
+  'BZ086', NULL,
+  'restore_from_audit raises BZ086 for a missing audit row');
+
+-- audit row found but wrong target_type → BZ086.
+DO $$
+DECLARE v_bad_id bigint;
+BEGIN
+  INSERT INTO admin_audit_log
+      (user_id, ip, action, target_type, target_id, before_state)
+    VALUES (83201, NULL, 'some_other_delete', 'something_else', 1, '{"x":1}'::jsonb)
+    RETURNING id INTO v_bad_id;
+END $$;
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_restore_from_audit(
+       (SELECT id FROM admin_audit_log WHERE target_type='something_else' ORDER BY id DESC LIMIT 1),
+       83201) $$,
+  'BZ086', NULL,
+  'restore_from_audit raises BZ086 when audit row is not a ca_policy snapshot');
+
+SELECT finish();
+ROLLBACK;

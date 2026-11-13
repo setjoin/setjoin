@@ -1,0 +1,41 @@
+// Recording-only overlay (#323): runs frozen Go's real TLSRPTWorker.sendReports once (the
+// worker itself waits ten minutes before its first report). GOFREE_TLSRPT_GUARD=on keeps the
+// production SSRF-guarded client (a loopback receiver is then refused); otherwise the report
+// POST goes through a client without the dial guard that accepts the oracle's self-signed
+// receiver (the replaced tlsrpt.go calls goFreeTLSRPTClient).
+package smtp
+
+import (
+	"context"
+	"crypto/tls"
+	"log/slog"
+	"net/http"
+	"os"
+	"testing"
+	"time"
+
+	"setjoin.com/shared/pgxutil"
+	"setjoin.com/shared/ssrf"
+)
+
+func goFreeTLSRPTClient() *http.Client {
+	if os.Getenv("GOFREE_TLSRPT_GUARD") == "on" {
+		return ssrf.SafeHTTPClient(10 * time.Second)
+	}
+	return &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport:     &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // recording-only loopback receiver
+	}
+}
+
+func TestGoFreeTLSRPTTick(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxutil.OpenPool(ctx, os.Getenv("GOFREE_DRAIN_DSN"), 4, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	w := NewTLSRPTWorker(pool, os.Getenv("GOFREE_TLSRPT_HOSTNAME"), slog.Default())
+	w.sendReports(ctx)
+}

@@ -1,0 +1,354 @@
+{
+  "case": "policies-restore-from-audit-foreign",
+  "format": 1,
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "policies": [
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {
+                "client_type": "imap"
+              },
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "Alpha <policy> & co",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940001,
+              "name": "ca1-alpha",
+              "priority": 9401,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "off",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {
+                "ip_reputation": "critical"
+              },
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940002,
+              "name": "ca1-beta",
+              "priority": 9402,
+              "scope_target": "9",
+              "scope_type": "user",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": "2026-10-01T12:30:00+00:00",
+              "description": "Gone",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940003,
+              "name": "ca1-gamma",
+              "priority": 9403,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "off",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940004,
+              "name": "ca1-delta",
+              "priority": 9404,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "on",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": "2026-10-01T12:30:00+00:00",
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940005,
+              "name": "ca1-epsilon",
+              "priority": 9404,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "on",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940006,
+              "name": "ca1-zeta",
+              "priority": 9406,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940007,
+              "name": "ca1-eta",
+              "priority": 9407,
+              "scope_target": "9",
+              "scope_type": "user",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            }
+          ]
+        },
+        "before": {
+          "policies": [
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {
+                "client_type": "imap"
+              },
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "Alpha <policy> & co",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940001,
+              "name": "ca1-alpha",
+              "priority": 9401,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "off",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {
+                "ip_reputation": "critical"
+              },
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940002,
+              "name": "ca1-beta",
+              "priority": 9402,
+              "scope_target": "9",
+              "scope_type": "user",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": "2026-10-01T12:30:00+00:00",
+              "description": "Gone",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940003,
+              "name": "ca1-gamma",
+              "priority": 9403,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "off",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940004,
+              "name": "ca1-delta",
+              "priority": 9404,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "on",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "allow"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": "2026-10-01T12:30:00+00:00",
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940005,
+              "name": "ca1-epsilon",
+              "priority": 9404,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "on",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940006,
+              "name": "ca1-zeta",
+              "priority": 9406,
+              "scope_target": "",
+              "scope_type": "global",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            },
+            {
+              "actions": {
+                "action": "block"
+              },
+              "conditions": {},
+              "created_at": "2026-10-01T12:00:00+00:00",
+              "created_from_template": "",
+              "deleted_at": null,
+              "description": "",
+              "exclude_groups": [],
+              "exclude_users": [],
+              "id": 940007,
+              "name": "ca1-eta",
+              "priority": 9407,
+              "scope_target": "9",
+              "scope_type": "user",
+              "session_control": {},
+              "state": "report_only",
+              "updated_at": "2026-10-01T12:00:00.5+00:00"
+            }
+          ]
+        },
+        "table": "conditional_access_policies"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{\"audit_id\":\"<source-audit>\"}",
+      "external_path": "/api/admin/conditional-access/policies/restore-from-audit",
+      "method": "POST",
+      "path": "/admin/conditional-access/policies/restore-from-audit"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"no conditional_access_policy row with the given id\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "132"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-ca1-oracle"
+        ]
+      },
+      "status": 404
+    }
+  }
+}

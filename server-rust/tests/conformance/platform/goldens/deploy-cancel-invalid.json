@@ -1,0 +1,144 @@
+{
+  "case": "invalid",
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "completed_at": "<timestamp>",
+            "error": "SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: ",
+            "output": "",
+            "started_at": "<timestamp>",
+            "status": "failed",
+            "step_name": "ssh_check"
+          }
+        ],
+        "before": [],
+        "table": "deployment_steps"
+      },
+      {
+        "after": {
+          "log": [
+            "[ssh_check] SSH connectivity check",
+            "[ssh_check] FAILED: SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: "
+          ],
+          "nodes": [
+            {
+              "has_inline_key": true,
+              "host": "<node-1>",
+              "role": "primary",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-2>",
+              "role": "standby",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-3>",
+              "role": "standby",
+              "ssh_user": "root"
+            }
+          ],
+          "profile": 0,
+          "started_at": "<timestamp>",
+          "status": "failed",
+          "steps": [
+            {
+              "error": "SSH <node-1>: deployment cancelled during <node-1> with unconfirmed remote termination (wait: remote command exited without exit status or exit signal): context canceled — output: ",
+              "name": "ssh_check",
+              "status": "failed"
+            }
+          ]
+        },
+        "before": {
+          "log": [
+            "[ssh_check] SSH connectivity check"
+          ],
+          "nodes": [
+            {
+              "has_inline_key": true,
+              "host": "<node-1>",
+              "role": "primary",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-2>",
+              "role": "standby",
+              "ssh_user": "root"
+            },
+            {
+              "has_inline_key": true,
+              "host": "<node-3>",
+              "role": "standby",
+              "ssh_user": "root"
+            }
+          ],
+          "profile": 0,
+          "started_at": "<timestamp>",
+          "status": "deploying",
+          "steps": [
+            {
+              "name": "ssh_check",
+              "status": "running"
+            }
+          ]
+        },
+        "table": "deploy_process_state"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "ignored invalid JSON",
+      "external_path": "/api/admin/deploy/cancel",
+      "method": "POST",
+      "path": "/admin/deploy/cancel"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat2-oracle"
+        ]
+      },
+      "status": 204
+    },
+    "ssh": [
+      {
+        "command": "echo ok && hostname",
+        "node": 1
+      }
+    ]
+  },
+  "route": "POST /admin/deploy/cancel"
+}

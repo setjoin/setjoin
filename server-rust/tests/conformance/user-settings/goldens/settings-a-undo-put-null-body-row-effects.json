@@ -1,0 +1,261 @@
+{
+  "case": "null-body-row-effects",
+  "effects": [
+    {
+      "after": {
+        "imap": [
+          {
+            "row": {
+              "expose_all": true,
+              "exposed_tag_ids": [
+                101,
+                102
+              ],
+              "folder_separator": ".",
+              "imap_enabled": true,
+              "show_subscribed_only": false,
+              "user_id": "<actor>"
+            },
+            "who": "actor"
+          },
+          {
+            "row": {
+              "expose_all": false,
+              "exposed_tag_ids": [
+                103
+              ],
+              "folder_separator": "/",
+              "imap_enabled": false,
+              "show_subscribed_only": true,
+              "user_id": "<other>"
+            },
+            "who": "other"
+          }
+        ],
+        "prefs": [
+          {
+            "view_prefs": {
+              "bundleNewsletters": false,
+              "defaultView": "list",
+              "extra": {
+                "n": [
+                  1,
+                  2.5,
+                  100
+                ],
+                "s": "a<b"
+              },
+              "newsletterOptouts": [
+                "list-a.test",
+                "list-b.test"
+              ],
+              "offlineWindow": "90d",
+              "smartMute": true,
+              "undoSendDelay": 5
+            },
+            "who": "actor"
+          },
+          {
+            "view_prefs": {
+              "bundleNewsletters": true,
+              "defaultView": "other",
+              "newsletterOptouts": [
+                "other.test"
+              ],
+              "undoSendDelay": 20
+            },
+            "who": "other"
+          }
+        ],
+        "signatures": [
+          {
+            "fillers": 0,
+            "rows": [
+              {
+                "alias": "home@sig.test",
+                "created_at": "2026-10-01T10:00:02+00:00",
+                "default_for": "reply",
+                "html": "<i>Home</i>",
+                "is_default": false,
+                "text": "Home",
+                "updated_at": "2026-10-01T10:00:02+00:00"
+              },
+              {
+                "alias": "work@sig.test",
+                "created_at": "2026-10-01T10:00:01+00:00",
+                "default_for": "new",
+                "html": "<p>Work & co  </p>",
+                "is_default": true,
+                "text": "Work <co>",
+                "updated_at": "2026-10-01T10:00:01+00:00"
+              },
+              {
+                "alias": "Zed@sig.test",
+                "created_at": "2026-10-01T10:00:03+00:00",
+                "default_for": "none",
+                "html": "",
+                "is_default": false,
+                "text": "",
+                "updated_at": "2026-10-01T10:00:03+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "fillers": 0,
+            "rows": [
+              {
+                "alias": "side@sig.test",
+                "created_at": "2026-10-01T10:00:05+00:00",
+                "default_for": "none",
+                "html": "<p>Side</p>",
+                "is_default": false,
+                "text": "Side",
+                "updated_at": "2026-10-01T10:00:05+00:00"
+              },
+              {
+                "alias": "work@sig.test",
+                "created_at": "2026-10-01T10:00:04+00:00",
+                "default_for": "both",
+                "html": "<p>Other work</p>",
+                "is_default": true,
+                "text": "Other",
+                "updated_at": "2026-10-01T10:00:04+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "before": {
+        "imap": [
+          {
+            "row": {
+              "expose_all": true,
+              "exposed_tag_ids": [
+                101,
+                102
+              ],
+              "folder_separator": ".",
+              "imap_enabled": true,
+              "show_subscribed_only": false,
+              "user_id": "<actor>"
+            },
+            "who": "actor"
+          },
+          {
+            "row": {
+              "expose_all": false,
+              "exposed_tag_ids": [
+                103
+              ],
+              "folder_separator": "/",
+              "imap_enabled": false,
+              "show_subscribed_only": true,
+              "user_id": "<other>"
+            },
+            "who": "other"
+          }
+        ],
+        "prefs": [
+          {
+            "view_prefs": {
+              "bundleNewsletters": false,
+              "defaultView": "list",
+              "extra": {
+                "n": [
+                  1,
+                  2.5,
+                  100
+                ],
+                "s": "a<b"
+              },
+              "newsletterOptouts": [
+                "list-a.test",
+                "list-b.test"
+              ],
+              "offlineWindow": "90d",
+              "smartMute": true,
+              "undoSendDelay": 12
+            },
+            "who": "actor"
+          },
+          {
+            "view_prefs": {
+              "bundleNewsletters": true,
+              "defaultView": "other",
+              "newsletterOptouts": [
+                "other.test"
+              ],
+              "undoSendDelay": 20
+            },
+            "who": "other"
+          }
+        ],
+        "signatures": [
+          {
+            "fillers": 0,
+            "rows": [
+              {
+                "alias": "home@sig.test",
+                "created_at": "2026-10-01T10:00:02+00:00",
+                "default_for": "reply",
+                "html": "<i>Home</i>",
+                "is_default": false,
+                "text": "Home",
+                "updated_at": "2026-10-01T10:00:02+00:00"
+              },
+              {
+                "alias": "work@sig.test",
+                "created_at": "2026-10-01T10:00:01+00:00",
+                "default_for": "new",
+                "html": "<p>Work & co  </p>",
+                "is_default": true,
+                "text": "Work <co>",
+                "updated_at": "2026-10-01T10:00:01+00:00"
+              },
+              {
+                "alias": "Zed@sig.test",
+                "created_at": "2026-10-01T10:00:03+00:00",
+                "default_for": "none",
+                "html": "",
+                "is_default": false,
+                "text": "",
+                "updated_at": "2026-10-01T10:00:03+00:00"
+              }
+            ],
+            "who": "actor"
+          },
+          {
+            "fillers": 0,
+            "rows": [
+              {
+                "alias": "side@sig.test",
+                "created_at": "2026-10-01T10:00:05+00:00",
+                "default_for": "none",
+                "html": "<p>Side</p>",
+                "is_default": false,
+                "text": "Side",
+                "updated_at": "2026-10-01T10:00:05+00:00"
+              },
+              {
+                "alias": "work@sig.test",
+                "created_at": "2026-10-01T10:00:04+00:00",
+                "default_for": "both",
+                "html": "<p>Other work</p>",
+                "is_default": true,
+                "text": "Other",
+                "updated_at": "2026-10-01T10:00:04+00:00"
+              }
+            ],
+            "who": "other"
+          }
+        ]
+      },
+      "table": "user_settings"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "PUT /settings/undo-send"
+}

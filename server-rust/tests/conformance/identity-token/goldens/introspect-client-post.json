@@ -1,0 +1,39 @@
+{
+  "case": "introspect-client-post",
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "oauth": [
+        {
+          "client": "idlogin3-client-a",
+          "hash": "59f009f73636306c5c791ed1c06dba9c8e06c8841a1a429b734dbc96d672891b",
+          "owner": "actor",
+          "revoked": false
+        },
+        {
+          "client": "idlogin3-client-b",
+          "hash": "e3737412dde79fc881a3a543db2472bab5eb45436ab2b139bbc06fff0e7a8b1e",
+          "owner": "foreign",
+          "revoked": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "token=idlogin3-token-a&client_id=idlogin3-client-a&client_secret=secret-a",
+      "method": "POST",
+      "path": "/auth/introspect"
+    },
+    "response": {
+      "body": "{\"active\":true,\"scope\":\"mail.read profile\",\"client_id\":\"idlogin3-client-a\",\"username\":\"actor@idlogin3.test\",\"token_type\":\"Bearer\",\"exp\":2082855845,\"iat\":1767323045,\"nbf\":1767323045,\"sub\":\"<actor>\",\"aud\":\"mailserver-gateway\",\"iss\":\"mailserver\",\"email\":\"actor@idlogin3.test\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /auth/introspect"
+}

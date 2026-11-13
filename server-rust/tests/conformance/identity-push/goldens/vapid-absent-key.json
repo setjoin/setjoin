@@ -1,0 +1,24 @@
+{
+  "case": "vapid-absent-key",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/push/vapid-key"
+    },
+    "response": {
+      "body": "{\"type\":\"https://setjoin.com/errors/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"push not configured\",\"instance\":\"/auth/push/vapid-key\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/problem+json"
+      },
+      "status": 404
+    }
+  },
+  "route": "GET /auth/push/vapid-key"
+}

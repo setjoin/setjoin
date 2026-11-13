@@ -1,0 +1,115 @@
+-- changes_journal.pg: schema arm for jmap_changes_journal (V042).
+-- Append/sentinel arms added in Task 3 (reducer tests).
+-- Brief uses mailbox_id=1 which violates FK; following GT+pattern: seed a
+-- real mailbox via mk_account (the standard fixture helper in this suite).
+BEGIN;
+SELECT plan(15);
+
+CREATE TEMP TABLE _cj AS SELECT mk_account('cj_user') AS mb_id;
+
+-- table + columns
+SELECT has_table('public', 'jmap_changes_journal', 'journal table exists');
+SELECT col_is_pk('public', 'jmap_changes_journal',
+  ARRAY['mailbox_id','datatype','state_seq','entity_id'], 'PK is (mailbox_id,datatype,state_seq,entity_id)');
+SELECT col_not_null('public', 'jmap_changes_journal', 'op', 'op NOT NULL');
+-- multiple rows per (mailbox_id, state_seq) allowed (F2 batch)
+SELECT lives_ok(format($$
+  INSERT INTO jmap_changes_journal(mailbox_id,state_seq,entity_id,op)
+  VALUES (%s,5,10,'updated'),(%s,5,11,'updated')$$,
+  (SELECT mb_id FROM _cj), (SELECT mb_id FROM _cj))::text,
+  'two rows at one state_seq allowed (batch)');
+-- op CHECK rejects garbage
+SELECT throws_ok(format($$
+  INSERT INTO jmap_changes_journal(mailbox_id,state_seq,entity_id,op)
+  VALUES (%s,6,12,'bogus')$$,
+  (SELECT mb_id FROM _cj))::text,
+  '23514', NULL, 'op CHECK rejects unknown op');
+-- RLS enabled + forced
+SELECT is(relrowsecurity::text, 'true', 'RLS enabled')
+  FROM pg_class WHERE oid = 'public.jmap_changes_journal'::regclass;
+SELECT is(relforcerowsecurity::text, 'true', 'RLS forced')
+  FROM pg_class WHERE oid = 'public.jmap_changes_journal'::regclass;
+-- T3a: notify_state_change(mailbox, tag, msg_id, op) journals a precise row in the same txn as the bump
+-- Capture before-state so the is() comparison doesn't depend on arg eval order.
+CREATE TEMP TABLE _cj_nsc AS
+  SELECT jmap_email_state AS s FROM mailboxes WHERE id=(SELECT mb_id FROM _cj);
+SELECT is(
+  notify_state_change((SELECT mb_id FROM _cj), NULL, 555, 'created'),
+  (SELECT s + 1 FROM _cj_nsc),
+  'notify_state_change returns new email state');
+SELECT is(
+  (SELECT op FROM jmap_changes_journal
+   WHERE mailbox_id = (SELECT mb_id FROM _cj) AND entity_id = 555),
+  'created', 'precise row journaled at bump');
+
+-- (T3b removed with V077: it tested adjust_folder_counters' resync journal —
+-- that function is deleted; T3c below covers the same append_email_change resync
+-- contract via notify_state_change.)
+
+-- T3c: notify_state_change with NULL entity_id now emits a resync sentinel
+-- (confirmed finding: the old IF-only path left state bumps un-sentineled).
+-- Capture sentinel count before so the assertion is independent of T3b order.
+CREATE TEMP TABLE _cj_sentinel_n AS
+  SELECT count(*) AS n FROM jmap_changes_journal
+  WHERE mailbox_id=(SELECT mb_id FROM _cj) AND op='resync';
+SELECT lives_ok(
+  format($$SELECT notify_state_change(%s, NULL)$$, (SELECT mb_id FROM _cj))::text,
+  'notify_state_change null-msg-id call succeeds');
+SELECT ok(
+  (SELECT count(*) FROM jmap_changes_journal
+   WHERE mailbox_id=(SELECT mb_id FROM _cj) AND op='resync')
+  > (SELECT n FROM _cj_sentinel_n),
+  'null-msg-id notify_state_change emits new resync sentinel');
+
+-- T4a: id-bearing notify_state_change journals a precise 'updated' row (seam wiring proof).
+-- Split into two statements: PostgreSQL statement-level snapshot hides the in-statement insert
+-- (same reason T3a uses two is() calls; see the T3a comment above).
+SELECT lives_ok(
+  format($$SELECT notify_state_change(%s, NULL, 8001, 'updated')$$,
+    (SELECT mb_id FROM _cj))::text,
+  'id-bearing notify_state_change call succeeds (T4a call)');
+SELECT ok(
+  EXISTS(SELECT 1 FROM jmap_changes_journal
+    WHERE mailbox_id=(SELECT mb_id FROM _cj) AND entity_id=8001 AND op='updated'),
+  'id-bearing notify_state_change journals precise updated row (T4a row)');
+
+-- (T4b removed with V077: it tested adjust_folder_counters' precise 'updated'
+-- journal — deleted function; T4a above covers the same precise-row contract via
+-- notify_state_change.)
+
+-- R1/R4 dual-tenant isolation proof: tenant B's journal rows must not leak
+-- under the per-mailbox GUC when the session is a constrained (non-superuser) role.
+-- Pattern mirrors rls_policies.pg: \gset captures mailbox IDs client-side so
+-- the values are inlined as literals after SET LOCAL ROLE (no temp-table access
+-- after the role switch, which would fail with permission denied).
+SELECT mk_account('rls_jcj_a') AS mb_a \gset
+SELECT mk_account('rls_jcj_b') AS mb_b \gset
+
+-- Seed one row per tenant as superuser (owner bypasses FORCE; that is the point
+-- of SET LOCAL ROLE below — prove the policy constrains the runtime role).
+INSERT INTO jmap_changes_journal(mailbox_id, state_seq, entity_id, op) VALUES
+  (:mb_a, 900, 9001, 'updated'),
+  (:mb_b, 900, 9002, 'updated');
+
+-- Defensive GRANT: provision-roles.sql covers this via ON ALL TABLES at load time;
+-- repeated here so the arm is self-contained (idempotent, rolled back with txn).
+GRANT SELECT ON public.jmap_changes_journal TO setjoin_app;
+
+-- Switch to the constrained runtime role — superuser/owner bypasses FORCE RLS;
+-- setjoin_app (NOSUPERUSER NOBYPASSRLS) does not.
+SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_mailbox_id', :mb_a::text, true);
+
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal),
+  1::bigint,
+  'RLS/GUC=A: only tenant-A journal row visible (tenant-B row filtered by FORCE policy)');
+SELECT is(
+  (SELECT count(*) FROM jmap_changes_journal WHERE mailbox_id = :mb_b),
+  0::bigint,
+  'RLS/GUC=A: direct predicate on tenant-B mailbox_id returns 0 rows (invisible under FORCE)');
+
+RESET ROLE;
+
+SELECT finish();
+ROLLBACK;

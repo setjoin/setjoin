@@ -1,0 +1,139 @@
+{
+  "case": "worker-reap-staging",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "normalization": [
+    "generated ids, room names and timestamps masked; object temp keys masked"
+  ],
+  "observation": {
+    "db": {
+      "breakouts": [],
+      "leases": [],
+      "meetings": [
+        {
+          "calendar_event_id": null,
+          "chat_channel_provisioned": true,
+          "ended_at": "<timestamp>",
+          "locked": false,
+          "room": "<room-1>",
+          "scheduled_end": null,
+          "scheduled_start": null,
+          "settings": {},
+          "state": "ended",
+          "title": "meet5 worker"
+        }
+      ],
+      "participants": [],
+      "recordings": [
+        {
+          "duration_ms": null,
+          "egress_id": "EG_r",
+          "error": null,
+          "ingest_attempts": 0,
+          "size_bytes": null,
+          "staging_key": "meet-egress/1-ready.mp4",
+          "started_at": "<timestamp>",
+          "state": "ready",
+          "stopped_at": null
+        },
+        {
+          "duration_ms": null,
+          "egress_id": "EG_f1",
+          "error": null,
+          "ingest_attempts": 0,
+          "size_bytes": null,
+          "staging_key": "meet-egress/2-old-failed.mp4",
+          "started_at": "<timestamp>",
+          "state": "failed",
+          "stopped_at": null
+        },
+        {
+          "duration_ms": null,
+          "egress_id": "EG_f2",
+          "error": null,
+          "ingest_attempts": 0,
+          "size_bytes": null,
+          "staging_key": "meet-egress/3-new-failed.mp4",
+          "started_at": "<timestamp>",
+          "state": "failed",
+          "stopped_at": null
+        },
+        {
+          "duration_ms": null,
+          "egress_id": "EG_a",
+          "error": "ERROR: space not found (SQLSTATE BZ139)",
+          "ingest_attempts": 1,
+          "size_bytes": 3,
+          "staging_key": "meet-egress/4-active.mp4",
+          "started_at": "<timestamp>",
+          "state": "pending_ingest",
+          "stopped_at": "<timestamp>"
+        }
+      ],
+      "requests": [],
+      "semantic": []
+    },
+    "notify": [],
+    "peripherals": {
+      "asr": [],
+      "livekit": [
+        {
+          "body": {},
+          "grant": {
+            "roomRecord": true
+          },
+          "method": "ListEgress"
+        },
+        {
+          "body": {},
+          "grant": {
+            "roomList": true
+          },
+          "method": "ListRooms"
+        }
+      ],
+      "objects": [
+        {
+          "key": "tmp/upload/<random>",
+          "op": "PUT",
+          "size": 3
+        },
+        {
+          "key": "tmp/upload/<random>",
+          "op": "DELETE"
+        },
+        {
+          "key": "meet-egress/1-ready.mp4",
+          "op": "DELETE"
+        },
+        {
+          "key": "meet-egress/2-old-failed.mp4",
+          "op": "DELETE"
+        },
+        {
+          "key": "meet-egress/6-orphan-old.mp4",
+          "op": "DELETE"
+        }
+      ],
+      "stored": [
+        {
+          "key": "meet-egress/3-new-failed.mp4",
+          "size": 3
+        },
+        {
+          "key": "meet-egress/4-active.mp4",
+          "size": 3
+        },
+        {
+          "key": "meet-egress/7-orphan-new.mp4",
+          "size": 3
+        },
+        {
+          "key": "other/untouched.bin",
+          "size": 3
+        }
+      ]
+    }
+  },
+  "worker": "meet-reconcile"
+}

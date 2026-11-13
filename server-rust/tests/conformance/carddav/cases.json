@@ -1,0 +1,746 @@
+[
+  {
+    "route": "options",
+    "label": "cross-tenant",
+    "test": "qualification_options_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "options",
+    "label": "invalid-input",
+    "test": "qualification_options_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "propfind",
+    "label": "cross-tenant",
+    "test": "qualification_propfind_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "propfind",
+    "label": "invalid-input",
+    "test": "qualification_propfind_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "get",
+    "label": "cross-tenant",
+    "test": "qualification_get_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "get",
+    "label": "invalid-input",
+    "test": "qualification_get_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "query",
+    "label": "cross-tenant",
+    "test": "qualification_query_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "query",
+    "label": "invalid-input",
+    "test": "qualification_query_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "multiget",
+    "label": "cross-tenant",
+    "test": "qualification_multiget_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "multiget",
+    "label": "invalid-input",
+    "test": "qualification_multiget_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "sync",
+    "label": "cross-tenant",
+    "test": "qualification_sync_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "sync",
+    "label": "invalid-input",
+    "test": "qualification_sync_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "put",
+    "label": "cross-tenant",
+    "test": "qualification_put_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "put",
+    "label": "invalid-input",
+    "test": "qualification_put_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "put-update",
+    "label": "cross-tenant",
+    "test": "qualification_put_update_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "put-update",
+    "label": "invalid-input",
+    "test": "qualification_put_update_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "delete",
+    "label": "cross-tenant",
+    "test": "qualification_delete_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "delete",
+    "label": "invalid-input",
+    "test": "qualification_delete_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "unsupported",
+    "label": "cross-tenant",
+    "test": "qualification_unsupported_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "unsupported",
+    "label": "invalid-input",
+    "test": "qualification_unsupported_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "unsupported",
+    "label": "success",
+    "test": "qualification_unsupported_success",
+    "kind": "success"
+  },
+  {
+    "route": "gal-options",
+    "label": "cross-tenant",
+    "test": "qualification_gal_options_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-options",
+    "label": "invalid-input",
+    "test": "qualification_gal_options_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "cross-tenant",
+    "test": "qualification_gal_propfind_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "invalid-input",
+    "test": "qualification_gal_propfind_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-get",
+    "label": "cross-tenant",
+    "test": "qualification_gal_get_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-get",
+    "label": "invalid-input",
+    "test": "qualification_gal_get_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-query",
+    "label": "cross-tenant",
+    "test": "qualification_gal_query_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-query",
+    "label": "invalid-input",
+    "test": "qualification_gal_query_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-multiget",
+    "label": "cross-tenant",
+    "test": "qualification_gal_multiget_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-multiget",
+    "label": "invalid-input",
+    "test": "qualification_gal_multiget_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-sync",
+    "label": "cross-tenant",
+    "test": "qualification_gal_sync_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-sync",
+    "label": "invalid-input",
+    "test": "qualification_gal_sync_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-put",
+    "label": "cross-tenant",
+    "test": "qualification_gal_put_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-put",
+    "label": "invalid-input",
+    "test": "qualification_gal_put_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "gal-delete",
+    "label": "cross-tenant",
+    "test": "qualification_gal_delete_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "gal-delete",
+    "label": "invalid-input",
+    "test": "qualification_gal_delete_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "entitlement",
+    "label": "cross-tenant",
+    "test": "qualification_entitlement_cross_tenant",
+    "kind": "cross-tenant"
+  },
+  {
+    "route": "entitlement",
+    "label": "invalid-input",
+    "test": "qualification_entitlement_invalid_input",
+    "kind": "invalid-input"
+  },
+  {
+    "route": "entitlement",
+    "label": "success",
+    "test": "qualification_entitlement_success",
+    "kind": "success"
+  },
+  {
+    "route": "put",
+    "label": "repeat",
+    "test": "edge_put_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "put-update",
+    "label": "repeat",
+    "test": "edge_put_update_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "delete",
+    "label": "repeat",
+    "test": "edge_delete_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "repeat",
+    "test": "edge_gal_propfind_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-get",
+    "label": "repeat",
+    "test": "edge_gal_get_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-query",
+    "label": "repeat",
+    "test": "edge_gal_query_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-multiget",
+    "label": "repeat",
+    "test": "edge_gal_multiget_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-sync",
+    "label": "repeat",
+    "test": "edge_gal_sync_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-put",
+    "label": "repeat",
+    "test": "edge_gal_put_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "gal-delete",
+    "label": "repeat",
+    "test": "edge_gal_delete_repeat",
+    "kind": "repeat"
+  },
+  {
+    "route": "propfind",
+    "label": "properties",
+    "test": "edge_propfind_properties",
+    "kind": "properties"
+  },
+  {
+    "route": "propfind",
+    "label": "resource",
+    "test": "edge_propfind_resource",
+    "kind": "resource"
+  },
+  {
+    "route": "propfind",
+    "label": "depth0",
+    "test": "edge_propfind_depth0",
+    "kind": "depth0"
+  },
+  {
+    "route": "propfind",
+    "label": "limit",
+    "test": "edge_propfind_limit",
+    "kind": "limit"
+  },
+  {
+    "route": "propfind",
+    "label": "gal-off",
+    "test": "edge_propfind_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "get",
+    "label": "fold",
+    "test": "edge_get_fold",
+    "kind": "fold"
+  },
+  {
+    "route": "get",
+    "label": "encoded",
+    "test": "edge_get_encoded",
+    "kind": "encoded"
+  },
+  {
+    "route": "query",
+    "label": "filter",
+    "test": "edge_query_filter",
+    "kind": "filter"
+  },
+  {
+    "route": "query",
+    "label": "no-match",
+    "test": "edge_query_no_match",
+    "kind": "no-match"
+  },
+  {
+    "route": "query",
+    "label": "unknown",
+    "test": "edge_query_unknown",
+    "kind": "unknown"
+  },
+  {
+    "route": "query",
+    "label": "wrong-namespace",
+    "test": "edge_query_wrong_namespace",
+    "kind": "wrong-namespace"
+  },
+  {
+    "route": "query",
+    "label": "limit",
+    "test": "edge_query_limit",
+    "kind": "limit"
+  },
+  {
+    "route": "multiget",
+    "label": "uid-collision",
+    "test": "edge_multiget_uid_collision",
+    "kind": "uid-collision"
+  },
+  {
+    "route": "sync",
+    "label": "current",
+    "test": "edge_sync_current",
+    "kind": "current"
+  },
+  {
+    "route": "sync",
+    "label": "removed",
+    "test": "edge_sync_removed",
+    "kind": "removed"
+  },
+  {
+    "route": "sync",
+    "label": "updated",
+    "test": "edge_sync_updated",
+    "kind": "updated"
+  },
+  {
+    "route": "sync",
+    "label": "pruned",
+    "test": "edge_sync_pruned",
+    "kind": "pruned"
+  },
+  {
+    "route": "sync",
+    "label": "resync",
+    "test": "edge_sync_resync",
+    "kind": "resync"
+  },
+  {
+    "route": "sync",
+    "label": "future",
+    "test": "edge_sync_future",
+    "kind": "future"
+  },
+  {
+    "route": "put",
+    "label": "if-none",
+    "test": "edge_put_if_none",
+    "kind": "if-none"
+  },
+  {
+    "route": "put",
+    "label": "if-match-missing",
+    "test": "edge_put_if_match_missing",
+    "kind": "if-match-missing"
+  },
+  {
+    "route": "put",
+    "label": "bad-path",
+    "test": "edge_put_bad_path",
+    "kind": "bad-path"
+  },
+  {
+    "route": "put",
+    "label": "limit",
+    "test": "edge_put_limit",
+    "kind": "limit"
+  },
+  {
+    "route": "put",
+    "label": "vcard4",
+    "test": "edge_put_vcard4",
+    "kind": "vcard4"
+  },
+  {
+    "route": "put",
+    "label": "photo",
+    "test": "edge_put_photo",
+    "kind": "photo"
+  },
+  {
+    "route": "put-update",
+    "label": "if-match",
+    "test": "edge_put_update_if_match",
+    "kind": "if-match"
+  },
+  {
+    "route": "put-update",
+    "label": "if-match-good",
+    "test": "edge_put_update_if_match_good",
+    "kind": "if-match-good"
+  },
+  {
+    "route": "delete",
+    "label": "if-match",
+    "test": "edge_delete_if_match",
+    "kind": "if-match"
+  },
+  {
+    "route": "delete",
+    "label": "if-match-good",
+    "test": "edge_delete_if_match_good",
+    "kind": "if-match-good"
+  },
+  {
+    "route": "delete",
+    "label": "bad-path",
+    "test": "edge_delete_bad_path",
+    "kind": "bad-path"
+  },
+  {
+    "route": "unsupported",
+    "label": "head",
+    "test": "edge_unsupported_head",
+    "kind": "head"
+  },
+  {
+    "route": "unsupported",
+    "label": "mkcol",
+    "test": "edge_unsupported_mkcol",
+    "kind": "mkcol"
+  },
+  {
+    "route": "unsupported",
+    "label": "proppatch",
+    "test": "edge_unsupported_proppatch",
+    "kind": "proppatch"
+  },
+  {
+    "route": "unsupported",
+    "label": "copy",
+    "test": "edge_unsupported_copy",
+    "kind": "copy"
+  },
+  {
+    "route": "unsupported",
+    "label": "move",
+    "test": "edge_unsupported_move",
+    "kind": "move"
+  },
+  {
+    "route": "unsupported",
+    "label": "lock",
+    "test": "edge_unsupported_lock",
+    "kind": "lock"
+  },
+  {
+    "route": "unsupported",
+    "label": "unlock",
+    "test": "edge_unsupported_unlock",
+    "kind": "unlock"
+  },
+  {
+    "route": "gal-get",
+    "label": "disabled",
+    "test": "edge_gal_get_disabled",
+    "kind": "disabled"
+  },
+  {
+    "route": "gal-get",
+    "label": "hidden",
+    "test": "edge_gal_get_hidden",
+    "kind": "hidden"
+  },
+  {
+    "route": "gal-get",
+    "label": "guest",
+    "test": "edge_gal_get_guest",
+    "kind": "guest"
+  },
+  {
+    "route": "gal-get",
+    "label": "gal-off",
+    "test": "edge_gal_get_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-get",
+    "label": "full-profile",
+    "test": "edge_gal_get_full_profile",
+    "kind": "full-profile"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "properties",
+    "test": "edge_gal_propfind_properties",
+    "kind": "properties"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "depth0",
+    "test": "edge_gal_propfind_depth0",
+    "kind": "depth0"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "gal-off",
+    "test": "edge_gal_propfind_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-propfind",
+    "label": "limit",
+    "test": "edge_gal_propfind_limit",
+    "kind": "limit"
+  },
+  {
+    "route": "gal-query",
+    "label": "alias-filter",
+    "test": "edge_gal_query_alias_filter",
+    "kind": "alias-filter"
+  },
+  {
+    "route": "gal-query",
+    "label": "hidden-manager",
+    "test": "edge_gal_query_hidden_manager",
+    "kind": "hidden-manager"
+  },
+  {
+    "route": "gal-query",
+    "label": "guest",
+    "test": "edge_gal_query_guest",
+    "kind": "guest"
+  },
+  {
+    "route": "gal-query",
+    "label": "gal-off",
+    "test": "edge_gal_query_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-multiget",
+    "label": "gal-off",
+    "test": "edge_gal_multiget_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-sync",
+    "label": "current",
+    "test": "edge_gal_sync_current",
+    "kind": "current"
+  },
+  {
+    "route": "gal-sync",
+    "label": "removed",
+    "test": "edge_gal_sync_removed",
+    "kind": "removed"
+  },
+  {
+    "route": "gal-sync",
+    "label": "never-visible",
+    "test": "edge_gal_sync_never_visible",
+    "kind": "never-visible"
+  },
+  {
+    "route": "gal-sync",
+    "label": "count-mismatch",
+    "test": "edge_gal_sync_count_mismatch",
+    "kind": "count-mismatch"
+  },
+  {
+    "route": "gal-sync",
+    "label": "future",
+    "test": "edge_gal_sync_future",
+    "kind": "future"
+  },
+  {
+    "route": "gal-sync",
+    "label": "gal-off",
+    "test": "edge_gal_sync_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-put",
+    "label": "gal-off",
+    "test": "edge_gal_put_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "gal-delete",
+    "label": "gal-off",
+    "test": "edge_gal_delete_gal_off",
+    "kind": "gal-off"
+  },
+  {
+    "route": "get",
+    "label": "bad-json",
+    "test": "scan_errors_preserve_contacts",
+    "kind": "bad-json"
+  },
+  {
+    "route": "put-update",
+    "label": "bad-json",
+    "test": "scan_errors_preserve_contacts",
+    "kind": "bad-json"
+  },
+  {
+    "route": "delete",
+    "label": "bad-json",
+    "test": "scan_errors_preserve_contacts",
+    "kind": "bad-json"
+  },
+  {
+    "route": "put",
+    "label": "db-fault",
+    "test": "fault_put_db_fault",
+    "kind": "db-fault"
+  },
+  {
+    "route": "put",
+    "label": "unaccounted",
+    "test": "fault_put_unaccounted",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "put",
+    "label": "bad-accounting",
+    "test": "fault_put_bad_accounting",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "put-update",
+    "label": "db-fault",
+    "test": "fault_put_update_db_fault",
+    "kind": "db-fault"
+  },
+  {
+    "route": "put-update",
+    "label": "unaccounted",
+    "test": "fault_put_update_unaccounted",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "put-update",
+    "label": "bad-accounting",
+    "test": "fault_put_update_bad_accounting",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "delete",
+    "label": "db-fault",
+    "test": "fault_delete_db_fault",
+    "kind": "db-fault"
+  },
+  {
+    "route": "delete",
+    "label": "unaccounted",
+    "test": "fault_delete_unaccounted",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "delete",
+    "label": "bad-accounting",
+    "test": "fault_delete_bad_accounting",
+    "kind": "per-item-outcome"
+  },
+  {
+    "route": "sync",
+    "label": "db-fault",
+    "test": "fault_sync_db_fault",
+    "kind": "db-fault"
+  },
+  {
+    "route": "gal-sync",
+    "label": "db-fault",
+    "test": "fault_gal_sync_db_fault",
+    "kind": "db-fault"
+  },
+  {
+    "route": "options",
+    "label": "bridge-disabled",
+    "kind": "registration-absent",
+    "test": "disabled_bridge_is_native_not_found"
+  }
+]

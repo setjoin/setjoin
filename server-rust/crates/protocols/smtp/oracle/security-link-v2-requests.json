@@ -1,0 +1,685 @@
+[
+  {
+    "name": "link-plain-external",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-plain-external@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\n\r\ngo https://external.test/action?x=1&y=2 then http://other.test/end.\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-no-content-type",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-no-content-type@smtp6.test>\r\nSubject: Links fixture\r\n\r\nhttps://external.test/no-type\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-html-all-attributes",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-html-all-attributes@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/html\r\n\r\n<html><head><base href=\"https://external.test/base/\"></head><body background=\"//external.test/bg\"><a href=\"https://external.test/action?a=1&amp;b=2\">go https://external.test/text</a><img src=\"//external.test/pixel\" lowsrc=\"https://external.test/lo\" srcset=\"https://external.test/img,a.png 1x, //external.test/b.png 2x\"><form action=\"https://external.test/post\"><input formaction=\"https://external.test/submit\"></form><video poster=\"https://external.test/poster\" src=\"https://external.test/movie\"></video><object data=\"https://external.test/object\"></object><q cite=\"https://external.test/cite\">quote</q></body></html>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-html-css",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-html-css@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/html\r\n\r\n<style>@import \"//external.test/x.css\"; x{background:URL('https://external.test/bg')}</style><p style=\"background:url(//external.test/pixel)\">https://external.test/text</p>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-internal-and-lookalikes",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-internal-and-lookalikes@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/html\r\n\r\n<a href=\"https://SMTP1.TEST:443/a\">internal</a><a href=\"https://sub.smtp1.test/x\">sub</a><a href=\"https://smtp1.test.evil.test/\">suffix</a><a href=\"https://smtp1.test:8080@external.test/\">userinfo</a><a href=\"/link-protect?token=junk\">own</a><a href=\"https://external.test/link-protect?token=junk\">decoy</a><a href=\"//external.test/a\">relative</a><a href=\"mailto:user@external.test\">mail</a><a href=\"#anchor\">hash</a>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-no-external-keeps-bytes",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-no-external-keeps-bytes@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/html\r\n\r\n<P data-x=\"untouched\">hello <a href=\"https://smtp1.test/a\">internal</a></P>\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-base64-text",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-base64-text@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\nZ28gaHR0cHM6Ly9leHRlcm5hbC50ZXN0L2VuY29kZWQ/eD0xJnk9Mg0K\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-quoted-printable-text",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-quoted-printable-text@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ngo https://external.test/encoded?x=3D1&y=3D2\r\n\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-base64-html",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-base64-html@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: base64\r\n\r\nPGEgaHJlZj0iaHR0cHM6Ly9leHRlcm5hbC50ZXN0L2VuY29kZWQ/YT0xJmFtcDtiPTIiPmdvPC9hPg==\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-invalid-base64-condemned",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-invalid-base64-condemned@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n!!!\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-unknown-encoding-condemned",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-unknown-encoding-condemned@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: x-unknown\r\n\r\nhttps://external.test/raw\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-calendar-untouched",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-calendar-untouched@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/calendar; method=REQUEST\r\nContent-Transfer-Encoding: x-unknown\r\n\r\nBEGIN:VCALENDAR\r\nURL:https://external.test/calendar\r\nEND:VCALENDAR\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-binary-untouched",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-binary-untouched@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: x-unknown\r\n\r\nhttps://external.test/attachment\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-multipart-nested",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-multipart-nested@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nhttps://external.test/plain\r\n--outer\r\nContent-Type: multipart/alternative; boundary=inner\r\n\r\n--inner\r\nContent-Type: text/html\r\n\r\n<a href=\"https://external.test/html\">go</a>\r\n--inner--\r\n--outer--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-missing-close-condemned",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-missing-close-condemned@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nhttps://external.test/incomplete\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-ambiguous-boundary-condemned",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-ambiguous-boundary-condemned@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: multipart/mixed; boundary=outer; boundary=decoy\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nhello\r\n--outer--\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-direct-recipient-has-zero-mailbox",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alice@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alice@smtp1.test\r\nMessage-ID: <link-direct-recipient-has-zero-mailbox@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\n\r\nhttps://external.test/direct\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_version": 2,
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  },
+  {
+    "name": "link-version-zero-normalizes",
+    "mail_auth": {
+      "feature.link_protect_rewrite": true
+    },
+    "observe_effects": true,
+    "capture_blobs": true,
+    "steps": [
+      {
+        "send": "",
+        "lines": 1
+      },
+      {
+        "send": "EHLO smtp6.test\r\n",
+        "lines": 5
+      },
+      {
+        "send": "MAIL FROM:<visitor@external.test>\r\nRCPT TO:<alias@smtp1.test>\r\nDATA\r\n",
+        "lines": 3
+      },
+      {
+        "send": "From: Visitor <visitor@external.test>\r\nTo: alias@smtp1.test\r\nMessage-ID: <link-version-zero-normalizes@smtp6.test>\r\nSubject: Links fixture\r\nContent-Type: text/plain\r\n\r\nhttps://external.test/version1\r\n.\r\n",
+        "lines": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1
+      }
+    ],
+    "pipeline": {
+      "link_secret": "smtp6-link-current",
+      "link_previous": "smtp6-link-previous",
+      "internal_domains": [
+        "smtp1.test"
+      ]
+    }
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl user bulk-create <file.csv>\n",
+  "exit": 1
+}

@@ -1,0 +1,20 @@
+{
+  "frozenSourceCommit": "1086f3f34efe3f640e6e1739a306dee088fe93cd",
+  "goMailctlSha256": "086674d1933bf0929bf8d15147479427c4b04ef35a46ff14d24c4144cdff634d",
+  "goWorkerRecorderSha256": "b1b80b4dd308ec84dd068ae95dcff5b90985e951b24cdd1cdc3a95e9ff57caf5",
+  "buildImage": "setjoin-ci-linux-tc:local-amd64",
+  "goWorkerBuild": "CGO_ENABLED=0 go test -c -tags gofree_record ./internal/backup",
+  "normalization": [
+    "verified UTC timestamps",
+    "verified Ed25519 signature after independent verification",
+    "bucket-region SDK discovery excluded from object transcript",
+    "dump size checked against actual bytes before placeholder substitution",
+    "recovery-set UUIDs and 24-hour clocks after identity, HMAC and artifact checks",
+    "replica and retention streams retain ordering independently after the primary commit"
+  ],
+  "fixtures": {
+    "go-seeded.dump.gz": "6ddb13141355ae3d8de8ffaa6d311ecdbf465e94aab6475e4d04a770c9b6bd78",
+    "go-seeded.dump.hmac": "bd78ffc7f9e40b560bbd9693f7748fae6f6fb97e65deadf9866984bac07a6677",
+    "go-seeded.rows.json.gz": "c2dbe295cb722a00268955b905108d77f2f88bc6bff7b73e6937ceb2026284da"
+  }
+}

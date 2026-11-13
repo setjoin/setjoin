@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/people/7",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"userId\": \"7\",\n  \"email\": \"a@example.test\",\n  \"displayName\": null,\n  \"enabled\": true,\n  \"relationship\": \"member\",\n  \"protected\": false,\n  \"lifecycleAuthority\": {\n    \"kind\": \"local\",\n    \"generation\": \"1\",\n    \"linkId\": null,\n    \"sourceKey\": null\n  },\n  \"recovery\": {\n    \"hasLocalPassword\": true,\n    \"passkeyCount\": 0,\n    \"activeAuthenticationLinks\": 0\n  },\n  \"links\": [],\n  \"fieldAuthority\": [],\n  \"entitlementProvenance\": [],\n  \"transitionHistory\": [],\n  \"linkHistory\": []\n}\n",
+  "stderr": "",
+  "exit": 0
+}

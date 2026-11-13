@@ -1,0 +1,1417 @@
+[
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-plain",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\r\n',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQoNCmh0dHBzOi8vb3JpZ2luLnRlc3QvYT94PTEmeT0yDQoNCi4NCg=="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-html-quoted",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/html\r\n\r\n\u003ca class=\"x\" href=\"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg=\"\u003ehttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\u003c/a\u003e\u003cbr\u003e',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L2h0bWwNCg0KPGh0bWw+PGhlYWQ+PC9oZWFkPjxib2R5PjxhIGNsYXNzPSJ4IiBocmVmPSJodHRwczovL29yaWdpbi50ZXN0Lz9xPSYjMzQ7Jmd0OyZsdDtzY3JpcHQmZ3Q7YWxlcnQoMSkmbHQ7L3NjcmlwdCZndDsiPmh0dHBzOi8vb3JpZ2luLnRlc3QvYT94PTEmYW1wO3k9MjwvYT48YnIvPjwvYm9keT48L2h0bWw+DQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-html-css-srcset",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/html\r\n\r\n\u003cstyle\u003ebody{background:url(''https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.jjBTM50-joMiqN24oGAMwJ_qVEWVq3QYqFioYK-C85Y='')} @import \"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.jjBTM50-joMiqN24oGAMwJ_qVEWVq3QYqFioYK-C85Y=\";\u003c/style\u003e\u003cimg src=\"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.jjBTM50-joMiqN24oGAMwJ_qVEWVq3QYqFioYK-C85Y=\" srcset=\"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hLGIucG5nIiwibSI6Ilx1MDAzY3Byb3RlY3RlZEBzbXRwMy50ZXN0XHUwMDNlIiwiYiI6OTM0ODAyMSwiZSI6NDEwMjQ0NDgwMH0=.NXRn4KfYwMyZFkF1BMns5L4mbJmb5CEDWXvkGWRxiHE= 1x, https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.jjBTM50-joMiqN24oGAMwJ_qVEWVq3QYqFioYK-C85Y= 2x\" style=\"background:url(https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.jjBTM50-joMiqN24oGAMwJ_qVEWVq3QYqFioYK-C85Y=)\"\u003e',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L2h0bWwNCg0KPGh0bWw+PGhlYWQ+PHN0eWxlPmJvZHl7YmFja2dyb3VuZDp1cmwoImh0dHBzOi8vb3JpZ2luLnRlc3QvaW1hZ2UucG5nIil9IEBpbXBvcnQgImh0dHBzOi8vb3JpZ2luLnRlc3QvaW1hZ2UucG5nIjs8L3N0eWxlPjwvaGVhZD48Ym9keT48aW1nIHNyYz0iaHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmciIHNyY3NldD0iaHR0cHM6Ly9vcmlnaW4udGVzdC9hLGIucG5nIDF4LCBodHRwczovL29yaWdpbi50ZXN0L2ltYWdlLnBuZyAyeCIgc3R5bGU9ImJhY2tncm91bmQ6dXJsKCYjMzQ7aHR0cHM6Ly9vcmlnaW4udGVzdC9pbWFnZS5wbmcmIzM0OykiLz48L2JvZHk+PC9odG1sPg0KLg0K"
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-html-literal-contexts",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/html\r\n\r\n\u003cscript\u003e\"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg=\"\u003c/script\u003e\u003ciframe\u003ehttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\u003c/iframe\u003e\u003cp\u003ehttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\u003c/p\u003e',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L2h0bWwNCg0KPGh0bWw+PGhlYWQ+PHNjcmlwdD4iaHR0cHM6Ly9tYWlsLnNtdHAzLnRlc3QvbGluay1wcm90ZWN0P3Rva2VuPWV5SjFJam9pYUhSMGNITTZMeTl2Y21sbmFXNHVkR1Z6ZEM4X2NUMWNJbHgxTURBelpWeDFNREF6WTNOamNtbHdkRngxTURBelpXRnNaWEowS0RFcFhIVXdNRE5qTDNOamNtbHdkRngxTURBelpTSXNJbTBpT2lKY2RUQXdNMk53Y205MFpXTjBaV1JBYzIxMGNETXVkR1Z6ZEZ4MU1EQXpaU0lzSW1JaU9qa3pORGd3TWpFc0ltVWlPalF4TURJME5EUTRNREI5LktPZnlUZkd2Wk16clVoZnlHNnFKM2Y0OXZPWFgxM3FYRFZYcDRxaEFsTmc9Ijwvc2NyaXB0PjwvaGVhZD48Ym9keT48aWZyYW1lPmh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWhQM2c5TVZ4MU1EQXlObms5TWlJc0ltMGlPaUpjZFRBd00yTndjbTkwWldOMFpXUkFjMjEwY0RNdWRHVnpkRngxTURBelpTSXNJbUlpT2prek5EZ3dNakVzSW1VaU9qUXhNREkwTkRRNE1EQjkuTjV2Y2tSOWI5VEdYNGwzSUFyb2RkVVF2TkJGY0FqdGVFYVcwTjdKWjhMVT08L2lmcmFtZT48cD5odHRwczovL29yaWdpbi50ZXN0L2E/eD0xJmFtcDt5PTI8L3A+PC9ib2R5PjwvaHRtbD4NCi4NCg=="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-base64",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\naHR0cHM6Ly9tYWlsLnNtdHAzLnRlc3QvbGluay1wcm90ZWN0P3Rva2VuPWV5SjFJam9pYUhSMGNITTZMeTl2Y21sbmFXNHVkR1Z6ZEM5aFAzZzlNVngxTURBeU5uazlNaUlzSW0waU9pSmNkVEF3TTJOd2NtOTBaV04wWldSQWMyMTBjRE11ZEdWemRGeDFNREF6WlNJc0ltSWlPamt6TkRnd01qRXNJbVVpT2pReE1ESTBORFE0TURCOS5ONXZja1I5YjlUR1g0bDNJQXJvZGRVUXZOQkZjQWp0ZUVhVzBON0paOExVPSBubyBuZXdsaW5l',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQpDb250ZW50LVRyYW5zZmVyLUVuY29kaW5nOiBiYXNlNjQNCg0KYUhSMGNITTZMeTl2Y21sbmFXNHVkR1Z6ZEM5aFAzZzlNU1o1UFRJZ2JtOGdibVYzYkdsdVpRPT0NCi4NCg=="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-quoted-printable",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nhttps://mail.smtp3.test/link-protect?token=3DeyJ1IjoiaHR0cHM6Ly9vcmlnaW4udG=\r\nVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZ=\r\nSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW=\r\n0N7JZ8LU=3D no newline',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQpDb250ZW50LVRyYW5zZmVyLUVuY29kaW5nOiBxdW90ZWQtcHJpbnRhYmxlDQoNCmh0dHBzOi8vb3JpZ2luLnRlc3QvYT94PTNEMSZ5PTNEMiBubyBuZXdsaW5lDQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-multipart",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\npreamble\r\n--outer\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\r\n--outer\r\nContent-Type: multipart/alternative; boundary=inner\r\n\r\n--inner\r\nContent-Type: text/html\r\n\r\n\u003ca href=\"https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\"\u003elink\u003c/a\u003e\r\n--inner--\r\n--outer\r\nContent-Type: application/octet-stream\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\r\n--outer\r\nContent-Type: text/calendar\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=\r\n--outer--\r\nepilogue',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiBtdWx0aXBhcnQvbWl4ZWQ7IGJvdW5kYXJ5PW91dGVyDQoNCnByZWFtYmxlDQotLW91dGVyDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW4NCg0KaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MSZ5PTINCi0tb3V0ZXINCkNvbnRlbnQtVHlwZTogbXVsdGlwYXJ0L2FsdGVybmF0aXZlOyBib3VuZGFyeT1pbm5lcg0KDQotLWlubmVyDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbA0KDQo8aHRtbD48aGVhZD48L2hlYWQ+PGJvZHk+PGEgaHJlZj0iaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MSZhbXA7eT0yIj5saW5rPC9hPjwvYm9keT48L2h0bWw+DQotLWlubmVyLS0NCi0tb3V0ZXINCkNvbnRlbnQtVHlwZTogYXBwbGljYXRpb24vb2N0ZXQtc3RyZWFtDQoNCmh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWhQM2c5TVZ4MU1EQXlObms5TWlJc0ltMGlPaUpjZFRBd00yTndjbTkwWldOMFpXUkFjMjEwY0RNdWRHVnpkRngxTURBelpTSXNJbUlpT2prek5EZ3dNakVzSW1VaU9qUXhNREkwTkRRNE1EQjkuTjV2Y2tSOWI5VEdYNGwzSUFyb2RkVVF2TkJGY0FqdGVFYVcwTjdKWjhMVT0NCi0tb3V0ZXINCkNvbnRlbnQtVHlwZTogdGV4dC9jYWxlbmRhcg0KDQpodHRwczovL21haWwuc210cDMudGVzdC9saW5rLXByb3RlY3Q/dG9rZW49ZXlKMUlqb2lhSFIwY0hNNkx5OXZjbWxuYVc0dWRHVnpkQzloUDNnOU1WeDFNREF5Tm5rOU1pSXNJbTBpT2lKY2RUQXdNMk53Y205MFpXTjBaV1JBYzIxMGNETXVkR1Z6ZEZ4MU1EQXpaU0lzSW1JaU9qa3pORGd3TWpFc0ltVWlPalF4TURJME5EUTRNREI5Lk41dmNrUjliOVRHWDRsM0lBcm9kZFVRdk5CRmNBanRlRWFXME43Slo4TFU9DQotLW91dGVyLS0NCmVwaWxvZ3VlDQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-broken-multipart",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiBtdWx0aXBhcnQvbWl4ZWQ7IGJvdW5kYXJ5PW91dGVyDQoNCi0tb3V0ZXINCkNvbnRlbnQtVHlwZTogdGV4dC9wbGFpbg0KDQpodHRwczovL21haWwuc210cDMudGVzdC9saW5rLXByb3RlY3Q/dG9rZW49ZXlKMUlqb2lhSFIwY0hNNkx5OXZjbWxuYVc0dWRHVnpkQzloUDNnOU1WeDFNREF5Tm5rOU1pSXNJbTBpT2lKY2RUQXdNMk53Y205MFpXTjBaV1JBYzIxMGNETXVkR1Z6ZEZ4MU1EQXpaU0lzSW1JaU9qa3pORGd3TWpFc0ltVWlPalF4TURJME5EUTRNREI5Lk41dmNrUjliOVRHWDRsM0lBcm9kZFVRdk5CRmNBanRlRWFXME43Slo4TFU9DQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-invalid-base64",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQpDb250ZW50LVRyYW5zZmVyLUVuY29kaW5nOiBiYXNlNjQNCg0KaHR0cHM6Ly9tYWlsLnNtdHAzLnRlc3QvbGluay1wcm90ZWN0P3Rva2VuPWV5SjFJam9pYUhSMGNITTZMeTl2Y21sbmFXNHVkR1Z6ZEM5aFAzZzlNVngxTURBeU5uazlNaUlzSW0waU9pSmNkVEF3TTJOd2NtOTBaV04wWldSQWMyMTBjRE11ZEdWemRGeDFNREF6WlNJc0ltSWlPamt6TkRnd01qRXNJbVVpT2pReE1ESTBORFE0TURCOS5ONXZja1I5YjlUR1g0bDNJQXJvZGRVUXZOQkZjQWp0ZUVhVzBON0paOExVPQ0KLg0K"
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": [
+      "GET /mail/https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU="
+    ],
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-unknown-inert",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "failed to read blob content: The specified key does not exist.",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  },
+  {
+    "blob_requests": [
+      "GET /mail/https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg="
+    ],
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-unknown-markup",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC8_cT1cIlx1MDAzZVx1MDAzY3NjcmlwdFx1MDAzZWFsZXJ0KDEpXHUwMDNjL3NjcmlwdFx1MDAzZSIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.KOfyTfGvZMzrUhfyG6qJ3f49vOXX13qXDVXp4qhAlNg=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "deferred",
+          "attempt_count": 1,
+          "last_error": "failed to read blob content: The specified key does not exist.",
+          "delivered": false,
+          "backoff_minutes": 1
+        }
+      ],
+      "attempts": [],
+      "traces": [],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": []
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-calendar-unchanged",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/calendar\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L2NhbGVuZGFyDQoNCmh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWhQM2c5TVZ4MU1EQXlObms5TWlJc0ltMGlPaUpjZFRBd00yTndjbTkwWldOMFpXUkFjMjEwY0RNdWRHVnpkRngxTURBelpTSXNJbUlpT2prek5EZ3dNakVzSW1VaU9qUXhNREkwTkRRNE1EQjkuTjV2Y2tSOWI5VEdYNGwzSUFyb2RkVVF2TkJGY0FqdGVFYVcwTjdKWjhMVT0NCi4NCg=="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-token-refusals",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9leHBpcmVkIiwibSI6Ilx1MDAzY3Byb3RlY3RlZEBzbXRwMy50ZXN0XHUwMDNlIiwiYiI6OTM0ODAyMSwiZSI6MX0=.sWs11iKVGXAuII2qgApNh39jhuaAb6tJpBpyMCPzB9g= https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9mb3JlaWduIiwibSI6Ilx1MDAzY3Byb3RlY3RlZEBzbXRwMy50ZXN0XHUwMDNlIiwiYiI6OTM0ODAyMSwiZSI6NDEwMjQ0NDgwMH0=.7oXsPz9iq9D1x1R4dgy-WfIKxI49t2t6H1UEPUCp4aQ= https://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9cclxuSW5qZWN0ZWQ6IHgiLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.4UfF2EWbFYoxzSTtpgXXU_O90ur6e6P693c1YDwlwHo=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQoNCmh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWxlSEJwY21Wa0lpd2liU0k2SWx4MU1EQXpZM0J5YjNSbFkzUmxaRUJ6YlhSd015NTBaWE4wWEhVd01ETmxJaXdpWWlJNk9UTTBPREF5TVN3aVpTSTZNWDA9LnNXczExaUtWR1hBdUlJMnFnQXBOaDM5amh1YUFiNnRKcEJweU1DUHpCOWc9IGh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOW1iM0psYVdkdUlpd2liU0k2SWx4MU1EQXpZM0J5YjNSbFkzUmxaRUJ6YlhSd015NTBaWE4wWEhVd01ETmxJaXdpWWlJNk9UTTBPREF5TVN3aVpTSTZOREV3TWpRME5EZ3dNSDA9LjdvWHNQejlpcTlEMXgxUjRkZ3ktV2ZJS3hJNDl0MnQ2SDFVRVBVQ3A0YVE9IGh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWNjbHh1U1c1cVpXTjBaV1E2SUhnaUxDSnRJam9pWEhVd01ETmpjSEp2ZEdWamRHVmtRSE50ZEhBekxuUmxjM1JjZFRBd00yVWlMQ0ppSWpvNU16UTRNREl4TENKbElqbzBNVEF5TkRRME9EQXdmUT09LjRVZkYyRVdiRllveHpTVHRwZ1hYVV9POTB1cjZlNlA2OTNjMVlEd2x3SG89DQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-retiring-key",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9vbGQiLCJtIjoiXHUwMDNjcHJvdGVjdGVkQHNtdHAzLnRlc3RcdTAwM2UiLCJiIjo5MzQ4MDIxLCJlIjo0MTAyNDQ0ODAwfQ==.vw1byCH_wauwnJ95SFvp_Auw_MH7s5cfxLKR-tnnlRw=',0,9348021,9350001,true);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQoNCmh0dHBzOi8vb3JpZ2luLnRlc3Qvb2xkDQouDQo="
+        ]
+      }
+    ]
+  },
+  {
+    "blob_requests": null,
+    "case": {
+      "link_secret": "smtp3-link-current",
+      "link_previous": "smtp3-link-previous",
+      "link_version": 2,
+      "blobs": null,
+      "timeout_ms": 0,
+      "data_timeout_ms": 0,
+      "hang_at": "",
+      "barrier": 0,
+      "tls": false,
+      "advertise_tls": false,
+      "starttls_reply": "",
+      "tls_final": false,
+      "name": "unwrap-not-forward",
+      "sql": "INSERT INTO folders(id,mailbox_id,name,path,role) VALUES (9350021,9348021,'Sent','Sent','sent');\nINSERT INTO messages(id,mailbox_id,folder_id,thread_id,message_id,received_at,subject,from_addr,raw_ref) VALUES (9350001,9348021,9350021,'thread-smtp3','\u003coutbound@smtp3.test\u003e',now(),'Outbound','sender@smtp3.test','fixture');\nINSERT INTO outbound_queue(id,message_id,from_addr,rcpt_addrs,raw_ref,attempt_count,mailbox_id,message_pk,forward_unwrap_links) VALUES (9350011,'\u003coutbound@smtp3.test\u003e','sender@smtp3.test',ARRAY['one@dest.test'],'From: sender@smtp3.test\r\nSubject: forwarded\r\nContent-Type: text/plain\r\n\r\nhttps://mail.smtp3.test/link-protect?token=eyJ1IjoiaHR0cHM6Ly9vcmlnaW4udGVzdC9hP3g9MVx1MDAyNnk9MiIsIm0iOiJcdTAwM2Nwcm90ZWN0ZWRAc210cDMudGVzdFx1MDAzZSIsImIiOjkzNDgwMjEsImUiOjQxMDI0NDQ4MDB9.N5vckR9b9TGX4l3IAroddUQvNBFcAjteEaW0N7JZ8LU=',0,9348021,9350001,false);",
+      "mx": {
+        "dest.test": [
+          "mx.dest.test."
+        ]
+      },
+      "replies": null,
+      "greeting": "",
+      "data_reply": "",
+      "final_reply": "",
+      "ticks": 1
+    },
+    "effects": {
+      "queue": [
+        {
+          "id": 9350011,
+          "status": "delivered",
+          "attempt_count": 1,
+          "last_error": null,
+          "delivered": true,
+          "backoff_minutes": null
+        }
+      ],
+      "attempts": [
+        {
+          "message_pk": 9350001,
+          "mailbox_id": 9348021,
+          "recipient_email": "one@dest.test",
+          "mx_host": "mx.dest.test.",
+          "attempt_number": 1,
+          "smtp_code": 250,
+          "smtp_text": "250 queued",
+          "outcome": "accepted",
+          "tls": false
+        }
+      ],
+      "traces": [
+        {
+          "message_id": "\u003coutbound@smtp3.test\u003e",
+          "event": "delivered",
+          "from_addr": "sender@smtp3.test",
+          "rcpt_addr": "one@dest.test",
+          "remote_host": "mx.dest.test.",
+          "details": {
+            "total": 1,
+            "delivered": 1
+          }
+        }
+      ],
+      "audit_count": 0,
+      "mailbox_states": [
+        [
+          9348021,
+          0,
+          0
+        ],
+        [
+          9348022,
+          0,
+          0
+        ],
+        [
+          9348023,
+          0,
+          0
+        ]
+      ]
+    },
+    "receipts": [
+      {
+        "host": "mx.dest.test.",
+        "commands": [
+          "EHLO \u003chostname\u003e",
+          "MAIL FROM:\u003csender@smtp3.test\u003e",
+          "RCPT TO:\u003cone@dest.test\u003e",
+          "DATA"
+        ],
+        "data": [
+          "RnJvbTogc2VuZGVyQHNtdHAzLnRlc3QNClN1YmplY3Q6IGZvcndhcmRlZA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQoNCmh0dHBzOi8vbWFpbC5zbXRwMy50ZXN0L2xpbmstcHJvdGVjdD90b2tlbj1leUoxSWpvaWFIUjBjSE02THk5dmNtbG5hVzR1ZEdWemRDOWhQM2c5TVZ4MU1EQXlObms5TWlJc0ltMGlPaUpjZFRBd00yTndjbTkwWldOMFpXUkFjMjEwY0RNdWRHVnpkRngxTURBelpTSXNJbUlpT2prek5EZ3dNakVzSW1VaU9qUXhNREkwTkRRNE1EQjkuTjV2Y2tSOWI5VEdYNGwzSUFyb2RkVVF2TkJGY0FqdGVFYVcwTjdKWjhMVT0NCi4NCg=="
+        ]
+      }
+    ]
+  }
+]

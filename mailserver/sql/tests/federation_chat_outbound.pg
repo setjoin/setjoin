@@ -1,0 +1,124 @@
+-- federation_chat_outbound.pg — Pillar C1 Task 2: the outbound chat<->
+-- federation bridge (federation_dm_ensure + chat_message_send's federated
+-- branch). Requires: federation_dm_ensure.sql, chat_message.sql (this
+-- task's federated branch), federation_peer_authorize.sql,
+-- federation_enqueue.sql (both C0), V139 (chat_channels/chat_messages
+-- federation columns).
+BEGIN;
+SELECT plan(23);
+
+-- ── fixture: a local org (alpha.test) with two real users — federation_dm_
+-- ensure/chat_message_send both resolve users.email for fromAddr, so (unlike
+-- chat_message.pg's bare-bigint member ids) this file needs REAL users rows.
+INSERT INTO domains (name, is_local) VALUES ('alpha.test', TRUE)
+  ON CONFLICT (name) DO NOTHING;
+SELECT id AS dom_id FROM domains WHERE name = 'alpha.test' \gset
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (80001, 'alice', :dom_id, 'alice@alpha.test', 'Alice', 'x')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash)
+  VALUES (80002, 'carol', :dom_id, 'carol@alpha.test', 'Carol', 'x')
+  ON CONFLICT (id) DO NOTHING;
+
+-- bravo.test is allow-listed + enabled for dm scope (the mutual opt-in row).
+INSERT INTO federation_allowlist (peer_domain, peer_anchor, scope, enabled)
+  VALUES ('bravo.test', 'test fixture anchor', 'dm', true)
+  ON CONFLICT (peer_domain) DO NOTHING;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 federation_dm_ensure: local refusal gate + dedup + channel shape
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT throws_ok(
+  $$ SELECT federation_dm_ensure(80001, 'eve@notlisted.test') $$,
+  'BZ204', NULL, 'a peer domain with no local allow-list row refuses with BZ204'
+);
+
+SELECT federation_dm_ensure(80001, 'bob@bravo.test') AS ch1 \gset
+SELECT federation_dm_ensure(80001, 'bob@bravo.test') AS ch2 \gset
+SELECT is(:ch1::bigint, :ch2::bigint,
+  'federation_dm_ensure is idempotent — calling twice for the same (local,remote) returns the SAME channel');
+
+SELECT is((SELECT kind FROM chat_channels WHERE id = :ch1), 'dm', 'the federated DM channel kind is dm');
+SELECT is((SELECT federated_peer_domain FROM chat_channels WHERE id = :ch1), 'bravo.test',
+  'federated_peer_domain is set to the parsed peer domain');
+SELECT is((SELECT federated_remote_id FROM chat_channels WHERE id = :ch1), 'bob@bravo.test',
+  'federated_remote_id is set to the bare remote address');
+SELECT is((SELECT member_key FROM chat_channels WHERE id = :ch1), NULL::text,
+  'member_key stays NULL for a federated DM (a parallel key, not the normal DM identity)');
+SELECT is((SELECT count(*)::int FROM chat_channel_members WHERE channel_id = :ch1), 1,
+  'the federated DM has exactly ONE chat_channel_members row');
+SELECT is((SELECT user_id FROM chat_channel_members WHERE channel_id = :ch1), 80001::bigint,
+  'the sole member is the local user — the remote party is never a member row');
+
+SELECT federation_dm_ensure(80002, 'bob@bravo.test') AS ch3 \gset
+SELECT isnt(:ch1::bigint, :ch3::bigint,
+  'a DIFFERENT local user talking to the same remote address gets a DIFFERENT channel (key includes local addr)');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 chat_message_send federated branch: toggle-refused, size-capped
+-- ══════════════════════════════════════════════════════════════════════
+
+-- feature.federation is seeded OFF (V138) — untouched so far in this file.
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(80001, %s, 'hi bob') $$, :ch1),
+  'BZ206', NULL, 'a federated send while feature.federation is OFF raises BZ206 (never a silent queue)'
+);
+
+UPDATE feature_toggles SET enabled = true WHERE key = 'feature.federation';
+
+SELECT throws_ok(
+  format($$ SELECT chat_message_send(80001, %s, repeat('x', 65537)) $$, :ch1),
+  'BZ206', NULL, 'a federated body over 64KiB raises BZ206 (mirrors the inbound poison cap), even with the toggle on'
+);
+
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 0,
+  'neither BZ206 refusal above left a chat_messages row behind');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 0,
+  'neither BZ206 refusal above left a federation_outbox row behind');
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 a real federated send: one chat_messages row + one federation_outbox
+--    row, atomically, with a matching stanza payload
+-- ══════════════════════════════════════════════════════════════════════
+
+SELECT chat_message_send(80001, :ch1, 'hello bob') AS send1 \gset
+SELECT (:'send1'::jsonb ->> 'messageId')::bigint AS msg1_id \gset
+
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE id = :msg1_id), 1,
+  'the local chat_messages row was written');
+SELECT is((SELECT author_id FROM chat_messages WHERE id = :msg1_id), 80001::bigint,
+  'author_id is the local sender on the OUTBOUND side (author_id=NULL/federated_sender_addr is inbound-only, Task 4)');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test' AND stanza_id = :msg1_id::text), 1,
+  'exactly one federation_outbox row was enqueued with a matching stanza_id (the sender-local message id)');
+SELECT is(
+  (SELECT payload ->> 'fromAddr' FROM federation_outbox WHERE peer_domain = 'bravo.test' AND stanza_id = :msg1_id::text),
+  'alice@alpha.test', 'the outbox stanza payload fromAddr is the local sender''s primary address');
+SELECT is(
+  (SELECT payload ->> 'toAddr' FROM federation_outbox WHERE peer_domain = 'bravo.test' AND stanza_id = :msg1_id::text),
+  'bob@bravo.test', 'the outbox stanza payload toAddr is the federated remote address');
+SELECT is(
+  (SELECT payload ->> 'body' FROM federation_outbox WHERE peer_domain = 'bravo.test' AND stanza_id = :msg1_id::text),
+  'hello bob', 'the outbox stanza payload body matches what was sent');
+SELECT is(
+  (SELECT payload ->> 'clientMsgId' FROM federation_outbox WHERE peer_domain = 'bravo.test' AND stanza_id = :msg1_id::text),
+  :msg1_id::text, 'the outbox stanza payload clientMsgId is the sender-local chat_messages.id');
+SELECT is(
+  (SELECT change_seq FROM chat_channels WHERE id = :ch1),
+  (SELECT seq FROM chat_messages WHERE id = :msg1_id),
+  'change_seq was bumped and the message row re-stamped, same as any other send (the seq rail is unmodified by federation)');
+
+-- Atomicity: rolling back a (successful) federated send to a savepoint taken
+-- before it leaves NEITHER the chat_messages row NOR the federation_outbox
+-- row — proving the two writes are coupled in the SAME transaction, the
+-- federation_ordering.pg "rollback-of-enqueue leaves no gap" technique.
+SAVEPOINT before_aborted_send;
+SELECT chat_message_send(80001, :ch1, 'this should vanish on rollback');
+ROLLBACK TO SAVEPOINT before_aborted_send;
+SELECT is((SELECT count(*)::int FROM chat_messages WHERE channel_id = :ch1), 1,
+  'after rolling back an aborted send, only the ONE earlier COMMITTED message remains');
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'bravo.test'), 1,
+  'after rolling back an aborted send, only the ONE earlier COMMITTED outbox row remains — rollback leaves neither write');
+
+SELECT * FROM finish();
+ROLLBACK;

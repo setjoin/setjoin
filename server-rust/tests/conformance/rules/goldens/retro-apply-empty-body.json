@@ -1,0 +1,172 @@
+{
+  "case": "empty-body",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "rules": [
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961001,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-actor>",
+              "name": "Actor rule",
+              "priority": 1,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            },
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961002,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-other>",
+              "name": "Other rule",
+              "priority": 2,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            }
+          ],
+          "scheduled_actions": [
+            {
+              "action_kind": "rules_retro",
+              "attempts": 0,
+              "created_at": "<timestamp>",
+              "dedup_key": "rules_retro:<mailbox-actor>:961001",
+              "fire_at": "<timestamp>",
+              "id": "<value>",
+              "last_error": null,
+              "locked_by": null,
+              "locked_until": null,
+              "mailbox_id": "<mailbox-actor>",
+              "payload": {
+                "rule_id": 961001,
+                "window": "90d"
+              },
+              "status": "pending",
+              "updated_at": "<timestamp>"
+            }
+          ],
+          "states": [
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-actor>",
+              "tag": 0
+            },
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-other>",
+              "tag": 0
+            }
+          ]
+        },
+        "before": {
+          "rules": [
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961001,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-actor>",
+              "name": "Actor rule",
+              "priority": 1,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            },
+            {
+              "actions": [],
+              "conditions": [],
+              "created_at": "2026-10-01T00:00:00+00:00",
+              "enabled": true,
+              "id": 961002,
+              "is_transport_rule": false,
+              "mailbox_id": "<mailbox-other>",
+              "name": "Other rule",
+              "priority": 2,
+              "run_on": "server",
+              "stop_processing": false,
+              "updated_at": "2026-10-01T00:00:00+00:00",
+              "user_id": null
+            }
+          ],
+          "scheduled_actions": [],
+          "states": [
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-actor>",
+              "tag": 0
+            },
+            {
+              "email": 0,
+              "mailbox_id": "<mailbox-other>",
+              "tag": 0
+            }
+          ]
+        },
+        "table": "rules"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "{}",
+      "method": "POST",
+      "path": "/settings/rules/{id}/apply"
+    },
+    "response": {
+      "body": "{\"actionId\":\"<value>\",\"status\":\"queued\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "41"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-rules1-oracle"
+        ]
+      },
+      "status": 202
+    }
+  },
+  "route": "POST /settings/rules/{id}/apply"
+}

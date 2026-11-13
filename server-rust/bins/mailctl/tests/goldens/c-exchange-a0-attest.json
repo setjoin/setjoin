@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "Unsigned, non-importable A0/v0 handling receipt written to $HOME/receipt.json\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "receipt.json": {
+      "body": "{\n  \"schemaVersion\": \"setjoin.exchange.a0.receipt/v0\",\n  \"receiptKind\": \"handling\",\n  \"receiptId\": \"7073f5d0535c5a386fa0f12ba05160e7413c7808bc450e6aa100abbe6be93d33\",\n  \"reportDigest\": \"6e89ea0dc69cc806cc2f7233e8faca6622d430515fc7a353928afb7acfe033c0\",\n  \"organization\": \"Example Org\",\n  \"actor\": \"Operator\",\n  \"decision\": \"accepted\",\n  \"purpose\": \"Migration review\",\n  \"retentionDays\": 30,\n  \"issuedAt\": \"2026-08-24T00:00:00Z\",\n  \"signatureStatus\": \"unsigned_customer_attestation\",\n  \"importable\": false\n}\n",
+      "mode": 384
+    }
+  }
+}

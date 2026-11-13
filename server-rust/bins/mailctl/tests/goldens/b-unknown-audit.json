@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown audit action: unsupported (try: export, verify-chain)\n",
+  "exit": 1
+}

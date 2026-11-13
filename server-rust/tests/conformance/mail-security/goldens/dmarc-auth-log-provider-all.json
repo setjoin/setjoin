@@ -1,0 +1,70 @@
+{
+  "case": "provider-all",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "auth_event_log": 6,
+          "dmarc_reports": 0,
+          "failed_messages": 0
+        },
+        "before": {
+          "auth_event_log": 6,
+          "dmarc_reports": 0,
+          "failed_messages": 0
+        },
+        "table": "dmarc"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/auth-log",
+      "method": "GET",
+      "path": "/admin/auth-log",
+      "query": "?provider=all&event=all"
+    },
+    "response": {
+      "body": "[{\"id\":\"<e6>\",\"email\":\"kerb@auth-oracle.test\",\"event\":\"login\",\"provider\":\"kerberos\",\"ipAddress\":\"192.0.2.77\",\"occurredAt\":\"<timestamp>\"},{\"id\":\"<e1>\",\"userId\":\"<actor>\",\"email\":\"owner@auth-oracle.test\",\"event\":\"login\",\"provider\":\"bcrypt\",\"ipAddress\":\"10.0.0.1\",\"occurredAt\":\"<timestamp>\"},{\"id\":\"<e2>\",\"email\":\"ghost@auth-oracle.test\",\"event\":\"login_failed\",\"provider\":\"ldap\",\"ipAddress\":\"2001:db8::1\",\"occurredAt\":\"<timestamp>\"}]\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "431"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/auth-log"
+}

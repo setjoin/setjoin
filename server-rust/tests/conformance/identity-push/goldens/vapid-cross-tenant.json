@@ -1,0 +1,24 @@
+{
+  "case": "vapid-cross-tenant",
+  "format": 1,
+  "go_source": "e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/auth/push/vapid-key"
+    },
+    "response": {
+      "body": "{\"vapid_public_key\":\"BG_wO5SSQc4drdQ1GeaWDgqFtBppoFwygQOqK84VlMoWPE91OlW_AdxT9sCwx-7ni0DG_30lqW4igrmJzvccFEo\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/push/vapid-key"
+}

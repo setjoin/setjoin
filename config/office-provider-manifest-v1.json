@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "setjoin.office.provider-manifest/v1",
+  "manifestVersion": 1,
+  "featureDefaults": {
+    "feature.drive": "on",
+    "feature.drive_history": "on",
+    "feature.office_editing": "on",
+    "feature.office_local_open": "on"
+  },
+  "authority": {
+    "owner": "setjoin",
+    "bytes": "drive_file_versions",
+    "branches": "drive_file_branches",
+    "locks": "drive_reducer_and_office_wopi_bridge",
+    "history": "drive_file_history_query",
+    "providerCredentials": "none"
+  },
+  "webPolicy": {
+    "editing": "online_only",
+    "offlineEditing": "not_advertised",
+    "localOpen": "desktop_only",
+    "mobile": "read_only_history_preview_download"
+  },
+  "providers": [
+    {
+      "id": "fake",
+      "status": "test_only",
+      "adapterProtocol": "setjoin.office.provider-core/v1",
+      "deploymentProfile": "in_process_contract_fixture",
+      "modes": ["contract_test"],
+      "actions": ["choices", "open", "lock", "finish", "history", "stale_branch"],
+      "fileFamilies": ["word", "sheet", "presentation"],
+      "dataEgress": "none",
+      "entitlement": "not_required_for_contract_fixture",
+      "build": {
+        "id": "fake-provider-contract-v1",
+        "source": "repository_fixture",
+        "digest": "not_applicable_fixture"
+      },
+      "capabilityDowngrades": [],
+      "removal": {
+        "supported": true,
+        "proof": "drive_authority_remains_available"
+      }
+    },
+    {
+      "id": "collabora",
+      "status": "external_gate",
+      "adapterProtocol": "wopi-and-provider-core-v1",
+      "deploymentProfile": "external_pinned_sidecar",
+      "modes": ["edit_online", "co_edit"],
+      "actions": [
+        "choices",
+        "open",
+        "finish",
+        "check_file_info",
+        "get_file",
+        "put_file",
+        "lock",
+        "refresh_lock",
+        "unlock",
+        "unlock_and_relock"
+      ],
+      "fileFamilies": ["word", "sheet", "presentation"],
+      "dataEgress": "wopi_host_only_by_default",
+      "entitlement": "external_review_required",
+      "build": {
+        "id": null,
+        "source": "pinned_source_or_customer_byol",
+        "digest": null
+      },
+      "capabilityDowngrades": [
+        "missing_build_or_license_evidence",
+        "unsupported_format_or_platform_cell",
+        "unverified_font_or_notice_set"
+      ],
+      "removal": {
+        "supported": true,
+        "proof": "originals_history_preview_download_restore_audit_survive"
+      }
+    }
+  ],
+  "securityBoundary": {
+    "databaseCredentials": false,
+    "objectStoreCredentials": false,
+    "signingCredentials": false,
+    "tenantWideCredentials": false,
+    "activeContent": "deny_by_default",
+    "callbackAuthorization": "recheck_current_capability_and_fence"
+  }
+}

@@ -1,0 +1,41 @@
+-- pgTAP: flag-for-follow-up due/reminder fields on Email/set + Email/get (A2).
+BEGIN;
+SELECT plan(6);
+
+INSERT INTO domains (name, is_local) VALUES ('fu.test', TRUE);
+INSERT INTO mailboxes (id, domain_id, email, display_name, type)
+VALUES (910, (SELECT id FROM domains WHERE name = 'fu.test'), 'fu@fu.test', 'FU', 'personal');
+
+INSERT INTO messages (id, mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, thread_id, raw_ref, received_at, is_read)
+VALUES (6001, 910, get_tag_id('Inbox', 910), '<fu1@fu.test>', 'Follow up', 'a@ext.com', 100, 'thr-6001', 's3://raw-6001', now(), FALSE);
+SELECT tag_message(6001, (SELECT received_at FROM messages WHERE id = 6001), 'Inbox', 910, 'deliver', TRUE);
+
+-- ── set a follow-up flag with due + reminder via Email/set patch ──
+SELECT lives_ok($$
+  SELECT jmap_email_set_update(910, jsonb_build_object('6001',
+    jsonb_build_object('keywords', jsonb_build_object('$flagged', true),
+      'flagDueAt', '2026-06-20T17:00:00Z', 'flagReminderAt', '2026-06-20T16:00:00Z')))
+$$, 'set follow-up flag');
+
+SELECT is((SELECT is_flagged FROM messages WHERE id = 6001), TRUE, 'flagged');
+SELECT is((SELECT flag_due_at FROM messages WHERE id = 6001),
+  '2026-06-20T17:00:00Z'::timestamptz, 'due stored');
+SELECT is((SELECT flag_reminder_at FROM messages WHERE id = 6001),
+  '2026-06-20T16:00:00Z'::timestamptz, 'reminder stored');
+
+-- ── jmap_email_get echoes the follow-up fields (compare as instants so the test
+--    is independent of the session TimeZone the JSON renderer uses) ──
+SELECT is(
+  (jmap_email_get(910, ARRAY[6001::BIGINT])->'list'->0->>'flagDueAt')::timestamptz,
+  '2026-06-20T17:00:00Z'::timestamptz, 'flagDueAt round-trips');
+
+-- ── clearing the flag ($flagged:false) nulls both follow-up columns ──
+SELECT jmap_email_set_update(910, jsonb_build_object('6001',
+  jsonb_build_object('keywords', jsonb_build_object('$flagged', false))));
+SELECT ok(
+  (SELECT flag_due_at FROM messages WHERE id = 6001) IS NULL
+  AND (SELECT flag_reminder_at FROM messages WHERE id = 6001) IS NULL,
+  'clearing the flag nulls due + reminder');
+
+SELECT * FROM finish();
+ROLLBACK;

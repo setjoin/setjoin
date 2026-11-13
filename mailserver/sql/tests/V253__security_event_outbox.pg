@@ -1,0 +1,155 @@
+-- pgTAP for V253 security_event_outbox + security_event_enqueue (L2-C4).
+--
+-- Covers the r2-amended test surface:
+--   * isolation posture: ENABLE+FORCE RLS with ZERO permissive policies,
+--     owner setjoin_owner (deny-all to every runtime role);
+--   * table denial: setjoin_app INSERT raises 42501, SELECT sees zero rows,
+--     UPDATE touches zero rows (rows exist — inserted by the worker);
+--   * function-call denial (the surface that matters, r2 C4-1):
+--     setjoin_app has NO EXECUTE on security_event_enqueue(text,jsonb) and a
+--     live call raises 42501; setjoin_worker EXECUTE succeeds and notifies;
+--   * carve-out survival: re-applying the provisioning grant sequence (the
+--     broad GRANT EXECUTE ON ALL FUNCTIONS, then the provision-roles.sql
+--     worker-only carve-out) keeps the app denial;
+--   * reducer behavior: insert → row + app_notify tee on channel
+--     security_event_outbox with the stable event id; BZ040 on invalid
+--     event_type/payload; atomicity (failure → no row, no tee; success inside
+--     a rolled-back transaction → neither survives);
+--   * status CHECK constraints (pending|done|failed, delivered_at shape).
+BEGIN;
+SELECT plan(27);
+
+-- ── 1. Isolation posture ─────────────────────────────────────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'security_event_outbox'::regclass),
+  true, 'V253: security_event_outbox has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'security_event_outbox'::regclass),
+  true, 'V253: security_event_outbox RLS is FORCEd (owner included)');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'security_event_outbox'),
+  0, 'V253: ZERO permissive policies — deny-all to every runtime role');
+SELECT is(
+  (SELECT tableowner FROM pg_tables WHERE tablename = 'security_event_outbox'),
+  'setjoin_owner', 'V253: table ownership sits with setjoin_owner (DDL owner)');
+
+-- ── 2. Function ACLs (r2 C4-1: the load-bearing denial surface) ──────────────
+SELECT is(
+  has_function_privilege('setjoin_app', 'security_event_enqueue(text,jsonb)', 'EXECUTE'),
+  false, 'V253: setjoin_app has NO EXECUTE on the enqueue reducer (no apply_worker_ownership app grant)');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'security_event_enqueue(text,jsonb)', 'EXECUTE'),
+  true, 'V253: setjoin_worker holds the EXECUTE grant on the enqueue reducer');
+
+-- ── 3. Baseline ──────────────────────────────────────────────────────────────
+SELECT set_config('app.capture_notify', 'on', false);
+SELECT is((SELECT count(*)::int FROM security_event_outbox), 0,
+  'outbox starts empty');
+SELECT is((SELECT count(*)::int FROM _test_notify_log WHERE channel = 'security_event_outbox'), 0,
+  'notify tee starts empty for channel security_event_outbox');
+
+-- ── 4. Worker success control: enqueue on the owning credential ─────────────
+SET LOCAL ROLE setjoin_worker;
+SELECT security_event_enqueue('secevents.test', '{"kind":"pgtap"}') AS ev_id \gset
+SELECT ok(:ev_id > 0, 'setjoin_worker EXECUTE enqueues and returns a stable event id');
+SELECT ok(
+  (SELECT event_type = 'secevents.test'
+          AND payload = '{"kind":"pgtap"}'::jsonb
+          AND status = 'pending'
+          AND attempts = 0
+          AND claim_generation = 0
+          AND delivered_at IS NULL
+     FROM security_event_outbox WHERE id = :ev_id),
+  'enqueued row carries event_type/payload and the pending/attempts=0/claim_generation=0 shape');
+SELECT is(
+  (SELECT payload::jsonb->>'event_id' FROM _test_notify_log
+    WHERE channel = 'security_event_outbox' ORDER BY seq DESC LIMIT 1),
+  :ev_id::text,
+  'app_notify tee fired on security_event_outbox with the stable event id');
+SELECT is(
+  (SELECT payload::jsonb->>'event_type' FROM _test_notify_log
+    WHERE channel = 'security_event_outbox' ORDER BY seq DESC LIMIT 1),
+  'secevents.test',
+  'app_notify tee payload names the event type');
+INSERT INTO security_event_outbox (event_type, payload) VALUES ('secevents.direct', '{"src":"pgtap"}');
+SELECT is(
+  (SELECT count(*)::int FROM security_event_outbox WHERE event_type = 'secevents.direct'),
+  1, 'worker credential writes the table directly (BYPASSRLS over the FORCE RLS deny-all)');
+RESET ROLE;
+
+-- ── 5. App credential: table + function denial (rows exist above) ───────────
+SET LOCAL ROLE setjoin_app;
+SELECT is((SELECT count(*)::int FROM security_event_outbox), 0,
+  'app credential sees ZERO rows despite worker-inserted rows (FORCE RLS deny-all)');
+SELECT throws_ok(
+  $stmt$INSERT INTO security_event_outbox (event_type, payload) VALUES ('secevents.appdeny', '{}')$stmt$,
+  '42501', NULL, 'app credential INSERT is denied (row violates row-level security policy)');
+-- Silently affects zero rows (no visible row); the state assert after RESET
+-- proves it.
+UPDATE security_event_outbox SET status = 'failed' WHERE event_type = 'secevents.test';
+SELECT throws_ok(
+  $stmt$SELECT security_event_enqueue('secevents.appdeny', '{}')$stmt$,
+  '42501', NULL, 'app credential EXECUTE of the enqueue reducer is denied (permission denied for function)');
+RESET ROLE;
+SELECT is(
+  (SELECT status FROM security_event_outbox WHERE event_type = 'secevents.test'),
+  'pending', 'app credential UPDATE touched nothing (no visible row under FORCE RLS deny-all)');
+
+-- ── 6. Reducer validation: BZ040 + atomicity of failures ────────────────────
+SELECT throws_ok(
+  $stmt$SELECT security_event_enqueue('Bad Type', '{"k":1}')$stmt$,
+  'BZ040', NULL, 'invalid event_type raises BZ040');
+SELECT throws_ok(
+  $stmt$SELECT security_event_enqueue('secevents.invalidpayload', '[1,2,3]')$stmt$,
+  'BZ040', NULL, 'non-object payload raises BZ040');
+SELECT ok(
+  (SELECT count(*) = 0 FROM security_event_outbox WHERE event_type LIKE 'secevents.appdeny%'
+          OR event_type LIKE 'secevents.invalid%')
+  AND (SELECT count(*) = 0 FROM _test_notify_log
+        WHERE channel = 'security_event_outbox'
+          AND payload::jsonb->>'event_type' LIKE 'secevents.appdeny%'),
+  'failed enqueues left no row and no notify tee (atomicity)');
+
+-- ── 7. Atomicity of success: rollback removes row AND tee ───────────────────
+SAVEPOINT atomic_enqueue;
+SELECT security_event_enqueue('secevents.atomic', '{"k":"rollback"}') AS atomic_id \gset
+SELECT ok(:atomic_id > 0, 'enqueue inside the transaction succeeds');
+ROLLBACK TO SAVEPOINT atomic_enqueue;
+SELECT ok(
+  (SELECT count(*) = 0 FROM security_event_outbox WHERE event_type = 'secevents.atomic')
+  AND (SELECT count(*) = 0 FROM _test_notify_log
+        WHERE channel = 'security_event_outbox'
+          AND payload::jsonb->>'event_type' = 'secevents.atomic'),
+  'rolled-back enqueue leaves neither row nor notify tee (data + notify commit together)');
+
+-- ── 8. Status CHECK constraints ──────────────────────────────────────────────
+SELECT throws_ok(
+  $stmt$INSERT INTO security_event_outbox (event_type, payload, status)
+        VALUES ('secevents.check', '{}', 'processing')$stmt$,
+  '23514', NULL, 'status is CHECKed to pending|done|failed — no processing state');
+SELECT throws_ok(
+  $stmt$INSERT INTO security_event_outbox (event_type, payload, status)
+        VALUES ('secevents.check', '{}', 'done')$stmt$,
+  '23514', NULL, 'terminal status done requires delivered_at (terminal shape CHECK)');
+
+-- ── 9. Carve-out survival: provisioning re-run keeps the denial ─────────────
+-- Replays the exact provisioning sequence: the broad GRANT EXECUTE ON ALL
+-- FUNCTIONS (provision-roles.sql:168) followed by the worker-only carve-out
+-- (:201 DO block — REVOKE from setjoin_app, GRANT to setjoin_worker).
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO setjoin_app, setjoin_worker;
+REVOKE ALL ON FUNCTION security_event_enqueue(text,jsonb) FROM setjoin_app;
+GRANT EXECUTE ON FUNCTION security_event_enqueue(text,jsonb) TO setjoin_worker;
+SELECT is(
+  has_function_privilege('setjoin_app', 'security_event_enqueue(text,jsonb)', 'EXECUTE'),
+  false, 'carve-out survival: after the broad re-grant the app EXECUTE denial holds');
+SELECT is(
+  has_function_privilege('setjoin_worker', 'security_event_enqueue(text,jsonb)', 'EXECUTE'),
+  true, 'carve-out survival: the worker EXECUTE grant holds after the re-grant');
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $stmt$SELECT security_event_enqueue('secevents.appdeny2', '{}')$stmt$,
+  '42501', NULL, 'carve-out survival: a live app-role call is still permission-denied');
+RESET ROLE;
+
+SELECT * FROM finish();
+ROLLBACK;

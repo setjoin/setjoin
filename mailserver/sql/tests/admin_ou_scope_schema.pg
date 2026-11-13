@@ -1,0 +1,73 @@
+-- pgTAP: admin_ou_scope_schema.pg
+--
+-- 7 tests covering V039 OU scope columns + delete-NULLs trigger:
+--   1. scope_type column exists
+--   2. scope_id column exists
+--   3. bad scope_type value rejected (CHECK: must be in allowed set)
+--   4. scope_type without scope_id rejected (CHECK: both-or-neither)
+--   5. scope_id without scope_type rejected (CHECK: both-or-neither)
+--   6. partial index exists (WHERE scope_type IS NOT NULL)
+--   7. delete-NULLs: deleting a department NULLs any OU-scoped assignment pointing at it
+--
+-- Seed ids: 953xx (avoids conflicts with other test files).
+
+BEGIN;
+SELECT plan(7);
+
+-- ── Tests 1-2: columns exist ─────────────────────────────────────────────────
+SELECT has_column('admin_role_assignments', 'scope_type', 'scope_type col');
+SELECT has_column('admin_role_assignments', 'scope_id',   'scope_id col');
+
+-- ── Test 3: bad scope_type rejected ──────────────────────────────────────────
+-- Need a domain + user + role group to satisfy FKs for the test INSERT.
+-- We seed them here so all three CHECK tests can share the same FK rows.
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE
+  VALUES (95301, 'ou-scope.test', TRUE);
+
+INSERT INTO public.users (id, username, domain_id, email, display_name, enabled) OVERRIDING SYSTEM VALUE VALUES
+  (95301, 'ous_granter', 95301, 'granter@ou-scope.test', 'G', TRUE),
+  (95302, 'ous_subject', 95301, 'subject@ou-scope.test', 'S', TRUE);
+
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope) OVERRIDING SYSTEM VALUE VALUES
+  (95301, 'ous-test-role', ARRAY['users.read'], NULL);
+
+SELECT throws_ok(
+  $$ INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+       VALUES (95302, 95301, 'bogus', 1, 95301) $$,
+  '23514', NULL, 'bad scope_type rejected');
+
+-- ── Test 4: scope_type without scope_id rejected (both-or-neither) ────────────
+SELECT throws_ok(
+  $$ INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, granted_by)
+       VALUES (95302, 95301, 'ou', 95301) $$,
+  '23514', NULL, 'scope_type without scope_id rejected');
+
+-- ── Test 5: scope_id without scope_type rejected (both-or-neither) ────────────
+SELECT throws_ok(
+  $$ INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_id, granted_by)
+       VALUES (95302, 95301, 1, 95301) $$,
+  '23514', NULL, 'scope_id without scope_type rejected');
+
+-- ── Test 6: partial index exists ─────────────────────────────────────────────
+SELECT has_index('admin_role_assignments', 'admin_role_assignments_scope_idx',
+  'partial scope index exists');
+
+-- ── Test 7: delete-NULLs trigger ─────────────────────────────────────────────
+-- Seed: a department + an OU-scoped assignment pointing at it.
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE
+  VALUES (95301, 'Engineering', '/eng', 'ou=Engineering,dc=ou-scope,dc=test');
+
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95302, 95301, 'ou', 95301, 95301);
+
+-- Delete the department — trigger must NULL the scope columns.
+DELETE FROM public.departments WHERE id = 95301;
+
+SELECT is(
+  (SELECT scope_type FROM public.admin_role_assignments
+    WHERE user_id = 95302 AND role_group_id = 95301 AND granted_by = 95301),
+  NULL,
+  'delete-NULLs: dept delete clears scope_type');
+
+SELECT * FROM finish();
+ROLLBACK;

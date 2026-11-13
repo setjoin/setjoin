@@ -1,0 +1,174 @@
+{
+  "case": "mailbox-lifecycle-effects",
+  "format": 1,
+  "go_source": "e536a115fdf99f2e0033fbe46f17a7d4db0a196c",
+  "observation": {
+    "audit": [
+      [
+        "revoke_user_sessions",
+        "user",
+        true
+      ]
+    ],
+    "delegates": [
+      [
+        false,
+        1
+      ]
+    ],
+    "effects": [
+      [
+        "29510000-0000-4000-8000-000000000001",
+        "evict_media",
+        "completed",
+        1,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000001",
+        "lifecycle_webhook",
+        "failed",
+        1,
+        false,
+        true,
+        "webhook dispatcher is not configured",
+        false
+      ],
+      [
+        "29510000-0000-4000-8000-000000000001",
+        "notify_clients",
+        "completed",
+        1,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000001",
+        "revoke_delegates",
+        "completed",
+        1,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000001",
+        "revoke_sessions",
+        "completed",
+        1,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000002",
+        "evict_media",
+        "failed",
+        1,
+        false,
+        true,
+        "LiveKit is not configured",
+        false
+      ],
+      [
+        "29510000-0000-4000-8000-000000000003",
+        "notify_clients",
+        "claimed",
+        1,
+        true,
+        true,
+        null,
+        false
+      ],
+      [
+        "29510000-0000-4000-8000-000000000004",
+        "notify_clients",
+        "pending",
+        20,
+        false,
+        null,
+        null,
+        false
+      ],
+      [
+        "29510000-0000-4000-8000-000000000005",
+        "notify_clients",
+        "completed",
+        4,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000006",
+        "notify_clients",
+        "completed",
+        4,
+        false,
+        null,
+        null,
+        true
+      ],
+      [
+        "29510000-0000-4000-8000-000000000007",
+        "lifecycle_webhook",
+        "failed",
+        1,
+        false,
+        true,
+        "mailbox lifecycle webhook payload is missing",
+        false
+      ]
+    ],
+    "notifies": [
+      {
+        "action": "suspend",
+        "mailbox_id": "<mailbox>",
+        "operation_id": "29510000-0000-4000-8000-000000000001"
+      },
+      {
+        "action": "suspend",
+        "mailbox_id": "<mailbox>",
+        "operation_id": "29510000-0000-4000-8000-000000000005"
+      },
+      {
+        "action": "suspend",
+        "mailbox_id": "<mailbox>",
+        "operation_id": "29510000-0000-4000-8000-000000000006"
+      }
+    ],
+    "outbox": [
+      [
+        "failed",
+        1,
+        "webhook dispatcher is not configured",
+        false
+      ]
+    ],
+    "revocations": [
+      [
+        true,
+        "all",
+        "mailbox_lifecycle.suspend"
+      ]
+    ],
+    "session_notifies": [
+      {
+        "expires_at": "<time>",
+        "family_id": null,
+        "jti": null,
+        "not_before": "<time>",
+        "scope": "all",
+        "user_id": "<actor>"
+      }
+    ]
+  }
+}

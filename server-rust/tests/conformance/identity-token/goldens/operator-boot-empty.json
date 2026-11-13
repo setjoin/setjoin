@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "before": [
+    {
+      "path": "/auth/scim/disable",
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-content-type-options": "nosniff"
+        },
+        "body": "404 page not found\n"
+      }
+    },
+    {
+      "path": "/admin/reload",
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-content-type-options": "nosniff"
+        },
+        "body": "404 page not found\n"
+      }
+    }
+  ],
+  "after": [
+    {
+      "path": "/auth/scim/disable",
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-content-type-options": "nosniff"
+        },
+        "body": "404 page not found\n"
+      }
+    },
+    {
+      "path": "/admin/reload",
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "x-content-type-options": "nosniff"
+        },
+        "body": "404 page not found\n"
+      }
+    }
+  ]
+}

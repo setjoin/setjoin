@@ -1,0 +1,9 @@
+{
+  "stdout": "  [..] webpush  absent\n  [..] apns     absent\n  [..] fcm      absent\n  [..] hms      absent\n",
+  "stderr": "",
+  "exit": 0,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

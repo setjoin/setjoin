@@ -1,0 +1,12 @@
+{
+  "requests": [],
+  "stdout": "Logged out.\n",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    ".mailctl/config.yaml": {
+      "body": "server: https://example.test\nauth:\n    mode: jwt\n    api_key: retained-key\n",
+      "mode": 384
+    }
+  }
+}

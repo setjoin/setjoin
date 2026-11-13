@@ -1,0 +1,81 @@
+{
+  "case": "cn-last",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "anchors": [
+            {
+              "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBsDCCAVWgAwIBAgIUQgCnv3TKx7iAT6yPrR6UI3NYBAMwCgYIKoZIzj0EAwIw\nLDEOMAwGA1UEAwwFZmlyc3QxGjAYBgNVBAMMEXNtaW1lLW9yYWNsZS1sYXN0MCAX\nDTI2MTAwMTAwMDAwMFoYDzIwOTUxMDAxMDAwMDAwWjAsMQ4wDAYDVQQDDAVmaXJz\ndDEaMBgGA1UEAwwRc21pbWUtb3JhY2xlLWxhc3QwWTATBgcqhkjOPQIBBggqhkjO\nPQMBBwNCAATDXvYmVFCpIWxIocGzHNACOP7eTKBJtKsU7xHmaBiabCFxwpGlEBtO\nLEvj0mfKMnyvGNZHTNE/GwP1KQeQ97NOo1MwUTAdBgNVHQ4EFgQUjLxfWc8ZG4Yu\nkhsgJ0PpxEglZfkwHwYDVR0jBBgwFoAUjLxfWc8ZG4YukhsgJ0PpxEglZfkwDwYD\nVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAgNJADBGAiEA2UQprRVm4bpqESmPawIs\nPkCvxMLIR7zCsIWeUFs99E4CIQDzesJI0ja4oBvShIIzNcsiek2t2WbmCszQiETh\nIvX3mA==\n-----END CERTIFICATE-----\n",
+              "created_by": "<actor>",
+              "domain_id": null,
+              "fingerprint": "6879829a717eb43851297c0e9b76fcb725095baae939a88d836ce79eed150a76",
+              "label": "cn",
+              "not_after": 3968265600,
+              "not_before": 1790812800,
+              "subject_cn": "smime-oracle-last"
+            }
+          ]
+        },
+        "before": {
+          "anchors": []
+        },
+        "table": "smime"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "smime_trust_changed",
+        "payload": "1"
+      }
+    ],
+    "request": {
+      "external_path": "/api/admin/smime/trust-anchors",
+      "method": "POST",
+      "path": "/admin/smime/trust-anchors"
+    },
+    "response": {
+      "body": "{\"fingerprint\":\"6879829a717eb43851297c0e9b76fcb725095baae939a88d836ce79eed150a76\",\"ok\":true}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "93"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/smime/trust-anchors"
+}

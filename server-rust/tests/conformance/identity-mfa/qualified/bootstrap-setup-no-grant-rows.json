@@ -1,0 +1,101 @@
+{
+  "case": "bootstrap-setup-no-grant-row-effects",
+  "effects": [
+    {
+      "after": {
+        "audit": [
+          {
+            "action": "mfa_reauth_refused",
+            "ip": "127.0.0.1/32",
+            "notes": "bootstrap enrollment setup without a valid possession proof",
+            "owner": "actor",
+            "target_type": "user"
+          }
+        ],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [],
+        "totp_pending_enrollments": [],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "before": {
+        "audit": [],
+        "grants": [
+          {
+            "owner": "actor",
+            "stepups": 1
+          },
+          {
+            "owner": "foreign",
+            "stepups": 0
+          }
+        ],
+        "mfa_reauth_step_ups": [],
+        "totp_pending_enrollments": [],
+        "users": [
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "actor",
+            "secret": false,
+            "used": false
+          },
+          {
+            "backups": [
+              "fixture-backup"
+            ],
+            "enabled": false,
+            "failures": 0,
+            "generation": 2,
+            "locked": false,
+            "owner": "foreign",
+            "secret": false,
+            "used": false
+          }
+        ]
+      },
+      "table": "totp"
+    }
+  ],
+  "format": 1,
+  "go_source": "db12f37ffe98dae62a06c60050dce0ae90a6b983",
+  "route": "POST /auth/totp/enroll/setup"
+}

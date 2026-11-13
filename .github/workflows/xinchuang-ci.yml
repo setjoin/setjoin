@@ -1,0 +1,696 @@
+# xinchuang-ci.yml — Xinchuang cross-arch CI pipeline.
+# Builds authserver + mailserver for arm64 and loong64.
+# QEMU smoke test per architecture. Publishes versioned artifacts.
+# No email on failure — use GitHub notification settings instead.
+name: Xinchuang CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'authserver/**'
+      - 'asrbot/**'
+      - 'mailserver/**'
+      - 'mailctl/**'
+      - 'shared/**'
+      - 'server-rust/**'
+      - 'tools/setjoin-release/**'
+      - 'config/go-modules.json'
+      - 'go.work'
+      - 'docs/standards/AI_ASSISTED_TESTING.md'
+      - 'docs/verification/**'
+      # scripts/** (not just cross-build.sh): the structural guards + their
+      # allowlists live here — a guard change must re-run the gate.
+      - 'scripts/**'
+      - '.github/ci/**'
+      - '.github/workflows/xinchuang-ci.yml'
+  pull_request:
+    paths:
+      - 'authserver/**'
+      - 'asrbot/**'
+      - 'mailserver/**'
+      - 'mailctl/**'
+      - 'shared/**'
+      - 'server-rust/**'
+      - 'tools/setjoin-release/**'
+      - 'config/go-modules.json'
+      - 'go.work'
+      - 'docs/standards/AI_ASSISTED_TESTING.md'
+      - 'docs/verification/**'
+      - 'scripts/**'
+      - '.github/ci/**'
+      - '.github/workflows/xinchuang-ci.yml'
+  workflow_dispatch:
+
+# Least privilege (D--GITHUB-004, hardening checklist item 2): no job in this
+# workflow pushes to the repository, so every job runs with a read-only token.
+# Without an explicit block the workflow inherits the repo default, which may
+# be read/write — blast radius a contributor PR must never have.
+permissions:
+  contents: read
+
+jobs:
+  # Job placement: every job runs on GitHub-hosted ubuntu-24.04. Fork pull
+  # requests run with a read-only token and no secrets, and no job here needs
+  # a secret, so fork PRs get the full lane.
+  cross-build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, loong64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          # Pin the exact go.work floor. A floating minor can reuse an older
+          # runner tool cache (for example 1.26.4) and then fail before
+          # compilation when go.work requires 1.26.6 with GOTOOLCHAIN=local.
+          go-version: '1.26.6'
+
+      - name: Build authserver
+        run: |
+          cd authserver
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -o ../build/authserver-${{ matrix.arch }} ./cmd/authserverd
+
+      - name: Build mailserver
+        run: |
+          cd mailserver
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -o ../build/mailserverd-${{ matrix.arch }} ./cmd/mailserverd
+
+      - name: Verify binary is valid ELF
+        run: |
+          # Portable ELF header check (runs on macOS runners too — no binutils):
+          # magic 7f 45 4c 46 at offset 0, e_machine (LE u16) at offset 18.
+          # AArch64 = 183, LoongArch = 258.
+          case "${{ matrix.arch }}" in
+            arm64)   WANT=183 ;;
+            loong64) WANT=258 ;;
+            *)       echo "unknown arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          for bin in authserver-${{ matrix.arch }} mailserverd-${{ matrix.arch }}; do
+            test -s "build/$bin" || { echo "ERROR: $bin is empty or missing"; exit 1; }
+            magic=$(od -An -tx1 -N4 "build/$bin" | tr -d ' \n')
+            machine=$(od -An -tu2 -j18 -N2 "build/$bin" | tr -d ' ')
+            [ "$magic" = "7f454c46" ] || { echo "ERROR: $bin is not an ELF file (magic=$magic)"; exit 1; }
+            [ "$machine" = "$WANT" ] || { echo "ERROR: $bin e_machine=$machine, want $WANT (${{ matrix.arch }})"; exit 1; }
+          done
+          echo "Both binaries verified as valid ${{ matrix.arch }} ELF executables"
+
+  unit-tests-amd64:
+    name: Unit tests (amd64 — native)
+    # Postgres runs in a job-owned Docker container on the Linux runner.
+    runs-on: ubuntu-24.04
+    # Postgres so the ~40 DB-backed Go test files + the pgTAP suite ACTUALLY
+    # RUN. Previously this job ran `go test` with no DB, so every DB-backed
+    # test t.Skip'd and CI was green while none of the data-layer or
+    # auth-critical adversarial tests (recall-IDOR, JWT alg-confusion, IMAP
+    # cross-tenant isolation, all reducer pgTAP) executed. `mail` is a
+    # superuser (load-test-schema.sh DROP/CREATE DATABASE + provisions
+    # native-RLS roles) — which is exactly why the server is NOT a
+    # `services:` entry on a trust-auth 0.0.0.0 publish anymore: the start
+    # step below binds it to 127.0.0.1 and requires SCRAM auth with a
+    # per-run secret (D--GITHUB-002, CWE-306), and the preflight step asserts
+    # both controls on every run.
+    env:
+      # DB_DSN / TEST_DB_DSN / PGPASSWORD carry the run-scoped secret and are
+      # exported by the start step (job-level env cannot hold per-run values).
+      # Shell schema/guard scripts consume the decomposed DB_* variables
+      # rather than parsing DB_DSN. Keep every client on the isolated
+      # container.
+      DB_HOST: 127.0.0.1
+      DB_PORT: "15432"
+      DB_USER: mail
+      DB_NAME: mailserver_test
+      # Fail-closed: with REQUIRE_DB set, OpenTestPool turns a missing DB_DSN into
+      # a hard FAIL instead of a silent skip (testsupport.OpenTestPool).
+      REQUIRE_DB: "1"
+      # Run-unique container name (a job re-run reuses github.run_id; the
+      # start step pre-cleans any stale container from a previous attempt).
+      CI_PG_CONTAINER: setjoin-ci-pg-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      - name: Start isolated Postgres (loopback bind + SCRAM, run-scoped secret)
+        # Not a `services:` block: service-container env cannot receive
+        # per-run values, and the old block published a trust-auth superuser
+        # on 0.0.0.0:15432 — any LAN/VPN peer or host-local process reaching
+        # it during a run could poison the test database feeding
+        # REQUIRE_DB-enforced merge-gate evidence (D--GITHUB-002, CWE-306).
+        # Two independent controls:
+        #   1. off-host: the publish binds 127.0.0.1 only (15432 stays the
+        #      dedicated CI host port);
+        #   2. host-local: SCRAM password auth with a fresh per-run secret —
+        #      an uncredentialed local process is denied by pg_hba, not just
+        #      by the binding.
+        run: |
+          set -euo pipefail
+          docker rm -f "$CI_PG_CONTAINER" >/dev/null 2>&1 || true
+          CI_PG_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$CI_PG_PASSWORD"
+          docker run -d --name "$CI_PG_CONTAINER" \
+            -e POSTGRES_USER=mail \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_PASSWORD="$CI_PG_PASSWORD" \
+            -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+            -p 127.0.0.1:15432:5432 \
+            postgres:17
+          ready=0
+          for _ in $(seq 1 60); do
+            # TCP probe: the entrypoint's temporary initdb server listens on
+            # the unix socket only, so -h 127.0.0.1 becomes ready only when
+            # the real (scram-auth) server is accepting connections.
+            if docker exec "$CI_PG_CONTAINER" pg_isready -h 127.0.0.1 -U mail >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" -eq 1 ] || { echo "Postgres container did not become ready"; exit 1; }
+          {
+            echo "PGPASSWORD=$CI_PG_PASSWORD"
+            echo "DB_DSN=postgres://mail:${CI_PG_PASSWORD}@127.0.0.1:15432/mailserver_test?sslmode=disable"
+            echo "TEST_DB_DSN=postgres://mail:${CI_PG_PASSWORD}@127.0.0.1:15432/mailserver_test?sslmode=disable"
+          } >> "$GITHUB_ENV"
+
+      - name: Install psql + pg_prove (pgTAP)
+        # Installed with sudo when the runner image lacks them.
+        run: |
+          { command -v psql && command -v pg_prove; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl
+          }
+
+      - name: Preflight isolation assertions (D--GITHUB-002)
+        # One assertion per control, fail-closed before any test evidence is
+        # produced on this database:
+        #   1. config: every published service port in this workflow binds an
+        #      explicit loopback host (a bare `host:container` publish would
+        #      regress the publish to 0.0.0.0);
+        #   2. integration: the runner's own non-loopback address CANNOT reach
+        #      15432 while the credentialed on-host path still passes;
+        #   3. negative (host-local): a process without the run-scoped
+        #      credential is DENIED by Postgres — the auth control holds, not
+        #      just the binding.
+        #
+        # Both probes target the always-existing `postgres` admin DB
+        # (POSTGRES_DB=postgres is what the container initializes;
+        # mailserver_test does not exist until load-test-schema.sh runs a few
+        # steps later, so probing it here failed every fresh run before the
+        # negative check and the test lanes). The credential travels via the
+        # PGPASSWORD env the start step exported — never on argv.
+        run: |
+          set -euo pipefail
+          # (1) Workflow config assertion: published service ports bind loopback.
+          if grep -nE '^[[:space:]]*-[[:space:]]*[0-9]+:[0-9]+' .github/workflows/xinchuang-ci.yml; then
+            echo "FAIL: published service port without an explicit loopback host bind"
+            exit 1
+          fi
+          grep -qE '127\.0\.0\.1:15432:[0-9]+' .github/workflows/xinchuang-ci.yml \
+            || { echo "FAIL: expected 127.0.0.1 loopback publish for port 15432 is missing"; exit 1; }
+          # (2) Off-host unreachable; on-host credentialed path passes.
+          HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+          if [ -z "$HOST_IP" ]; then
+            HOST_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") print $(i+1)}' | head -1)"
+          fi
+          [ -n "$HOST_IP" ] || { echo "FAIL: could not determine a non-loopback host address to probe"; exit 1; }
+          echo "Probing off-host perspective $HOST_IP:15432 (must NOT answer)"
+          if pg_isready -h "$HOST_IP" -p 15432 -t 5 >/dev/null 2>&1; then
+            echo "FAIL: $HOST_IP:15432 answers — trust-auth superuser reachable off-host"
+            exit 1
+          fi
+          psql -h 127.0.0.1 -p 15432 -U mail -d postgres -c 'SELECT 1;' >/dev/null
+          # (3) Host-local negative: no credential → denied. Against the
+          # existing postgres DB, so the only possible failure reason is the
+          # missing credential (scram rejects it before anything else).
+          if env -u PGPASSWORD PGPASSFILE=/dev/null \
+              psql -w "postgres://mail@127.0.0.1:15432/postgres?sslmode=disable" \
+              -c 'SELECT 1;' >/dev/null 2>&1; then
+            echo "FAIL: uncredentialed local process connected — host-local isolation control is missing"
+            exit 1
+          fi
+          echo "Isolation assertions passed: loopback-only publish; off-host unreachable; credentialed on-host path OK; uncredentialed local process denied"
+
+      - name: Install pgtap extension in postgres container
+        # V001__baseline.sql hard-requires CREATE EXTENSION pgtap (ON_ERROR_STOP);
+        # the extension must exist INSIDE the service container, not on the runner.
+        run: |
+          docker exec "$CI_PG_CONTAINER" bash -c \
+            "apt-get update -qq && apt-get install -y -qq postgresql-17-pgtap"
+
+      - name: Load test schema (baseline + forward migrations + reducers + fixtures)
+        run: bash scripts/load-test-schema.sh
+
+      - name: Provision setjoin_app credential (RLS isolation suites)
+        # provision-roles.sql creates setjoin_app LOGIN with NO password while
+        # this Postgres is SCRAM-enforced, so every suite deriving the
+        # app-pool config (imap setupIMAPIso; DB_APP_DSN consumers) fails to
+        # connect and silently skips — the gap surfaced when the WP4 batch
+        # rewrite put imap.go's DB-path lines under the changed-lines
+        # coverage ratchet (177/183 "uncovered"). Provision a second
+        # run-scoped, masked secret and export the DSN; the live SELECT 1
+        # proves the credential before anything trusts the lane. The secret
+        # is [0-9a-f] only (openssl rand -hex), so single-quoting is
+        # injection-safe.
+        run: |
+          CI_APP_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$CI_APP_PASSWORD"
+          psql -h 127.0.0.1 -p 15432 -U mail -d mailserver_test \
+            -c "ALTER ROLE setjoin_app LOGIN PASSWORD '${CI_APP_PASSWORD}';" >/dev/null
+          APP_DSN="postgres://setjoin_app:${CI_APP_PASSWORD}@127.0.0.1:15432/mailserver_test?sslmode=disable"
+          echo "DB_APP_DSN=$APP_DSN" >> "$GITHUB_ENV"
+          psql "$APP_DSN" -c 'SELECT 1;' >/dev/null
+
+      - name: Install webmail dependencies (structural guards shell into webmail tooling)
+        # check-app-catalog / check-harmony-bridge / check-native-contract-
+        # conformance / route-inventory self-tests invoke node_modules tooling
+        # under mailserver/webmail. Without deps these guards fail with
+        # ERR_MODULE_NOT_FOUND (main's 2026-08-27 red gate).
+        working-directory: mailserver/webmail
+        run: npm ci
+
+      - name: Install pinned quality tools
+        # Structural guards verify exact versions (config/quality-tool-
+        # versions.json) and the errcheck ratchet is golangci-lint-version-
+        # sensitive. Install the pinned set rather than depending on
+        # runner-host state (main's 2026-08-27 red gate).
+        run: |
+          TOOLS="$HOME/.local/setjoin-ci-tools"
+          mkdir -p "$TOOLS"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$TOOLS" v2.13.2
+          GOBIN="$TOOLS" go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          GOBIN="$TOOLS" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          RUFF_TMP="$(mktemp -d)"
+          curl -fsSL https://github.com/astral-sh/ruff/releases/download/0.16.4/ruff-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$RUFF_TMP"
+          install -m 0755 "$RUFF_TMP"/ruff-x86_64-unknown-linux-musl/ruff "$TOOLS/ruff"
+          rm -rf "$RUFF_TMP"
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$TOOLS" gitleaks
+          echo "$TOOLS" >> "$GITHUB_PATH"
+
+      - name: Build webmail (performance guard input)
+        working-directory: mailserver/webmail
+        run: npm run build
+
+      - name: "Install client toolchains (R2 native lane: electron deps + Rust bridge)"
+        # The R2 quick benchmark's native lane runs vitest in
+        # clients/desktop/electron (needs node_modules — @parcel/watcher) and
+        # `cargo test` on the tauri bridge (needs a Rust toolchain, stable).
+        working-directory: clients/desktop/electron
+        run: |
+          npm ci
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Install native libraries for the Tauri/GTK/WebKit build
+        # The R2 native lane compiles the Tauri bridge (glib-sys, gtk, webkit2gtk);
+        # the stock ubuntu-24.04 image lacks these dev packages. Same list as
+        # .github/ci/linux-toolchain.Dockerfile (libopus-dev is there for asrbot cgo).
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libopus-dev
+
+      - name: Set up Python for Rust workspace policy
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install cargo-deny for Rust workspace policy
+        run: |
+          cargo install cargo-deny --locked --version 0.19.0
+          rustup component add llvm-tools
+
+      - name: Structural guards (full manifest, self-test first)
+        # run-guards.sh globs every scripts/check-*.sh — the same manifest
+        # scripts/test.sh runs locally, so the merge gate and the laptop gate
+        # can no longer drift. Includes check-sql-injection.sh (which replaced
+        # the divergent inline grep this step used to carry) and the DB-backed
+        # check-schema-determinism.sh (Postgres service is up, schema loaded).
+        run: bash scripts/run-guards.sh
+
+      - name: Architecture R2 five-sample timing surrogate
+        timeout-minutes: 30
+        run: bash scripts/verify-architecture-r2.sh benchmark --class warm --samples 5 --warmup 1
+
+      - name: Verify Architecture R2 timing evidence
+        run: bash scripts/check-architecture-r2-dx-metrics.sh --require
+
+      - name: Run govulncheck
+        continue-on-error: true  # non-blocking: reports CVEs but doesn't fail CI
+        run: |
+          # Pinned tool version (matches the "Install pinned quality tools"
+          # convention). govulncheck still fetches the vulnerability DB fresh
+          # at runtime, so pinning the binary does not stale the data.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          while IFS=$'\t' read -r module_id module_path _workspace _kind module_tags module_gowork; do
+            echo "==> govulncheck $module_id"
+            vuln_args=()
+            [[ -n "$module_tags" ]] && vuln_args=(-tags "$module_tags")
+            if [[ "$module_gowork" == "off" ]]; then
+              (cd "$module_path" && GOWORK=off govulncheck "${vuln_args[@]}" ./...)
+            else
+              (cd "$module_path" && govulncheck "${vuln_args[@]}" ./...)
+            fi
+          done < <(node scripts/go-module-catalog.mjs list vulnerability)
+
+      # -p 1: DB-backed packages share ONE test database; parallel packages
+      # racing it flake global-state assertions (TestDryRunNeverCallsSync,
+      # TestLookupOrJITUser_NoDuplicate… both hit on CI). Same reason
+      # scripts/test.sh runs its RACE=1 lane sequentially.
+      - name: Run authserver tests (DB-backed)
+        run: bash scripts/run-go-test-evidence.sh authserver test-results/go/authserver.json ./... -count=1 -p 1 -timeout 600s
+
+      - name: Run mailserver tests (DB-backed)
+        run: bash scripts/run-go-test-evidence.sh mailserver test-results/go/mailserver.json ./... -count=1 -p 1 -timeout 600s
+
+      - name: Run shared tests (DB-backed)
+        run: bash scripts/run-go-test-evidence.sh shared test-results/go/shared.json ./... -count=1 -p 1 -timeout 300s
+
+      - name: Run mailctl tests
+        run: bash scripts/run-go-test-evidence.sh mailctl test-results/go/mailctl.json ./... -count=1 -p 1 -timeout 300s
+
+      - name: Run release publisher tests
+        run: bash scripts/run-go-test-evidence.sh setjoin-release test-results/go/setjoin-release.json ./... -count=1 -p 1 -timeout 300s
+
+      - name: Install libopus (asrbot prerequisite, user-local fallback)
+        # Not every runner image ships libopus-dev. Build opus into the job's tools
+        # dir once; pkg-config + cgo pick it up via PKG_CONFIG_PATH.
+        run: |
+          TOOLS="$HOME/.local/setjoin-ci-tools"
+          # Rebuild also when a previous static-only install is present: cgo
+          # test binaries need the shared object (see LD_LIBRARY_PATH below).
+          if ! pkg-config --exists opus || [ ! -e "$TOOLS/lib/libopus.so" ]; then
+            rm -rf "$TOOLS"/lib/libopus*
+            curl -fsSL https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz | tar -xz -C "$RUNNER_TEMP"
+            # shared+static: a static-only install underlinks cgo test binaries
+            # (opus.pc carries no -lm closure without pkg-config --static).
+            (cd "$RUNNER_TEMP/opus-1.5.2" && ./configure --prefix="$TOOLS" >/dev/null && make -j2 >/dev/null && make install >/dev/null)
+            rm -rf "$RUNNER_TEMP/opus-1.5.2"
+            echo "LD_LIBRARY_PATH=$TOOLS/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          fi
+          echo "PKG_CONFIG_PATH=$TOOLS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+
+      - name: Verify asrbot native prerequisites
+        run: |
+          command -v pkg-config >/dev/null || { echo "pkg-config is required for asrbot tests"; exit 1; }
+          pkg-config --exists opus || { echo "libopus development files are required for asrbot tests (apt install libopus-dev)"; exit 1; }
+
+      - name: Run asrbot tests
+        run: GOWORK=off bash scripts/run-go-test-evidence.sh asrbot test-results/go/asrbot.json -tags nolibopusfile ./... -count=1 -timeout 300s
+
+      - name: Verify named Go evidence
+        env:
+          TEST_EVIDENCE_OUTPUT: test-results/go/test-evidence.json
+        run: bash scripts/check-test-evidence-results.sh --verify go-json
+
+      - name: Enforce Go coverage ratchets
+        env:
+          GO_COVERAGE_MODULES: authserver,mailserver,shared,mailctl,setjoin-release,asrbot
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/report-go-coverage.mjs --mode enforce
+
+      - name: Run bounded Go fuzz smoke
+        run: bash scripts/run-go-fuzz-smoke.sh
+
+      - name: Run pgTAP reducer suite
+        # Reload first: the Go suites above MUTATE mailserver_test, and several
+        # pgTAP tests assert baseline-state counts — scripts/test.sh does the
+        # same reload between the Go lane and pg_prove (lines 77-83). Explicit
+        # -h: without it psql dials the local Unix socket, which doesn't
+        # exist — postgres lives in the CI container on 127.0.0.1:15432. Both
+        # suites run (mailserver + authserver), mirroring test.sh.
+        run: |
+          bash scripts/load-test-schema.sh
+          bash scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap --ext .pg -h 127.0.0.1 -p 15432 -U mail -d mailserver_test mailserver/sql/tests/*.pg
+          bash scripts/run-pgtap-evidence.sh test-results/pgtap/authserver.tap --ext .pg -h 127.0.0.1 -p 15432 -U mail -d mailserver_test authserver/sql/tests/*.pg
+
+      - name: Verify named pgTAP evidence
+        env:
+          TEST_EVIDENCE_OUTPUT: test-results/pgtap/test-evidence.json
+        run: bash scripts/check-test-evidence-results.sh --verify tap
+
+      - name: Remove CI Postgres container
+        # Manual containers are not runner-managed like `services:` entries —
+        # remove ours on every outcome so the runner never accumulates
+        # (or reuses) a scram-auth superuser instance.
+        if: always()
+        run: docker rm -f "$CI_PG_CONTAINER" || true
+
+      - name: Upload Go and pgTAP verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: backend-evidence-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            test-results/go
+            test-results/coverage/go
+            test-results/coverage/go-summary.json
+            test-results/pgtap
+            test-results/architecture-r2
+
+  webmail-tests:
+    name: Webmail (svelte-check + coverage)
+    runs-on: ubuntu-24.04
+    # The SPA's merge gate (npm run check must be 0/0, npm run test:coverage) previously ran
+    # only on developer laptops — CI shipped webmail changes untested. The
+    # coverage command includes the full Vitest run and enforces the measured
+    # no-regression floors from vite.config.js.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: mailserver/webmail/package-lock.json
+      - name: Install dependencies
+        working-directory: mailserver/webmail
+        run: npm ci
+      - name: svelte-check + tsc (0 errors / 0 warnings)
+        working-directory: mailserver/webmail
+        run: npm run check
+      - name: Vitest coverage ratchet
+        working-directory: mailserver/webmail
+        run: npm run test:coverage
+      - name: Verify named Vitest evidence
+        if: always()
+        env:
+          TEST_EVIDENCE_OUTPUT: mailserver/webmail/test-results/test-evidence.json
+        run: bash scripts/check-test-evidence-results.sh --verify vitest-json
+      - name: Enforce changed-code coverage
+        if: always()
+        env:
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/report-changed-coverage.mjs --mode enforce
+      - name: Upload Webmail verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: webmail-evidence-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            mailserver/webmail/test-results/vitest.json
+            mailserver/webmail/test-results/test-evidence.json
+            mailserver/webmail/test-results/changed-coverage.json
+            mailserver/webmail/coverage/coverage-summary.json
+
+  cross-compile-check:
+    name: Cross-compile check (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, loong64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+
+      - name: Verify compilation for ${{ matrix.arch }}
+        run: |
+          echo "Cross-compiling authserver for ${{ matrix.arch }}..."
+          cd authserver && GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build ./... 2>&1 | tail -5
+          echo "Cross-compiling mailserver for ${{ matrix.arch }}..."
+          cd ../mailserver && GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build ./... 2>&1 | tail -5
+          echo "Cross-compiling shared for ${{ matrix.arch }}..."
+          cd ../shared && GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build ./... 2>&1 | tail -5
+          echo "Cross-compilation successful for ${{ matrix.arch }}"
+
+  xinchuang-tagged-lane:
+    name: Tagged lane (-tags xinchuang)
+    # Triage row 005 (L2-C4 item 6): no lane compiled -tags xinchuang, so every
+    # test in the tagged xinchuang/db package was unexercised by CI and a
+    # tagged-file compile error could ship green (the "Build mailserver" steps
+    # above run a plain build). Build + vet + test the module with the tag so
+    # notify.go and its remediation tests actually gate.
+    # L2-C4 HOLD item 3: the DB-backed tagged tests (native LISTEN, the
+    # OnReconnect compensation hook) used to SKIP here — the job provided no
+    # DB — so reconnect acceptance shipped as a silent skip. The job now runs
+    # on the Linux runner (postgres service containers are a Linux feature)
+    # and provisions its own Postgres mirroring unit-tests-amd64's
+    # med-shard2-014 pattern: 127.0.0.1-only publish + SCRAM password auth
+    # with a per-run masked secret (D--GITHUB-002, CWE-306), on a dedicated
+    # host port and run-unique container name so it cannot collide with a
+    # concurrent unit-tests-amd64 run on the same runner. REQUIRE_DB=1 turns a
+    # missing DB_DSN into a hard failure, and the test step requires
+    # non-skipped PASS evidence for the reconnect test — a skip can no longer
+    # satisfy reconnect acceptance.
+    runs-on: ubuntu-24.04
+    env:
+      # Fail-closed: with REQUIRE_DB set, a missing DB_DSN is a hard FAIL
+      # instead of a silent skip (testsupport.OpenTestPool and the package's
+      # requireTestDSN share this policy).
+      REQUIRE_DB: "1"
+      DB_HOST: 127.0.0.1
+      DB_PORT: "25432"
+      DB_USER: mail
+      DB_NAME: mailserver_test
+      CI_PG_CONTAINER: setjoin-ci-pg-xc-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+
+      - name: Start isolated Postgres (loopback bind + SCRAM, run-scoped secret)
+        # Same two independent controls as unit-tests-amd64 (med-shard2-014 /
+        # D--GITHUB-002, CWE-306): (1) the publish binds 127.0.0.1 only, and
+        # (2) SCRAM password auth with a fresh per-run secret denies an
+        # uncredentialed host-local process. The credential travels via
+        # PGPASSWORD/DB_DSN exported by this step — job-level env cannot hold
+        # per-run values.
+        run: |
+          set -euo pipefail
+          docker rm -f "$CI_PG_CONTAINER" >/dev/null 2>&1 || true
+          CI_PG_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$CI_PG_PASSWORD"
+          docker run -d --name "$CI_PG_CONTAINER" \
+            -e POSTGRES_USER=mail \
+            -e POSTGRES_DB=mailserver_test \
+            -e POSTGRES_PASSWORD="$CI_PG_PASSWORD" \
+            -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+            -p 127.0.0.1:25432:5432 \
+            postgres:17
+          ready=0
+          for _ in $(seq 1 60); do
+            # TCP probe: ready only once the real (scram-auth) server accepts.
+            if docker exec "$CI_PG_CONTAINER" pg_isready -h 127.0.0.1 -U mail >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" -eq 1 ] || { echo "Postgres container did not become ready"; exit 1; }
+          {
+            echo "PGPASSWORD=$CI_PG_PASSWORD"
+            echo "DB_DSN=postgres://mail:${CI_PG_PASSWORD}@127.0.0.1:25432/mailserver_test?sslmode=disable"
+            echo "TEST_DB_DSN=postgres://mail:${CI_PG_PASSWORD}@127.0.0.1:25432/mailserver_test?sslmode=disable"
+          } >> "$GITHUB_ENV"
+
+      - name: Isolation assertions (D--GITHUB-002, med-shard2-014 pattern)
+        # Fail-closed before any test evidence is produced: the off-host
+        # perspective must NOT reach 25432, the credentialed on-host path must
+        # pass, and an uncredentialed local process must be DENIED (SCRAM, not
+        # just the binding).
+        run: |
+          set -euo pipefail
+          { command -v psql && command -v pg_isready; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          }
+          HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+          if [ -z "$HOST_IP" ]; then
+            HOST_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="src") print $(i+1)}' | head -1)"
+          fi
+          [ -n "$HOST_IP" ] || { echo "FAIL: could not determine a non-loopback host address to probe"; exit 1; }
+          if pg_isready -h "$HOST_IP" -p 25432 -t 5 >/dev/null 2>&1; then
+            echo "FAIL: $HOST_IP:25432 answers — loopback-only publish regressed"
+            exit 1
+          fi
+          psql -h 127.0.0.1 -p 25432 -U mail -d mailserver_test -c 'SELECT 1;' >/dev/null
+          if env -u PGPASSWORD PGPASSFILE=/dev/null \
+              psql -w "postgres://mail@127.0.0.1:25432/mailserver_test?sslmode=disable" \
+              -c 'SELECT 1;' >/dev/null 2>&1; then
+            echo "FAIL: uncredentialed local process connected — SCRAM control is missing"
+            exit 1
+          fi
+          echo "Isolation assertions passed: loopback-only publish; off-host unreachable; credentialed on-host path OK; uncredentialed local process denied"
+
+      - name: Build mailserver with -tags xinchuang
+        working-directory: mailserver
+        run: go build -tags xinchuang ./...
+
+      - name: Vet mailserver with -tags xinchuang
+        working-directory: mailserver
+        run: go vet -tags xinchuang ./...
+
+      - name: Test tagged xinchuang packages (DB-backed, REQUIRE_DB)
+        # The notifier's DB-backed tests run against the provisioned test DB;
+        # with REQUIRE_DB=1 a missing DB_DSN fails instead of skipping. The
+        # verbose log is kept and the reconnect evidence is asserted below:
+        # TestOnReconnectFiresAfterReLISTEN (and the native-start control) must
+        # PASS — a SKIP can never satisfy reconnect acceptance again.
+        working-directory: mailserver
+        run: |
+          set -euo pipefail
+          go test -tags xinchuang -v ./internal/xinchuang/... -count=1 -timeout 300s \
+            | tee "$RUNNER_TEMP/xinchuang-tagged-test.log"
+          for want in TestOnReconnectFiresAfterReLISTEN TestNativeStartNotDegraded; do
+            grep -q -- "--- PASS: ${want} (" "$RUNNER_TEMP/xinchuang-tagged-test.log" \
+              || { echo "FAIL: $want did not PASS — non-skipped DB-backed tagged evidence is required"; exit 1; }
+            if grep -q -- "--- SKIP: ${want} (" "$RUNNER_TEMP/xinchuang-tagged-test.log"; then
+              echo "FAIL: $want skipped — reconnect acceptance must not skip in CI"
+              exit 1
+            fi
+          done
+          echo "Reconnect acceptance evidence: TestOnReconnectFiresAfterReLISTEN PASS (non-skipped, REQUIRE_DB=1)"
+
+      - name: Remove CI Postgres container
+        if: always()
+        run: docker rm -f "$CI_PG_CONTAINER" || true
+
+  compliance-check:
+    name: Certification readiness check
+    runs-on: ubuntu-24.04
+    needs: [cross-build, unit-tests-amd64, webmail-tests, cross-compile-check, xinchuang-tagged-lane]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify all required artifacts present
+        run: |
+          echo "=== Xinchuang Certification Readiness ==="
+          echo "Cross-build: ${{ needs.cross-build.result }}"
+          echo "Unit tests (amd64): ${{ needs.unit-tests-amd64.result }}"
+          echo "Webmail tests: ${{ needs.webmail-tests.result }}"
+          echo "Cross-compile check: ${{ needs.cross-compile-check.result }}"
+          echo "Tagged lane (-tags xinchuang): ${{ needs.xinchuang-tagged-lane.result }}"
+          if [ "${{ needs.cross-build.result }}" = "success" ] && \
+             [ "${{ needs.unit-tests-amd64.result }}" = "success" ] && \
+             [ "${{ needs.webmail-tests.result }}" = "success" ] && \
+             [ "${{ needs.cross-compile-check.result }}" = "success" ] && \
+             [ "${{ needs.xinchuang-tagged-lane.result }}" = "success" ]; then
+            echo "STATUS: READY FOR CERTIFICATION SUBMISSION"
+          else
+            echo "STATUS: BLOCKED — resolve failures before submission"
+            exit 1
+          fi

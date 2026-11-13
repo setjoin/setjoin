@@ -1,0 +1,172 @@
+{
+  "case": "revoke-invalid-state-v2-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "booking_policy": "auto-accept",
+          "calendar_id": "<owner-calendar>",
+          "capacity": null,
+          "color": null,
+          "created_at": "<time>",
+          "description": null,
+          "ical_feed_url": null,
+          "is_default": true,
+          "is_shared": false,
+          "jmap_state": 0,
+          "mailbox_id": "<owner-mailbox>",
+          "name": "Drive1 calendar",
+          "resource_type": "personal",
+          "timezone": "UTC",
+          "updated_at": "<time>"
+        },
+        {
+          "booking_policy": "auto-accept",
+          "calendar_id": "<foreign-calendar>",
+          "capacity": null,
+          "color": null,
+          "created_at": "<time>",
+          "description": null,
+          "ical_feed_url": null,
+          "is_default": true,
+          "is_shared": false,
+          "jmap_state": 0,
+          "mailbox_id": "<foreign-mailbox>",
+          "name": "Drive1 calendar",
+          "resource_type": "personal",
+          "timezone": "UTC",
+          "updated_at": "<time>"
+        }
+      ],
+      "defaults": [],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permission": "read",
+          "user_id": "<foreign-user>"
+        }
+      ],
+      "entity_state": [
+        {
+          "datatype": "Calendar",
+          "mailbox_id": "<owner-mailbox>",
+          "seq": 1
+        },
+        {
+          "datatype": "Calendar",
+          "mailbox_id": "<foreign-mailbox>",
+          "seq": 1
+        }
+      ],
+      "journal": [
+        {
+          "collection_id": null,
+          "created_at": "<time>",
+          "datatype": "Calendar",
+          "entity_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "op": "created",
+          "resource_uid": null,
+          "state_seq": 1
+        },
+        {
+          "collection_id": null,
+          "created_at": "<time>",
+          "datatype": "Calendar",
+          "entity_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "op": "created",
+          "resource_uid": null,
+          "state_seq": 1
+        }
+      ],
+      "mailboxes": [
+        {
+          "auto_accept_meetings": false,
+          "booking_window_days": 365,
+          "created_at": "<time>",
+          "deleted_purge_days": null,
+          "display_name": "owner",
+          "domain_id": "<owner-domain>",
+          "email": "<owner-email>",
+          "enabled": true,
+          "hidden_from_gal": false,
+          "hold_reason": null,
+          "hold_set_by": null,
+          "hold_since": null,
+          "is_primary": true,
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0,
+          "litigation_hold": false,
+          "mailbox_id": "<owner-mailbox>",
+          "max_meeting_hours": null,
+          "quarantine_self_service": true,
+          "quota_bytes": 53687091200,
+          "receive_enabled": true,
+          "resource_capacity": null,
+          "resource_type": null,
+          "sending_quota_day": 500,
+          "sending_quota_reset_at": "2026-10-31",
+          "sending_sent_today": 0,
+          "spam_folder_enabled": true,
+          "spam_purge_days": null,
+          "spam_sensitivity": "medium",
+          "type": "personal",
+          "updated_at": "<time>",
+          "used_bytes": 0,
+          "user_id": "<owner-user>"
+        },
+        {
+          "auto_accept_meetings": false,
+          "booking_window_days": 365,
+          "created_at": "<time>",
+          "deleted_purge_days": null,
+          "display_name": "foreign",
+          "domain_id": "<foreign-domain>",
+          "email": "<foreign-email>",
+          "enabled": true,
+          "hidden_from_gal": false,
+          "hold_reason": null,
+          "hold_set_by": null,
+          "hold_since": null,
+          "is_primary": true,
+          "jmap_email_state": 0,
+          "jmap_mailbox_state": 0,
+          "jmap_mailwork_state": 0,
+          "jmap_reminder_state": 0,
+          "jmap_tag_state": 0,
+          "jmap_thread_state": 0,
+          "litigation_hold": false,
+          "mailbox_id": "<foreign-mailbox>",
+          "max_meeting_hours": null,
+          "quarantine_self_service": true,
+          "quota_bytes": 53687091200,
+          "receive_enabled": true,
+          "resource_capacity": null,
+          "resource_type": null,
+          "sending_quota_day": 500,
+          "sending_quota_reset_at": "2026-10-31",
+          "sending_sent_today": 0,
+          "spam_folder_enabled": true,
+          "spam_purge_days": null,
+          "spam_sensitivity": "medium",
+          "type": "personal",
+          "updated_at": "<time>",
+          "used_bytes": 0,
+          "user_id": "<foreign-user>"
+        }
+      ]
+    },
+    [],
+    []
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "DELETE /me/sharing/delegates/{userId}"
+}

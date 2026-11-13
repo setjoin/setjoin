@@ -1,0 +1,25 @@
+-- mailserver/sql/tests/drive_changes_since.pg — feed reads + the pruned-floor sentinel (§4.2)
+BEGIN;
+SELECT plan(6);
+SELECT mk_account('dcs') AS mb \gset
+SELECT mk_account('dcsT') AS mbt \gset
+SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
+SELECT user_id AS ut FROM mailboxes WHERE id = :mbt \gset
+INSERT INTO drive_spaces (name, owner_user_id) VALUES ('C', :u);
+SELECT currval(pg_get_serial_sequence('drive_spaces','id')) AS sid \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by) VALUES (:sid, :u, 'manager', :u);
+SELECT drive_notify_change(:sid, 1, 'create');
+SELECT drive_notify_change(:sid, 1, 'rename');
+SELECT drive_notify_change(:sid, 2, 'create');
+
+SELECT is((drive_changes_since(:u, :sid, 0)->>'newState')::bigint, 3::bigint, 'newState = head seq');
+SELECT is(jsonb_array_length(drive_changes_since(:u, :sid, 1)->'changed'), 2, 'since=1 returns 2 rows');
+SELECT is(jsonb_array_length(drive_changes_since(:u, :sid, 3)->'changed'), 0, 'caught up = empty changed (never null — the null-vs-[] rule)');
+SELECT throws_ok(format($$ SELECT drive_changes_since(%s, %s, 0) $$, :ut, :sid),
+  'BZ139', NULL, 'non-member → BZ139 (no membership oracle)');
+-- prune the journal below the cursor: floor sentinel
+DELETE FROM drive_changes WHERE space_id = :sid AND seq <= 2;
+SELECT is((drive_changes_since(:u, :sid, 1)->>'cannotCalculateChanges')::boolean, TRUE, 'below the pruned floor → sentinel');
+SELECT is((drive_changes_since(:u, :sid, 2)->>'cannotCalculateChanges'), NULL, 'at the floor → normal answer');
+SELECT * FROM finish();
+ROLLBACK;

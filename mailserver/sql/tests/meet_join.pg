@@ -1,0 +1,116 @@
+-- meet_join.pg — Meet B1 Task 4: meeting_join (the grant-spec composer).
+-- B2 Task 4 (E-F3) extends it: the join envelope carries recordingActive
+-- too — D5's "rides EVERY admission envelope" rule at the member-join
+-- surface.
+-- Spec: retired-docs:superpowers/plans/archive/2026-07-12-meet-B1-core.md Task 4;
+-- retired-docs:superpowers/plans/archive/2026-07-15-meet-B2-recording.md Task 4.
+BEGIN;
+SELECT plan(19);
+
+SELECT mk_auth_user('host@meet-join.test') AS host_id \gset
+SELECT mk_auth_user('member@meet-join.test') AS member_id \gset
+SELECT mk_auth_user('stranger@meet-join.test') AS stranger_id \gset
+
+-- ── ad-hoc meeting; host rejoin ────────────────────────────────────────
+SELECT (meeting_create(:host_id, 'Join test meeting')) AS m \gset
+SELECT (:'m'::jsonb ->> 'meetingId')::bigint AS meeting_id \gset
+SELECT (:'m'::jsonb ->> 'chatChannelId')::bigint AS channel_id \gset
+
+SELECT (meeting_join(:host_id, :meeting_id)) AS host_spec \gset
+SELECT is(:'host_spec'::jsonb ->> 'role', 'host', 'owner rejoin returns role host');
+SELECT is((:'host_spec'::jsonb ->> 'roomAdmin')::boolean, true, 'host spec has roomAdmin=true');
+SELECT ok(NOT (:'host_spec'::jsonb ? 'roomCreate'), 'grant spec never carries roomCreate');
+SELECT ok(NOT (:'host_spec'::jsonb ? 'recorder'), 'grant spec never carries recorder');
+SELECT is((:'host_spec'::jsonb ->> 'ttlSeconds')::int, 60,
+  'authenticated LiveKit grants are capped at the durable admission lease TTL');
+SELECT ok(EXISTS(
+  SELECT 1 FROM identity_media_admissions
+   WHERE user_id=:host_id
+     AND room_name=(:'host_spec'::jsonb->>'room')
+     AND identity='u:'||:host_id
+     AND expires_at>statement_timestamp()+interval '60 seconds'
+), 'meeting_join records a durable eviction lease beyond the signed token lifetime');
+
+-- ── org-open pin (gate-ratified): a non-participant org user joins an ──
+-- unlocked meeting successfully and gains a member participant row.
+SELECT (meeting_join(:member_id, :meeting_id)) AS member_spec \gset
+SELECT is(:'member_spec'::jsonb ->> 'role', 'member', 'non-participant org user joins as member (org-open)');
+SELECT is((:'member_spec'::jsonb ->> 'roomAdmin')::boolean, false, 'member spec has roomAdmin=false');
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :meeting_id AND identity = 'u:' || :member_id), 'member',
+  'a member participant row now exists');
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_channel_members WHERE channel_id = :channel_id AND user_id = :member_id
+  ), 'joining adds the caller to the bound chat channel');
+
+-- ── locked meeting: stranger blocked, existing participant rejoins OK ───
+UPDATE meetings SET locked = true WHERE id = :meeting_id;
+SELECT throws_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :stranger_id, :meeting_id),
+  'BZ187', NULL, 'a stranger cannot join a locked meeting (no existing row)'
+);
+SELECT lives_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :member_id, :meeting_id),
+  'an existing participant may rejoin a locked meeting'
+);
+UPDATE meetings SET locked = false WHERE id = :meeting_id;
+
+-- ── ended meeting → BZ190 ────────────────────────────────────────────────
+UPDATE meetings SET state = 'ended' WHERE id = :meeting_id;
+SELECT throws_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :host_id, :meeting_id),
+  'BZ190', NULL, 'joining an ended meeting raises BZ190'
+);
+
+-- ── nonexistent meeting → BZ185 ──────────────────────────────────────────
+SELECT throws_ok(
+  format($$ SELECT meeting_join(%s, 999999999) $$, :host_id),
+  'BZ185', NULL, 'joining a nonexistent meeting raises BZ185'
+);
+
+-- ── banned participant cannot rejoin (checked before the lock check) ────
+SELECT (meeting_create(:host_id, 'Ban test meeting')) AS m2 \gset
+SELECT (:'m2'::jsonb ->> 'meetingId')::bigint AS meeting2_id \gset
+SELECT (meeting_join(:member_id, :meeting2_id)) AS ignore1 \gset
+UPDATE meeting_participants SET banned_at = now()
+ WHERE meeting_id = :meeting2_id AND identity = 'u:' || :member_id;
+SELECT throws_ok(
+  format($$ SELECT meeting_join(%s, %s) $$, :member_id, :meeting2_id),
+  'BZ186', NULL, 'a banned participant cannot rejoin (BZ186)'
+);
+
+-- ── B2 Task 4 (E-F3): the join envelope carries recordingActive too ─────
+SELECT (meeting_create(:host_id, 'Join recording test')) AS m3 \gset
+SELECT (:'m3'::jsonb ->> 'meetingId')::bigint AS meeting3_id \gset
+UPDATE meetings SET state = 'live' WHERE id = :meeting3_id;
+SELECT (meeting_recording_start(:host_id, :meeting3_id)) AS ignore2 \gset
+SELECT (meeting_join(:member_id, :meeting3_id)) AS member3_spec \gset
+SELECT is((:'member3_spec'::jsonb ->> 'recordingActive')::boolean, true,
+  'meeting_join envelope carries recordingActive=true while a recording is in flight (D5/E-F3)');
+
+-- ── huddle Slack semantics (V131, pipeline review fix): a meeting bound to
+-- a PRE-EXISTING channel must not auto-add a non-member joiner to that
+-- channel's history — they get the meeting, never the channel. ──────────
+SELECT mk_auth_user('huddle-owner@meet-join.test') AS huddle_owner_id \gset
+SELECT mk_auth_user('huddle-nonmember@meet-join.test') AS huddle_nonmember_id \gset
+SELECT chat_channel_create(:huddle_owner_id, 'huddle-origin-join') AS huddle_origin_ch \gset
+SELECT (meeting_create(:huddle_owner_id, 'Join huddle test', NULL, NULL, :huddle_origin_ch)) AS hm \gset
+SELECT (:'hm'::jsonb ->> 'meetingId')::bigint AS huddle_meeting_id \gset
+SELECT (meeting_join(:huddle_nonmember_id, :huddle_meeting_id)) AS huddle_join_spec \gset
+SELECT is((SELECT role FROM meeting_participants
+            WHERE meeting_id = :huddle_meeting_id AND identity = 'u:' || :huddle_nonmember_id), 'member',
+  'a non-member still joins the HUDDLE meeting itself (participant row created)');
+SELECT ok(NOT EXISTS (
+    SELECT 1 FROM chat_channel_members WHERE channel_id = :huddle_origin_ch AND user_id = :huddle_nonmember_id
+  ), 'joining a huddle bound to a pre-existing channel does NOT add the caller to that channel (V131)');
+
+-- a member already in the origin channel before the huddle is unaffected.
+SELECT mk_auth_user('huddle-priormember@meet-join.test') AS huddle_prior_id \gset
+SELECT chat_member_add(:huddle_owner_id, :huddle_origin_ch, :huddle_prior_id);
+SELECT (meeting_join(:huddle_prior_id, :huddle_meeting_id)) AS huddle_prior_spec \gset
+SELECT ok(EXISTS (
+    SELECT 1 FROM chat_channel_members WHERE channel_id = :huddle_origin_ch AND user_id = :huddle_prior_id
+  ), 'a member already in the origin channel before the huddle is unaffected by joining it');
+
+SELECT * FROM finish();
+ROLLBACK;

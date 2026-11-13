@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "authority": "docs/superpowers/plans/archive/2026-08-24-architecture-deepening-round-5.md",
+  "cases": [
+    {
+      "caseId": "R5-CHAT-OWNER-RECONCILIATION",
+      "disposition": "no-change",
+      "round3CaseId": "ARCH-R3-R6-CHAT-RECONCILE",
+      "round3Lane": "chat-reconcile",
+      "reviewedContracts": ["message-application", "conversation-metadata-invalidation", "reconnect-ordering", "session-generation", "stale-result-protection", "view-owned-federation-roster-intent"],
+      "newPostR3RedCases": [],
+      "sources": [
+        {"path": "docs/verification/architecture-r3-cases.json", "sha256": "3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"},
+        {"path": "scripts/verify-architecture-r3.sh", "sha256": "4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"},
+        {"path": "mailserver/webmail/src/lib/chat/store.svelte.ts", "sha256": "384646f47bc5e9d1aa5d287ac29752f49285ccdd4c3161615f6d212d7996268a"},
+        {"path": "mailserver/webmail/src/lib/chat/store.svelte.test.ts", "sha256": "49f1a70dc8aa35b5a35bb8e46f31e93179a4f366bf3fd706cbd6bba49c950708"}
+      ]
+    },
+    {
+      "caseId": "R5-EXCHANGE-LIFECYCLE-FOLD",
+      "disposition": "folded",
+      "activeAuthority": "docs/superpowers/plans/2026-08-23-exchange-replacement-contract.md",
+      "ownerMilestones": ["G4", "G6"],
+      "claimsG4G6Completion": false,
+      "ownershipOnly": true,
+      "transitions": [
+        {"id": "bundle-object-write", "ownerKind": "handler", "ownerPath": "mailserver/internal/admin/admin_exchange_assessment.go", "ownerSymbol": "UploadBundle"},
+        {"id": "bundle-authority-commit", "ownerKind": "reducer", "ownerPath": "mailserver/sql/reducers/exchange_assessment_artifact_commit.sql", "ownerSymbol": "exchange_assessment_artifact_commit"},
+        {"id": "publication-receipt-object-write", "ownerKind": "handler", "ownerPath": "mailserver/internal/admin/admin_exchange_assessment.go", "ownerSymbol": "Publish"},
+        {"id": "publication-authority-commit", "ownerKind": "reducer", "ownerPath": "mailserver/sql/reducers/exchange_assessment_publish_signed.sql", "ownerSymbol": "exchange_assessment_publish_signed"},
+        {"id": "deletion-request", "ownerKind": "reducer", "ownerPath": "mailserver/sql/reducers/exchange_assessment_delete_request.sql", "ownerSymbol": "exchange_assessment_delete_request"},
+        {"id": "active-store-object-delete", "ownerKind": "worker", "ownerPath": "mailserver/internal/admin/exchange_deletion_worker.go", "ownerSymbol": "executeExchangeDeletion"},
+        {"id": "active-store-deletion-finalize", "ownerKind": "reducer", "ownerPath": "mailserver/sql/reducers/exchange_assessment_delete_finalize.sql", "ownerSymbol": "exchange_assessment_delete_finalize"},
+        {"id": "backup-expiry-attestation", "ownerKind": "reducer", "ownerPath": "mailserver/sql/reducers/exchange_assessment_attestation_create.sql", "ownerSymbol": "exchange_assessment_attestation_create"}
+      ],
+      "sources": [
+        {"path": "mailserver/internal/admin/admin_exchange_assessment.go", "sha256": "01909b47b65d985091ef648cdb7fd5d968456394d9b94d321203086da015edd6"},
+        {"path": "mailserver/internal/admin/exchange_deletion_worker.go", "sha256": "c5e3a98b2405bc064f8bf95baf16c3f0b6f44424afa0dc20d7f9af074d25248e"},
+        {"path": "mailserver/sql/reducers/exchange_assessment_artifact_commit.sql", "sha256": "8a1170b1a631c28abfb1022745bc79d6e05105f17b6750076414aba037c548f6"},
+        {"path": "mailserver/sql/reducers/exchange_assessment_publish_signed.sql", "sha256": "760cbcbe0e7d528a42be3c2d9e30a09e6e86b9e7ccb224b1a4b7eacb73dbcf04"},
+        {"path": "mailserver/sql/reducers/exchange_assessment_delete_request.sql", "sha256": "1acdab51b42d9202d389ca61777db9e096034d92e8b5e3d14fc615b87f936c2b"},
+        {"path": "mailserver/sql/reducers/exchange_assessment_delete_finalize.sql", "sha256": "bb29ab3c8e6b45d9fb4f305c62e7ecbca764660bbcff3b1e975a80e9d8bde623"},
+        {"path": "mailserver/sql/reducers/exchange_assessment_attestation_create.sql", "sha256": "73e6322eafbefd5cbd7302401af07220e7ca1fad2ed6adcc8042c10dc53694ad"}
+      ]
+    },
+    {
+      "caseId": "R5-COMPOSE-OWNER-RECONCILIATION",
+      "disposition": "no-change",
+      "round3CaseId": "ARCH-R3-R7-COMPOSE-STATE",
+      "round3Lane": "compose-state",
+      "reviewedContracts": ["owned-state-reset", "personal-and-shared-hydration", "reply-and-forward-hydration", "signature-hydration", "request-generation-protection", "editor-session-window-isolation"],
+      "newPostR3RedCases": [],
+      "sources": [
+        {"path": "docs/verification/architecture-r3-cases.json", "sha256": "3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"},
+        {"path": "scripts/verify-architecture-r3.sh", "sha256": "4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"},
+        {"path": "mailserver/webmail/src/lib/stores/composeStore.svelte.ts", "sha256": "c7a0801e21475a7f20c383f896492fabf2f4442ca93a480c2ea22189ac58aead"},
+        {"path": "mailserver/webmail/src/lib/stores/composeStore.svelte.test.ts", "sha256": "7a96dcec3a27abf1634893cbb1117714e21e92aa152fc85774ce771377f7d64f"},
+        {"path": "mailserver/webmail/src/lib/components/ComposeScreen.test.ts", "sha256": "7e900028adf4b1e78cef0a29288a0fbf63276da13e5f3ba169e29447c775eab3"}
+      ]
+    },
+    {
+      "caseId": "R5-CALENDAR-OWNER-RECONCILIATION",
+      "disposition": "no-change",
+      "ownerPath": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts",
+      "threshold": {"minimumDistinctTransitions": 2, "minimumOutsideOwnerProductionSitesPerTransition": 2, "redTestRequired": true},
+      "qualifyingTransitionIds": [],
+      "transitions": [
+        {"id": "create", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:779"], "redTestIds": ["CalendarActionStore.dispatch — create / update:create passes eventData through and reloads"], "qualifies": false},
+        {"id": "update", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:779"], "redTestIds": ["CalendarActionStore.dispatch — create / update:update passes id + eventData through and reloads"], "qualifies": false},
+        {"id": "delete", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:827"], "redTestIds": ["CalendarActionStore.dispatch — delete:deletes and reloads; a second delete during flight is a no-op"], "qualifies": false},
+        {"id": "rsvp", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:840"], "redTestIds": ["CalendarActionStore.dispatch — rsvp:holds the in-flight status for the busy button, RSVPs, and reloads"], "qualifies": false},
+        {"id": "drag-commit", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:707"], "redTestIds": ["CalendarActionStore.dispatch — dragCommit:INVARIANT (a) rollback 1/3"], "qualifies": false},
+        {"id": "apply-scope", "stateChanging": true, "productionSites": ["mailserver/webmail/src/lib/components/CalendarApp.svelte:816"], "redTestIds": ["CalendarActionStore.dispatch — applyScope:INVARIANT (a) rollback 2/3"], "qualifies": false}
+      ],
+      "sources": [
+        {"path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.ts", "sha256": "f8a552213171a53108152e00450457e08d74fe46c4e33013e6122bb44f9cf775"},
+        {"path": "mailserver/webmail/src/lib/components/CalendarApp.svelte", "sha256": "2a21a7f2d206623dea71bd3e5d57a1c0b5b210a1ab35524fce65d8b41375e624"},
+        {"path": "mailserver/webmail/src/lib/stores/calendarActionStore.svelte.test.ts", "sha256": "5f0cc0645e95a9bc955c0d873ab1caf1f4c913d8227759c84f583eefa33f0890"},
+        {"path": "mailserver/webmail/src/lib/components/CalendarApp.test.ts", "sha256": "4bd51a4e18945876253a5905706f4c7ee4c59bdd9de7ec8b9f6b7f5e59e49238"}
+      ]
+    },
+    {
+      "caseId": "R5-OFFLINE-CAPABILITY-DEFER",
+      "disposition": "deferred",
+      "activeAuthority": "docs/superpowers/plans/2026-08-11-connectivity-aware-sync-resource-qos.md",
+      "ownerMilestones": ["E4", "E5"],
+      "decision": "optional-storage-metrics-and-facade-absorption",
+      "deleteFacadeNow": false,
+      "claimsCapabilityImplemented": false,
+      "sources": [
+        {"path": "mailserver/webmail/src/lib/offline/storeFacade.ts", "sha256": "28f20c447a5426465f266524f5cad7043a50759c3ac3981c55a4f222a19db309"},
+        {"path": "mailserver/webmail/src/lib/offline/storeFacade.test.ts", "sha256": "4f2141594d9efd51406c34e440aa3f588ebbd4fff93693e7cb1edfafe618e20d"},
+        {"path": "mailserver/webmail/src/lib/offline/store.ts", "sha256": "08bd52bae60530d597992b1657d17b82c7d53aebdf2004699f662c213b64aac8"},
+        {"path": "mailserver/webmail/src/routes/settings/storage/+page.svelte", "sha256": "7408ced845fcb376960c94bc88992de0d9c7bd8c23c6ca0b193a1876fb17efc0"}
+      ]
+    }
+  ]
+}

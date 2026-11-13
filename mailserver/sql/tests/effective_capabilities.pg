@@ -1,0 +1,172 @@
+-- pgTAP: effective_capabilities.pg
+-- Tests for effective_capabilities(p_mailbox_id BIGINT) → JSONB
+-- Verifies per-user entitlement overrides, global feature-toggle gating,
+-- assist/bundles feature bits, and account-scoped isolation (R1).
+-- ADR-003: effective_capabilities takes a MAILBOX id and resolves the owning
+-- user via account_scope() before reading user_app_entitlements (keyed by
+-- users.id). mk_account() gives DIVERGENT ids (was coincident 7600/7600), so the
+-- entitlement rows are seeded against the real owning user_id.
+BEGIN;
+SELECT plan(20);
+
+-- Two accounts; divergent user/mailbox ids by construction.
+CREATE TEMP TABLE _a AS
+  SELECT mk_account('effcap') AS mb, mk_account('effcap_other') AS mb_other;
+CREATE TEMP TABLE _u AS
+  SELECT (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _a))       AS uid,
+         (SELECT user_id FROM mailboxes WHERE id = (SELECT mb_other FROM _a)) AS uid_other;
+
+-- ── Test 1: Default-allow — no entitlement rows, all toggles default-on ──────
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'calendar'),
+  'true',
+  'calendar is true when no entitlement row and feature.caldav is ON'
+);
+
+-- ── Test 2: Per-user block — insert disabled entitlement row ─────────────────
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+  VALUES ((SELECT uid FROM _u), 'contacts', FALSE);
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'contacts'),
+  'false',
+  'contacts is false when user entitlement row has enabled=FALSE'
+);
+
+-- ── Test 3: Global toggle off overrides default-allow ────────────────────────
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.caldav';
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'calendar'),
+  'false',
+  'calendar is false when global feature.caldav toggle is OFF even with no entitlement row'
+);
+
+-- Restore toggle so subsequent tests are not affected
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.caldav';
+
+-- ── Test 4: assist reflects feature.assist (seeded OFF) ──────────────────────
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'features' ->> 'assist'),
+  'false',
+  'features.assist is false because feature.assist is seeded OFF'
+);
+
+-- ── Test 5: Account scoping — other user's block does not affect this account ─
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+  VALUES ((SELECT uid_other FROM _u), 'calendar', FALSE);
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'calendar'),
+  'true',
+  'calendar for this account is unaffected by the other user entitlement block'
+);
+
+-- ── Test 6: device_lockdown surfaces in features, default FALSE (no seeded row) ─
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'features' ->> 'device_lockdown'),
+  'false',
+  'effective_capabilities exposes features.device_lockdown=false by default');
+
+-- ── Test 7: mail has no global toggle, but G2's user-id entitlement authority
+-- still honors an explicit per-user deny. The mailbox wrapper delegates to that same
+-- authority, keeping the capability envelope aligned with enforcement. ─
+INSERT INTO user_app_entitlements (user_id, app, enabled)
+  VALUES ((SELECT uid FROM _u), 'mail', FALSE);
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'mail'),
+  'false',
+  'apps.mail honors an explicit blocking entitlement row (matches enforcement)');
+
+-- ── Test 8/9: apps.drive mirrors the admitted feature.drive default and kill switch ─
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'drive'),
+  'true',
+  'apps.drive is true while feature.drive is admitted ON'
+);
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.drive';
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'drive'),
+  'false',
+  'apps.drive flips false when feature.drive is disabled'
+);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.drive';
+
+-- ── Test 10/11: apps.chat mirrors feature.chat (V119 seeds it OFF; Task 9 apps.chat) ─
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'chat'),
+  'false',
+  'apps.chat is false while feature.chat is seeded OFF'
+);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.chat';
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'chat'),
+  'true',
+  'apps.chat flips true when feature.chat is enabled'
+);
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.chat';
+
+-- ── Test 12/13: apps.meet mirrors feature.meet (V125 seeds it OFF; Task 2) ───
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'meet'),
+  'false',
+  'apps.meet is false while feature.meet is seeded OFF'
+);
+
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.meet';
+
+SELECT is(
+  (SELECT effective_capabilities((SELECT mb FROM _a)) -> 'apps' ->> 'meet'),
+  'true',
+  'apps.meet flips true when feature.meet is enabled'
+);
+
+UPDATE feature_toggles SET enabled = FALSE WHERE key = 'feature.meet';
+
+SELECT is(effective_capabilities((SELECT mb FROM _a))->'features'->>'guest_accounts',
+  'false','guest_accounts is false while feature.guest_accounts is OFF');
+SELECT is(effective_capabilities((SELECT mb FROM _a))->'features'->>'guest_invite',
+  'false','guest_invite is false while guest accounts are OFF');
+UPDATE feature_toggles SET enabled=TRUE WHERE key='feature.guest_accounts';
+SELECT is(effective_capabilities((SELECT mb FROM _a))->'features'->>'guest_accounts',
+  'true','guest_accounts follows its feature toggle');
+SELECT is(effective_capabilities((SELECT mb FROM _a))->'features'->>'guest_invite',
+  'false','guest_invite remains false until approval.guest_invite is also ON');
+
+-- ── Tests 18–20: external identity labels honor org and per-user toggles ────
+SELECT is(
+  effective_capabilities((SELECT mb FROM _a))->'features'->>'external_labels',
+  'true',
+  'external_labels is true while feature.external_sender_warn is ON'
+);
+
+UPDATE users
+   SET external_sender_warning=FALSE
+ WHERE id=(SELECT uid FROM _u);
+
+SELECT is(
+  effective_capabilities((SELECT mb FROM _a))->'features'->>'external_labels',
+  'false',
+  'external_labels follows the per-user external_sender_warning toggle'
+);
+
+UPDATE users
+   SET external_sender_warning=TRUE
+ WHERE id=(SELECT uid FROM _u);
+UPDATE feature_toggles SET enabled=FALSE WHERE key='feature.external_sender_warn';
+
+SELECT is(
+  effective_capabilities((SELECT mb FROM _a))->'features'->>'external_labels',
+  'false',
+  'external_labels follows feature.external_sender_warn when disabled'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

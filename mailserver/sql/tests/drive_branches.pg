@@ -1,0 +1,102 @@
+-- mailserver/sql/tests/drive_branches.pg — branch create/rename/set_status +
+-- the LR-9 prune exclusion (Task 3).
+BEGIN;
+SELECT plan(22);
+SELECT mk_account('dbra') AS mba \gset
+SELECT mk_account('dbrb') AS mbb \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mba \gset
+SELECT user_id AS v FROM mailboxes WHERE id = :mbb \gset
+SELECT drive_space_create(:m, 'B', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :v, 'viewer');
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'budget.xlsx') AS nid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 'test')->>'versionId')::bigint AS h1 \gset
+
+-- create
+SELECT drive_branch_create(:m, :nid, 'budget-redo', :h1) AS bid \gset
+SELECT ok(:bid IS NOT NULL, 'branch created');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bid), 'open', 'status open');
+SELECT is((SELECT forked_from_version_id FROM drive_file_branches WHERE id=:bid), :h1::bigint, 'forked_from = h1');
+SELECT is((SELECT head_version_id FROM drive_file_branches WHERE id=:bid), :h1::bigint, 'head = h1');
+SELECT is((SELECT auto_created FROM drive_file_branches WHERE id=:bid), FALSE, 'not auto_created');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='branch.create'), 'audited branch.create');
+
+-- from-version of another file → BZ141
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'other.xlsx') AS nid2 \gset
+SELECT drive_chunk_register(:m, :sid, repeat('2',64), 10);
+SELECT (drive_file_put_version(:m, :nid2, repeat('b',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 'test')->>'versionId')::bigint AS h2 \gset
+SELECT throws_ok(format($$ SELECT drive_branch_create(%s, %s, 'x', %s) $$, :m, :nid, :h2),
+  'BZ141', NULL, 'from-version of another file → BZ141');
+
+-- duplicate name (case-insensitive)
+SELECT throws_ok(format($$ SELECT drive_branch_create(%s, %s, 'Budget-Redo', %s) $$, :m, :nid, :h1),
+  'BZ150', NULL, 'case-insensitive duplicate name → BZ150');
+
+-- viewer / non-member
+SELECT throws_ok(format($$ SELECT drive_branch_create(%s, %s, 'y', %s) $$, :v, :nid, :h1),
+  'BZ140', NULL, 'viewer create → BZ140');
+SELECT throws_ok(format($$ SELECT drive_branch_create(999999999, %s, 'z', %s) $$, :nid, :h1),
+  'BZ139', NULL, 'non-member create → BZ139');
+
+-- rename
+SELECT drive_branch_rename(:m, :bid, 'budget-redo-2');
+SELECT is((SELECT name FROM drive_file_branches WHERE id=:bid), 'budget-redo-2', 'renamed');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='branch.rename'), 'audited branch.rename');
+SELECT drive_branch_create(:m, :nid, 'taken', :h1) AS bid2 \gset
+SELECT throws_ok(format($$ SELECT drive_branch_rename(%s, %s, 'taken') $$, :m, :bid),
+  'BZ150', NULL, 'rename to a taken name → BZ150');
+
+-- set_status
+SELECT drive_branch_set_status(:m, :bid, 'review');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bid), 'review', 'open→review');
+SELECT ok(EXISTS (SELECT 1 FROM drive_audit_log WHERE space_id=:sid AND action='branch.review'), 'audited branch.review');
+SELECT drive_branch_set_status(:m, :bid, 'open');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bid), 'open', 'review→open');
+-- Task 5 (drive_branch_resolve) doesn't exist yet at this point in the
+-- build — simulate its "discard" outcome directly (a plain status flip is
+-- everything discard does) so this task's test is self-contained.
+UPDATE drive_file_branches SET status = 'discarded' WHERE id = :bid;
+SELECT throws_ok(format($$ SELECT drive_branch_set_status(%s, %s, 'review') $$, :m, :bid),
+  'BZ150', NULL, 'set_status on a discarded (merged/closed) branch → BZ150');
+SELECT throws_ok(format($$ SELECT drive_branch_set_status(%s, %s, 'merged') $$, :m, :bid2),
+  'BZ150', NULL, 'set_status cannot itself close to merged/discarded');
+
+-- LR-9 prune exclusion: v1..v5, a branch pinning v2 (forked_from) / current
+-- head, plus an adopt merge node carrying merged_from_version_id — none of
+-- the branch-referenced versions may be pruned.
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'p.bin') AS pnid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('3',64), 5);
+SELECT (drive_file_put_version(:m, :pnid, repeat('c1',32), 5, NULL, NULL,
+  format('[{"sha256":"%s","size":5}]', repeat('3',64))::jsonb, NULL, 't')->>'versionId')::bigint AS pv1 \gset
+SELECT (drive_file_put_version(:m, :pnid, repeat('c2',32), 5, NULL, :pv1,
+  format('[{"sha256":"%s","size":5}]', repeat('3',64))::jsonb, NULL, 't')->>'versionId')::bigint AS pv2 \gset
+-- pv3 lands on the BRANCH (forked from pv2, main's head at that point); main
+-- keeps advancing pv2 -> pv4 -> pv5 while the branch sits untouched.
+SELECT drive_branch_create(:m, :pnid, 'pb', :pv2) AS pbid \gset
+SELECT (drive_file_put_version(:m, :pnid, repeat('c3',32), 5, NULL, :pv2,
+  format('[{"sha256":"%s","size":5}]', repeat('3',64))::jsonb, NULL, 't', :pbid)->>'versionId')::bigint AS pv3 \gset
+SELECT (drive_file_put_version(:m, :pnid, repeat('c4',32), 5, NULL, :pv2,
+  format('[{"sha256":"%s","size":5}]', repeat('3',64))::jsonb, NULL, 't')->>'versionId')::bigint AS pv4 \gset
+SELECT (drive_file_put_version(:m, :pnid, repeat('c5',32), 5, NULL, :pv4,
+  format('[{"sha256":"%s","size":5}]', repeat('3',64))::jsonb, NULL, 't')->>'versionId')::bigint AS pv5 \gset
+-- Task 5 (drive_branch_resolve) doesn't exist yet — simulate its "adopt"
+-- outcome directly: a new main-line version whose merged_from_version_id
+-- points at the branch head (pv3), which is exactly the shape LR-9 must
+-- protect.
+INSERT INTO drive_file_versions (file_node_id, space_id, parent_version_id,
+    merged_from_version_id, content_sha256, size_bytes, author_user_id, device_label, note)
+VALUES (:pnid, :sid, :pv5, :pv3, repeat('c6',32), 5, :m, 'resolve', 'merge: pb')
+RETURNING id AS pv6 \gset
+UPDATE drive_files SET head_version_id = :pv6 WHERE node_id = :pnid;
+
+SELECT drive_version_prune(:sid, 1) AS pruned \gset
+SELECT ok((SELECT id FROM drive_file_versions WHERE id=:pv2) IS NOT NULL, 'branch forked_from version survives prune');
+SELECT ok((SELECT id FROM drive_file_versions WHERE id=:pv3) IS NOT NULL, 'branch head version survives prune');
+SELECT ok((SELECT id FROM drive_file_versions WHERE id=:pv6) IS NOT NULL,
+  'merged_from-referenced version survives prune');
+SELECT is((SELECT id FROM drive_file_versions WHERE id=:pv1), NULL, 'unprotected old version genuinely gets pruned (prune is not a vacuous no-op)');
+
+SELECT * FROM finish();
+ROLLBACK;

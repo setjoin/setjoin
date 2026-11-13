@@ -1,0 +1,103 @@
+{
+  "case": "dir-error",
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "before": [
+          {
+            "id": 9501,
+            "status": "completed"
+          },
+          {
+            "id": 9502,
+            "status": "backfill"
+          },
+          {
+            "id": 9503,
+            "status": "dual_write"
+          },
+          {
+            "id": 9504,
+            "status": "cancelled"
+          },
+          {
+            "id": 9505,
+            "status": "cutover"
+          }
+        ],
+        "table": "storage_migrations"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/storage/status",
+      "method": "GET",
+      "path": "/admin/storage/status"
+    },
+    "response": {
+      "body": "{\"buckets\":{\"count\":1},\"isLeader\":true,\"leader\":\"node:9333\",\"mode\":\"distributed\",\"topology\":null,\"version\":\"\",\"volumes\":null}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "126"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-plat3-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /admin/storage/status"
+}

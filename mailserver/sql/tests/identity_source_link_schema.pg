@@ -1,0 +1,143 @@
+-- pgTAP: Identity Model Modernization I1 normalized schema and isolation.
+BEGIN;
+SELECT plan(45);
+
+SELECT has_table('public', 'identity_sources', 'identity source catalog exists');
+SELECT has_table('public', 'user_identity_links', 'person identity links exist');
+SELECT has_table('public', 'user_lifecycle_authorities', 'one-row lifecycle authority exists');
+SELECT has_table('public', 'identity_link_events', 'append-only link events exist');
+SELECT has_table('public', 'identity_match_candidates', 'bounded match candidates exist');
+SELECT has_table('public', 'identity_source_inbox', 'durable source inbox exists');
+SELECT has_table('public', 'identity_source_leases', 'source leases exist');
+SELECT has_table('public', 'identity_attribute_authority', 'field authority substrate exists');
+SELECT has_table('public', 'identity_entitlement_grants', 'entitlement provenance substrate exists');
+SELECT has_table('public', 'identity_shadow_divergences', 'mechanical shadow ledger exists');
+
+SELECT col_is_pk('public', 'user_lifecycle_authorities', 'user_id',
+    'lifecycle authority has exactly one row per person');
+SELECT is(
+    (SELECT confdeltype::text
+       FROM pg_constraint
+      WHERE conrelid='public.user_lifecycle_authorities'::regclass
+        AND conname='user_lifecycle_authorities_user_id_fkey'),
+    'c',
+    'local lifecycle metadata cascades only with an explicitly erased person'
+);
+SELECT col_is_pk('public', 'identity_source_inbox',
+    ARRAY['source_id','batch_id','object_key'],
+    'inbox replay key is source, batch, and object');
+SELECT col_is_pk('public', 'identity_source_leases', 'source_id',
+    'one lease row exists per source');
+SELECT col_is_pk('public', 'identity_attribute_authority',
+    ARRAY['user_id','field'],
+    'one authority exists per governed person field');
+
+SELECT has_index('public', 'identity_sources', 'identity_sources_source_key_key',
+    'source key is unique');
+SELECT has_index('public', 'user_identity_links',
+    'user_identity_links_source_subject_key',
+    'source subject remains unique across every link state');
+SELECT has_index('public', 'user_identity_links',
+    'user_identity_links_source_state_seen_idx',
+    'source worker link scan is indexed');
+SELECT has_index('public', 'identity_source_inbox',
+    'identity_source_inbox_claim_idx',
+    'pending inbox claim is indexed');
+SELECT has_index('public', 'identity_shadow_divergences',
+    'identity_shadow_divergences_fact_key',
+    'one shadow fact row is reused across observations');
+SELECT has_index('public', 'identity_link_events',
+    'identity_link_events_legacy_backfill_key',
+    'restart-safe backfill event is unique per link');
+
+SELECT col_has_check('public', 'identity_sources', 'source_key',
+    'source keys are bounded immutable identifiers');
+SELECT col_has_check('public', 'identity_sources', 'capabilities',
+    'capabilities must be a nonempty object');
+SELECT col_has_check('public', 'user_identity_links', 'external_subject',
+    'opaque subjects are bounded and control-free');
+SELECT col_has_check('public', 'user_identity_links', 'purposes',
+    'link purposes use the bounded allowlist');
+SELECT col_has_check('public', 'user_identity_links', 'state',
+    'link state uses the transition allowlist');
+SELECT col_has_check('public', 'identity_source_inbox', 'state',
+    'inbox states are explicit');
+SELECT col_has_check('public', 'identity_shadow_divergences', 'divergence_class',
+    'shadow classes are fixed enums');
+SELECT col_has_check('public', 'identity_entitlement_grants', 'provenance_kind',
+    'entitlement provenance is explicit');
+
+SELECT fk_ok('public', 'user_identity_links', 'user_id',
+    'public', 'users', 'id', 'links retain their person');
+SELECT fk_ok('public', 'user_identity_links', 'source_id',
+    'public', 'identity_sources', 'id', 'links retain their source');
+SELECT fk_ok('public', 'user_lifecycle_authorities', 'link_id',
+    'public', 'user_identity_links', 'id', 'source lifecycle points at one retained link');
+SELECT fk_ok('public', 'identity_source_inbox', 'applied_event_id',
+    'public', 'identity_link_events', 'id', 'applied inbox rows retain their event');
+
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.user_identity_links'::regclass),
+    'identity links have ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.user_lifecycle_authorities'::regclass),
+    'lifecycle authorities have ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_link_events'::regclass),
+    'link events have ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_match_candidates'::regclass),
+    'match candidates have ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_source_inbox'::regclass),
+    'source inbox has ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_attribute_authority'::regclass),
+    'attribute authority has ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_entitlement_grants'::regclass),
+    'entitlement provenance has ENABLE plus FORCE RLS'
+);
+SELECT ok(
+    (SELECT relrowsecurity AND relforcerowsecurity
+       FROM pg_class WHERE oid = 'public.identity_shadow_divergences'::regclass),
+    'shadow ledger has ENABLE plus FORCE RLS'
+);
+
+SELECT is(
+    (SELECT pg_get_userbyid(relowner)
+       FROM pg_class WHERE oid = 'public.identity_sources'::regclass),
+    'setjoin_owner',
+    'source catalog is owned by isolated DDL role'
+);
+SELECT is(
+    (SELECT pg_get_userbyid(relowner)
+       FROM pg_class WHERE oid = 'public.user_identity_links'::regclass),
+    'setjoin_owner',
+    'person link table is owned by isolated DDL role'
+);
+SELECT is(
+    (SELECT enabled FROM feature_toggles WHERE key = 'feature.identity_model_v2'),
+    FALSE,
+    'identity v2 remains seeded off'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM schema_migrations WHERE version = 172),
+    'identity modernization security remediation V172 remains applied'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

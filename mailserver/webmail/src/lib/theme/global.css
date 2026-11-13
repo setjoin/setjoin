@@ -1,0 +1,80 @@
+/* ── setjoin design system — global styles ──────────────────────────────
+   Single CSS entry point. Imported by src/app.css, which is imported by
+   src/routes/+layout.svelte. Admin routes inherit it. */
+
+@import './fonts.css';
+@import './fonts-cjk.generated.css';
+@import './colors.css';
+@import './typography.css';
+@import './spacing.css';
+@import './base.css';
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* App shell — the app manages its own scroll containers */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--surface-page);
+}
+
+/* Screen reader only */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip-path: inset(50%); border: 0;
+}
+
+/* Reduced-motion respect */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}
+
+/* Density — persisted in localStorage['density'], applied as
+   data-density on <html> by the app.html boot script and the
+   appearance settings page. Tightens list rows (kit "Compact rows"). */
+[data-density="compact"] {
+  --row-height: 30px;
+}
+
+/* ── App shell responsive utilities (M2) ────────────────────── */
+.sj-burger-lg { display: inline-flex; }
+
+@media (min-width: 1024px) { .sj-burger-lg { display: none !important; } }
+
+.sj-hide-below-1024 { display: none; }
+
+@media (min-width: 1024px) { .sj-hide-below-1024 { display: inherit; } }
+
+/* 44px touch targets on mobile (per mail-kit-reference.md §10) */
+@media (max-width: 767px) {
+  .sj-iconbtn--md { min-width: 44px; min-height: 44px; }
+  .sj-btn--md     { min-height: 44px; }
+  .sj-btn--lg     { min-height: 48px; }
+  .sj-sbitem      { min-height: 44px; }
+  .sj-tab         { min-height: 44px; }
+  .sj-input,
+  .sj-select      { min-height: 44px; }
+}
+
+/* 44px touch targets on any coarse-pointer device (touchscreens, tablets,
+   touch laptops) regardless of viewport width — Apple/Material 44px floor.
+   These dense rows are 30px by design on the desktop (fine-pointer) density;
+   coarse pointers need the bigger hit area. Desktop density is untouched.
+   The selectors reach component-scoped classes because Svelte scopes only a
+   component's own style block, not external rules matching rendered classes. */
+@media (pointer: coarse) {
+  .sbitem,
+  .menu__item       { min-height: 44px; }
+  .sj-day-chips .sj-chip { min-height: 44px; }
+  .sj-sig-row       { min-height: 44px; }
+}
+
+/* Container-query root for split-view slot apps */
+.sj-cq { container-type: inline-size; }

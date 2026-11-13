@@ -1,0 +1,12 @@
+DELETE FROM threat_feed_blocks WHERE source='authrt';
+DELETE FROM ip_rules WHERE description='authrt';
+DELETE FROM auth_lockouts WHERE lockout_key IN ('ip:127.0.0.1','user:alice@imap1.test','ip_user:127.0.0.1:alice@imap1.test');
+DELETE FROM auth_attempts WHERE target_username='alice@imap1.test';
+DELETE FROM login_events WHERE user_id=9343011 OR (user_id IS NULL AND client='imap' AND source_ip='127.0.0.1');
+BEGIN;
+SET LOCAL session_replication_role=replica;
+DELETE FROM audit_log WHERE user_id=9343011 AND event_type IN ('device_new','device_country_changed');
+COMMIT;
+DELETE FROM device_registry WHERE user_id=9343011;
+DELETE FROM rate_limit_counters WHERE key='auth:imap:127.0.0.1';
+DELETE FROM conditional_access_policies WHERE id=9420420;

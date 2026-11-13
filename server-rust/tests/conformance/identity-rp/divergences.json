@@ -1,0 +1,1210 @@
+[
+  {
+    "baseline": "goldens/callback-address-collision.json",
+    "expectation": "security/callback-address-collision.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "5e6bc964771b8faaeef751d0f61c02cbf3aa8b3e5f64311a61ac388ed371d595"
+  },
+  {
+    "baseline": "goldens/callback-bad-at-hash.json",
+    "expectation": "security/callback-bad-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "a0b2ad775fd8856b733c2e192ffe7b09c9a891fd0388aa5667abf17a409e8eb0"
+  },
+  {
+    "baseline": "goldens/callback-bad-audience.json",
+    "expectation": "security/callback-bad-audience.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "64d0f707bf453e263354df092f5f9a1b25c688bc53bd134a6c9f53865f38cdbb"
+  },
+  {
+    "baseline": "goldens/callback-bad-azp.json",
+    "expectation": "security/callback-bad-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "d320b865c831713d3bbb33bc97cb2c9c7826d0a7e47d0b2147c39de6f8422982"
+  },
+  {
+    "baseline": "goldens/callback-bad-issuer.json",
+    "expectation": "security/callback-bad-issuer.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4cf0af4ea51efb200a86da38e2f337d224540ac88c64cb928f2f81027627530d"
+  },
+  {
+    "baseline": "goldens/callback-bad-nonce.json",
+    "expectation": "security/callback-bad-nonce.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2f1b29ce7ca53d1456898c6ec8fc12299a65a880c76eae84c6c83745e099130a"
+  },
+  {
+    "baseline": "goldens/callback-bad-signature.json",
+    "expectation": "security/callback-bad-signature.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2cad53f3a2b4c853bcf43026235b44136630226a48a449123f66d18871c08bf1"
+  },
+  {
+    "baseline": "goldens/callback-client-secret.json",
+    "expectation": "security/callback-client-secret.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "07cdf84d36300210e3be7237ca3466db32410f92b1e095797223a3ed000e8b18"
+  },
+  {
+    "baseline": "goldens/callback-cross-tenant.json",
+    "expectation": "security/callback-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "28416fc5b30450df1292f1c3af6776bd4b3303d4d23989a5d8b46eefbb5296d9"
+  },
+  {
+    "baseline": "goldens/callback-disabled.json",
+    "expectation": "security/callback-disabled.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f37ec50906347bc4d29065ebfabecb6388019ba82c7654a7f14589d3ec8b303e"
+  },
+  {
+    "baseline": "goldens/callback-expired.json",
+    "expectation": "security/callback-expired.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "8a6c7be0a56be18dc809631829c0efd6113db196424d66a15f291d1412de9729"
+  },
+  {
+    "baseline": "goldens/callback-future-iat.json",
+    "expectation": "security/callback-future-iat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "aa11699a80f1a5878252bc82e536ad26d9ffa601eb7de2a1bad49d69bf3afcfb"
+  },
+  {
+    "baseline": "goldens/callback-groups-absent.json",
+    "expectation": "security/callback-groups-absent.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "28996999172f67d9419cccc55df2cdfd7057b7f463e80fbfae67cc8b9043fc2d"
+  },
+  {
+    "baseline": "goldens/callback-groups-failure.json",
+    "expectation": "security/callback-groups-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "be769ade8ac658fdea31b951a95bcd6c62f41e9006388928d145e4599c4c8cb1"
+  },
+  {
+    "baseline": "goldens/callback-groups-first.json",
+    "expectation": "security/callback-groups-first.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): the first IdP group grant records provider provenance (membership and provenance are written in two statements); Go's single data-modifying CTE could not see its own insert, so the first grant had membership=true, provenance=false and a later IdP removal could not attribute or revoke it. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "1167d9e21c391e278ca55fb7029b7f556634a04769a40d750cb23c4f347519a5"
+  },
+  {
+    "baseline": "goldens/callback-groups-remove.json",
+    "expectation": "security/callback-groups-remove.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4932c5d53c40ef0313f676281dd1e1dcbd21dd930605063c61dcbc60b694af7e"
+  },
+  {
+    "baseline": "goldens/callback-invalid-groups.json",
+    "expectation": "security/callback-invalid-groups.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "66e8fbaea4202da2eb42d0ee39f181debbeb9cb895f324bc910244e625bf49a3"
+  },
+  {
+    "baseline": "goldens/callback-jit-create.json",
+    "expectation": "security/callback-jit-create.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "7e3339f1362646a15c311e216ffa7a00c036ce014bba445e7b58ba1898a13587"
+  },
+  {
+    "baseline": "goldens/callback-jit.json",
+    "expectation": "security/callback-jit.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4345f240ab2a42ac6e33493b30c058366536eb44892311d2938f32fcb15f8f60"
+  },
+  {
+    "baseline": "goldens/callback-link-bad-flow.json",
+    "expectation": "security/callback-link-bad-flow.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "6487be4269d40f982e194885ac892561b68560a3bd46ae1fb67d7ff8bb81a82a"
+  },
+  {
+    "baseline": "goldens/callback-link-cross-session.json",
+    "expectation": "security/callback-link-cross-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f5d641fab14ab031f1d5b1f395a227ba6ff3f804b5f046bf36170fcf87688c8e"
+  },
+  {
+    "baseline": "goldens/callback-link-foreign-subject.json",
+    "expectation": "security/callback-link-foreign-subject.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "91e64233162ea5d1ff97fc3118b4fed605632516cfb2c0f701dc93f8b0720835"
+  },
+  {
+    "baseline": "goldens/callback-link-inactive-session.json",
+    "expectation": "security/callback-link-inactive-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "29a1435043000d5005a669fbf5455b54a032b3e081bbb4464c39ff286077a6e3"
+  },
+  {
+    "baseline": "goldens/callback-link-mapping-failure.json",
+    "expectation": "security/callback-link-mapping-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "06f2ff28a16ec87ab8ea71bd098f5196a2bdc5e9937874c2b9a27c46dec8a6ee"
+  },
+  {
+    "baseline": "goldens/callback-link-no-session.json",
+    "expectation": "security/callback-link-no-session.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): a link-purpose callback that carries no session cookie (the IdP's redirect is cross-site, so the SameSite=Strict access_token cookie is never sent) holds the verified assertion and answers a 200 same-site refresh page to GET /auth/oidc/link/complete, where Go answered 401 linking session expired and the link could never complete in a browser. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "f3f86ef2bedbf48e3912f3e8d30bd81d9a361f233033848875e3d72552938171"
+  },
+  {
+    "baseline": "goldens/callback-link-replay.json",
+    "expectation": "security/callback-link-replay.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "94545f4cb12135b757e8024ee5d4712653433d0322678c30f870cc4f4d4e834b"
+  },
+  {
+    "baseline": "goldens/callback-link-revoked-elevation.json",
+    "expectation": "security/callback-link-revoked-elevation.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2d06265fa2e9bc51b981dcb01079411b76c2d0a03da32b5d8d36ebb00003e917"
+  },
+  {
+    "baseline": "goldens/callback-link-success.json",
+    "expectation": "security/callback-link-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3303edc9f29e3ad6781232dc11ef72292006c5b7ec5cd28a7eb76214929816f0"
+  },
+  {
+    "baseline": "goldens/callback-missing-nonce-cookie.json",
+    "expectation": "security/callback-missing-nonce-cookie.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2be0246de26ac523aea8949d1d8d80817047433945fa4edab00f5941e9b7e133"
+  },
+  {
+    "baseline": "goldens/callback-multi-audience-azp.json",
+    "expectation": "security/callback-multi-audience-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "fed018d89394256d531612e5196db898e52f4a9ca5d174b0496bca9bd96a5f45"
+  },
+  {
+    "baseline": "goldens/callback-multi-audience-no-azp.json",
+    "expectation": "security/callback-multi-audience-no-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "329a5dd293b622d89ae747c585053eb3f35e8569962792e243251113eed248d3"
+  },
+  {
+    "baseline": "goldens/callback-no-email.json",
+    "expectation": "security/callback-no-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "61d3d4aeca8635ef7c8d883746079935fab9378fd0622bfafd31ee752db861a3"
+  },
+  {
+    "baseline": "goldens/callback-normalized-stale.json",
+    "expectation": "security/callback-normalized-stale.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites the account (the case's email-update trigger, which bumped the link generation mid-settle to stage a stale fence, never fires), so the login mints (200) instead of failing the stale identity fence (409). Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "cc3782086c9d155dd338e42536eec544177fdd78348461c5da1e1210990c0b35"
+  },
+  {
+    "baseline": "goldens/callback-normalized.json",
+    "expectation": "security/callback-normalized.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): a successful normalized callback keeps the four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider); Go's deferred-response buffer replaced Set-Cookie wholesale, leaving the single-use flow cookies live for up to 10 minutes. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "cd944b26b2b80c868f656d18c821d804760171685b0e14a2c6c3753edc694300"
+  },
+  {
+    "baseline": "goldens/callback-pkce-mismatch.json",
+    "expectation": "security/callback-pkce-mismatch.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "5baf2c05a3fcb3c03a5d60f0a6bdb73f34a3cd80f81e6bfdd1cc555237e3082a"
+  },
+  {
+    "baseline": "goldens/callback-profile-conflict.json",
+    "expectation": "security/callback-profile-conflict.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites a linked account's mailbox address, so an assertion carrying another user's address signs the linked user in (200) instead of failing the profile update with a unique-address conflict (409); frozen Go updated users.email on every login, letting an IdP move a mailbox identity. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "fd82ee77a1ae6d4739e8cf78220a3f685d963cfa1da77f15fe6c466e5ddfcbed"
+  },
+  {
+    "baseline": "goldens/callback-profile-invalid.json",
+    "expectation": "security/callback-profile-invalid.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4b20fb78a50ad7c762ec5de36db139078090b2366704028414a4af28cb8b6aaf"
+  },
+  {
+    "baseline": "goldens/callback-repeat.json",
+    "expectation": "security/callback-repeat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3e1ebb1b9d7d773bdb8df7a988b8a9aadddc2f0a23dc70d6922363b2cb72872f"
+  },
+  {
+    "baseline": "goldens/callback-success.json",
+    "expectation": "security/callback-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "e4cac8190e7aef12a904b76b7bd1bd207a28ae7554b9fcd7568a15ab2b27d805"
+  },
+  {
+    "baseline": "goldens/callback-unknown-user.json",
+    "expectation": "security/callback-unknown-user.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "c1c3388c55b5eea45feb47908a3043a93c4e6b874d767edb494379d81e7b71e1"
+  },
+  {
+    "baseline": "goldens/callback-unverified-email.json",
+    "expectation": "security/callback-unverified-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "446286a96fbb65a37115b15a9d4fc1e54cfb25d2ad9332d4518cd97bdbdba2b0"
+  },
+  {
+    "baseline": "goldens/callback-valid-at-hash.json",
+    "expectation": "security/callback-valid-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f2dcb57cc23475f3a8ee71c0edd70aa2b0a0f42b02b592f6fcb5afc610b8919c"
+  },
+  {
+    "baseline": "goldens/link-cross-tenant.json",
+    "expectation": "security/link-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "580fdb9ac9037a292d8947a7aeeb3fc028855e93f97669ed9c55ed0bd6facc03"
+  },
+  {
+    "baseline": "goldens/link-repeat.json",
+    "expectation": "security/link-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "562b594b435ee01f4881a86fc628ec8bb24d2cfbb8419adc38631214bf794702"
+  },
+  {
+    "baseline": "goldens/link-success.json",
+    "expectation": "security/link-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "f891e2452ebdd378ad015f21b8dc16ee5b0244c70cf15a9a01a97952511c4feb"
+  },
+  {
+    "baseline": "goldens/login-cross-tenant.json",
+    "expectation": "security/login-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0db6ddb917097d6608ed616161d64e6dc61cc0f249c81b75f46fb8853add4b9f"
+  },
+  {
+    "baseline": "goldens/login-head.json",
+    "expectation": "security/login-head.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3c8db2e84d6f075beff287e6b086b0080439c547c03b471655e0cd718c5e20ae"
+  },
+  {
+    "baseline": "goldens/login-success.json",
+    "expectation": "security/login-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "614279e2535c81aa49958dc4a4f7a551254373c99b3506d2744a28807f570769"
+  },
+  {
+    "baseline": "qualified/callback--callback-address-collision.json",
+    "expectation": "security/callback--callback-address-collision.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "47a7adf87a6d8bd5a3494e540f1500afb6b44b05558dcf1082943ed60fac00b8"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-at-hash.json",
+    "expectation": "security/callback--callback-bad-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "59a2df20d1969f3af855caa336a67a9fec88147929025c7fc5855abde06ef615"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-audience.json",
+    "expectation": "security/callback--callback-bad-audience.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "8935afcb4584a542e4ddc507e9183c9d9f37dbe0894174ecb230351f21a972d2"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-azp.json",
+    "expectation": "security/callback--callback-bad-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "8f50b9ddb1d15466299837f1bb70f74244abf877597e69f74cb43763b89caf05"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-issuer.json",
+    "expectation": "security/callback--callback-bad-issuer.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "31dcf43c3ce67e608c327724e3ddd98afe421d582f0b896f332c791536c09cd8"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-nonce.json",
+    "expectation": "security/callback--callback-bad-nonce.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "b61290042b49ee40d835b1a9f692982519feabe6adb3b172d8542199b388b0ee"
+  },
+  {
+    "baseline": "qualified/callback--callback-bad-signature.json",
+    "expectation": "security/callback--callback-bad-signature.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "1665893c318125bc3b99804d85107aa1c3c70720e3432808d13304d8a94a219c"
+  },
+  {
+    "baseline": "qualified/callback--callback-client-secret.json",
+    "expectation": "security/callback--callback-client-secret.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4015667064e1a492cf073f5c3bb97df6354fce28da8420f0f0ea6d1f02157f23"
+  },
+  {
+    "baseline": "qualified/callback--callback-cross-tenant.json",
+    "expectation": "security/callback--callback-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "c658c756e4efead9bd5db9b445ef665c1ca14c17578ca8e071f2022700ab90a3"
+  },
+  {
+    "baseline": "qualified/callback--callback-disabled.json",
+    "expectation": "security/callback--callback-disabled.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "257f10cd04c82445be0f31ce602fcd357c0a22b431b3b87bc6caa52cd89f8a79"
+  },
+  {
+    "baseline": "qualified/callback--callback-expired.json",
+    "expectation": "security/callback--callback-expired.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "c6b1c75f83d9e2db086c45d9f6b15db68294db331f461191b5589de8b5e43663"
+  },
+  {
+    "baseline": "qualified/callback--callback-future-iat.json",
+    "expectation": "security/callback--callback-future-iat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "672a9006083a50635bae1859edf40234b7f8d7e7f1eee2dfbf3af1c65159d735"
+  },
+  {
+    "baseline": "qualified/callback--callback-groups-absent.json",
+    "expectation": "security/callback--callback-groups-absent.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0c805a9061875292f2dc2f80c51b07162fa72b20644231d573e9f56bd82627e7"
+  },
+  {
+    "baseline": "qualified/callback--callback-groups-failure.json",
+    "expectation": "security/callback--callback-groups-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "9b45f9be1e6b323bfa643915648738bf3bb463c14b26e65627216e594fbdcc1a"
+  },
+  {
+    "baseline": "qualified/callback--callback-groups-first-rows.json",
+    "expectation": "security/callback--callback-groups-first-rows.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): the first IdP group grant records provider provenance (membership and provenance are written in two statements); Go's single data-modifying CTE could not see its own insert, so the first grant had membership=true, provenance=false and a later IdP removal could not attribute or revoke it.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "1c49985d31665413c9fe3011cbda7d2d6b637b3308ed660ef1c3b062c6b90683"
+  },
+  {
+    "baseline": "qualified/callback--callback-groups-first.json",
+    "expectation": "security/callback--callback-groups-first.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): the first IdP group grant records provider provenance (membership and provenance are written in two statements); Go's single data-modifying CTE could not see its own insert, so the first grant had membership=true, provenance=false and a later IdP removal could not attribute or revoke it. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "a7e267c250b3467849272547cbed848da95fdb4f085a2a3deecd809731554f34"
+  },
+  {
+    "baseline": "qualified/callback--callback-groups-remove.json",
+    "expectation": "security/callback--callback-groups-remove.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "8deb03e6f39cc128cafbef48825346e4e825269e6525342b59836be8872f3797"
+  },
+  {
+    "baseline": "qualified/callback--callback-invalid-groups.json",
+    "expectation": "security/callback--callback-invalid-groups.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "854f274adae2aa2502461e97ab7ff247a12bd0a40d20a58492571e841badead4"
+  },
+  {
+    "baseline": "qualified/callback--callback-jit-create.json",
+    "expectation": "security/callback--callback-jit-create.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "b3c6e5bba743a4ddc2223baef627f3b57ee3760eaf3c7af819b21b78f543a7a9"
+  },
+  {
+    "baseline": "qualified/callback--callback-jit.json",
+    "expectation": "security/callback--callback-jit.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "ae837c4981c5398ecc7bcea1d361c9ec77fcad12479b30f7bc1d0cb58305cc85"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-bad-flow.json",
+    "expectation": "security/callback--callback-link-bad-flow.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "c6119f1b5103b438111e625eb8195dc331dcfa01186ff52637aeaaa27fcbad59"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-cross-session.json",
+    "expectation": "security/callback--callback-link-cross-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "75af6edb8a4cdf79578b9c3d219a81edfbdd45a85244f5027518f10bc487ab7d"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-foreign-subject.json",
+    "expectation": "security/callback--callback-link-foreign-subject.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f935e0ba39af355b3f8b8f7230709892f01af4475e5b488c36740997e642703f"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-inactive-session.json",
+    "expectation": "security/callback--callback-link-inactive-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0f23d4f86aeee93fa0c54529bb1223cde50d71c444d3ce152b55f6a7a623273b"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-mapping-failure.json",
+    "expectation": "security/callback--callback-link-mapping-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3f5048129bf9d14d6975f68d20ff4805375d0ba3c653f633b2bfe36e77c486a1"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-no-session.json",
+    "expectation": "security/callback--callback-link-no-session.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): a link-purpose callback that carries no session cookie (the IdP's redirect is cross-site, so the SameSite=Strict access_token cookie is never sent) holds the verified assertion and answers a 200 same-site refresh page to GET /auth/oidc/link/complete, where Go answered 401 linking session expired and the link could never complete in a browser. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "6c5008a26d018438e72455964bd7ad8c3c284c5438f069397e0a5828067a4069"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-replay.json",
+    "expectation": "security/callback--callback-link-replay.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "75cf1949daa675d6d5ca304e0b51a9ab2f784d3d2e3f13fab0a27ea38e6751c6"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-revoked-elevation.json",
+    "expectation": "security/callback--callback-link-revoked-elevation.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "fde8e471ed437b84398f5d11e0577e68c0624f95dc83a750654d5b5fa10d761d"
+  },
+  {
+    "baseline": "qualified/callback--callback-link-success.json",
+    "expectation": "security/callback--callback-link-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0e44b4189a3a540612da4f7c507730aab114832edb4dc33d3e4c616bdfd51e06"
+  },
+  {
+    "baseline": "qualified/callback--callback-missing-nonce-cookie.json",
+    "expectation": "security/callback--callback-missing-nonce-cookie.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "29886b21f9f9b7e06a7ea78d8e2722515e6138a48fd51e930567059439e2c399"
+  },
+  {
+    "baseline": "qualified/callback--callback-multi-audience-azp.json",
+    "expectation": "security/callback--callback-multi-audience-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "82fd9d033f0aafde70e21fa2d0fbce3cfe5986065cd5c79c7cb55b2c36044d9b"
+  },
+  {
+    "baseline": "qualified/callback--callback-multi-audience-no-azp.json",
+    "expectation": "security/callback--callback-multi-audience-no-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "055734d4ea139a8ca9d50ce93552e26b4f5cf14d45846bbb817e5f1de547a935"
+  },
+  {
+    "baseline": "qualified/callback--callback-no-email.json",
+    "expectation": "security/callback--callback-no-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "87005ffe0aaa32d08fb6d0ffb013dfc46bb3f1b2cb1ff810b2a631b80a63f733"
+  },
+  {
+    "baseline": "qualified/callback--callback-normalized-stale-rows.json",
+    "expectation": "security/callback--callback-normalized-stale-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites the account (the case's email-update trigger, which bumped the link generation mid-settle to stage a stale fence, never fires), so the login mints (200) instead of failing the stale identity fence (409).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "612074ea2314694273df1ec1ea950be0e8020f528ed1f5b3ca839e86e0385315"
+  },
+  {
+    "baseline": "qualified/callback--callback-normalized-stale.json",
+    "expectation": "security/callback--callback-normalized-stale.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites the account (the case's email-update trigger, which bumped the link generation mid-settle to stage a stale fence, never fires), so the login mints (200) instead of failing the stale identity fence (409). Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "f55e75ee28a32c1d1e34524f89064a1d391836dc419d4dd4acf25e53a7f791c7"
+  },
+  {
+    "baseline": "qualified/callback--callback-normalized.json",
+    "expectation": "security/callback--callback-normalized.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): a successful normalized callback keeps the four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider); Go's deferred-response buffer replaced Set-Cookie wholesale, leaving the single-use flow cookies live for up to 10 minutes. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "6949b11efd85ed39d8cb3daff4ad9d82966d6e15f7e5d2e86169028e1605e3fa"
+  },
+  {
+    "baseline": "qualified/callback--callback-pkce-mismatch.json",
+    "expectation": "security/callback--callback-pkce-mismatch.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "edec28f90b2565383c62343b0e6e79e36ed2fb9f4256b4143bcca8de360ee33f"
+  },
+  {
+    "baseline": "qualified/callback--callback-profile-conflict-rows.json",
+    "expectation": "security/callback--callback-profile-conflict-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites a linked account's mailbox address, so an assertion carrying another user's address signs the linked user in (200) instead of failing the profile update with a unique-address conflict (409); frozen Go updated users.email on every login, letting an IdP move a mailbox identity.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "67b5346a9744e13dc188bc4bfeac5e4d5d8950dde11f9d43facc8a92a34c6f10"
+  },
+  {
+    "baseline": "qualified/callback--callback-profile-conflict.json",
+    "expectation": "security/callback--callback-profile-conflict.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites a linked account's mailbox address, so an assertion carrying another user's address signs the linked user in (200) instead of failing the profile update with a unique-address conflict (409); frozen Go updated users.email on every login, letting an IdP move a mailbox identity. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "98a1ce4723439206d1343b97b81c32cabc328a9e3b31b36cf4758236beb3f164"
+  },
+  {
+    "baseline": "qualified/callback--callback-profile-invalid.json",
+    "expectation": "security/callback--callback-profile-invalid.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "77fda8112cc663bf14450f76c2933dbda72d03a65f9823523e88662d11cdc293"
+  },
+  {
+    "baseline": "qualified/callback--callback-repeat.json",
+    "expectation": "security/callback--callback-repeat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "6697a956c7b9c3394d5bb43c6a7eacfbcdd712b026a39c315a3a189b7addd615"
+  },
+  {
+    "baseline": "qualified/callback--callback-success.json",
+    "expectation": "security/callback--callback-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "9fc50988690da8ef863fe495dddf3e6d048fc6480977deccdcbfd0e610cd1e26"
+  },
+  {
+    "baseline": "qualified/callback--callback-unknown-user.json",
+    "expectation": "security/callback--callback-unknown-user.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "596686a5de3da284331691f14bb20a8b6fa462a0cffdad6874d1099a3b2f0b4e"
+  },
+  {
+    "baseline": "qualified/callback--callback-unverified-email.json",
+    "expectation": "security/callback--callback-unverified-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0bb52d9b30e5d75fde74e5798c7beef547d6cc5da657c911393ea409d57f72bb"
+  },
+  {
+    "baseline": "qualified/callback--callback-valid-at-hash.json",
+    "expectation": "security/callback--callback-valid-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "25ecdf8a361e2b0f0c1ad67751938259707edabfc8fde91ec60365be7b2eaa2d"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-address-collision.json",
+    "expectation": "security/gateway-callback--callback-address-collision.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "659dcac46ffb5df074cf6c9e93667a8e4c0485653a5500205cbf728fb565c64c"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-at-hash.json",
+    "expectation": "security/gateway-callback--callback-bad-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "916d640d443af8c38734e74f807f37a099ff1ddc10af0dbcc2dfea2142413143"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-audience.json",
+    "expectation": "security/gateway-callback--callback-bad-audience.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "65eed33605af68916fac9ed5b788756ec250708ccba7e6282c098daac11ca543"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-azp.json",
+    "expectation": "security/gateway-callback--callback-bad-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2185316de6dce09b43bf0da8c3ef3f3c74f4711f32f0dd172e7cd2919e495d5f"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-issuer.json",
+    "expectation": "security/gateway-callback--callback-bad-issuer.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "6757f991f90e527a4510d04697e6e0615eba8b3bf3d0790792c5ae3ecbaa7f61"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-nonce.json",
+    "expectation": "security/gateway-callback--callback-bad-nonce.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "e9e6af156c0c665c6612a3953414d8bc8032045478074cc4b87516ab030574ad"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-bad-signature.json",
+    "expectation": "security/gateway-callback--callback-bad-signature.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0ca84eab15d22be1b41c34ff39b36524f80506bfc85047d585f9aca0a3049b1a"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-client-secret.json",
+    "expectation": "security/gateway-callback--callback-client-secret.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0884669ae7c2d6daf80f5e10a4e76a3c08a3b6804c84b3058e92370a7e3ce015"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-cross-tenant.json",
+    "expectation": "security/gateway-callback--callback-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "1f4ea9807dfee3b327725252f86f206b74095c92d9ea6ce81e7bddda331a7671"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-disabled.json",
+    "expectation": "security/gateway-callback--callback-disabled.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "333967142aad520d3085209e8738413e3a3a06c80a9978bddf84b910ebccdd47"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-expired.json",
+    "expectation": "security/gateway-callback--callback-expired.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "958001d3c80db3d2bb1701bbae582ebda276272cd1fc0b1e46d79c20c9d1bf0c"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-future-iat.json",
+    "expectation": "security/gateway-callback--callback-future-iat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "6c4cea5dbe1d0231215ddb404eccf4fbaec5465ad7150d61bd79db80580b92da"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-groups-absent.json",
+    "expectation": "security/gateway-callback--callback-groups-absent.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "0beae19f38ddf1f1d6f1f4ff547efe341cb5b27ae66d60f54726850e05168f03"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-groups-failure.json",
+    "expectation": "security/gateway-callback--callback-groups-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "49dced35c8c9867b1ba4c54f2e51e1a189a9282ec06b6a69f9ed1b17992f2b72"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-groups-first-rows.json",
+    "expectation": "security/gateway-callback--callback-groups-first-rows.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): the first IdP group grant records provider provenance (membership and provenance are written in two statements); Go's single data-modifying CTE could not see its own insert, so the first grant had membership=true, provenance=false and a later IdP removal could not attribute or revoke it.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "6019ca891d9d861ef07d7d106b5b96dd37a72b3af83628d2a6d247d4b47efbbb"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-groups-first.json",
+    "expectation": "security/gateway-callback--callback-groups-first.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): the first IdP group grant records provider provenance (membership and provenance are written in two statements); Go's single data-modifying CTE could not see its own insert, so the first grant had membership=true, provenance=false and a later IdP removal could not attribute or revoke it. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "ca3363c6e86c8f67ad724731125b7811d17ed309b6ff64ebb362af537d4fdc8a"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-groups-remove.json",
+    "expectation": "security/gateway-callback--callback-groups-remove.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f3925f9377a54dc8b684f56c95713dc11cf49c67bc2c672e2d4d3b763ce44d63"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-invalid-groups.json",
+    "expectation": "security/gateway-callback--callback-invalid-groups.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "fdf5843bb29e772c9f30ec9fd6a48a058b4ea7895f0d5356d18c3adc4c839b71"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-jit-create.json",
+    "expectation": "security/gateway-callback--callback-jit-create.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "94b2ed94614d1853e34820a8347a5aba05512f8e7dcee208ef2d5d8b3166db43"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-jit.json",
+    "expectation": "security/gateway-callback--callback-jit.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4e06a419559c1170757d3bd1feda51da3e720869e51bdeac718390e45316ce9e"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-bad-flow.json",
+    "expectation": "security/gateway-callback--callback-link-bad-flow.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "46fdf14bd2be06c7a38e1a7b7ed7d9b2ae0b74cb044c89f23618b42f944dad0e"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-cross-session.json",
+    "expectation": "security/gateway-callback--callback-link-cross-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "37e1a7b6e45864c7fa0ee75c23aead5d0bae9afb1dd23ab97d87208655da11ee"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-foreign-subject.json",
+    "expectation": "security/gateway-callback--callback-link-foreign-subject.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "08516fda9b93364c2a591f0fb485eef94118da99cc605a987e3e8a8d0a617481"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-inactive-session.json",
+    "expectation": "security/gateway-callback--callback-link-inactive-session.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "162a043eecbcaf1e6f02b8baf37335c800e39afd99154ba3039ce3c30f6d83a4"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-mapping-failure.json",
+    "expectation": "security/gateway-callback--callback-link-mapping-failure.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "5c64f40ede0aa9a97167bd7fda0fc16500f9f862742c07a403db2b8ae9b63562"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-no-session.json",
+    "expectation": "security/gateway-callback--callback-link-no-session.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): a link-purpose callback that carries no session cookie (the IdP's redirect is cross-site, so the SameSite=Strict access_token cookie is never sent) holds the verified assertion and answers a 200 same-site refresh page to GET /auth/oidc/link/complete, where Go answered 401 linking session expired and the link could never complete in a browser. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "138629b6cffb1fd9e54dbfe7b4b5ee984025001a505c1a17e254c098c6bb3216"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-replay.json",
+    "expectation": "security/gateway-callback--callback-link-replay.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "1e672a2270429794317a001975aabcc89011b617e5e2ab05ac773993245c41ac"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-revoked-elevation.json",
+    "expectation": "security/gateway-callback--callback-link-revoked-elevation.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "52666b7f20808e55aed5ad6fc9bcf0d7964e99142039c9dc6f35dd6079f3af9a"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-link-success.json",
+    "expectation": "security/gateway-callback--callback-link-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "ae126090f5ba290af4fafef15bb5c5b5816acf1374329e14e8543b7562f8276e"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-missing-nonce-cookie.json",
+    "expectation": "security/gateway-callback--callback-missing-nonce-cookie.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "37dee28062c9d2f4d51182b49797249c1a8e9517484f95e50c3d74afdd5a6188"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-multi-audience-azp.json",
+    "expectation": "security/gateway-callback--callback-multi-audience-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "f155598aff6e671a78914664bb2681ed3e03f50fb600ba71c4dd98635a214b9f"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-multi-audience-no-azp.json",
+    "expectation": "security/gateway-callback--callback-multi-audience-no-azp.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4c70390f5bd8dc37da40e00ea3682cc52e003c2dac56748d28566c5962c8e31e"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-no-email.json",
+    "expectation": "security/gateway-callback--callback-no-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3d6c89d2a230a1e444f9c8f068d8502604bf90c103489ad2cbc354a00bc3c5b9"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-normalized-stale-rows.json",
+    "expectation": "security/gateway-callback--callback-normalized-stale-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites the account (the case's email-update trigger, which bumped the link generation mid-settle to stage a stale fence, never fires), so the login mints (200) instead of failing the stale identity fence (409).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "e878a106346e5b65a8d63aa6a8c4889543b0143aeda247fdb7af57218d1181eb"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-normalized-stale.json",
+    "expectation": "security/gateway-callback--callback-normalized-stale.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites the account (the case's email-update trigger, which bumped the link generation mid-settle to stage a stale fence, never fires), so the login mints (200) instead of failing the stale identity fence (409). Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "9079c043b947c7904a301303f0792cea95208f441802c443ee8bc78754f4e2ac"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-normalized.json",
+    "expectation": "security/gateway-callback--callback-normalized.json",
+    "reason": "owner-approved security fix 2026-11-06 (#530): a successful normalized callback keeps the four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider); Go's deferred-response buffer replaced Set-Cookie wholesale, leaving the single-use flow cookies live for up to 10 minutes. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-06",
+    "sha256": "2fc4d932c15fb68579c11860877a11f325816a74238630df41a2a843b2a60afd"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-pkce-mismatch.json",
+    "expectation": "security/gateway-callback--callback-pkce-mismatch.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "2ddbebccb5b61d12c501482ee4663d056c1bde3c31b5dbf647ef9df9b1fc2978"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-profile-conflict-rows.json",
+    "expectation": "security/gateway-callback--callback-profile-conflict-rows.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites a linked account's mailbox address, so an assertion carrying another user's address signs the linked user in (200) instead of failing the profile update with a unique-address conflict (409); frozen Go updated users.email on every login, letting an IdP move a mailbox identity.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "1afea8b22a9c590639ce93ff4957589dd33a1439e4dc7a279cb96669d8cad499"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-profile-conflict.json",
+    "expectation": "security/gateway-callback--callback-profile-conflict.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): the IdP-asserted address no longer rewrites a linked account's mailbox address, so an assertion carrying another user's address signs the linked user in (200) instead of failing the profile update with a unique-address conflict (409); frozen Go updated users.email on every login, letting an IdP move a mailbox identity. Also owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "7cccfe6f3e0829776346a82b54d3df59330ea3da21871faec82b1e1ae96ba8c1"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-profile-invalid.json",
+    "expectation": "security/gateway-callback--callback-profile-invalid.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "d3c799d69de9f5c5b93955a8908e943196a4cb1624bef31cc630f19283ef4127"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-repeat.json",
+    "expectation": "security/gateway-callback--callback-repeat.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "d0320e1ea711db027ed0a9ff6640b2e54a36d6d328d5183da3a7455397bd7c4b"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-success.json",
+    "expectation": "security/gateway-callback--callback-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "07f99bf33d8f63f36625dc003a8ad38c4e5351c644f2c9001d39596ea06e9f9f"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-unknown-user.json",
+    "expectation": "security/gateway-callback--callback-unknown-user.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "02c1a85ed383adcf5ecd4bf016da0b8e702a031e1216dbc7dc2975b45c86f504"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-unverified-email.json",
+    "expectation": "security/gateway-callback--callback-unverified-email.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "aaddf9cb8f4443b89ac3972b257b8519d8e457841d7cfe2203038c96a7557945"
+  },
+  {
+    "baseline": "qualified/gateway-callback--callback-valid-at-hash.json",
+    "expectation": "security/gateway-callback--callback-valid-at-hash.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "43b0b650742406a91d20a29f75db0e26062189220c219f9dbfbfaa04c24b31df"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-cross-tenant.json",
+    "expectation": "security/gateway-link--link-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "0f8cd9650cf524c5f9176bca976da6e566c95313cc66c35c37c410f22447f7ac"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-repeat.json",
+    "expectation": "security/gateway-link--link-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "e118bd28d2d8f3b62228b6a6dd70a5c46ab637f654c1c5744d1d1130f489e3e3"
+  },
+  {
+    "baseline": "qualified/gateway-link--link-success.json",
+    "expectation": "security/gateway-link--link-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "f5b911fb758083f21e3dc3ba31002d3f3a54a060071091c59437d7940fc1b94a"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-cross-tenant.json",
+    "expectation": "security/gateway-login--login-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "577a4f7e3da0953f126e90c80e53ae8135cb3623f44f1c791e271652d497190c"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-head.json",
+    "expectation": "security/gateway-login--login-head.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "4ed757f8117c50875d7d9dc1d8ca517306f7c127e0200cd8d449f707416b3a0b"
+  },
+  {
+    "baseline": "qualified/gateway-login--login-success.json",
+    "expectation": "security/gateway-login--login-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "711afc29cfe54992dae97a9d1c3284f406d9f69916aec4f9f4ffbf4f1020ee2c"
+  },
+  {
+    "baseline": "qualified/link--link-cross-tenant.json",
+    "expectation": "security/link--link-cross-tenant.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "e94cc34c6e17d23871e3728dcfc298c837760937e35aa448b928801ee8ce5923"
+  },
+  {
+    "baseline": "qualified/link--link-repeat.json",
+    "expectation": "security/link--link-repeat.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "1e9d713648b7055b48bfdb918dc56f769a5fd4839e43314eaeeea35378cf45a2"
+  },
+  {
+    "baseline": "qualified/link--link-success.json",
+    "expectation": "security/link--link-success.json",
+    "reason": "owner-approved security fix 2026-11-05 (#547): POST /auth/oidc/link sets the flow cookies (identity_link_flow, oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and the link flow could not complete.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #547 implementer; owner decision 2026-11-05 (#547)",
+    "sha256": "bdca19a5d1b47d48207b5270e43a14de1c2850a2f88d6dc9623ce51891c42b6b"
+  },
+  {
+    "baseline": "qualified/login--login-cross-tenant.json",
+    "expectation": "security/login--login-cross-tenant.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "3ba800827901c94fe19425250b3109c252b2cfeadb2b1b2fe5d9c71d5c80a8f0"
+  },
+  {
+    "baseline": "qualified/login--login-head.json",
+    "expectation": "security/login--login-head.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "ec506234c4f861dc8402990c90d6d61d63040f07a27ec3bd7f8989d60fb403d6"
+  },
+  {
+    "baseline": "qualified/login--login-success.json",
+    "expectation": "security/login--login-success.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): GET /auth/oidc/login sets the four flow cookies (oidc_state, oidc_nonce, oidc_provider, oidc_verifier) SameSite=Lax instead of Strict so the IdP's cross-site redirect to the callback carries them; Go's Strict cookies were dropped by the browser and cross-site IdP login never worked.",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "ee8b07e76df3fd961dc3f16a4230deda291ddf8747b8b6e6041caea3b2f1f30e"
+  },
+  {
+    "baseline": "worker.json",
+    "expectation": "security/worker.json",
+    "reason": "owner-approved functional fix 2026-11-09 (#548): the seeded login of the oidc_rp worker case sets the four flow cookies SameSite=Lax instead of Strict (see the login goldens).",
+    "reviewed": true,
+    "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
+    "sha256": "8a1e9f4a12c9aa096e15f4612b6d1e69cd056268b413d1c133852a0e5cf694d3"
+  }
+]

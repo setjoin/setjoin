@@ -1,0 +1,26 @@
+// Recording-only overlay: call frozen Go's actual one-tick implementation.
+package admin
+import (
+ "context"
+ "crypto/ed25519"
+ "log/slog"
+ "os"
+ "testing"
+ "time"
+ "github.com/minio/minio-go/v7"
+ "github.com/minio/minio-go/v7/pkg/credentials"
+ "setjoin.com/shared/cryptokey"
+ "setjoin.com/shared/exchangeartifact"
+ "setjoin.com/shared/pgxutil"
+)
+type goFreeExchangeSigner struct{}
+func (goFreeExchangeSigner) SignExchangeReceipt(c exchangeartifact.ReceiptClaims)(exchangeartifact.SignedReceipt,error){
+ seed:=make([]byte,32);for i:=range seed{seed[i]=0x22};c.KeyID="blobs1-test-continuity";c.IssuedAt=time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+ return exchangeartifact.SignReceipt(c,ed25519.NewKeyFromSeed(seed))
+}
+func TestGoFreeExchangeDeletionTick(t *testing.T){
+ ctx:=context.Background();pool,err:=pgxutil.OpenPool(ctx,os.Getenv("GOFREE_DRAIN_DSN"),4,os.Getenv("DB_ENCRYPTION_KEY"),"");if err!=nil{t.Fatal(err)};defer pool.Close()
+ mc,err:=minio.New(os.Getenv("GOFREE_DRAIN_S3"),&minio.Options{Creds:credentials.NewStaticV4("test-access","test-secret",""),Secure:false});if err!=nil{t.Fatal(err)}
+ h:=NewExchangeAssessmentHandler(pgxutil.WorkerPool{Pool:pool},mc,"mailblobs",nil,cryptokey.ProfileStandard,goFreeExchangeSigner{},slog.Default())
+ h.drainExchangeDeletions(ctx)
+}

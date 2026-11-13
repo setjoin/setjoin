@@ -1,0 +1,13 @@
+{
+  "case": "mark-read-cross-tenant-row-effects",
+  "effects": [],
+  "format": 1,
+  "go_source": "bf600a0beba1540a34ed24cd93825a2317a2e601",
+  "normalization": [
+    "compare every column of mailbox-scoped mailboxes, messages, tags, message_tags, and jmap_changes_journal",
+    "identify fixture mailbox, message and tag rows by stable names",
+    "journal mailbox and entity IDs: fixture IDs; created_at: timestamp",
+    "updated_at values in changed columns: timestamps, retaining the fact of change"
+  ],
+  "route": "POST /jmap Email/set"
+}

@@ -1,0 +1,29 @@
+{
+  "case": "impersonate-domain-scope-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "device_id": null,
+          "event_type": "admin_impersonate",
+          "geo_country": null,
+          "id": "<audit-id>",
+          "metadata": {
+            "target_email": "foreign@idlogin3.test",
+            "target_user_id": "<foreign>"
+          },
+          "occurred_at": "<timestamp>",
+          "protocol": null,
+          "session_id": null,
+          "source_ip": "127.0.0.1",
+          "user_id": "<actor>"
+        }
+      ],
+      "before": [],
+      "table": "audit_log"
+    }
+  ],
+  "format": 1,
+  "go_source": "d431c0ecdbb362809c3fdba781a395712612bf61",
+  "route": "POST /auth/admin/users/{id}/impersonate"
+}

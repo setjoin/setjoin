@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: transition id and --elevation must be UUIDs\n",
+  "exit": 1
+}

@@ -1,0 +1,86 @@
+-- pgTAP: calendar_import_ics.sql — ownership + state-bump + conflict strategy.
+-- The Go gateway parses the uploaded .ics into a JSON array of event objects; this
+-- reducer routes each through jmap_calendar_event_set_create for the caller's own
+-- calendar, verifying calendar ownership BEFORE any insert.
+BEGIN;
+SELECT plan(8);
+
+-- Two disjoint accounts (mk_account gives divergent user/mailbox ids).
+CREATE TEMP TABLE _own AS SELECT mk_account('icsowner') AS mb;
+CREATE TEMP TABLE _other AS SELECT mk_account('icsother') AS mb;
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7701, (SELECT mb FROM _own), 'Mine', TRUE);
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES (7702, (SELECT mb FROM _other), 'Theirs', TRUE);
+
+-- The two-event payload the gateway builds after parsing.
+CREATE TEMP TABLE _payload AS SELECT '[
+  {"uid":"ics-1","title":"Standup","start":"2040-01-01T09:00:00Z","end":"2040-01-01T09:30:00Z"},
+  {"uid":"ics-2","title":"Review","start":"2040-01-02T14:00:00Z","end":"2040-01-02T15:00:00Z"}
+]'::JSONB AS events;
+
+-- Test 1: importing into a FOREIGN calendar is rejected (BZ113) — no ownership bypass.
+SELECT throws_ok(
+  format($$SELECT calendar_import_ics(%s, %s, 'icsowner@t.test', 7702, %L::jsonb, 'skip')$$,
+         (SELECT mb FROM _own), (SELECT mb FROM _own), (SELECT events FROM _payload)),
+  'BZ113',
+  NULL,
+  'import into a foreign-owned calendar is rejected (BZ113)'
+);
+
+-- Test 2: nothing leaked into the foreign calendar.
+SELECT is(
+  (SELECT count(*)::INT FROM calendar_events WHERE calendar_id = 7702),
+  0,
+  'foreign calendar has no imported rows'
+);
+
+-- Capture the pre-import calendar state.
+CREATE TEMP TABLE _pre AS SELECT jmap_state AS s FROM calendars WHERE id = 7701;
+
+-- Test 3: import into the caller's OWN calendar reports both imported.
+SELECT is(
+  (calendar_import_ics((SELECT mb FROM _own), (SELECT mb FROM _own), 'icsowner@t.test',
+                       7701, (SELECT events FROM _payload), 'skip')->>'imported')::INT,
+  2,
+  'import into own calendar creates both events'
+);
+
+-- Test 4: the rows actually exist.
+SELECT is(
+  (SELECT count(*)::INT FROM calendar_events WHERE calendar_id = 7701 AND uid IN ('ics-1','ics-2')),
+  2,
+  'both events persisted in the owned calendar'
+);
+
+-- Test 5: importing routed through set_create bumped the calendar jmap_state.
+SELECT cmp_ok(
+  (SELECT jmap_state FROM calendars WHERE id = 7701), '>', (SELECT s FROM _pre),
+  'import bumped calendars.jmap_state (state+notify came through set_create)'
+);
+
+-- Test 6: re-import with strategy 'skip' skips the two existing UIDs (imports 0).
+SELECT is(
+  (calendar_import_ics((SELECT mb FROM _own), (SELECT mb FROM _own), 'icsowner@t.test',
+                       7701, (SELECT events FROM _payload), 'skip')->>'skipped')::INT,
+  2,
+  'skip strategy skips already-present UIDs'
+);
+
+-- Test 7: strategy 'rename' re-imports both as new suffixed UIDs (imports 2).
+SELECT is(
+  (calendar_import_ics((SELECT mb FROM _own), (SELECT mb FROM _own), 'icsowner@t.test',
+                       7701, (SELECT events FROM _payload), 'rename')->>'imported')::INT,
+  2,
+  'rename strategy keeps both (imports two suffixed copies)'
+);
+
+-- Test 8: an invalid strategy is rejected (BZ113).
+SELECT throws_ok(
+  format($$SELECT calendar_import_ics(%s, %s, 'icsowner@t.test', 7701, '[]'::jsonb, 'bogus')$$,
+         (SELECT mb FROM _own), (SELECT mb FROM _own)),
+  'BZ113',
+  NULL,
+  'an unknown conflict strategy is rejected (BZ113)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

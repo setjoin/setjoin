@@ -1,0 +1,54 @@
+-- pgTAP: deliver() enforces the DOMAIN-level storage quota (BZ009 / domain_over_quota).
+-- Step 7c of deliver() sums every mailbox.used_bytes in the recipient's domain, adds the
+-- incoming message size, and RAISEs BZ009 when that total exceeds domains.quota_bytes — so
+-- the SMTP classifier can map domain-over-quota to a permanent reject rather than a retried
+-- 451. BZ009 is raised in exactly one place (the domain-quota gate), so a thrown BZ009 pins
+-- that gate precisely. Fixtures use a private high-numbered id namespace (domain 96009,
+-- user 70091, mailboxes 9009x) to avoid collisions with the shared fixture set.
+BEGIN;
+SELECT plan(2);
+
+INSERT INTO domains (id, name, is_local, quota_bytes)
+  VALUES (96009, 'dq009.example', TRUE, 550)
+  ON CONFLICT DO NOTHING;
+
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (70091, 'dq009rcpt', 96009, 'rcpt@dq009.example', 'DQ Recipient')
+  ON CONFLICT DO NOTHING;
+
+-- Recipient mailbox: a deliberately huge personal quota so the MAILBOX gate (BZ001, step 7b)
+-- can never fire — the only quota that can reject here is the DOMAIN gate (BZ009).
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, quota_bytes, used_bytes)
+  VALUES (90091, 70091, 96009, 'rcpt@dq009.example', 'DQ Recipient', 'personal', TRUE, 1000000000, 0)
+  ON CONFLICT DO NOTHING;
+
+-- Filler mailbox in the same domain holding 500 bytes. Current domain SUM(used_bytes) = 0 + 500
+-- = 500, which sits just under the domain quota of 550.
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, quota_bytes, used_bytes)
+  VALUES (90092, 70091, 96009, 'filler@dq009.example', 'DQ Filler', 'personal', FALSE, 1000000000, 500)
+  ON CONFLICT DO NOTHING;
+
+-- Delivering a 100-byte message: 7b bumps the recipient to 100 (domain SUM -> 600), then 7c
+-- adds the size again (700) which exceeds the 550 domain quota -> BZ009.
+SELECT throws_ok(
+  $$ SELECT deliver('dq-ref1', '<dq-msg1>', 'bob@ext.com', 'Bob', 'rcpt@dq009.example',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Over domain quota', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'BZ009',
+  NULL,
+  'deliver of a message that pushes the domain SUM(used_bytes) over domains.quota_bytes raises BZ009 (domain_over_quota)'
+);
+
+-- Control: the SAME delivery succeeds once the domain quota is raised well above the total.
+-- Proves it is specifically the domain-quota gate (not the mailbox gate or any unrelated step)
+-- that rejected above — the recipient's per-mailbox quota was never the limiting factor.
+UPDATE domains SET quota_bytes = 1000000000 WHERE id = 96009;
+SELECT lives_ok(
+  $$ SELECT deliver('dq-ref2', '<dq-msg2>', 'bob@ext.com', 'Bob', 'rcpt@dq009.example',
+       '[]'::JSONB, '[]'::JSONB, '[]'::JSONB, 'Under domain quota', NULL, NULL, 'body', NULL,
+       100, FALSE, now(), 'pass', 'pass', 'pass', 0.0, NULL) $$,
+  'same delivery succeeds once the domain quota is raised above the domain total (domain gate was the cause)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

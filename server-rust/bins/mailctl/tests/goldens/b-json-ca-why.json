@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/admin/conditional-access/why-lookup?user=a%2Bb%40example.test&correlation=event+1",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "{\n  \"decision\": \"allow\"\n}\n",
+  "stderr": "",
+  "exit": 0
+}

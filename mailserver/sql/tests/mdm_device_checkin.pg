@@ -1,0 +1,85 @@
+-- mdm_device_checkin.pg: B — MDM check-in compliance + grace + wipe FSM reducer.
+-- Requires: mdm_device_checkin, mdm_version_ge, mdm_device_state.
+BEGIN;
+SELECT plan(14);
+
+INSERT INTO domains (name, is_local) VALUES ('mdm.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, must_change_password)
+VALUES (92001,'mdm',(SELECT id FROM domains WHERE name='mdm.test'),
+        'mdm@mdm.test','Mdm',crypt('x',gen_salt('bf')),FALSE)
+ON CONFLICT (id) DO NOTHING;
+
+\set dev '11111111-1111-1111-1111-111111111111'
+
+-- 1: compliant device → compliant (also inserts the row under user 92001).
+SELECT is(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"wipe_ack":false}'::jsonb,
+     '{"require_device_encryption":true,"passcode_complexity":"numeric","min_os_version_ios":"17.0","jailbreak_action":"quarantine","grace_period_mins":60,"heartbeat_interval_secs":3600}'::jsonb
+   ))->>'compliance_status', 'compliant', 'compliant device → compliant');
+
+-- 2: row persisted by the same call.
+SELECT is((SELECT compliance_status FROM mdm_device_state WHERE device_id=:'dev'::uuid),
+          'compliant', 'state row persisted atomically');
+
+-- 3: missing encryption → first violation starts grace (status grace, grace_until set).
+SELECT is(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":false,"jailbroken":false,"wipe_ack":false}'::jsonb,
+     '{"require_device_encryption":true,"passcode_complexity":"numeric","min_os_version_ios":"17.0","jailbreak_action":"quarantine","grace_period_mins":60,"heartbeat_interval_secs":3600}'::jsonb
+   ))->>'compliance_status', 'grace', 'first violation → grace');
+SELECT isnt((SELECT grace_until FROM mdm_device_state WHERE device_id=:'dev'::uuid), NULL, 'grace_until set');
+
+-- 4: jailbreak block → immediate quarantine, no grace.
+SELECT is(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":true,"jailbreak_method":"Cydia","wipe_ack":false}'::jsonb,
+     '{"require_device_encryption":true,"passcode_complexity":"numeric","min_os_version_ios":"17.0","jailbreak_action":"block","grace_period_mins":60,"heartbeat_interval_secs":3600}'::jsonb
+   ))->>'compliance_status', 'quarantined', 'jailbreak block → quarantined');
+
+-- 5: OS below minimum → upgrade_os action present.
+SELECT ok(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"16.0","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"wipe_ack":false}'::jsonb,
+     '{"require_device_encryption":true,"passcode_complexity":"numeric","min_os_version_ios":"17.0","jailbreak_action":"none","grace_period_mins":0,"heartbeat_interval_secs":3600}'::jsonb
+   ))->'required_actions' @> '["upgrade_os"]'::jsonb, 'OS below min → upgrade_os action');
+
+-- 6: wipe FSM — admin sets pending, check-in with wipe_ack=false returns wipe_command, stays pending.
+UPDATE mdm_device_state SET wipe_requested='pending', wipe_level='device' WHERE device_id=:'dev'::uuid;
+SELECT is(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"wipe_ack":false}'::jsonb,
+     '{"require_device_encryption":false,"passcode_complexity":"none","jailbreak_action":"none","grace_period_mins":0,"heartbeat_interval_secs":3600}'::jsonb
+   ))->'wipe_command'->>'level', 'device', 'pending wipe returns wipe_command');
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id=:'dev'::uuid),
+          'pending', 'wipe stays pending until ack');
+
+-- 7: wipe_ack=true on pending → acknowledged, wipe_acked_at set, still returns command.
+SELECT is(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"wipe_ack":true}'::jsonb,
+     '{"require_device_encryption":false,"passcode_complexity":"none","jailbreak_action":"none","grace_period_mins":0,"heartbeat_interval_secs":3600}'::jsonb
+   ))->'wipe_command'->>'level', 'device', 'ack transitions but still commands execution');
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id=:'dev'::uuid),
+          'acknowledged', 'pending + ack → acknowledged');
+SELECT isnt((SELECT wipe_acked_at FROM mdm_device_state WHERE device_id=:'dev'::uuid), NULL, 'wipe_acked_at set');
+
+-- 8: wipe_ack=true on acknowledged → executed, no wipe_command.
+SELECT ok(
+  (mdm_device_checkin(:'dev'::uuid, 92001,
+     '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","passcode_set":true,"passcode_compliant":true,"encryption_enabled":true,"jailbroken":false,"wipe_ack":true}'::jsonb,
+     '{"require_device_encryption":false,"passcode_complexity":"none","jailbreak_action":"none","grace_period_mins":0,"heartbeat_interval_secs":3600}'::jsonb
+   )->'wipe_command') = 'null'::jsonb,
+   'acknowledged + ack → executed, no further command');
+SELECT is((SELECT wipe_requested FROM mdm_device_state WHERE device_id=:'dev'::uuid),
+          'executed', 'acknowledged + ack → executed');
+
+-- 9: ownership — wrong user_id cannot mutate this device's row (row exists under 92001).
+SELECT throws_ok(
+  $$ SELECT mdm_device_checkin('11111111-1111-1111-1111-111111111111'::uuid, 99999,
+       '{"device_id":"11111111-1111-1111-1111-111111111111","platform":"ios","device_name":"X","os_version":"17.2","wipe_ack":false}'::jsonb,
+       '{"heartbeat_interval_secs":3600}'::jsonb) $$,
+  'BZ052', NULL, 'check-in for a device owned by another user raises BZ052');
+
+SELECT * FROM finish();
+ROLLBACK;

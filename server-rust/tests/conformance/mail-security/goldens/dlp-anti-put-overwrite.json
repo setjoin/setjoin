@@ -1,0 +1,172 @@
+{
+  "case": "overwrite",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "audit_rows": 0,
+          "config": [
+            {
+              "description": "anti-phish config",
+              "encrypted": false,
+              "key": "antiphish_contact_graph",
+              "value": true
+            },
+            {
+              "description": "seeded",
+              "encrypted": false,
+              "key": "antiphish_display_name",
+              "value": true
+            },
+            {
+              "description": "anti-phish config",
+              "encrypted": false,
+              "key": "antiphish_exclusion_domains",
+              "value": [
+                "a.test",
+                "b.test"
+              ]
+            },
+            {
+              "description": "seeded",
+              "encrypted": false,
+              "key": "antiphish_exclusion_users",
+              "value": [
+                "ceo@a.test"
+              ]
+            },
+            {
+              "description": "anti-phish config",
+              "encrypted": false,
+              "key": "antiphish_lookalike",
+              "value": false
+            },
+            {
+              "description": "anti-phish config",
+              "encrypted": false,
+              "key": "antiphish_strict_mode",
+              "value": true
+            }
+          ],
+          "policies": [],
+          "violations": 0
+        },
+        "before": {
+          "audit_rows": 0,
+          "config": [
+            {
+              "description": "seeded",
+              "encrypted": false,
+              "key": "antiphish_display_name",
+              "value": false
+            },
+            {
+              "description": "seeded",
+              "encrypted": false,
+              "key": "antiphish_exclusion_users",
+              "value": [
+                "old@x.test"
+              ]
+            }
+          ],
+          "policies": [],
+          "violations": 0
+        },
+        "table": "dlp"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_contact_graph",
+          "operation": "insert"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_display_name",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_exclusion_domains",
+          "operation": "insert"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_exclusion_users",
+          "operation": "update"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_lookalike",
+          "operation": "insert"
+        }
+      },
+      {
+        "channel": "config_changed",
+        "payload": {
+          "encrypted": false,
+          "key": "antiphish_strict_mode",
+          "operation": "insert"
+        }
+      }
+    ],
+    "request": {
+      "body": "{\"display_name_enabled\":true,\"lookalike_enabled\":false,\"contact_graph_enabled\":true,\"strict_mode\":true,\"exclusion_domains\":[\"a.test\",\"b.test\"],\"exclusion_users\":[\"ceo@a.test\"]}",
+      "external_path": "/api/admin/anti-phish",
+      "method": "PUT",
+      "path": "/admin/anti-phish"
+    },
+    "response": {
+      "body": "",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 204
+    }
+  },
+  "route": "PUT /admin/anti-phish"
+}

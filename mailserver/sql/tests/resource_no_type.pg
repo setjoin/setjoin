@@ -1,0 +1,25 @@
+-- pgTAP: resource_no_type.pg
+-- Regression guard: resource mailboxes are identified by mailboxes.resource_type,
+-- not by the mailboxes.type enum. The type column is 'personal'; the resource
+-- role is entirely carried by the resource_type column ('room' or 'equipment').
+BEGIN;
+SELECT plan(1);
+
+INSERT INTO domains (name, is_local) VALUES ('resource.test', TRUE);
+
+-- Resource mailbox: personal-type, user_id NULL, resource_type = 'room'
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type,
+                       resource_type, resource_capacity, is_primary)
+  VALUES (9001, NULL, (SELECT id FROM domains WHERE name = 'resource.test'),
+          'confroom@resource.test', 'Conference Room', 'personal',
+          'room', 8, FALSE);
+
+-- Assert: the room is identified by resource_type, not the type enum
+SELECT is(
+  (SELECT resource_type FROM mailboxes WHERE id = 9001),
+  'room',
+  'resource mailbox identified by resource_type column, not type enum'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

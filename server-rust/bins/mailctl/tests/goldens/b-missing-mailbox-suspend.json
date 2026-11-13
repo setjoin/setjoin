@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: usage: mailctl mailbox suspend <mailbox-id> --generation N --reason TEXT\n",
+  "exit": 1
+}

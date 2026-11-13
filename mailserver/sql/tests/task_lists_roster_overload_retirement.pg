@@ -1,0 +1,331 @@
+-- pgTAP: task_lists_roster_overload_retirement.pg — V245 overload retirement
+-- regression (med-jmap-task-roster-001, Astra waves12 HOLD 1). CREATE OR
+-- REPLACE with a NEW signature ADDS a function, so databases that loaded the
+-- pre-fix reducers/task_lists.sql still carry the unscoped
+-- task_list_get_roster(bigint) — a live cross-tenant roster oracle. This file
+-- emulates the EXACT upgrade sequence such a database undergoes:
+--
+--   A. the previous definitions are installed (verbatim HEAD bodies of the
+--      pre-fix task_lists.sql — old 1-arg roster read plus its old callers,
+--      coexisting with the already-loaded 2-arg form, which is precisely the
+--      existing-database hazard);
+--   B. the V245 retirement statement runs — the embedded DROP below is the
+--      verbatim V245__task_list_roster_overload_retirement.sql statement and
+--      must stay textually in sync with it — and the old signature is proven
+--      ABSENT (idempotent re-apply included, the fresh-database no-op);
+--   C. the new reducer definitions are reloaded over the retired state
+--      (verbatim reducers/task_lists.sql bodies) and the surface is proven
+--      functional with the read FAILING CLOSED for a caller with no
+--      owner-or-member relationship (BZ130).
+--
+-- Mutation-proof: deleting the DROP from V245 leaves a real upgraded database
+-- carrying the old overload while this file's Section B still pins the
+-- semantics the migration must deliver (absence after the retirement step on
+-- the previous-definitions state); Section A's non-vacuity assertions red if
+-- the old bodies drift. Runs entirely in one txn — ROLLBACK restores every
+-- function body this file overwrites.
+BEGIN;
+SELECT plan(13);
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Fixture — one owner, one member, one stranger (mk_account: divergent
+-- user_id ≠ mailbox_id, ADR-003)
+-- ════════════════════════════════════════════════════════════════════════════
+SELECT mk_account('troO') AS mbo \gset
+SELECT mk_account('troM') AS mbm \gset
+SELECT mk_account('troS') AS mbs \gset
+SELECT user_id AS uo FROM mailboxes WHERE id = :mbo \gset
+SELECT user_id AS um FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS us FROM mailboxes WHERE id = :mbs \gset
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Section A — the previous definitions (verbatim pre-fix bodies), i.e. the
+-- state an existing database is in BEFORE the V245 + reducer-reload upgrade
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION task_list_add_member(
+  p_user_id      BIGINT,
+  p_list_id      BIGINT,
+  p_member_email TEXT
+) RETURNS JSONB AS $$
+DECLARE
+  v_member_id BIGINT;
+BEGIN
+  IF task_list_role(p_list_id, p_user_id) IS DISTINCT FROM 'owner' THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT user_id INTO v_member_id FROM resolve_identity(p_member_email);
+  IF v_member_id IS NULL THEN
+    RAISE EXCEPTION 'member email % does not resolve to an internal user', p_member_email
+      USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"not an internal user"}';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM task_list_members WHERE list_id = p_list_id AND user_id = v_member_id) THEN
+    IF (SELECT count(*) FROM task_list_members WHERE list_id = p_list_id) >= 200 THEN
+      RAISE EXCEPTION 'task list roster is full'
+        USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"roster limit of 200 members reached"}';
+    END IF;
+    INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id)
+    VALUES (p_list_id, v_member_id, 'member', p_user_id);
+    PERFORM notify_task_list_state(p_list_id, 'member_added');
+  END IF;
+
+  RETURN task_list_get_roster(p_list_id);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION task_list_remove_member(
+  p_user_id        BIGINT,
+  p_list_id        BIGINT,
+  p_member_user_id BIGINT
+) RETURNS JSONB AS $$
+DECLARE
+  v_role      TEXT;
+  v_target_role TEXT;
+BEGIN
+  v_role := task_list_role(p_list_id, p_user_id);
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  IF v_role != 'owner' AND p_user_id != p_member_user_id THEN
+    RAISE EXCEPTION 'only the owner may remove another member'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT role INTO v_target_role FROM task_list_members
+  WHERE list_id = p_list_id AND user_id = p_member_user_id;
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION 'cannot remove the list owner'
+      USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"cannot remove the owner"}';
+  END IF;
+
+  PERFORM notify_task_list_state(p_list_id, 'member_removed');
+
+  DELETE FROM task_list_members WHERE list_id = p_list_id AND user_id = p_member_user_id;
+
+  RETURN task_list_get_roster(p_list_id);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION task_list_get_roster(p_list_id BIGINT)
+RETURNS JSONB AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'userId', m.user_id::TEXT, 'email', u.email,
+      'displayName', u.display_name, 'role', m.role
+    ) ORDER BY m.role, u.email), '[]'::JSONB)
+  FROM task_list_members m JOIN users u ON u.id = m.user_id
+  WHERE m.list_id = p_list_id;
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION task_list_get(p_user_id BIGINT)
+RETURNS JSONB AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'id', l.id::TEXT, 'name', l.name, 'color', l.color,
+      'state', l.state_seq::TEXT,
+      'role', task_list_role(l.id, p_user_id),
+      'memberCount', (SELECT count(*) FROM task_list_members m2 WHERE m2.list_id = l.id),
+      'openCount', (SELECT count(*) FROM tasks t
+                    WHERE t.list_id = l.id AND t.status IN ('needs-action', 'in-progress')),
+      'members', task_list_get_roster(l.id)
+    ) ORDER BY l.name), '[]'::JSONB)
+  FROM task_lists l
+  WHERE l.owner_user_id = p_user_id
+     OR EXISTS (SELECT 1 FROM task_list_members m WHERE m.list_id = l.id AND m.user_id = p_user_id);
+$$ LANGUAGE sql STABLE;
+
+-- The previous set was a WORKING set: the old add_member (fixture call below)
+-- and the old 1-arg read both function on it.
+SELECT task_list_create(:uo, 'Retirement fixture list', NULL) AS c_json \gset
+SELECT ((:'c_json'::jsonb)->>'id')::BIGINT AS lid \gset
+SELECT task_list_add_member(:uo, :lid, (SELECT email FROM mailboxes WHERE id = :mbm)) AS add_json \gset
+SELECT is(jsonb_array_length(:'add_json'::jsonb), 2,
+  'previous definitions: old add_member + old 1-arg roster read still work');
+
+-- THE HAZARD, non-vacuity: both signatures coexist (exactly what CREATE OR
+-- REPLACE's new-signature behavior leaves on an existing database)…
+SELECT is(to_regprocedure('public.task_list_get_roster(bigint)')::text,
+          'task_list_get_roster(bigint)',
+  'previous definitions: the unscoped 1-arg overload is installed');
+SELECT is(to_regprocedure('public.task_list_get_roster(bigint,bigint)')::text,
+          'task_list_get_roster(bigint,bigint)',
+  'previous definitions: the scoped 2-arg overload coexists with it');
+
+-- …and the old overload projects a list's roster from the bare list id —
+-- no caller parameter to scope by, so ANY caller (this fixture's stranger
+-- included) can read a foreign roster through it. This is the IDOR V245
+-- retires.
+SELECT is(jsonb_array_length(task_list_get_roster(:lid)), 2,
+  'previous definitions: the 1-arg read projects the roster to an unrelated caller (the retired hazard)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Section B — the V245 retirement (verbatim
+-- V245__task_list_roster_overload_retirement.sql statement; keep in sync)
+-- ════════════════════════════════════════════════════════════════════════════
+DROP FUNCTION IF EXISTS public.task_list_get_roster(BIGINT);
+
+SELECT is(to_regprocedure('public.task_list_get_roster(bigint)'), NULL,
+  'V245: the old unscoped signature is ABSENT after the retirement');
+SELECT is(to_regprocedure('public.task_list_get_roster(bigint,bigint)')::text,
+          'task_list_get_roster(bigint,bigint)',
+  'V245: the scoped 2-arg overload survives the drop untouched');
+
+-- Idempotent re-apply: a fresh database (or a replayed chain) re-runs the
+-- same statement against an ABSENT signature — must stay a silent no-op
+-- (the whole point of IF EXISTS), leaving the old form gone.
+DROP FUNCTION IF EXISTS public.task_list_get_roster(BIGINT);
+SELECT is(to_regprocedure('public.task_list_get_roster(bigint)'), NULL,
+  'V245 re-apply: DROP IF EXISTS is a no-op on the absent signature (fresh-database load)');
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Section C — the reducer reload over the retired state (verbatim
+-- reducers/task_lists.sql bodies; keep in sync): loading the new set over the
+-- previous definitions + V245 must converge to a working, caller-scoped
+-- surface.
+-- ════════════════════════════════════════════════════════════════════════════
+CREATE OR REPLACE FUNCTION task_list_get_roster(p_user_id BIGINT, p_list_id BIGINT)
+RETURNS JSONB AS $$
+DECLARE
+  v_roster JSONB;
+BEGIN
+  IF task_list_role(p_list_id, p_user_id) IS NULL THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'userId', m.user_id::TEXT, 'email', u.email,
+      'displayName', u.display_name, 'role', m.role
+    ) ORDER BY m.role, u.email), '[]'::JSONB)
+  INTO v_roster
+  FROM task_list_members m JOIN users u ON u.id = m.user_id
+  WHERE m.list_id = p_list_id
+    AND (EXISTS (SELECT 1 FROM task_lists l
+                 WHERE l.id = p_list_id AND l.owner_user_id = p_user_id)
+      OR EXISTS (SELECT 1 FROM task_list_members vm
+                 WHERE vm.list_id = p_list_id AND vm.user_id = p_user_id));
+  RETURN v_roster;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION task_list_add_member(
+  p_user_id      BIGINT,
+  p_list_id      BIGINT,
+  p_member_email TEXT
+) RETURNS JSONB AS $$
+DECLARE
+  v_member_id BIGINT;
+BEGIN
+  IF task_list_role(p_list_id, p_user_id) IS DISTINCT FROM 'owner' THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT user_id INTO v_member_id FROM resolve_identity(p_member_email);
+  IF v_member_id IS NULL THEN
+    RAISE EXCEPTION 'member email % does not resolve to an internal user', p_member_email
+      USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"not an internal user"}';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM task_list_members WHERE list_id = p_list_id AND user_id = v_member_id) THEN
+    IF (SELECT count(*) FROM task_list_members WHERE list_id = p_list_id) >= 200 THEN
+      RAISE EXCEPTION 'task list roster is full'
+        USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"roster limit of 200 members reached"}';
+    END IF;
+    INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id)
+    VALUES (p_list_id, v_member_id, 'member', p_user_id);
+    PERFORM notify_task_list_state(p_list_id, 'member_added');
+  END IF;
+
+  RETURN task_list_get_roster(p_user_id, p_list_id);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION task_list_remove_member(
+  p_user_id        BIGINT,
+  p_list_id        BIGINT,
+  p_member_user_id BIGINT
+) RETURNS JSONB AS $$
+DECLARE
+  v_role      TEXT;
+  v_target_role TEXT;
+  v_roster    JSONB;
+BEGIN
+  v_role := task_list_role(p_list_id, p_user_id);
+  IF v_role IS NULL THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  IF v_role != 'owner' AND p_user_id != p_member_user_id THEN
+    RAISE EXCEPTION 'only the owner may remove another member'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT role INTO v_target_role FROM task_list_members
+  WHERE list_id = p_list_id AND user_id = p_member_user_id;
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION 'cannot remove the list owner'
+      USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"cannot remove the owner"}';
+  END IF;
+
+  IF v_role IS DISTINCT FROM 'owner' THEN
+    v_roster := task_list_get_roster(p_user_id, p_list_id);
+  END IF;
+
+  PERFORM notify_task_list_state(p_list_id, 'member_removed');
+
+  DELETE FROM task_list_members WHERE list_id = p_list_id AND user_id = p_member_user_id;
+
+  IF v_role = 'owner' THEN
+    v_roster := task_list_get_roster(p_user_id, p_list_id);
+  END IF;
+  RETURN v_roster;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION task_list_get(p_user_id BIGINT)
+RETURNS JSONB AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'id', l.id::TEXT, 'name', l.name, 'color', l.color,
+      'state', l.state_seq::TEXT,
+      'role', task_list_role(l.id, p_user_id),
+      'memberCount', (SELECT count(*) FROM task_list_members m2 WHERE m2.list_id = l.id),
+      'openCount', (SELECT count(*) FROM tasks t
+                    WHERE t.list_id = l.id AND t.status IN ('needs-action', 'in-progress')),
+      'members', task_list_get_roster(p_user_id, l.id)
+    ) ORDER BY l.name), '[]'::JSONB)
+  FROM task_lists l
+  WHERE l.owner_user_id = p_user_id
+     OR EXISTS (SELECT 1 FROM task_list_members m WHERE m.list_id = l.id AND m.user_id = p_user_id);
+$$ LANGUAGE sql STABLE;
+
+-- The reloaded read works for genuine relationships…
+SELECT is(jsonb_array_length(task_list_get_roster(:uo, :lid)), 2,
+  'reload: the scoped read still serves the owner the full roster');
+-- …and FAILS CLOSED for a caller with no owner-or-member relationship — the
+-- denial the retired 1-arg overload used to bypass.
+SELECT throws_ok(
+  format($$ SELECT task_list_get_roster(%s, %s) $$, :us, :lid),
+  'BZ130', NULL,
+  'reload: foreign caller → BZ130 (the old overload can no longer be reached)');
+
+-- The reloaded CALLER family resolves the 2-arg form: task_list_get embeds
+-- the scoped roster, add_member stays idempotent on an existing member…
+SELECT is(jsonb_array_length(((task_list_get(:uo))->0->>'members')::jsonb), 2,
+  'reload: task_list_get embeds the caller-scoped roster');
+SELECT is(jsonb_array_length(task_list_add_member(:uo, :lid,
+          (SELECT email FROM mailboxes WHERE id = :mbm))::jsonb), 2,
+  'reload: add_member rides the scoped 2-arg read (idempotent re-add)');
+
+-- …and the leave path keeps its captured pre-delete roster view, after which
+-- the owner sees one seat fewer.
+SELECT is(jsonb_array_length(task_list_remove_member(:um, :lid, :um)::jsonb), 2,
+  'reload: the leaver still receives their captured pre-delete roster');
+SELECT is(jsonb_array_length(task_list_get_roster(:uo, :lid)), 1,
+  'reload: post-leave the owner''s roster has only their own seat');
+
+SELECT * FROM finish();
+ROLLBACK;

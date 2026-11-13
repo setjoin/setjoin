@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/mailbox-purge-approvals/8",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": "{\"comment\":\"reviewed\",\"decision\":\"approve\"}"
+    }
+  ],
+  "stdout": "",
+  "stderr": "Error: HTTP 403 AUTH_DENIED: Access denied (remediation: Ask an administrator) (retry after: 7)\n",
+  "exit": 1
+}

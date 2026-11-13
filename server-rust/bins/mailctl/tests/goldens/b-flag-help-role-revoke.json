@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of role revoke:\n  -reason string\n    \tAudit reason (required)\n  -role string\n    \tRole name (required)\nError: flag: help requested\n",
+  "exit": 1
+}

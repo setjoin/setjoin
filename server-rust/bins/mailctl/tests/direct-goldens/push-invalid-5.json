@@ -1,0 +1,9 @@
+{
+  "stdout": "",
+  "stderr": "Error: no push providers configured (run 'mailctl push doctor')\n",
+  "exit": 1,
+  "database_effects": {
+    "schema_added": [],
+    "schema_removed": []
+  }
+}

@@ -1,0 +1,59 @@
+-- pgTAP: EAP apply refuses to re-address a mailbox when its PRIOR primary cannot
+-- be retained as that mailbox's alias because the address is already owned
+-- elsewhere (BZ077 eap_alias_conflict). Standalone (own transaction) so policy
+-- selection is deterministic.
+--
+-- This guard was DEAD before the fix in email_address_policy_apply.sql: its
+-- second clause `AND NOT EXISTS (... mailboxes WHERE email=v_old AND id=p_mailbox_id)`
+-- was always false (the mailbox still holds v_old at check time; the primary is
+-- replaced afterwards), so apply silently stranded the old address on the other
+-- mailbox. The guard now fires when v_old can't be re-homed as this mailbox's
+-- alias. Since V249__identity_address_admission.sql, the admission trigger
+-- intercepts the same stranding write first on a current database (BZ328) —
+-- the assertion below follows that contract.
+BEGIN;
+SELECT plan(1);
+
+-- Mailbox A (96177) currently 'olda177@corpb177.test'; policy renders a DIFFERENT
+-- primary; mailbox B (96180) already owns the alias 'olda177@corpb177.test'.
+-- Re-addressing A would strand 'olda177@...' on B, so apply MUST raise BZ077.
+INSERT INTO domains (id, name, is_local) VALUES (96177, 'corpb177.test', TRUE);
+INSERT INTO departments (id, name, path, ldap_ou)
+  VALUES (56177, 'EapAlias177', '/EapAlias177', 'OU=EapAlias177');
+INSERT INTO users (id, username, domain_id, email, display_name, first_name, last_name, department_id)
+  VALUES (79177, 'aliasa177', 96177, 'olda177@corpb177.test', 'A', '伟', '单', 56177);
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (96177, 79177, 96177, 'olda177@corpb177.test', 'A', 'personal', TRUE);
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (79179, 'aliasb177', 96177, 'bbb177@corpb177.test', 'B');
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (96180, 79179, 96177, 'bbb177@corpb177.test', 'B', 'personal', TRUE);
+INSERT INTO email_address_policies (priority, name, primary_template, cond_department)
+  VALUES (96177, 'Alias177', '{first_initial}{surname}177@{domain}', ARRAY['EapAlias177']);
+-- V199's canonical address-claim trigger (and, since V249, the identity-address
+-- admission trigger) prevent new writes from creating this cross-person
+-- conflict. Seed the pre-contract legacy state explicitly so the seeded
+-- conflict remains representable on a current database; at apply time the
+-- re-homing INSERT the reducer attempts is exactly the write V249's admission
+-- trigger polices, so the refusal surfaces as BZ328 (see the assertion below).
+ALTER TABLE aliases DISABLE TRIGGER mailbox_lifecycle_alias_sync;
+ALTER TABLE aliases DISABLE TRIGGER trg_identity_address_admission_aliases;
+INSERT INTO aliases (mailbox_id, email, domain_id)
+  VALUES (96180, 'olda177@corpb177.test', 96177);
+ALTER TABLE aliases ENABLE TRIGGER trg_identity_address_admission_aliases;
+ALTER TABLE aliases ENABLE TRIGGER mailbox_lifecycle_alias_sync;
+
+-- V249__identity_address_admission.sql: the re-homing INSERT inside
+-- email_address_policy_apply (an aliases row for the prior primary) is exactly
+-- the write trg_identity_address_admission_aliases polices, so on a post-V249
+-- database the refusal surfaces as BZ328 before the reducer's own BZ077 guard
+-- is reached. BZ077 stays the defensive path where admission does not fire
+-- (competing owner disabled, pre-V249 upgraded databases); either way apply
+-- refuses and never strands the old address on the other mailbox.
+SELECT throws_ok(
+  $$ SELECT email_address_policy_apply(96177, 79177) $$,
+  'BZ328', NULL,
+  'apply: prior primary owned elsewhere is refused (V249 admission BZ328; BZ077 remains the pre-admission defensive path)');
+
+SELECT * FROM finish();
+ROLLBACK;

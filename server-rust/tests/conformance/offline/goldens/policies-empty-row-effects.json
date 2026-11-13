@@ -1,0 +1,35 @@
+{
+  "case": "empty-row-effects",
+  "effects": [
+    {
+      "after": {
+        "devices": [],
+        "policies": [],
+        "toggle": [
+          {
+            "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+            "enabled": false,
+            "key": "feature.offline_mail",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "before": {
+        "devices": [],
+        "policies": [],
+        "toggle": [
+          {
+            "description": "Native encrypted offline mail cache (SQLCipher) + windowed sync. DEFAULT OFF — enable/Work-Offline UI also gates on caps.offline.allowed (owned by #2a) AND a native shell (isOfflineAvailable), inert until then. Browser is online-only.",
+            "enabled": false,
+            "key": "feature.offline_mail",
+            "updated_at": "<timestamp>"
+          }
+        ]
+      },
+      "table": "offline_policies+feature_toggles+user_devices"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "GET /admin/offline/policies"
+}

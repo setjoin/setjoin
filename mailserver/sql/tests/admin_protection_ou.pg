@@ -1,0 +1,85 @@
+-- pgTAP: admin_protection_ou.pg
+--
+-- Guard OU domination arm (BZ065). An OU-confined actor may NOT manage an admin
+-- target whose OU reach is BROADER — i.e. the target's reach is NOT a subset of
+-- the actor's union of OU subtrees. The arm fires ONLY for admin targets
+-- (cardinality(target.perms) > 0); a non-admin in-subtree target stays allowed.
+--
+-- Mirrors the existing domain scope arm: same cardinality gate, same
+-- broadest-reach direction (target out-ranks actor when its reach is wider).
+--
+-- 3 assertions:
+--   1. /eng-confined actor vs an UNCONFINED admin target (broader OU reach,
+--      same perms) → BZ065.
+--   2. /eng-confined actor vs a NON-admin /eng/backend target (in-subtree, no
+--      perms) → allowed (cardinality gate keeps the non-admin reachable).
+--   3. /eng-confined actor vs an admin target confined to /eng/backend
+--      (NARROWER, fully contained) holding the SAME perms → allowed
+--      (target does NOT out-rank: its reach is a subset of the actor's).
+--
+-- Seed ids: 956xx (avoids conflicts with the other admin_* test files).
+
+BEGIN;
+SELECT plan(3);
+
+-- ── Departments ──────────────────────────────────────────────────────────────
+--   /eng           the actor's OU subtree
+--   /eng/backend   descendant (contained in /eng)
+INSERT INTO public.departments (id, name, path, ldap_ou) OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'Engineering', '/eng',         'ou=Engineering,dc=ou,dc=test'),
+  (95602, 'Backend',     '/eng/backend', 'ou=Backend,ou=Engineering,dc=ou,dc=test');
+
+-- ── Domain ───────────────────────────────────────────────────────────────────
+INSERT INTO public.domains (id, name, is_local) OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'ou.test', TRUE);
+
+-- ── Users ────────────────────────────────────────────────────────────────────
+--   95621 eng_actor         OU-confined to /eng (global domain, OU /eng)
+--   95622 broad_admin       admin target, NO OU narrowing → broader OU reach
+--   95623 backend_nonadmin  NON-admin, dept /eng/backend (in-subtree)
+--   95624 backend_admin     admin target confined to /eng/backend (narrower, contained)
+INSERT INTO public.users (id, username, domain_id, department_id, email, display_name, enabled)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95621, 'ou_eng_actor',     95601, 95601, 'engactor@ou.test', 'EA', TRUE),
+  (95622, 'ou_broad_admin',   95601, 95601, 'broad@ou.test',    'BA', TRUE),
+  (95623, 'ou_backend_user',  95601, 95602, 'backend@ou.test',  'BU', TRUE),
+  (95624, 'ou_backend_admin', 95601, 95602, 'badmin@ou.test',   'AD', TRUE);
+
+-- ── Role group ───────────────────────────────────────────────────────────────
+-- one global (domain_scope NULL) low-admin group; OU narrowing comes from the
+-- assignment's scope_type/scope_id, not the group.
+INSERT INTO public.admin_role_groups (id, name, permissions, domain_scope)
+  OVERRIDING SYSTEM VALUE VALUES
+  (95601, 'ou-help', ARRAY['users.password_reset'], NULL);
+
+-- ── Assignments ──────────────────────────────────────────────────────────────
+-- eng_actor       : OU /eng (confined)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95621, 95601, 'ou', 95601, 95621);
+-- broad_admin     : NO OU narrowing → unconfined → broader OU reach
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, granted_by)
+  VALUES (95622, 95601, 95621);
+-- backend_admin   : OU /eng/backend (narrower, fully inside /eng)
+INSERT INTO public.admin_role_assignments (user_id, role_group_id, scope_type, scope_id, granted_by)
+  VALUES (95624, 95601, 'ou', 95602, 95621);
+-- backend_nonadmin (95623): NO assignment → empty perms → non-admin.
+
+-- ── Assertions ───────────────────────────────────────────────────────────────
+-- 1. OU-confined actor cannot manage a broader-OU admin target.
+SELECT throws_ok(
+  $$ SELECT admin_protection_check(95621, 95622, 'assign_role', NULL) $$,
+  'BZ065', NULL,
+  'OU-confined actor cannot manage broader-OU admin target');
+
+-- 2. OU-confined actor CAN manage an in-subtree NON-admin (cardinality gate).
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95621, 95623, 'assign_role', NULL) $$,
+  'OU-confined actor CAN manage in-subtree non-admin');
+
+-- 3. OU-confined actor CAN manage a NARROWER (contained) admin target.
+SELECT lives_ok(
+  $$ SELECT admin_protection_check(95621, 95624, 'assign_role', NULL) $$,
+  'OU-confined actor CAN manage narrower in-subtree admin target');
+
+SELECT * FROM finish();
+ROLLBACK;

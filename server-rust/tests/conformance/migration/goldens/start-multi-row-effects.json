@@ -1,0 +1,326 @@
+{
+  "case": "multi-row-effects",
+  "effects": [
+    {
+      "after": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": true,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-new-1>",
+            "mailbox": "<mailbox-b>",
+            "progress": {
+              "connector": {
+                "current_folder": "Work/Projects",
+                "deleted": 0,
+                "imported": 5,
+                "items_done": 5,
+                "items_failed": 0,
+                "moved": 0,
+                "replayed": 0,
+                "unchanged": 0,
+                "updated": 0
+              }
+            },
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          }
+        ],
+        "messages": [
+          {
+            "body_text": "first body",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.org",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m1-5@example.org>",
+            "raw_ref": "0c36cf01afd462584264087a9794a536e927d6f2159908ba2e677e5f3299c442",
+            "size": 196,
+            "subject": "hello",
+            "tags": [
+              "Inbox"
+            ],
+            "to": [
+              {
+                "email": "bob@example.com"
+              }
+            ]
+          },
+          {
+            "body_text": "project body",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.org",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m1-6@example.org>",
+            "raw_ref": "a554b3bd268a5176b4ae90b27359a24da75cd7d6adbe8e9bdf5421d78e38885e",
+            "size": 199,
+            "subject": "nested",
+            "tags": [
+              "Projects"
+            ],
+            "to": [
+              {
+                "email": "bob@example.com"
+              }
+            ]
+          },
+          {
+            "body_text": "anonymous",
+            "cc": [],
+            "from_addr": "Carol",
+            "from_name": "carol@example.org",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<imported-RANDOM@migration>",
+            "raw_ref": "e8900e1a1cdd298e3ac73505d5b6f670c4e0bd89ff0efa0d945fb793f8188097",
+            "size": 62,
+            "subject": "no id",
+            "tags": [
+              "Inbox"
+            ],
+            "to": []
+          },
+          {
+            "body_text": "sent body",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.org",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m5-8@example.org>",
+            "raw_ref": "926419cd31c11a4f1c3967b8ce37384a2c553c18e6b739903774251cdc84bb98",
+            "size": 198,
+            "subject": "outgoing",
+            "tags": [
+              "Sent"
+            ],
+            "to": [
+              {
+                "email": "bob@example.com"
+              }
+            ]
+          },
+          {
+            "body_text": "second body",
+            "cc": [],
+            "from_addr": "Alice",
+            "from_name": "alice@example.org",
+            "in_reply_to": "",
+            "mailbox": "<mailbox-b>",
+            "message_id": "<m2-6@example.org>",
+            "raw_ref": "6c6666c404c5c22acbbe9bdc6e8b8c6ad3f96459e19baa2424c0a35b8241079c",
+            "size": 198,
+            "subject": "second",
+            "tags": [
+              "Inbox"
+            ],
+            "to": [
+              {
+                "email": "bob@example.com"
+              }
+            ]
+          }
+        ],
+        "objects": [
+          "0c36cf01afd462584264087a9794a536e927d6f2159908ba2e677e5f3299c442",
+          "6c6666c404c5c22acbbe9bdc6e8b8c6ad3f96459e19baa2424c0a35b8241079c",
+          "926419cd31c11a4f1c3967b8ce37384a2c553c18e6b739903774251cdc84bb98",
+          "a554b3bd268a5176b4ae90b27359a24da75cd7d6adbe8e9bdf5421d78e38885e",
+          "e8900e1a1cdd298e3ac73505d5b6f670c4e0bd89ff0efa0d945fb793f8188097"
+        ],
+        "s3": [
+          {
+            "body_len": 196,
+            "body_sha256": "0c36cf01afd462584264087a9794a536e927d6f2159908ba2e677e5f3299c442",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/0c36cf01afd462584264087a9794a536e927d6f2159908ba2e677e5f3299c442"
+          },
+          {
+            "body_len": 198,
+            "body_sha256": "6c6666c404c5c22acbbe9bdc6e8b8c6ad3f96459e19baa2424c0a35b8241079c",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/6c6666c404c5c22acbbe9bdc6e8b8c6ad3f96459e19baa2424c0a35b8241079c"
+          },
+          {
+            "body_len": 198,
+            "body_sha256": "926419cd31c11a4f1c3967b8ce37384a2c553c18e6b739903774251cdc84bb98",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/926419cd31c11a4f1c3967b8ce37384a2c553c18e6b739903774251cdc84bb98"
+          },
+          {
+            "body_len": 199,
+            "body_sha256": "a554b3bd268a5176b4ae90b27359a24da75cd7d6adbe8e9bdf5421d78e38885e",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/a554b3bd268a5176b4ae90b27359a24da75cd7d6adbe8e9bdf5421d78e38885e"
+          },
+          {
+            "body_len": 62,
+            "body_sha256": "e8900e1a1cdd298e3ac73505d5b6f670c4e0bd89ff0efa0d945fb793f8188097",
+            "content_type": "message/rfc822",
+            "method": "PUT",
+            "path": "/mailblobs/e8900e1a1cdd298e3ac73505d5b6f670c4e0bd89ff0efa0d945fb793f8188097"
+          }
+        ],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": "#04e2a9",
+            "mailbox": "<mailbox-b>",
+            "name": "Projects",
+            "parent": "Work",
+            "sort": 20,
+            "type": "user"
+          },
+          {
+            "color": "#104ab9",
+            "mailbox": "<mailbox-b>",
+            "name": "Work",
+            "parent": null,
+            "sort": 20,
+            "type": "user"
+          }
+        ]
+      },
+      "before": {
+        "jobs": [
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-completed>",
+            "mailbox": "<mailbox-a>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "completed",
+            "strategy": "skip",
+            "user_id": "<admin>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-failed>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "failed",
+            "strategy": "skip",
+            "user_id": "<target>"
+          },
+          {
+            "completed": false,
+            "config": null,
+            "cursor": null,
+            "error_log": [],
+            "id": "<job-cancelled>",
+            "mailbox": "<mailbox-b>",
+            "progress": {},
+            "source": "imap",
+            "started": true,
+            "status": "cancelled",
+            "strategy": "skip",
+            "user_id": "<target>"
+          }
+        ],
+        "messages": [],
+        "objects": [],
+        "s3": [],
+        "tags": [
+          {
+            "color": null,
+            "mailbox": "<mailbox-a>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          },
+          {
+            "color": null,
+            "mailbox": "<mailbox-b>",
+            "name": "Oracle Label",
+            "parent": null,
+            "sort": 0,
+            "type": "user"
+          }
+        ]
+      },
+      "table": "migration_jobs+messages+tags+objects"
+    }
+  ],
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "route": "POST /admin/migration/start"
+}

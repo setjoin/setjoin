@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Error: unknown system action: bogus (try: status, restart, stop)\n",
+  "exit": 1
+}

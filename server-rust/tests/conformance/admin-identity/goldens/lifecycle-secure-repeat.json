@@ -1,0 +1,335 @@
+{
+  "case": "repeat",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [
+      {
+        "action": "secure_account",
+        "after_state": null,
+        "before_state": null,
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": "127.0.0.1",
+        "notes": "admin_secure",
+        "occurred_at": "<timestamp>",
+        "target_id": "<peer>",
+        "target_type": "user",
+        "user_id": "<admin>"
+      }
+    ],
+    "authserver": [],
+    "effects": [
+      {
+        "after": {
+          "app_passwords": [
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "admin6-other@host-b.test"
+            },
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "admin6-peer@host-a.test"
+            }
+          ],
+          "mailboxes": [
+            {
+              "email": "admin6-admin@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-guest@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-other@host-b.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-peer@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-third@host-t.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            }
+          ],
+          "oauth_tokens": [
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "type": "refresh",
+              "user": "admin6-other@host-b.test"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "admin6-admin@host-a.test",
+              "type": "refresh",
+              "user": "admin6-peer@host-a.test"
+            }
+          ],
+          "publications": [],
+          "role_assignments": [],
+          "sessions": [
+            {
+              "user": "admin6-other@host-b.test"
+            }
+          ],
+          "users": [
+            {
+              "department": false,
+              "display_name": "admin6-admin",
+              "domain": "host-a.test",
+              "email": "admin6-admin@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-admin@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-guest",
+              "domain": "host-a.test",
+              "email": "admin6-guest@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-guest@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-other",
+              "domain": "host-b.test",
+              "email": "admin6-other@host-b.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-other@host-b.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-peer",
+              "domain": "host-a.test",
+              "email": "admin6-peer@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": true,
+              "username": "admin6-peer@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-third",
+              "domain": "host-t.test",
+              "email": "admin6-third@host-t.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-third@host-t.test"
+            }
+          ],
+          "welcome": []
+        },
+        "before": {
+          "app_passwords": [
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "admin6-other@host-b.test"
+            },
+            {
+              "name": "laptop",
+              "revoked": false,
+              "user": "admin6-peer@host-a.test"
+            }
+          ],
+          "mailboxes": [
+            {
+              "email": "admin6-admin@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-guest@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-other@host-b.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-peer@host-a.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            },
+            {
+              "email": "admin6-third@host-t.test",
+              "primary": true,
+              "quota": 53687091200,
+              "type": "personal"
+            }
+          ],
+          "oauth_tokens": [
+            {
+              "revoked": false,
+              "revoked_by": null,
+              "type": "refresh",
+              "user": "admin6-other@host-b.test"
+            },
+            {
+              "revoked": true,
+              "revoked_by": "admin6-admin@host-a.test",
+              "type": "refresh",
+              "user": "admin6-peer@host-a.test"
+            }
+          ],
+          "publications": [],
+          "role_assignments": [],
+          "sessions": [
+            {
+              "user": "admin6-other@host-b.test"
+            }
+          ],
+          "users": [
+            {
+              "department": false,
+              "display_name": "admin6-admin",
+              "domain": "host-a.test",
+              "email": "admin6-admin@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-admin@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-guest",
+              "domain": "host-a.test",
+              "email": "admin6-guest@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-guest@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-other",
+              "domain": "host-b.test",
+              "email": "admin6-other@host-b.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-other@host-b.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-peer",
+              "domain": "host-a.test",
+              "email": "admin6-peer@host-a.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": true,
+              "username": "admin6-peer@host-a.test"
+            },
+            {
+              "department": false,
+              "display_name": "admin6-third",
+              "domain": "host-t.test",
+              "email": "admin6-third@host-t.test",
+              "enabled": true,
+              "hash": "x",
+              "is_local_admin": false,
+              "must_change_password": false,
+              "username": "admin6-third@host-t.test"
+            }
+          ],
+          "welcome": []
+        },
+        "table": "user-lifecycle"
+      }
+    ],
+    "notify": [
+      {
+        "channel": "admin:alert",
+        "payload": {
+          "actor": "<admin>",
+          "at": "<timestamp>",
+          "kind": "secure_account",
+          "reason": "admin_secure",
+          "user_id": "<peer>"
+        }
+      }
+    ],
+    "request": {
+      "external_path": "/api/admin/users/{id}/secure-account",
+      "method": "POST",
+      "path": "/admin/users/{id}/secure-account"
+    },
+    "response": {
+      "body": "{\"status\":\"secured\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "21"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-admin6-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /admin/users/{id}/secure-account"
+}

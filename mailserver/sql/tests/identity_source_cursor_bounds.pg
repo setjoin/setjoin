@@ -1,0 +1,118 @@
+-- pgTAP: identity-source sync cursor bounds (D-MAILSERVER-INTERNAL-IDENTITYSOURCE-001,
+-- CWE-770). The directory-derived cursor is bounded at every layer: the
+-- identity_source_batch_begin reducer rejects oversized cursors, the V236 CHECK
+-- constraints bound all three cursor-bearing tables (identity_source_batches,
+-- identity_source_inbox, identity_sources committed/pending), and a cursor
+-- within the bound still stages and commits normally.
+BEGIN;
+SELECT plan(13);
+
+-- Fixture: one active 'ldap' source (the exploitable kind) holding a live
+-- discovery lease, so only the cursor guard can reject the oversized page.
+INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state)
+VALUES ('ldap:cursor-bounds','Cursor bounds fixture','ldap','{"users":true}'::jsonb,'active');
+INSERT INTO identity_source_leases(source_id,process_instance_id,source_generation,lease_until)
+SELECT id,'22222222-2222-2222-2222-222222222222'::uuid,generation,
+       statement_timestamp() + interval '10 minutes'
+  FROM identity_sources WHERE source_key='ldap:cursor-bounds';
+
+-- The batch begin reducer re-checks the bound even with a valid lease,
+-- generation, and state: a hostile directory cursor never reaches storage.
+SELECT throws_ok(
+    format(
+        $$SELECT identity_source_batch_begin(
+              (SELECT id FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+              (SELECT generation FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+              '33333333-3333-3333-3333-333333333333'::uuid,
+              jsonb_build_object('modifyTimestamp',repeat('x',5000)),
+              '[]'::jsonb,
+              '22222222-2222-2222-2222-222222222222'::uuid)$$),
+    'BZ228','identity source cursor exceeds 4096 bytes',
+    'oversized directory cursor is rejected by the batch begin reducer');
+
+-- Boundary allow: a cursor within the bound stages, drains, and commits.
+SELECT is(
+    identity_source_batch_begin(
+        (SELECT id FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+        (SELECT generation FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+        '44444444-4444-4444-4444-444444444444'::uuid,
+        jsonb_build_object('modifyTimestamp',repeat('x',4000)),
+        '[]'::jsonb,
+        '22222222-2222-2222-2222-222222222222'::uuid
+    )->>'entries',
+    '0','cursor within the bound stages normally');
+SELECT is(
+    identity_source_batch_finish(
+        (SELECT id FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+        (SELECT generation FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+        '44444444-4444-4444-4444-444444444444'::uuid,
+        0,'22222222-2222-2222-2222-222222222222'::uuid
+    )->>'cursorAdvanced',
+    'true','bounded batch still advances the cursor');
+SELECT is(
+    (SELECT committed_cursor->>'modifyTimestamp'
+       FROM identity_sources WHERE source_key='ldap:cursor-bounds'),
+    repeat('x',4000),
+    'bounded cursor still commits as the source position');
+
+-- V236 CHECK constraints exist on every cursor-bearing table.
+SELECT col_has_check('public','identity_sources','committed_cursor',
+    'committed cursor is bounded by a CHECK constraint');
+SELECT col_has_check('public','identity_sources','pending_cursor',
+    'pending cursor is bounded by a CHECK constraint');
+SELECT col_has_check('public','identity_source_batches','remote_cursor',
+    'batch remote cursor is bounded by a CHECK constraint');
+SELECT col_has_check('public','identity_source_inbox','remote_cursor',
+    'inbox per-entry cursor copy is bounded by a CHECK constraint');
+
+-- The constraints fire on direct writes (cursor and digest are set together so
+-- only the size bound can produce the violation).
+SELECT throws_ok(
+    format(
+        $$INSERT INTO identity_source_batches(
+              source_id,batch_id,source_generation,remote_cursor,
+              remote_cursor_digest,entry_count)
+          SELECT id,'55555555-5555-5555-5555-555555555555'::uuid,generation,
+                 jsonb_build_object('modifyTimestamp',repeat('x',5000)),
+                 digest('x','sha256'),0
+            FROM identity_sources WHERE source_key='ldap:cursor-bounds'$$),
+    '23514',NULL,'batch row cannot persist an oversized cursor');
+SELECT throws_ok(
+    format(
+        $$INSERT INTO identity_source_inbox(
+              source_id,batch_id,object_key,source_generation,remote_cursor,
+              remote_cursor_digest,immutable_subject,sanitized_payload)
+          SELECT id,'55555555-5555-5555-5555-555555555555'::uuid,'object-1',generation,
+                 jsonb_build_object('modifyTimestamp',repeat('x',5000)),
+                 digest('x','sha256'),'subject-1','{"operation":"upsert"}'::jsonb
+            FROM identity_sources WHERE source_key='ldap:cursor-bounds'$$),
+    '23514',NULL,'inbox row cannot persist an oversized per-entry cursor copy');
+SELECT throws_ok(
+    format(
+        $$UPDATE identity_sources
+             SET committed_cursor = jsonb_build_object('modifyTimestamp',repeat('x',5000)),
+                 committed_cursor_digest = digest('x','sha256')
+           WHERE source_key='ldap:cursor-bounds'$$),
+    '23514',NULL,'committed cursor cannot exceed the bound');
+SELECT throws_ok(
+    format(
+        $$UPDATE identity_sources
+             SET pending_cursor = jsonb_build_object('modifyTimestamp',repeat('x',5000)),
+                 pending_cursor_digest = digest('x','sha256')
+           WHERE source_key='ldap:cursor-bounds'$$),
+    '23514',NULL,'pending cursor cannot exceed the bound');
+
+-- Boundary allow: a source cursor at exactly the bound is accepted.
+WITH applied AS (
+    UPDATE identity_sources
+       SET committed_cursor = jsonb_build_object('modifyTimestamp',repeat('x',4000)),
+           committed_cursor_digest = digest('x','sha256')
+     WHERE source_key='ldap:cursor-bounds'
+    RETURNING true
+)
+SELECT ok(
+    EXISTS (SELECT 1 FROM applied),
+    'source cursor at exactly the bound is accepted');
+
+SELECT * FROM finish();
+ROLLBACK;

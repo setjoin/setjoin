@@ -1,0 +1,33 @@
+BEGIN;
+SELECT plan(5);
+
+-- seed domain, users, mailboxes for this test (IDs in 96xxx/196xxx range, not used elsewhere)
+INSERT INTO domains (name, is_local) VALUES ('grp96.test', TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (196003, 'grpbacker96', (SELECT id FROM domains WHERE name = 'grp96.test'), 'grpbacker@grp96.test', 'GrpBacker');
+INSERT INTO users (id, username, domain_id, email, display_name)
+  VALUES (196101, 'grpmember96', (SELECT id FROM domains WHERE name = 'grp96.test'), 'grpmember@grp96.test', 'GrpMember');
+-- group backing mailbox (no user_id — same pattern as deliver_group_vacation.pg)
+INSERT INTO mailboxes (id, domain_id, email, display_name, type, is_primary)
+  VALUES (96003, (SELECT id FROM domains WHERE name = 'grp96.test'), 'grpbacker@grp96.test', 'GrpBacker', 'personal', FALSE);
+-- member mailbox
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary)
+  VALUES (96101, 196101, (SELECT id FROM domains WHERE name = 'grp96.test'), 'grpmember@grp96.test', 'GrpMember', 'personal', TRUE);
+
+-- static distribution group backed by 96003, with one member 96101
+INSERT INTO distribution_groups (id, mailbox_id, is_dynamic) VALUES (96001, 96003, false);
+INSERT INTO distribution_group_members (group_id, mailbox_id) VALUES (96001, 96101);
+
+SELECT ok(admin_mailbox_in_group(96001, 96101), 'member mailbox is in the group');
+SELECT ok(NOT admin_mailbox_in_group(96001, 96199), 'non-member mailbox is not in the group');
+SELECT ok(NOT admin_mailbox_in_group(96999, 96101), 'missing group → FALSE (fail-closed)');
+
+-- expand_group fail-closed: a missing group id returns NO rows (was: whole org)
+SELECT is((SELECT count(*) FROM expand_group(96999)), 0::bigint,
+  'expand_group(missing id) returns no rows (fail-closed)');
+-- a real static group still expands to its members
+SELECT is((SELECT count(*) FROM expand_group(96001)), 1::bigint,
+  'expand_group(static group) returns its members');
+
+SELECT finish();
+ROLLBACK;

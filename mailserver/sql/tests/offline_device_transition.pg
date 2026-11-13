@@ -1,0 +1,42 @@
+-- pgTAP: offline_device_transition.pg
+BEGIN;
+SELECT plan(9);
+-- Actor user required by admin_audit_log FK (same pattern as offline_policy_set.pg).
+INSERT INTO domains (id, name, is_local) VALUES (98702, 'odt.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (1, 'odt_actor', 98702, 'actor@odt.test', 'Actor', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+CREATE TEMP TABLE _a AS SELECT mk_account('odt') AS mb;
+CREATE TEMP TABLE _d AS SELECT mk_offline_device((SELECT mb FROM _a), 'pending') AS id;
+-- pending → approved (legal).
+SELECT lives_ok($$ SELECT offline_device_approve(1, (SELECT id FROM _d)) $$,
+  'pending → approved is legal');
+SELECT is((SELECT offline_approval FROM user_devices WHERE id=(SELECT id FROM _d)),
+  'approved', 'state is approved');
+-- approved → revoked (legal); sets wipe intent.
+SELECT lives_ok($$ SELECT offline_device_revoke(1, (SELECT id FROM _d)) $$,
+  'approved → revoked is legal');
+SELECT is((SELECT wipe_requested FROM user_devices WHERE id=(SELECT id FROM _d)),
+  true, 'revoke sets wipe intent');
+-- revoked → denied (illegal) → BZ100.
+SELECT throws_ok($$ SELECT offline_device_deny(1, (SELECT id FROM _d)) $$,
+  'BZ100', NULL, 'revoked → denied is illegal (BZ100)');
+-- pending → denied (legal) — positive path for deny, previously untested.
+CREATE TEMP TABLE _d2 AS SELECT mk_offline_device((SELECT mb FROM _a), 'pending') AS id;
+SELECT lives_ok($$ SELECT offline_device_deny(1, (SELECT id FROM _d2)) $$,
+  'pending → denied is legal');
+SELECT is((SELECT offline_approval FROM user_devices WHERE id=(SELECT id FROM _d2)),
+  'denied', 'state is denied');
+-- audit row for the approve.
+SELECT ok(EXISTS(SELECT 1 FROM admin_audit_log
+  WHERE action='offline_device_approve'), 'approve audited');
+-- Fix 2: stale/concurrent transition raises BZ100 (state already changed, re-approve fails).
+-- _d is revoked; trying to approve (legal from revoked) then approve again (now approved → illegal transition check)
+-- Use a fresh pending device, approve it, then try to approve again (approved → approve is illegal).
+CREATE TEMP TABLE _d3 AS SELECT mk_offline_device((SELECT mb FROM _a), 'pending') AS id;
+SELECT offline_device_approve(1, (SELECT id FROM _d3));
+SELECT throws_ok(
+  $$ SELECT offline_device_approve(1, (SELECT id FROM _d3)) $$,
+  'BZ100', NULL, 'Fix 2: re-approve of approved device raises BZ100 (stale/concurrent race)');
+SELECT finish();
+ROLLBACK;

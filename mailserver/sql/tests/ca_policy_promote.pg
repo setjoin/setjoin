@@ -1,0 +1,108 @@
+-- pgTAP: ca_policy_promote.pg — CA-1 C5: promote report_only→on,
+-- BZ080 lockout guard, would-block snapshot in audit, F2 notify.
+BEGIN;
+SELECT plan(10);
+SET app.capture_notify = 'on';
+
+SELECT ok(
+  strpos(regexp_replace(
+           pg_get_functiondef('ca_policy_promote(bigint,bigint)'::regprocedure),
+           '--[^\n]*', '', 'g'),
+         'PERFORM ca_reachability_fence()') > 0
+  AND strpos(regexp_replace(
+               pg_get_functiondef('ca_policy_promote(bigint,bigint)'::regprocedure),
+               '--[^\n]*', '', 'g'),
+             'PERFORM ca_reachability_fence()')
+      < strpos(regexp_replace(
+                 pg_get_functiondef('ca_policy_promote(bigint,bigint)'::regprocedure),
+                 '--[^\n]*', '', 'g'),
+               'FOR UPDATE'),
+  'loaded promotion reducer fences before locking its exact policy tuple');
+
+INSERT INTO domains (id, name, is_local) VALUES (98100, 'pp.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (85001, 'pp_actor', 98100, 'actor@pp.test', 'Actor', TRUE),
+         (85002, 'pp_user1', 98100, 'user1@pp.test', 'User1', TRUE),
+         (85003, 'pp_user2', 98100, 'user2@pp.test', 'User2', TRUE);
+
+-- Make actor an admin so the lockout guard always finds a reachable admin
+-- (guard fires for on+global+block; actor is excluded via exclude_users below).
+INSERT INTO admin_role_groups (id, name, sod_class) VALUES (93001, 'pp-rg', NULL) ON CONFLICT DO NOTHING;
+INSERT INTO admin_role_assignments (user_id, role_group_id, expires_at) VALUES (85001, 93001, NULL);
+
+-- Insert a report_only global block policy (safe to promote — actor excluded).
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions, exclude_users)
+  VALUES (910001, 300, 'pp-block', 'report_only', 'global',
+          '{}', '{"operator":"all","grants":[{"action":"block"}]}',
+          '[85001]'::jsonb);
+
+-- Seed 2 sign-in log rows so ca_policy_impact returns would_block=2.
+INSERT INTO ca_signin_log (user_id, source_ip, matched_policy_id, decision, would_decision, report_only, evaluated)
+  VALUES
+  (85002, '10.0.0.2'::inet, 910001, 'allow', 'block', TRUE, '[]'),
+  (85003, '10.0.0.3'::inet, 910001, 'allow', 'block', TRUE, '[]');
+
+-- 1. Promote succeeds: report_only → on (actor is in exclude_users, guard passes).
+SELECT lives_ok(
+  $$ SELECT ca_policy_promote(910001, 85001) $$,
+  'ca_policy_promote succeeds (actor excluded, guard passes)');
+
+-- 2. State flipped to on.
+SELECT is(
+  (SELECT state FROM conditional_access_policies WHERE id = 910001),
+  'on',
+  'state is now on after promote');
+
+-- 3. Return shape carries promoted_from.
+SELECT is(
+  (SELECT ca_policy_promote(910001, 85001)->>'promoted_from'),
+  'report_only',
+  'result carries promoted_from=report_only');
+
+-- 4. Return shape carries would_block_users (integer ≥ 0).
+SELECT ok(
+  (SELECT (ca_policy_promote(910001, 85001)->>'would_block_users')::int >= 0),
+  'result carries would_block_users count');
+
+-- 5. Audit row written with action=ca_policy_promote.
+SELECT is(
+  (SELECT action FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=910001
+   ORDER BY id DESC LIMIT 1),
+  'ca_policy_promote',
+  'promote writes ca_policy_promote audit row');
+
+-- 6. Audit after_state carries would_block_snapshot.
+SELECT ok(
+  (SELECT (after_state ? 'would_block_snapshot') FROM admin_audit_log
+   WHERE target_type='conditional_access_policy' AND target_id=910001
+   ORDER BY id DESC LIMIT 1),
+  'audit after_state carries would_block_snapshot');
+
+-- 7. F2 notify fired.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'promote fires ca_notify_policy_change → conditional_access channel');
+
+-- 8. Promote on already-on policy is a no-op (does not error).
+SELECT lives_ok(
+  $$ SELECT ca_policy_promote(910001, 85001) $$,
+  'promote on already-on policy is a no-op');
+
+-- 9. on+global+block with NO reachable admin → BZ080 (lockout guard).
+-- Insert a second policy: global block, no exclusions, not the actor (actor is excluded above,
+-- but we need a policy where NO admin is in exclude_users).
+INSERT INTO conditional_access_policies
+    (id, priority, name, state, scope_type, conditions, actions, exclude_users)
+  VALUES (910002, 400, 'pp-lockout', 'report_only', 'global',
+          '{}', '{"operator":"all","grants":[{"action":"block"}]}',
+          '[]'::jsonb);
+
+SELECT throws_ok(
+  $$ SELECT ca_policy_promote(910002, 85001) $$,
+  'BZ080', NULL,
+  'global-block promote with no reachable admin raises BZ080');
+
+SELECT finish();
+ROLLBACK;

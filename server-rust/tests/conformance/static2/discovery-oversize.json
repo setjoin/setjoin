@@ -1,0 +1,34 @@
+{
+  "case": "oversize",
+  "format": 1,
+  "go_source": "a3e4bb47d0478671bcaea22a8d21bb3afdab84e4",
+  "observation": {
+    "audit": [],
+    "dns": [
+      "MX:oversize.static2.test.",
+      "SRV:_jmap._tcp.oversize.static2.test."
+    ],
+    "effects": {},
+    "notify": [],
+    "peer": [
+      {
+        "host": "peer.static2.test:443",
+        "method": "GET",
+        "path": "/.well-known/setjoin"
+      }
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/discover"
+    },
+    "response": {
+      "body_text": "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"no server found for domain oversize.static2.test\",\"instance\":\"\"}\n",
+      "headers": {
+        "content-type": "application/problem+json"
+      },
+      "status": 404
+    },
+    "tcp_accepts": 1
+  },
+  "route": "GET /api/discover"
+}

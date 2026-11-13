@@ -1,0 +1,34 @@
+{
+  "case": "set_default-audit-fault-row-effects",
+  "effects": [
+    {
+      "calendars": [
+        {
+          "calendar_id": "<owner-calendar>",
+          "mailbox_id": "<owner-mailbox>",
+          "state": 0
+        },
+        {
+          "calendar_id": "<foreign-calendar>",
+          "mailbox_id": "<foreign-mailbox>",
+          "state": 0
+        }
+      ],
+      "defaults": [],
+      "delegates": [
+        {
+          "granted_at": "<time>",
+          "granted_by": "<owner-user>",
+          "mailbox_id": "<owner-mailbox>",
+          "permission": "read",
+          "user_id": "<foreign-user>"
+        }
+      ]
+    },
+    [],
+    []
+  ],
+  "format": 1,
+  "go_source": "8dc5b62c7c7d8f8172fdb72bd2464d81372c538c",
+  "route": "PUT /me/sharing/default"
+}

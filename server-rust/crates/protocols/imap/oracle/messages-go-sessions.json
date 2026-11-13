@@ -1,0 +1,5938 @@
+[
+ {
+  "effects": {
+   "audit": [],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "fetch-before-select",
+  "steps": [
+   {
+    "request": "a1 FETCH 1 (FLAGS)\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\na1 NO No mailbox selected\r\n",
+    "until": "a1"
+   },
+   {
+    "request": "a2 UID FETCH 1 (FLAGS)\r\n",
+    "response": "a2 NO No mailbox selected\r\n",
+    "until": "a2"
+   },
+   {
+    "request": "a3 SEARCH ALL\r\n",
+    "response": "a3 NO No mailbox selected\r\n",
+    "until": "a3"
+   },
+   {
+    "request": "a4 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "a4 NO No mailbox selected\r\n",
+    "until": "a4"
+   },
+   {
+    "request": "a5 UID SEARCH ALL\r\n",
+    "response": "a5 NO No mailbox selected\r\n",
+    "until": "a5"
+   },
+   {
+    "request": "a6 UID\r\n",
+    "response": "a6 NO No mailbox selected\r\n",
+    "until": "a6"
+   },
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "l1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "b1 FETCH 1:* (FLAGS)\r\n",
+    "response": "b1 NO No mailbox selected\r\n",
+    "until": "b1"
+   },
+   {
+    "request": "b2 SEARCH ALL\r\n",
+    "response": "b2 NO No mailbox selected\r\n",
+    "until": "b2"
+   },
+   {
+    "request": "b3 STORE 1 FLAGS ()\r\n",
+    "response": "b3 NO No mailbox selected\r\n",
+    "until": "b3"
+   },
+   {
+    "request": "b4 UID STORE 1 FLAGS ()\r\n",
+    "response": "b4 NO No mailbox selected\r\n",
+    "until": "b4"
+   },
+   {
+    "request": "b5 UID\r\n",
+    "response": "b5 NO No mailbox selected\r\n",
+    "until": "b5"
+   },
+   {
+    "request": "b6 UID FETCH 1\r\n",
+    "response": "b6 NO No mailbox selected\r\n",
+    "until": "b6"
+   },
+   {
+    "request": "c1 SELECT Nope\r\n",
+    "response": "c1 NO No such mailbox\r\n",
+    "until": "c1"
+   },
+   {
+    "request": "c2 FETCH 1:*\r\n",
+    "response": "c2 NO No mailbox selected\r\n",
+    "until": "c2"
+   },
+   {
+    "request": "c3 SEARCH ALL\r\n",
+    "response": "c3 NO No mailbox selected\r\n",
+    "until": "c3"
+   },
+   {
+    "request": "c4 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\nc4 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "c4"
+   },
+   {
+    "request": "c5 UNSELECT\r\n",
+    "response": "* OK [CLOSED] Previous mailbox closed\r\nc5 OK UNSELECT completed\r\n",
+    "until": "c5"
+   },
+   {
+    "request": "c6 FETCH 1:*\r\n",
+    "response": "c6 NO No mailbox selected\r\n",
+    "until": "c6"
+   },
+   {
+    "request": "c7 UID SEARCH ALL\r\n",
+    "response": "c7 NO No mailbox selected\r\n",
+    "until": "c7"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "fetch-sequence-forms",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "f01 FETCH 1 (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf01 OK FETCH completed\r\n",
+    "until": "f01"
+   },
+   {
+    "request": "f02 FETCH 1:* (FLAGS UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf02 OK FETCH completed\r\n",
+    "until": "f02"
+   },
+   {
+    "request": "f03 FETCH * (FLAGS)\r\n",
+    "response": "* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf03 OK FETCH completed\r\n",
+    "until": "f03"
+   },
+   {
+    "request": "f04 FETCH 2:3 (FLAGS)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\nf04 OK FETCH completed\r\n",
+    "until": "f04"
+   },
+   {
+    "request": "f05 FETCH 1,3,5 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\nf05 OK FETCH completed\r\n",
+    "until": "f05"
+   },
+   {
+    "request": "f06 FETCH 3:1 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\nf06 OK FETCH completed\r\n",
+    "until": "f06"
+   },
+   {
+    "request": "f07 FETCH 99 (UID)\r\n",
+    "response": "f07 OK FETCH completed\r\n",
+    "until": "f07"
+   },
+   {
+    "request": "f08 FETCH 0 (UID)\r\n",
+    "response": "f08 BAD Invalid sequence number\r\n",
+    "until": "f08"
+   },
+   {
+    "request": "f09 FETCH abc (UID)\r\n",
+    "response": "f09 BAD Invalid sequence number\r\n",
+    "until": "f09"
+   },
+   {
+    "request": "f10 FETCH\r\n",
+    "response": "f10 BAD Missing arguments\r\n",
+    "until": "f10"
+   },
+   {
+    "request": "f11 FETCH 1:2(FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\nf11 OK FETCH completed\r\n",
+    "until": "f11"
+   },
+   {
+    "request": "f12 FETCH (FLAGS)\r\n",
+    "response": "f12 BAD Invalid sequence number\r\n",
+    "until": "f12"
+   },
+   {
+    "request": "f13 FETCH 1:2,*:6 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf13 OK FETCH completed\r\n",
+    "until": "f13"
+   },
+   {
+    "request": "f14 FETCH 2,2,1:3 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\nf14 OK FETCH completed\r\n",
+    "until": "f14"
+   },
+   {
+    "request": "f15 FETCH 4:* BODY[]\r\n",
+    "response": "* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf15 OK FETCH completed\r\n",
+    "until": "f15"
+   },
+   {
+    "request": "f16 fetch 1 (ENVELOPE)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf16 OK FETCH completed\r\n",
+    "until": "f16"
+   },
+   {
+    "request": "f17 FETCH 1:1,x,2 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\nf17 OK FETCH completed\r\n",
+    "until": "f17"
+   },
+   {
+    "request": "f18 FETCH +2 (UID)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\nf18 OK FETCH completed\r\n",
+    "until": "f18"
+   },
+   {
+    "request": "f19 FETCH -1 (UID)\r\n",
+    "response": "f19 BAD Invalid sequence number\r\n",
+    "until": "f19"
+   },
+   {
+    "request": "f20 FETCH 1:*:3 (UID)\r\n",
+    "response": "f20 BAD Invalid sequence number\r\n",
+    "until": "f20"
+   },
+   {
+    "request": "f21 FETCH 1: (UID)\r\n",
+    "response": "f21 BAD Invalid sequence number\r\n",
+    "until": "f21"
+   },
+   {
+    "request": "f22 FETCH :2 (UID)\r\n",
+    "response": "f22 BAD Invalid sequence number\r\n",
+    "until": "f22"
+   },
+   {
+    "request": "f23 FETCH *:* (UID)\r\n",
+    "response": "* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf23 OK FETCH completed\r\n",
+    "until": "f23"
+   },
+   {
+    "request": "f24\tFETCH\t1\t(UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nf24 OK FETCH completed\r\n",
+    "until": "f24"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "fetch-uid-forms",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "u01 UID FETCH 5 (FLAGS)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\nu01 OK FETCH completed\r\n",
+    "until": "u01"
+   },
+   {
+    "request": "u02 UID FETCH 3:* (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nu02 OK FETCH completed\r\n",
+    "until": "u02"
+   },
+   {
+    "request": "u03 UID FETCH 4 (UID)\r\n",
+    "response": "u03 OK FETCH completed\r\n",
+    "until": "u03"
+   },
+   {
+    "request": "u04 UID FETCH * (UID)\r\n",
+    "response": "* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nu04 OK FETCH completed\r\n",
+    "until": "u04"
+   },
+   {
+    "request": "u05 UID FETCH 12:20 (UID)\r\n",
+    "response": "* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nu05 OK FETCH completed\r\n",
+    "until": "u05"
+   },
+   {
+    "request": "u06 UID FETCH 20:3 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nu06 OK FETCH completed\r\n",
+    "until": "u06"
+   },
+   {
+    "request": "u07 UID FETCH 1,3,99 (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nu07 OK FETCH completed\r\n",
+    "until": "u07"
+   },
+   {
+    "request": "u08 UID FETCH\r\n",
+    "response": "u08 BAD Missing arguments\r\n",
+    "until": "u08"
+   },
+   {
+    "request": "u09 UID FETCH abc\r\n",
+    "response": "u09 BAD Invalid sequence number\r\n",
+    "until": "u09"
+   },
+   {
+    "request": "u10 UID FOO 1\r\n",
+    "response": "u10 BAD Unknown UID command\r\n",
+    "until": "u10"
+   },
+   {
+    "request": "u11 uid fetch 11 (UID)\r\n",
+    "response": "* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\nu11 OK FETCH completed\r\n",
+    "until": "u11"
+   },
+   {
+    "request": "u12 UID EXPUNGE 1\r\n",
+    "response": "u12 BAD Unknown UID command\r\n",
+    "until": "u12"
+   },
+   {
+    "request": "u13 UID FETCH 8:9 (UID)\r\n",
+    "response": "u13 OK FETCH completed\r\n",
+    "until": "u13"
+   },
+   {
+    "request": "u14 UID SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"u14\") UID ALL 3,5,11,14,20\r\nu14 OK SEARCH completed\r\n",
+    "until": "u14"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "fetch-other-tag",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Project\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 2 EXISTS \r\n* OK [UIDVALIDITY 4444] UIDs valid \r\n* OK [UIDNEXT 3] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "p1 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 100 ENVELOPE (\"Wed, 12 Mar 2025 08:00:00 +0000\" \"Project one\" ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 2 FLAGS (\\Seen) RFC822.SIZE 200 ENVELOPE (\"Thu, 13 Mar 2025 09:00:00 +0000\" \"Project two\" ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\np1 OK FETCH completed\r\n",
+    "until": "p1"
+   },
+   {
+    "request": "p2 UID FETCH 2 (UID)\r\n",
+    "response": "* 2 FETCH (UID 2 FLAGS (\\Seen) RFC822.SIZE 200 ENVELOPE (\"Thu, 13 Mar 2025 09:00:00 +0000\" \"Project two\" ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\np2 OK FETCH completed\r\n",
+    "until": "p2"
+   },
+   {
+    "request": "p3 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"p3\") ALL 1,2\r\np3 OK SEARCH completed\r\n",
+    "until": "p3"
+   },
+   {
+    "request": "p4 UID SEARCH UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"p4\") UID ALL 1\r\np4 OK SEARCH completed\r\n",
+    "until": "p4"
+   },
+   {
+    "request": "p5 SELECT Label\r\n",
+    "response": "* OK [CLOSED] Previous mailbox closed\r\n* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 2 EXISTS \r\n* OK [UIDVALIDITY 5555] UIDs valid \r\n* OK [UIDNEXT 3] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\np5 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "p5"
+   },
+   {
+    "request": "p6 FETCH 1:*\r\n",
+    "response": "p6 OK FETCH completed\r\n",
+    "until": "p6"
+   },
+   {
+    "request": "p7 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"p7\")\r\np7 OK SEARCH completed\r\n",
+    "until": "p7"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "search-flags-and-text",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "s01 SEARCH\r\n",
+    "response": "* ESEARCH (TAG \"s01\") ALL 1,2,3,4,5\r\ns01 OK SEARCH completed\r\n",
+    "until": "s01"
+   },
+   {
+    "request": "s02 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"s02\") ALL 1,2,3,4,5\r\ns02 OK SEARCH completed\r\n",
+    "until": "s02"
+   },
+   {
+    "request": "s03 SEARCH SEEN\r\n",
+    "response": "* ESEARCH (TAG \"s03\") ALL 1,2\r\ns03 OK SEARCH completed\r\n",
+    "until": "s03"
+   },
+   {
+    "request": "s04 SEARCH UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"s04\") ALL 1,2,3\r\ns04 OK SEARCH completed\r\n",
+    "until": "s04"
+   },
+   {
+    "request": "s05 SEARCH DELETED\r\n",
+    "response": "* ESEARCH (TAG \"s05\")\r\ns05 OK SEARCH completed\r\n",
+    "until": "s05"
+   },
+   {
+    "request": "s06 SEARCH UNDELETED\r\n",
+    "response": "* ESEARCH (TAG \"s06\") ALL 1,2,3,4,5\r\ns06 OK SEARCH completed\r\n",
+    "until": "s06"
+   },
+   {
+    "request": "s07 SEARCH ANSWERED\r\n",
+    "response": "* ESEARCH (TAG \"s07\") ALL 1\r\ns07 OK SEARCH completed\r\n",
+    "until": "s07"
+   },
+   {
+    "request": "s08 SEARCH UNANSWERED\r\n",
+    "response": "* ESEARCH (TAG \"s08\") ALL 1,2,3,4\r\ns08 OK SEARCH completed\r\n",
+    "until": "s08"
+   },
+   {
+    "request": "s09 SEARCH FLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"s09\") ALL 1,2\r\ns09 OK SEARCH completed\r\n",
+    "until": "s09"
+   },
+   {
+    "request": "s10 SEARCH UNFLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"s10\") ALL 1,2,3\r\ns10 OK SEARCH completed\r\n",
+    "until": "s10"
+   },
+   {
+    "request": "s11 SEARCH DRAFT\r\n",
+    "response": "* ESEARCH (TAG \"s11\") ALL 1,2\r\ns11 OK SEARCH completed\r\n",
+    "until": "s11"
+   },
+   {
+    "request": "s12 SEARCH UNDRAFT\r\n",
+    "response": "* ESEARCH (TAG \"s12\") ALL 1,2,3\r\ns12 OK SEARCH completed\r\n",
+    "until": "s12"
+   },
+   {
+    "request": "s13 SEARCH NEW\r\n",
+    "response": "* ESEARCH (TAG \"s13\") ALL 1,2,3\r\ns13 OK SEARCH completed\r\n",
+    "until": "s13"
+   },
+   {
+    "request": "s14 SEARCH RECENT\r\n",
+    "response": "* ESEARCH (TAG \"s14\")\r\ns14 OK SEARCH completed\r\n",
+    "until": "s14"
+   },
+   {
+    "request": "s15 SEARCH seen flagged\r\n",
+    "response": "* ESEARCH (TAG \"s15\") ALL 1\r\ns15 OK SEARCH completed\r\n",
+    "until": "s15"
+   },
+   {
+    "request": "s16 SEARCH UNSEEN UNFLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"s16\") ALL 1,2\r\ns16 OK SEARCH completed\r\n",
+    "until": "s16"
+   },
+   {
+    "request": "s17 SEARCH FROM bob\r\n",
+    "response": "* ESEARCH (TAG \"s17\") ALL 1\r\ns17 OK SEARCH completed\r\n",
+    "until": "s17"
+   },
+   {
+    "request": "s18 SEARCH FROM \"EXAMPLE.ORG\"\r\n",
+    "response": "* ESEARCH (TAG \"s18\") ALL 1,2,3\r\ns18 OK SEARCH completed\r\n",
+    "until": "s18"
+   },
+   {
+    "request": "s19 SEARCH SUBJECT hello\r\n",
+    "response": "* ESEARCH (TAG \"s19\") ALL 1\r\ns19 OK SEARCH completed\r\n",
+    "until": "s19"
+   },
+   {
+    "request": "s20 SEARCH SUBJECT \"needle\"\r\n",
+    "response": "* ESEARCH (TAG \"s20\") ALL 1\r\ns20 OK SEARCH completed\r\n",
+    "until": "s20"
+   },
+   {
+    "request": "s21 SEARCH TEXT needle\r\n",
+    "response": "* ESEARCH (TAG \"s21\") ALL 1,2\r\ns21 OK SEARCH completed\r\n",
+    "until": "s21"
+   },
+   {
+    "request": "s22 SEARCH BODY needle\r\n",
+    "response": "* ESEARCH (TAG \"s22\") ALL 1,2\r\ns22 OK SEARCH completed\r\n",
+    "until": "s22"
+   },
+   {
+    "request": "s23 SEARCH BODY 50%\r\n",
+    "response": "* ESEARCH (TAG \"s23\") ALL 1\r\ns23 OK SEARCH completed\r\n",
+    "until": "s23"
+   },
+   {
+    "request": "s24 SEARCH BODY off_and\r\n",
+    "response": "* ESEARCH (TAG \"s24\") ALL 1\r\ns24 OK SEARCH completed\r\n",
+    "until": "s24"
+   },
+   {
+    "request": "s25 SEARCH FROM\r\n",
+    "response": "* ESEARCH (TAG \"s25\") ALL 1,2,3,4,5\r\ns25 OK SEARCH completed\r\n",
+    "until": "s25"
+   },
+   {
+    "request": "s26 SEARCH SUBJECT\r\n",
+    "response": "* ESEARCH (TAG \"s26\") ALL 1,2,3,4,5\r\ns26 OK SEARCH completed\r\n",
+    "until": "s26"
+   },
+   {
+    "request": "s27 SEARCH SUBJECT \"Quote \\\"me\\\"\"\r\n",
+    "response": "* ESEARCH (TAG \"s27\")\r\ns27 OK SEARCH completed\r\n",
+    "until": "s27"
+   },
+   {
+    "request": "s28 SEARCH SUBJECT Quote\r\n",
+    "response": "* ESEARCH (TAG \"s28\") ALL 1\r\ns28 OK SEARCH completed\r\n",
+    "until": "s28"
+   },
+   {
+    "request": "s29 SEARCH SUBJECT \"\"\"hello\"\"\"\r\n",
+    "response": "* ESEARCH (TAG \"s29\") ALL 1,2,3,4,5\r\ns29 OK SEARCH completed\r\n",
+    "until": "s29"
+   },
+   {
+    "request": "s30 SEARCH FROM x SUBJECT\r\n",
+    "response": "* ESEARCH (TAG \"s30\") ALL 1,2,3,4\r\ns30 OK SEARCH completed\r\n",
+    "until": "s30"
+   },
+   {
+    "request": "s31 SEARCH TEXT ''\r\n",
+    "response": "* ESEARCH (TAG \"s31\")\r\ns31 OK SEARCH completed\r\n",
+    "until": "s31"
+   },
+   {
+    "request": "s32 SEARCH SUBJECT \"\"\r\n",
+    "response": "* ESEARCH (TAG \"s32\") ALL 1,2,3,4,5\r\ns32 OK SEARCH completed\r\n",
+    "until": "s32"
+   },
+   {
+    "request": "s33 search all\r\n",
+    "response": "* ESEARCH (TAG \"s33\") ALL 1,2,3,4,5\r\ns33 OK SEARCH completed\r\n",
+    "until": "s33"
+   },
+   {
+    "request": "s34 SEARCH FROM e%\r\n",
+    "response": "* ESEARCH (TAG \"s34\") ALL 1,2,3,4\r\ns34 OK SEARCH completed\r\n",
+    "until": "s34"
+   },
+   {
+    "request": "s35 SEARCH FROM _ob\r\n",
+    "response": "* ESEARCH (TAG \"s35\") ALL 1\r\ns35 OK SEARCH completed\r\n",
+    "until": "s35"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "search-header-keyword-unknown",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "h01 SEARCH HEADER Message-ID \u003cmid-5@imap2.test\u003e\r\n",
+    "response": "* ESEARCH (TAG \"h01\") ALL 1\r\nh01 OK SEARCH completed\r\n",
+    "until": "h01"
+   },
+   {
+    "request": "h02 SEARCH HEADER \"message-id\" \"\u003cmid-3@imap2.test\u003e\"\r\n",
+    "response": "* ESEARCH (TAG \"h02\") ALL 1\r\nh02 OK SEARCH completed\r\n",
+    "until": "h02"
+   },
+   {
+    "request": "h03 SEARCH HEADER Subject Hello\r\n",
+    "response": "* ESEARCH (TAG \"h03\")\r\nh03 OK SEARCH completed\r\n",
+    "until": "h03"
+   },
+   {
+    "request": "h04 SEARCH HEADER Message-ID\r\n",
+    "response": "* ESEARCH (TAG \"h04\") ALL 1,2,3,4,5\r\nh04 OK SEARCH completed\r\n",
+    "until": "h04"
+   },
+   {
+    "request": "h05 SEARCH HEADER\r\n",
+    "response": "* ESEARCH (TAG \"h05\") ALL 1,2,3,4,5\r\nh05 OK SEARCH completed\r\n",
+    "until": "h05"
+   },
+   {
+    "request": "h06 SEARCH KEYWORD Label\r\n",
+    "response": "* ESEARCH (TAG \"h06\") ALL 1,2\r\nh06 OK SEARCH completed\r\n",
+    "until": "h06"
+   },
+   {
+    "request": "h07 SEARCH KEYWORD label\r\n",
+    "response": "* ESEARCH (TAG \"h07\")\r\nh07 OK SEARCH completed\r\n",
+    "until": "h07"
+   },
+   {
+    "request": "h08 SEARCH KEYWORD Project\r\n",
+    "response": "* ESEARCH (TAG \"h08\")\r\nh08 OK SEARCH completed\r\n",
+    "until": "h08"
+   },
+   {
+    "request": "h09 SEARCH KEYWORD \"Label\"\r\n",
+    "response": "* ESEARCH (TAG \"h09\")\r\nh09 OK SEARCH completed\r\n",
+    "until": "h09"
+   },
+   {
+    "request": "h10 SEARCH KEYWORD\r\n",
+    "response": "* ESEARCH (TAG \"h10\") ALL 1,2,3,4,5\r\nh10 OK SEARCH completed\r\n",
+    "until": "h10"
+   },
+   {
+    "request": "h11 SEARCH KEYWORD Nope\r\n",
+    "response": "* ESEARCH (TAG \"h11\")\r\nh11 OK SEARCH completed\r\n",
+    "until": "h11"
+   },
+   {
+    "request": "h12 SEARCH SINCE 1-Jan-2020\r\n",
+    "response": "* ESEARCH (TAG \"h12\") ALL 1,2,3,4,5\r\nh12 OK SEARCH completed\r\n",
+    "until": "h12"
+   },
+   {
+    "request": "h13 SEARCH OR SEEN FLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"h13\") ALL 1\r\nh13 OK SEARCH completed\r\n",
+    "until": "h13"
+   },
+   {
+    "request": "h14 SEARCH NOT SEEN\r\n",
+    "response": "* ESEARCH (TAG \"h14\") ALL 1,2\r\nh14 OK SEARCH completed\r\n",
+    "until": "h14"
+   },
+   {
+    "request": "h15 SEARCH 1:3\r\n",
+    "response": "* ESEARCH (TAG \"h15\") ALL 1,2,3,4,5\r\nh15 OK SEARCH completed\r\n",
+    "until": "h15"
+   },
+   {
+    "request": "h16 SEARCH CHARSET UTF-8 SUBJECT hello\r\n",
+    "response": "* ESEARCH (TAG \"h16\") ALL 1\r\nh16 OK SEARCH completed\r\n",
+    "until": "h16"
+   },
+   {
+    "request": "h17 SEARCH UID 3:5\r\n",
+    "response": "* ESEARCH (TAG \"h17\") ALL 1,2,3,4,5\r\nh17 OK SEARCH completed\r\n",
+    "until": "h17"
+   },
+   {
+    "request": "h18 SEARCH KEYWORD Label UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"h18\") ALL 1\r\nh18 OK SEARCH completed\r\n",
+    "until": "h18"
+   },
+   {
+    "request": "h19 SEARCH LARGER 1000\r\n",
+    "response": "* ESEARCH (TAG \"h19\") ALL 1,2,3,4,5\r\nh19 OK SEARCH completed\r\n",
+    "until": "h19"
+   },
+   {
+    "request": "h20 SEARCH RETURN (ALL) SEEN\r\n",
+    "response": "* ESEARCH (TAG \"h20\") ALL 1,2\r\nh20 OK SEARCH completed\r\n",
+    "until": "h20"
+   },
+   {
+    "request": "h21 SEARCH (SEEN)\r\n",
+    "response": "* ESEARCH (TAG \"h21\") ALL 1,2,3,4,5\r\nh21 OK SEARCH completed\r\n",
+    "until": "h21"
+   },
+   {
+    "request": "h22 SEARCH HEADER Message-ID x y z\r\n",
+    "response": "* ESEARCH (TAG \"h22\")\r\nh22 OK SEARCH completed\r\n",
+    "until": "h22"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "uid-search-forms",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "q1 UID SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"q1\") UID ALL 3,5,11,14,20\r\nq1 OK SEARCH completed\r\n",
+    "until": "q1"
+   },
+   {
+    "request": "q2 UID SEARCH UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"q2\") UID ALL 5,14,20\r\nq2 OK SEARCH completed\r\n",
+    "until": "q2"
+   },
+   {
+    "request": "q3 UID SEARCH FROM example\r\n",
+    "response": "* ESEARCH (TAG \"q3\") UID ALL 3,5,14,20\r\nq3 OK SEARCH completed\r\n",
+    "until": "q3"
+   },
+   {
+    "request": "q4 UID SEARCH SUBJECT nothingmatches\r\n",
+    "response": "* ESEARCH (TAG \"q4\") UID\r\nq4 OK SEARCH completed\r\n",
+    "until": "q4"
+   },
+   {
+    "request": "q5 UID SEARCH\r\n",
+    "response": "q5 BAD Missing arguments\r\n",
+    "until": "q5"
+   },
+   {
+    "request": "q6 uid search deleted\r\n",
+    "response": "* ESEARCH (TAG \"q6\") UID\r\nq6 OK SEARCH completed\r\n",
+    "until": "q6"
+   },
+   {
+    "request": "q7 UID SEARCH KEYWORD Label\r\n",
+    "response": "* ESEARCH (TAG \"q7\") UID ALL 3,14\r\nq7 OK SEARCH completed\r\n",
+    "until": "q7"
+   },
+   {
+    "request": "q8 SEARCH DELETED UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"q8\")\r\nq8 OK SEARCH completed\r\n",
+    "until": "q8"
+   },
+   {
+    "request": "q9\tUID\tSEARCH\tSEEN\r\n",
+    "response": "* ESEARCH (TAG \"q9\") UID ALL 3,11\r\nq9 OK SEARCH completed\r\n",
+    "until": "q9"
+   },
+   {
+    "request": "q10 UID  SEARCH   FLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"q10\") UID ALL 5,11\r\nq10 OK SEARCH completed\r\n",
+    "until": "q10"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 9,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 3
+    },
+    {
+     "jmap_state": 4,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "store-relative-flags",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "t01 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nt01 OK STORE completed\r\n",
+    "until": "t01"
+   },
+   {
+    "request": "t02 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nt02 OK STORE completed\r\n",
+    "until": "t02"
+   },
+   {
+    "request": "t03 STORE 2 -FLAGS (\\Flagged)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS ())\r\nt03 OK STORE completed\r\n",
+    "until": "t03"
+   },
+   {
+    "request": "t04 STORE 3 +FLAGS (\\Answered \\Draft)\r\n",
+    "response": "* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft))\r\nt04 OK STORE completed\r\n",
+    "until": "t04"
+   },
+   {
+    "request": "t05 STORE 1:2 -FLAGS (\\Seen \\Answered)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS ())\r\n* 2 FETCH (UID 5 FLAGS ())\r\nt05 OK STORE completed\r\n",
+    "until": "t05"
+   },
+   {
+    "request": "t06 STORE 1 +FLAGS \\Seen\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nt06 OK STORE completed\r\n",
+    "until": "t06"
+   },
+   {
+    "request": "t07 STORE 1 +FLAGS (\\seen \\FLAGGED)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged))\r\nt07 OK STORE completed\r\n",
+    "until": "t07"
+   },
+   {
+    "request": "t08 STORE 1 +FLAGS (\\Unknown $custom)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged))\r\nt08 OK STORE completed\r\n",
+    "until": "t08"
+   },
+   {
+    "request": "t09 STORE 1 +FLAGS ()\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged))\r\nt09 OK STORE completed\r\n",
+    "until": "t09"
+   },
+   {
+    "request": "t10 STORE 2 +flags (\\Seen)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Seen))\r\nt10 OK STORE completed\r\n",
+    "until": "t10"
+   },
+   {
+    "request": "t11 STORE * -FLAGS (\\Seen)\r\n",
+    "response": "* 6 FETCH (UID 20 FLAGS ())\r\nt11 OK STORE completed\r\n",
+    "until": "t11"
+   },
+   {
+    "request": "t12 STORE 99 +FLAGS (\\Seen)\r\n",
+    "response": "t12 OK STORE completed\r\n",
+    "until": "t12"
+   },
+   {
+    "request": "t13 STORE 1 +FLAGS (\\Seen\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged))\r\nt13 OK STORE completed\r\n",
+    "until": "t13"
+   },
+   {
+    "request": "t14 STORE 1 +FLAGS \\Seen \\Flagged\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged))\r\nt14 OK STORE completed\r\n",
+    "until": "t14"
+   },
+   {
+    "request": "t15 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Seen) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nt15 OK FETCH completed\r\n",
+    "until": "t15"
+   },
+   {
+    "request": "t16 SEARCH UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"t16\") ALL 1,2\r\nt16 OK SEARCH completed\r\n",
+    "until": "t16"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 16,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 7,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "store-replace-and-silent",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "r01 STORE 1 FLAGS (\\Flagged)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Flagged))\r\nr01 OK STORE completed\r\n",
+    "until": "r01"
+   },
+   {
+    "request": "r02 STORE 2 FLAGS ()\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS ())\r\nr02 OK STORE completed\r\n",
+    "until": "r02"
+   },
+   {
+    "request": "r03 STORE 1:3 FLAGS (\\Seen \\Draft)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Draft))\r\n* 2 FETCH (UID 5 FLAGS (\\Seen \\Draft))\r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Draft))\r\nr03 OK STORE completed\r\n",
+    "until": "r03"
+   },
+   {
+    "request": "r04 STORE 1 FLAGS.SILENT (\\Answered)\r\n",
+    "response": "r04 OK STORE completed\r\n",
+    "until": "r04"
+   },
+   {
+    "request": "r05 STORE 2 +FLAGS.SILENT (\\Seen)\r\n",
+    "response": "r05 OK STORE completed\r\n",
+    "until": "r05"
+   },
+   {
+    "request": "r06 STORE 2 -FLAGS.SILENT (\\Seen)\r\n",
+    "response": "r06 OK STORE completed\r\n",
+    "until": "r06"
+   },
+   {
+    "request": "r07 STORE 1 flags.silent (\\Seen)\r\n",
+    "response": "r07 OK STORE completed\r\n",
+    "until": "r07"
+   },
+   {
+    "request": "r08 STORE 1 BOGUS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nr08 OK STORE completed\r\n",
+    "until": "r08"
+   },
+   {
+    "request": "r09 STORE 1 FLAGS.SILENT\r\n",
+    "response": "r09 BAD Missing arguments\r\n",
+    "until": "r09"
+   },
+   {
+    "request": "r10 STORE 1 +FLAGS\r\n",
+    "response": "r10 BAD Missing arguments\r\n",
+    "until": "r10"
+   },
+   {
+    "request": "r11 STORE 1\r\n",
+    "response": "r11 BAD Missing arguments\r\n",
+    "until": "r11"
+   },
+   {
+    "request": "r12 STORE\r\n",
+    "response": "r12 BAD Missing arguments\r\n",
+    "until": "r12"
+   },
+   {
+    "request": "r13 STORE x +FLAGS (\\Seen)\r\n",
+    "response": "r13 BAD Invalid sequence number\r\n",
+    "until": "r13"
+   },
+   {
+    "request": "r14 STORE 0 +FLAGS (\\Seen)\r\n",
+    "response": "r14 BAD Invalid sequence number\r\n",
+    "until": "r14"
+   },
+   {
+    "request": "r15 STORE 1:* FLAGS.SILENT (\\Seen \\Flagged)\r\n",
+    "response": "r15 OK STORE completed\r\n",
+    "until": "r15"
+   },
+   {
+    "request": "r16 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Flagged) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Seen \\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Seen \\Flagged) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Seen \\Flagged) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS (\\Seen \\Flagged) RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nr16 OK FETCH completed\r\n",
+    "until": "r16"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 7,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 3
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "store-deleted-flag",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "d01 STORE 1 +FLAGS (\\Deleted)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Deleted))\r\nd01 OK STORE completed\r\n",
+    "until": "d01"
+   },
+   {
+    "request": "d02 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"d02\") ALL 1,2,3,4\r\nd02 OK SEARCH completed\r\n",
+    "until": "d02"
+   },
+   {
+    "request": "d03 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Deleted) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nd03 OK FETCH completed\r\n",
+    "until": "d03"
+   },
+   {
+    "request": "d04 STORE 1 -FLAGS (\\Deleted)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nd04 OK STORE completed\r\n",
+    "until": "d04"
+   },
+   {
+    "request": "d05 SEARCH DELETED\r\n",
+    "response": "* ESEARCH (TAG \"d05\")\r\nd05 OK SEARCH completed\r\n",
+    "until": "d05"
+   },
+   {
+    "request": "d06 STORE 4 -FLAGS (\\Deleted)\r\n",
+    "response": "* 4 FETCH (UID 12 FLAGS (\\Answered))\r\nd06 OK STORE completed\r\n",
+    "until": "d06"
+   },
+   {
+    "request": "d07 STORE 2 FLAGS (\\Deleted \\Seen)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Seen \\Deleted))\r\nd07 OK STORE completed\r\n",
+    "until": "d07"
+   },
+   {
+    "request": "d08 STORE 1:* +FLAGS.SILENT (\\Deleted)\r\n",
+    "response": "d08 OK STORE completed\r\n",
+    "until": "d08"
+   },
+   {
+    "request": "d09 FETCH 1:*\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen \\Deleted) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Seen \\Deleted) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft \\Deleted) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft \\Deleted) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS (\\Deleted) RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nd09 OK FETCH completed\r\n",
+    "until": "d09"
+   },
+   {
+    "request": "d10 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"d10\")\r\nd10 OK SEARCH completed\r\n",
+    "until": "d10"
+   },
+   {
+    "request": "d11 UID SEARCH DELETED\r\n",
+    "response": "* ESEARCH (TAG \"d11\") UID\r\nd11 OK SEARCH completed\r\n",
+    "until": "d11"
+   },
+   {
+    "request": "d12 STORE 1:* -FLAGS.SILENT (\\Deleted)\r\n",
+    "response": "d12 OK STORE completed\r\n",
+    "until": "d12"
+   },
+   {
+    "request": "d13 SEARCH DELETED\r\n",
+    "response": "* ESEARCH (TAG \"d13\")\r\nd13 OK SEARCH completed\r\n",
+    "until": "d13"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 9,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 5
+    },
+    {
+     "jmap_state": 3,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 2
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "uid-store-forms",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "w01 UID STORE 5 +FLAGS (\\Seen)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Seen \\Flagged))\r\nw01 OK STORE completed\r\n",
+    "until": "w01"
+   },
+   {
+    "request": "w02 UID STORE 3:5 -FLAGS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS ())\r\n* 2 FETCH (UID 5 FLAGS (\\Flagged))\r\nw02 OK STORE completed\r\n",
+    "until": "w02"
+   },
+   {
+    "request": "w03 UID STORE 4 +FLAGS (\\Seen)\r\n",
+    "response": "w03 OK STORE completed\r\n",
+    "until": "w03"
+   },
+   {
+    "request": "w04 UID STORE 14:* FLAGS (\\Answered)\r\n",
+    "response": "* 5 FETCH (UID 14 FLAGS (\\Answered))\r\n* 6 FETCH (UID 20 FLAGS (\\Answered))\r\nw04 OK STORE completed\r\n",
+    "until": "w04"
+   },
+   {
+    "request": "w05 UID STORE * +FLAGS.SILENT (\\Flagged)\r\n",
+    "response": "w05 OK STORE completed\r\n",
+    "until": "w05"
+   },
+   {
+    "request": "w06 UID STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "w06 OK STORE completed\r\n",
+    "until": "w06"
+   },
+   {
+    "request": "w07 UID STORE 5\r\n",
+    "response": "w07 BAD Missing arguments\r\n",
+    "until": "w07"
+   },
+   {
+    "request": "w08 UID STORE\r\n",
+    "response": "w08 BAD Missing arguments\r\n",
+    "until": "w08"
+   },
+   {
+    "request": "w09 UID STORE x +FLAGS (\\Seen)\r\n",
+    "response": "w09 BAD Invalid sequence number\r\n",
+    "until": "w09"
+   },
+   {
+    "request": "w10 UID STORE 20:3 +FLAGS (\\Draft)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Draft))\r\n* 2 FETCH (UID 5 FLAGS (\\Flagged \\Draft))\r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft))\r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Draft \\Deleted))\r\n* 5 FETCH (UID 14 FLAGS (\\Answered \\Draft))\r\n* 6 FETCH (UID 20 FLAGS (\\Flagged \\Answered \\Draft))\r\nw10 OK STORE completed\r\n",
+    "until": "w10"
+   },
+   {
+    "request": "w11 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Draft) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged \\Draft) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Draft \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Answered \\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS (\\Flagged \\Answered \\Draft) RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nw11 OK FETCH completed\r\n",
+    "until": "w11"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 5,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 2
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "store-read-only-and-project",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "e0 EXAMINE Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ne0 OK [READ-ONLY] EXAMINE completed\r\n",
+    "until": "e0"
+   },
+   {
+    "request": "e1 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "e1 NO [READ-ONLY] Mailbox selected as read-only\r\n",
+    "until": "e1"
+   },
+   {
+    "request": "e2 UID STORE 3 +FLAGS (\\Seen)\r\n",
+    "response": "e2 NO [READ-ONLY] Mailbox selected as read-only\r\n",
+    "until": "e2"
+   },
+   {
+    "request": "e3 STORE\r\n",
+    "response": "e3 NO [READ-ONLY] Mailbox selected as read-only\r\n",
+    "until": "e3"
+   },
+   {
+    "request": "e4 STORE 1 BOGUS\r\n",
+    "response": "e4 NO [READ-ONLY] Mailbox selected as read-only\r\n",
+    "until": "e4"
+   },
+   {
+    "request": "e5 FETCH 1:2 (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\ne5 OK FETCH completed\r\n",
+    "until": "e5"
+   },
+   {
+    "request": "e6 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"e6\") ALL 1,2,3,4,5\r\ne6 OK SEARCH completed\r\n",
+    "until": "e6"
+   },
+   {
+    "request": "e7 SELECT Project\r\n",
+    "response": "* OK [CLOSED] Previous mailbox closed\r\n* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 2 EXISTS \r\n* OK [UIDVALIDITY 4444] UIDs valid \r\n* OK [UIDNEXT 3] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ne7 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "e7"
+   },
+   {
+    "request": "e8 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS (\\Seen))\r\ne8 OK STORE completed\r\n",
+    "until": "e8"
+   },
+   {
+    "request": "e9 STORE 2 -FLAGS (\\Seen)\r\n",
+    "response": "* 2 FETCH (UID 2 FLAGS ())\r\ne9 OK STORE completed\r\n",
+    "until": "e9"
+   },
+   {
+    "request": "e10 UID STORE 1:2 FLAGS (\\Flagged)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS (\\Flagged))\r\n* 2 FETCH (UID 2 FLAGS (\\Flagged))\r\ne10 OK STORE completed\r\n",
+    "until": "e10"
+   },
+   {
+    "request": "e11 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS (\\Flagged) RFC822.SIZE 100 ENVELOPE (\"Wed, 12 Mar 2025 08:00:00 +0000\" \"Project one\" ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 2 FLAGS (\\Flagged) RFC822.SIZE 200 ENVELOPE (\"Thu, 13 Mar 2025 09:00:00 +0000\" \"Project two\" ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"pm\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\ne11 OK FETCH completed\r\n",
+    "until": "e11"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344012,
+     "mailbox_id": 9344022,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344012,
+     "mailbox_id": 9344022,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344012,
+     "mailbox_id": 9344022,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344012,
+     "mailbox_id": 9344022,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "cross-mailbox-isolation",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"bob@imap2.test\" \"imap2-app-token-bob\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 1 EXISTS \r\n* OK [UIDVALIDITY 8888] UIDs valid \r\n* OK [UIDNEXT 2] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "b1 FETCH 1:* (FLAGS)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 50 ENVELOPE (\"Fri, 14 Mar 2025 09:00:00 +0000\" \"Bob private\" ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"bob\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nb1 OK FETCH completed\r\n",
+    "until": "b1"
+   },
+   {
+    "request": "b2 UID FETCH 1:* (UID)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 50 ENVELOPE (\"Fri, 14 Mar 2025 09:00:00 +0000\" \"Bob private\" ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"zed\" \"example.org\")) ((NIL NIL \"bob\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nb2 OK FETCH completed\r\n",
+    "until": "b2"
+   },
+   {
+    "request": "b3 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"b3\") ALL 1\r\nb3 OK SEARCH completed\r\n",
+    "until": "b3"
+   },
+   {
+    "request": "b4 SEARCH FROM example\r\n",
+    "response": "* ESEARCH (TAG \"b4\") ALL 1\r\nb4 OK SEARCH completed\r\n",
+    "until": "b4"
+   },
+   {
+    "request": "b5 UID SEARCH KEYWORD Label\r\n",
+    "response": "* ESEARCH (TAG \"b5\") UID\r\nb5 OK SEARCH completed\r\n",
+    "until": "b5"
+   },
+   {
+    "request": "b6 STORE 1:* +FLAGS (\\Seen \\Deleted)\r\n",
+    "response": "* 1 FETCH (UID 1 FLAGS (\\Seen \\Deleted))\r\nb6 OK STORE completed\r\n",
+    "until": "b6"
+   },
+   {
+    "request": "b7 UID STORE 3:20 +FLAGS (\\Seen)\r\n",
+    "response": "b7 OK STORE completed\r\n",
+    "until": "b7"
+   },
+   {
+    "request": "b8 SEARCH DELETED\r\n",
+    "response": "* ESEARCH (TAG \"b8\")\r\nb8 OK SEARCH completed\r\n",
+    "until": "b8"
+   },
+   {
+    "request": "b9 SELECT Project\r\n",
+    "response": "* OK [CLOSED] Previous mailbox closed\r\nb9 NO No such mailbox\r\n",
+    "until": "b9"
+   },
+   {
+    "request": "c1 FETCH 1:* (FLAGS)\r\n",
+    "response": "c1 NO No mailbox selected\r\n",
+    "until": "c1"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 7,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 3
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "pipelined-and-mixed",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "p0 SELECT Inbox\r\np1 FETCH 1 (FLAGS)\r\np2 STORE 1 +FLAGS (\\Seen)\r\np3 SEARCH SEEN\r\np4 UID FETCH 5 (UID)\r\np5 NOOP\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\np0 OK [READ-WRITE] SELECT completed\r\n* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\np1 OK FETCH completed\r\n* 1 FETCH (UID 3 FLAGS (\\Seen))\r\np2 OK STORE completed\r\n* ESEARCH (TAG \"p3\") ALL 1,2\r\np3 OK SEARCH completed\r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\np4 OK FETCH completed\r\np5 OK NOOP completed\r\n",
+    "until": "p5"
+   },
+   {
+    "request": "p6 STORE 2 +FLAGS (\\Seen)\r\n",
+    "response": "* 2 FETCH (UID 5 FLAGS (\\Seen \\Flagged))\r\np6 OK STORE completed\r\n",
+    "until": "p6"
+   },
+   {
+    "request": "p7 SEARCH SEEN UNFLAGGED\r\n",
+    "response": "* ESEARCH (TAG \"p7\") ALL 1\r\np7 OK SEARCH completed\r\n",
+    "until": "p7"
+   },
+   {
+    "request": "p8 LOGOUT\r\n",
+    "response": "* BYE Logging out\r\np8 OK LOGOUT completed\r\n",
+    "until": "p8"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-8@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-9@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 8,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 8,
+     "unread_count": 6
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "null-columns-fail-whole-command",
+  "steps": [
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "n0 FETCH 1:* (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nn0 OK FETCH completed\r\n",
+    "until": "n0"
+   },
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,to_addrs,cc_addrs,body_text,size_bytes,thread_id,imap_uid,raw_ref,received_at) VALUES (9344103,9344021,0,'\u003cmid-8@imap2.test\u003e',NULL,'dave@example.com','[\"alice@imap2.test\"]','[]','null subject row',300,'t3',8,'blob/3','2025-03-06 12:22:32+00');INSERT INTO message_tags(message_id,received_at,tag_id,is_primary,imap_uid) SELECT m.id,m.received_at,t.id,TRUE,m.imap_uid FROM messages m JOIN tags t ON t.mailbox_id=m.mailbox_id AND t.name='Inbox' WHERE m.id=9344103"
+    },
+    "response": ""
+   },
+   {
+    "request": "n1 FETCH 1:* (UID)\r\n",
+    "response": "n1 NO Server error\r\n",
+    "until": "n1"
+   },
+   {
+    "request": "n2 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"n2\") ALL 1,2,3,4,5,6\r\nn2 OK SEARCH completed\r\n",
+    "until": "n2"
+   },
+   {
+    "request": "n3 UID FETCH 8 (UID)\r\n",
+    "response": "n3 NO Server error\r\n",
+    "until": "n3"
+   },
+   {
+    "request": "n4 STORE 1 +FLAGS (\\Seen)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen))\r\nn4 OK STORE completed\r\n",
+    "until": "n4"
+   },
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,to_addrs,cc_addrs,body_text,size_bytes,thread_id,imap_uid,raw_ref,received_at) VALUES (9344104,9344021,0,'\u003cmid-9@imap2.test\u003e','null uid row','erin@example.com','[\"alice@imap2.test\"]','[]','null uid row',300,'t4',NULL,'blob/4','2025-03-07 13:23:33+00');INSERT INTO message_tags(message_id,received_at,tag_id,is_primary,imap_uid) SELECT m.id,m.received_at,t.id,TRUE,m.imap_uid FROM messages m JOIN tags t ON t.mailbox_id=m.mailbox_id AND t.name='Inbox' WHERE m.id=9344104"
+    },
+    "response": ""
+   },
+   {
+    "request": "n5 SEARCH ALL\r\n",
+    "response": "n5 NO Server error\r\n",
+    "until": "n5"
+   },
+   {
+    "request": "n6 UID SEARCH SEEN\r\n",
+    "response": "* ESEARCH (TAG \"n6\") UID ALL 3,11\r\nn6 OK SEARCH completed\r\n",
+    "until": "n6"
+   },
+   {
+    "request": "n7 STORE 1 +FLAGS (\\Flagged)\r\n",
+    "response": "n7 NO Store failed\r\n",
+    "until": "n7"
+   },
+   {
+    "request": "n8 FETCH 1 (UID)\r\n",
+    "response": "n8 NO Server error\r\n",
+    "until": "n8"
+   },
+   {
+    "request": "n9 SEARCH SUBJECT Hello\r\n",
+    "response": "* ESEARCH (TAG \"n9\") ALL 1\r\nn9 OK SEARCH completed\r\n",
+    "until": "n9"
+   }
+  ],
+  "transport": "plain"
+ },
+ {
+  "effects": {
+   "audit": [
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_store",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    },
+    {
+     "action": "imap_fetch",
+     "actor_user_id": 9344011,
+     "mailbox_id": 9344021,
+     "message_id": null
+    }
+   ],
+   "messages": [
+    {
+     "is_answered": true,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": true,
+     "message_id": "\u003cmid-11@imap2.test\u003e"
+    },
+    {
+     "is_answered": true,
+     "is_deleted": true,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-12@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": true,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-14@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-20@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-3@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": true,
+     "is_read": false,
+     "message_id": "\u003cmid-5@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-bob@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": false,
+     "message_id": "\u003cmid-p1@imap2.test\u003e"
+    },
+    {
+     "is_answered": false,
+     "is_deleted": false,
+     "is_draft": false,
+     "is_flagged": false,
+     "is_read": true,
+     "message_id": "\u003cmid-p2@imap2.test\u003e"
+    }
+   ],
+   "tags": [
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 6,
+     "mailbox_id": 9344021,
+     "name": "Inbox",
+     "total_count": 6,
+     "unread_count": 4
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Label",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 2,
+     "mailbox_id": 9344021,
+     "name": "Project",
+     "total_count": 2,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344021,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Drafts",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Important",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 1,
+     "mailbox_id": 9344022,
+     "name": "Inbox",
+     "total_count": 1,
+     "unread_count": 1
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Muted",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Other",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Scheduled",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Sent",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Snoozed",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Spam",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Starred",
+     "total_count": 0,
+     "unread_count": 0
+    },
+    {
+     "jmap_state": 0,
+     "mailbox_id": 9344022,
+     "name": "Trash",
+     "total_count": 0,
+     "unread_count": 0
+    }
+   ]
+  },
+  "name": "membership-uid-mode",
+  "steps": [
+   {
+    "action": {
+     "kind": "sql",
+     "sql": "INSERT INTO feature_toggles(key,enabled) VALUES ('feature.imap_membership_uid',true) ON CONFLICT (key) DO UPDATE SET enabled=true"
+    },
+    "response": ""
+   },
+   {
+    "request": "l1 LOGIN \"alice@imap2.test\" \"imap2-app-token-alice\"\r\n",
+    "response": "* OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] mailserver ready\r\nl1 OK [CAPABILITY IMAP4rev2 LOGIN-REFERRALS ID ENABLE] LOGIN completed\r\n",
+    "until": "l1"
+   },
+   {
+    "request": "s1 SELECT Inbox\r\n",
+    "response": "* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 6 EXISTS \r\n* OK [UIDVALIDITY 1111] UIDs valid \r\n* OK [UIDNEXT 21] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\ns1 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "s1"
+   },
+   {
+    "request": "m1 FETCH 1:* (UID)\r\n",
+    "response": "* 1 FETCH (UID 3 FLAGS (\\Seen) RFC822.SIZE 1200 ENVELOPE (\"Tue, 04 Mar 2025 10:20:30 +0000\" \"Hello\" ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"bob\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 2 FETCH (UID 5 FLAGS (\\Flagged) RFC822.SIZE 2500 ENVELOPE (\"Wed, 05 Mar 2025 11:21:31 +0000\" \"Quote \\\"me\\\" \\\\ slash\" ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"carol\" \"example.net\")) ((NIL NIL \"a\" \"x.org\") (NIL NIL \"b\" \"y.org\")) ((NIL NIL \"c\" \"z.org\")) NIL NIL NIL)) \r\n* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\n* 4 FETCH (UID 12 FLAGS (\\Answered \\Deleted) RFC822.SIZE 900 ENVELOPE (\"Sun, 09 Mar 2025 15:25:35 +0000\" \"Deleted one\" ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"frank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\n* 5 FETCH (UID 14 FLAGS (\\Draft) RFC822.SIZE 4096 ENVELOPE (\"Mon, 10 Mar 2025 16:26:36 +0000\" \"Subject Needle UPPER\" ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"gina\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\") (NIL NIL \"h\" \"x.org\")) ((NIL NIL \"i\" \"x.org\") (NIL NIL \"j\" \"x.org\")) NIL NIL NIL)) \r\n* 6 FETCH (UID 20 FLAGS () RFC822.SIZE 10 ENVELOPE (\"Tue, 11 Mar 2025 17:27:37 +0000\" \"Last message\" ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"hank\" \"example.org\")) ((NIL NIL \"alice\" \"imap2.test\")) NIL NIL NIL NIL)) \r\nm1 OK FETCH completed\r\n",
+    "until": "m1"
+   },
+   {
+    "request": "m2 UID FETCH 8:11 (UID)\r\n",
+    "response": "* 3 FETCH (UID 11 FLAGS (\\Seen \\Flagged \\Answered \\Draft) RFC822.SIZE 77 ENVELOPE (\"Sat, 08 Mar 2025 14:24:34 +0000\" NIL ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"nohost\" NIL)) ((NIL NIL \"\" \"\")) NIL NIL NIL NIL)) \r\nm2 OK FETCH completed\r\n",
+    "until": "m2"
+   },
+   {
+    "request": "m3 SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"m3\") ALL 1,2,3,4,5\r\nm3 OK SEARCH completed\r\n",
+    "until": "m3"
+   },
+   {
+    "request": "m4 UID SEARCH UNSEEN\r\n",
+    "response": "* ESEARCH (TAG \"m4\") UID ALL 5,14,20\r\nm4 OK SEARCH completed\r\n",
+    "until": "m4"
+   },
+   {
+    "request": "m5 UID STORE 9 +FLAGS (\\Seen)\r\n",
+    "response": "m5 OK STORE completed\r\n",
+    "until": "m5"
+   },
+   {
+    "request": "m6 STORE 5 +FLAGS (\\Flagged)\r\n",
+    "response": "* 5 FETCH (UID 14 FLAGS (\\Flagged \\Draft))\r\nm6 OK STORE completed\r\n",
+    "until": "m6"
+   },
+   {
+    "request": "m7 SELECT Label\r\n",
+    "response": "* OK [CLOSED] Previous mailbox closed\r\n* FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)\r\n* 2 EXISTS \r\n* OK [UIDVALIDITY 5555] UIDs valid \r\n* OK [UIDNEXT 3] Predicted next UID \r\n* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen)] Flags permitted\r\nm7 OK [READ-WRITE] SELECT completed\r\n",
+    "until": "m7"
+   },
+   {
+    "request": "m8 FETCH 1:*\r\n",
+    "response": "m8 OK FETCH completed\r\n",
+    "until": "m8"
+   },
+   {
+    "request": "m9 UID SEARCH ALL\r\n",
+    "response": "* ESEARCH (TAG \"m9\") UID\r\nm9 OK SEARCH completed\r\n",
+    "until": "m9"
+   }
+  ],
+  "transport": "plain"
+ }
+]

@@ -1,0 +1,81 @@
+-- mailbox_delegate_grant.pg — pgTAP tests for the mailbox delegation grant path
+-- (spec 2026-06-27-sharing-delegation-design.md §2.2 gap / D8).
+-- Covers: happy path, alias-addressed grantee, idempotent re-grant, non-owner
+-- BZ114, invalid permission BZ115, audit row.
+BEGIN;
+SELECT plan(9);
+
+-- fixtures: owner + grantee + a stranger (divergent user/mailbox ids via mk_account)
+CREATE TEMP TABLE _mdg AS
+SELECT (SELECT mk_account('mdg_owner'))    AS owner_mb,
+       (SELECT mk_account('mdg_grantee'))  AS grantee_mb,
+       (SELECT mk_account('mdg_stranger')) AS stranger_mb;
+ALTER TABLE _mdg
+  ADD COLUMN owner_uid    BIGINT,
+  ADD COLUMN grantee_uid  BIGINT,
+  ADD COLUMN stranger_uid BIGINT,
+  ADD COLUMN grantee_email TEXT;
+UPDATE _mdg SET
+  owner_uid     = (SELECT user_id FROM mailboxes WHERE id = owner_mb),
+  grantee_uid   = (SELECT user_id FROM mailboxes WHERE id = grantee_mb),
+  stranger_uid  = (SELECT user_id FROM mailboxes WHERE id = stranger_mb),
+  grantee_email = (SELECT u.email FROM users u JOIN mailboxes m ON m.user_id = u.id WHERE m.id = grantee_mb);
+
+-- happy path: owner grants send_as to the grantee
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'send_as')$$,
+         (SELECT owner_uid FROM _mdg), (SELECT owner_mb FROM _mdg), (SELECT grantee_email FROM _mdg)),
+  'owner grant succeeds');
+
+SELECT is(
+  (SELECT count(*)::int FROM mailbox_delegates
+    WHERE mailbox_id = (SELECT owner_mb FROM _mdg)
+      AND user_id = (SELECT grantee_uid FROM _mdg) AND permission = 'send_as'),
+  1, 'delegate row inserted');
+
+SELECT is(
+  (SELECT granted_by FROM mailbox_delegates
+    WHERE mailbox_id = (SELECT owner_mb FROM _mdg)
+      AND user_id = (SELECT grantee_uid FROM _mdg) AND permission = 'send_as'),
+  (SELECT owner_uid FROM _mdg), 'granted_by is the actor');
+
+-- audit row written (D8, tier core)
+SELECT ok(
+  (SELECT count(*) FROM admin_audit_log
+    WHERE action = 'mailbox_delegate_granted'
+      AND user_id = (SELECT owner_uid FROM _mdg)) >= 1,
+  'audit row written');
+
+-- idempotent re-grant: no error, still one row
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'send_as')$$,
+         (SELECT owner_uid FROM _mdg), (SELECT owner_mb FROM _mdg), (SELECT grantee_email FROM _mdg)),
+  're-grant is idempotent');
+SELECT is(
+  (SELECT count(*)::int FROM mailbox_delegates
+    WHERE mailbox_id = (SELECT owner_mb FROM _mdg)
+      AND user_id = (SELECT grantee_uid FROM _mdg) AND permission = 'send_as'),
+  1, 're-grant leaves exactly one row');
+
+-- grantee addressed by an ALIAS resolves (resolve_identity seam, ADR-004)
+INSERT INTO aliases (mailbox_id, email, domain_id)
+  SELECT grantee_mb, 'mdg-alias@mk.test', (SELECT id FROM domains WHERE name = 'mk.test') FROM _mdg;
+SELECT lives_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, 'mdg-alias@mk.test', 'read')$$,
+         (SELECT owner_uid FROM _mdg), (SELECT owner_mb FROM _mdg)),
+  'alias-addressed grantee resolves');
+
+-- non-owner actor → BZ114 (404-indistinguishable)
+SELECT throws_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'send_as')$$,
+         (SELECT stranger_uid FROM _mdg), (SELECT owner_mb FROM _mdg), (SELECT grantee_email FROM _mdg)),
+  'BZ114', NULL, 'non-owner grant raises BZ114');
+
+-- invalid permission level → BZ115
+SELECT throws_ok(
+  format($$SELECT mailbox_delegate_grant(%s, %s, %L, 'root')$$,
+         (SELECT owner_uid FROM _mdg), (SELECT owner_mb FROM _mdg), (SELECT grantee_email FROM _mdg)),
+  'BZ115', NULL, 'invalid permission raises BZ115');
+
+SELECT * FROM finish();
+ROLLBACK;

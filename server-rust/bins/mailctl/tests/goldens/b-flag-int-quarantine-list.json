@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid value \"not-an-integer\" for flag -limit: parse error\nUsage of quarantine list:\n  -limit int\n    \tPage size (default 50, max 100)\n  -offset int\n    \tPage offset\n  -q string\n    \tSearch subject/from\n  -status string\n    \tFilter: active, released, rejected, all\n",
+  "exit": 2
+}

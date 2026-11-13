@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "named_locations": [],
+  "auth_strengths": [],
+  "policies": [
+    {
+      "name": "Baseline: Require MFA — All Users",
+      "description": "Require a second factor for every sign-in. Start in report_only; promote to on once MFA enrollment is confirmed.",
+      "priority": 100,
+      "state": "report_only",
+      "scope": {"type": "global"},
+      "conditions": {},
+      "actions": {"grants": [{"type": "require_acr", "acr": "aal2"}]}
+    },
+    {
+      "name": "Block High-Risk Countries",
+      "description": "Block sign-ins from sanctioned or high-risk countries (KP, IR, CU). Safe to run on from day one.",
+      "priority": 200,
+      "state": "on",
+      "scope": {"type": "global"},
+      "conditions": {"country_in": ["KP", "IR", "CU"]},
+      "actions": {"grants": [{"type": "block"}]}
+    }
+  ]
+}

@@ -1,0 +1,4441 @@
+[
+  {
+    "name": "basic-commands-no-cert",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "FOO bar\r\n",
+        "lines": 1,
+        "reply": "500 Command not recognized\r\n"
+      },
+      {
+        "send": "rset\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "noop\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "command-line-too-long",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "NOOP xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n",
+        "lines": 1,
+        "reply": "500 5.5.2 Line too long\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "starttls-unavailable",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "503 STARTTLS not available\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "auth-before-starttls",
+    "cert": true,
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "530 Must issue STARTTLS first\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "auth-without-certificate",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 5,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "530 Must issue STARTTLS first\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "starttls-twice",
+    "cert": true,
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "503 TLS already active\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "unauthenticated-envelope",
+    "cert": true,
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "auth-failures",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 3
+        },
+        {
+          "key": "acct:guest@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "acct:nobody@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "acct:off@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 6
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "nobody@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "nobody@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "off@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "off@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "guest@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "guest@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH\r\n",
+        "lines": 1,
+        "reply": "501 Syntax error\r\n"
+      },
+      {
+        "send": "AUTH CRAM-MD5\r\n",
+        "lines": 1,
+        "reply": "504 Mechanism not supported\r\n"
+      },
+      {
+        "send": "AUTH PLAIN !!!\r\n",
+        "lines": 1,
+        "reply": "501 Invalid base64\r\n"
+      },
+      {
+        "send": "AUTH PLAIN\r\n",
+        "lines": 1,
+        "reply": "501 Invalid base64\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3Q=\r\n",
+        "lines": 1,
+        "reply": "501 Invalid PLAIN format\r\n"
+      },
+      {
+        "send": "AUTH PLAIN Ym9iQHNtdHA1LnRlc3QAYWxpY2VAc210cDUudGVzdABJTUFQMS1jb3JyZWN0LXBhc3N3b3JkIQ==\r\n",
+        "lines": 1,
+        "reply": "501 Authorization identity not supported\r\n"
+      },
+      {
+        "send": "auth plain AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "501 Invalid base64\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAd3Jvbmc=\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AG5vYm9keUBzbXRwNS50ZXN0AElNQVAxLWNvcnJlY3QtcGFzc3dvcmQh\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AG9mZkBzbXRwNS50ZXN0AElNQVAxLWNvcnJlY3QtcGFzc3dvcmQh\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGd1ZXN0QHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN YWxpY2VAc210cDUudGVzdABhbGljZUBzbXRwNS50ZXN0AElNQVAxLWNvcnJlY3QtcGFzc3dvcmQh\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "auth-plain-continuation",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN \r\n",
+        "lines": 1,
+        "reply": "334  \r\n"
+      },
+      {
+        "send": "AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "auth-login",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 2
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 3
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH LOGIN\r\n",
+        "lines": 1,
+        "reply": "334 VXNlcm5hbWU6\r\n"
+      },
+      {
+        "send": "YWxpY2VAc210cDUudGVzdA==\r\n",
+        "lines": 1,
+        "reply": "334 UGFzc3dvcmQ6\r\n"
+      },
+      {
+        "send": "SU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "AUTH LOGIN\r\n",
+        "lines": 1,
+        "reply": "334 VXNlcm5hbWU6\r\n"
+      },
+      {
+        "send": "!!\r\n",
+        "lines": 1,
+        "reply": "334 UGFzc3dvcmQ6\r\n"
+      },
+      {
+        "send": "SU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH LOGIN\r\n",
+        "lines": 1,
+        "reply": "334 VXNlcm5hbWU6\r\n"
+      },
+      {
+        "send": "YWxpY2VAc210cDUudGVzdA==\r\n",
+        "lines": 1,
+        "reply": "334 UGFzc3dvcmQ6\r\n"
+      },
+      {
+        "send": "YmFk\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "app-password",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 2
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 2
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "app_password"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAc210cDUtYXBwLXRva2VuLXJldm9rZWQ=\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAc210cDUtYXBwLXRva2VuLXZhbGlk\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "envelope-authorization",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL TO:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "501 Syntax error\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "553 Envelope-from address not authorized for this user\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "503 Need MAIL before RCPT\r\n"
+      },
+      {
+        "send": "mail from:\u003cALICE@smtp5.test\u003e SIZE=100\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT FROM:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "501 Syntax error\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "503 Need MAIL and RCPT before DATA\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RSET\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "503 Need MAIL before RCPT\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calias@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003c\u003e\r\n",
+        "lines": 1,
+        "reply": "553 Envelope-from address not authorized for this user\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "recipient-limit",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "repeat": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "count": 1001,
+        "send": "",
+        "lines": 1001,
+        "reply": "250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n250 OK\r\n452 Too many recipients\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-local",
+    "cert": true,
+    "capture_blobs": true,
+    "blobs": {
+      "blobs/bfd087cc23ce70eede2e2784de15055ff9a481cba58cfd3133a9db46b75c30f7": "RnJvbTogQWxpY2UgQSA8YWxpY2VAc210cDUudGVzdD4KVG86IGJvYkBzbXRwNS50ZXN0ClN1YmplY3Q6IEhlbGxvIEJvYgpNZXNzYWdlLUlkOiA8MUBzbXRwNS50ZXN0PgpEYXRlOiBNb24sIDAyIEphbiAyMDI2IDEwOjAwOjAwICswMDAwCgpib2R5IHRleHQK"
+    },
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [
+        {
+          "is_read": true,
+          "raw_ref": "blobs/bfd087cc23ce70eede2e2784de15055ff9a481cba58cfd3133a9db46b75c30f7",
+          "subject": "Hello Bob",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "body text",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501021,
+          "message_id": "\u003c1@smtp5.test\u003e",
+          "size_bytes": 147,
+          "in_reply_to": "",
+          "has_attachments": false
+        },
+        {
+          "is_read": false,
+          "raw_ref": "blobs/bfd087cc23ce70eede2e2784de15055ff9a481cba58cfd3133a9db46b75c30f7",
+          "subject": "Hello Bob",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "body text",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501022,
+          "message_id": "\u003c1@smtp5.test\u003e",
+          "size_bytes": 147,
+          "in_reply_to": "",
+          "has_attachments": false
+        }
+      ],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Alice A \u003calice@smtp5.test\u003e\r\nTo: bob@smtp5.test\r\nSubject: Hello Bob\r\nMessage-Id: \u003c1@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-external-sender-header",
+    "cert": true,
+    "capture_blobs": true,
+    "blobs": {
+      "blobs/e03c4285df21d04f37f7893e5984a8a76e4a5495be6e5717c3ecbf3c1086e171": "U2VuZGVyOiA8YWxpY2VAc210cDUudGVzdD4NCkZyb206IEFsaWFzIDxhbGlhc0BzbXRwNS50ZXN0PgpUbzogZXh0QGV4YW1wbGUub3JnClN1YmplY3Q6IFZpYSBhbGlhcwpNZXNzYWdlLUlkOiA8MkBzbXRwNS50ZXN0PgpEYXRlOiBNb24sIDAyIEphbiAyMDI2IDEwOjAwOjAwICswMDAwCkNjOiBib2JAc210cDUudGVzdApCY2M6IGhpZGRlbkBleGFtcGxlLm9yZwpJbi1SZXBseS1UbzogPHJAeD4KUmVmZXJlbmNlczogPHJAeD4KCjxiPng8L2I+CkNvbnRlbnQtRGlzcG9zaXRpb246IGF0dGFjaG1lbnQ7IGZpbGVuYW1lPWEK"
+    },
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [
+        {
+          "is_read": true,
+          "raw_ref": "blobs/e03c4285df21d04f37f7893e5984a8a76e4a5495be6e5717c3ecbf3c1086e171",
+          "subject": "Via alias",
+          "cc_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "ext@example.org"
+            }
+          ],
+          "bcc_addrs": [
+            {
+              "email": "hidden@example.org"
+            }
+          ],
+          "body_html": "",
+          "body_text": "\u003cb\u003ex\u003c/b\u003e\nContent-Disposition: attachment; filename=a",
+          "from_addr": "alias@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501021,
+          "message_id": "\u003c2@smtp5.test\u003e",
+          "size_bytes": 297,
+          "in_reply_to": "\u003cr@x\u003e",
+          "has_attachments": true
+        },
+        {
+          "is_read": false,
+          "raw_ref": "blobs/e03c4285df21d04f37f7893e5984a8a76e4a5495be6e5717c3ecbf3c1086e171",
+          "subject": "Via alias",
+          "cc_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "ext@example.org"
+            }
+          ],
+          "bcc_addrs": [
+            {
+              "email": "hidden@example.org"
+            }
+          ],
+          "body_html": "",
+          "body_text": "\u003cb\u003ex\u003c/b\u003e\nContent-Disposition: attachment; filename=a",
+          "from_addr": "alias@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501022,
+          "message_id": "\u003c2@smtp5.test\u003e",
+          "size_bytes": 297,
+          "in_reply_to": "\u003cr@x\u003e",
+          "has_attachments": true
+        }
+      ],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cext@example.org\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: Alias \u003calias@smtp5.test\u003e\r\nTo: ext@example.org\r\nSubject: Via alias\r\nMessage-Id: \u003c2@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\nCc: bob@smtp5.test\r\nBcc: hidden@example.org\r\nIn-Reply-To: \u003cr@x\u003e\r\nReferences: \u003cr@x\u003e\r\n\r\n\u003cb\u003ex\u003c/b\u003e\r\nContent-Disposition: attachment; filename=a\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-two-messages-one-connection",
+    "cert": true,
+    "capture_blobs": true,
+    "blobs": {
+      "blobs/11487e7679b91755e78d358e53499742ae82e408b5b0a0351283108f0280670d": "RnJvbTogYWxpY2VAc210cDUudGVzdApUbzogYm9iQHNtdHA1LnRlc3QKU3ViamVjdDogRmlyc3QKTWVzc2FnZS1JZDogPDNAc210cDUudGVzdD4KRGF0ZTogTW9uLCAwMiBKYW4gMjAyNiAxMDowMDowMCArMDAwMAoKYm9keSB0ZXh0Cg==",
+      "blobs/1cee8ba18ff62c5d6f91be183f935f2901165bff96d7b2ae228382c2b354ef79": "RnJvbTogYWxpY2VAc210cDUudGVzdApUbzogZXh0QGV4YW1wbGUub3JnClN1YmplY3Q6IFNlY29uZApNZXNzYWdlLUlkOiA8NEBzbXRwNS50ZXN0PgpEYXRlOiBNb24sIDAyIEphbiAyMDI2IDEwOjAwOjAwICswMDAwCgpib2R5IHRleHQK"
+    },
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [
+        {
+          "is_read": true,
+          "raw_ref": "blobs/11487e7679b91755e78d358e53499742ae82e408b5b0a0351283108f0280670d",
+          "subject": "First",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "body text",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501021,
+          "message_id": "\u003c3@smtp5.test\u003e",
+          "size_bytes": 133,
+          "in_reply_to": "",
+          "has_attachments": false
+        },
+        {
+          "is_read": true,
+          "raw_ref": "blobs/1cee8ba18ff62c5d6f91be183f935f2901165bff96d7b2ae228382c2b354ef79",
+          "subject": "Second",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "ext@example.org"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "body text",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501021,
+          "message_id": "\u003c4@smtp5.test\u003e",
+          "size_bytes": 135,
+          "in_reply_to": "",
+          "has_attachments": false
+        },
+        {
+          "is_read": false,
+          "raw_ref": "blobs/11487e7679b91755e78d358e53499742ae82e408b5b0a0351283108f0280670d",
+          "subject": "First",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": "body text",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501022,
+          "message_id": "\u003c3@smtp5.test\u003e",
+          "size_bytes": 133,
+          "in_reply_to": "",
+          "has_attachments": false
+        }
+      ],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: First\r\nMessage-Id: \u003c3@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cext@example.org\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: ext@example.org\r\nSubject: Second\r\nMessage-Id: \u003c4@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-framing-errors",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: a@smtp5.test\r\n\r\nbody\r\n.\n",
+        "lines": 1,
+        "reply": "500 5.5.2 Bare LF not allowed\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-line-too-long",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: s\r\n\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 Line too long: line 3 exceeds 998 characters (1100)\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-truncated",
+    "cert": true,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "Subject: cut\r\n\r\nhalf",
+        "lines": 1,
+        "reply": "451 Error reading message\r\n",
+        "half_close": true
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "data-dot-stuffing-and-lone-cr",
+    "cert": true,
+    "capture_blobs": true,
+    "blobs": {
+      "blobs/42df4062d300dc04647a8da07e9ad947f82cd18279cbe761738c880c6d620ce7": "RnJvbTogYWxpY2VAc210cDUudGVzdApUbzogYm9iQHNtdHA1LnRlc3QKU3ViamVjdDogZG90cwpNZXNzYWdlLUlkOiA8NUBzbXRwNS50ZXN0PgpEYXRlOiBNb24sIDAyIEphbiAyMDI2IDEwOjAwOjAwICswMDAwCgoubGVhZGluZyBkb3QKbG9uZQ1jcgo="
+    },
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [
+        {
+          "is_read": true,
+          "raw_ref": "blobs/42df4062d300dc04647a8da07e9ad947f82cd18279cbe761738c880c6d620ce7",
+          "subject": "dots",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": ".leading dot\nlone\rcr",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501021,
+          "message_id": "\u003c5@smtp5.test\u003e",
+          "size_bytes": 143,
+          "in_reply_to": "",
+          "has_attachments": false
+        },
+        {
+          "is_read": false,
+          "raw_ref": "blobs/42df4062d300dc04647a8da07e9ad947f82cd18279cbe761738c880c6d620ce7",
+          "subject": "dots",
+          "cc_addrs": [],
+          "is_draft": false,
+          "to_addrs": [
+            {
+              "email": "bob@smtp5.test"
+            }
+          ],
+          "bcc_addrs": [],
+          "body_html": "",
+          "body_text": ".leading dot\nlone\rcr",
+          "from_addr": "alice@smtp5.test",
+          "from_name": "Alice A",
+          "mailbox_id": 9501022,
+          "message_id": "\u003c5@smtp5.test\u003e",
+          "size_bytes": 143,
+          "in_reply_to": "",
+          "has_attachments": false
+        }
+      ],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: dots\r\nMessage-Id: \u003c5@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\n..leading dot\r\nlone\rcr\r\n.\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ001-20",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ001', HINT='{\"type\":\"over_quota\"}'; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Mailbox full\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ001-21",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ001', HINT='{\"type\":\"other\"}'; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ004-22",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ004', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "552 5.2.2 Sending quota exceeded\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ002-23",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ002', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.7.1 Message rejected by policy\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ007-24",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ007', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "550 5.1.1 Recipient address rejected: no such user\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ008-25",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ008', HINT='{\"type\":\"missing_inbox\"}'; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "451 4.3.0 Temporary failure, please try again later\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ081-26",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ081', HINT='{\"type\":\"bad_outcome\"}'; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ099-27",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ099', HINT='{\"type\":\"last_global\"}'; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ301-28",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ301', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-BZ010-29",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='BZ010', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "send-failure-XX000-30",
+    "cert": true,
+    "setup_sql": "CREATE OR REPLACE FUNCTION smtp5_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'smtp5' USING ERRCODE='XX000', HINT=''; END $$;DROP TRIGGER IF EXISTS smtp5_fail ON messages;CREATE TRIGGER smtp5_fail BEFORE INSERT ON messages FOR EACH ROW WHEN (NEW.mailbox_id=9501021) EXECUTE FUNCTION smtp5_fail();",
+    "teardown_sql": "DROP TRIGGER IF EXISTS smtp5_fail ON messages; DROP FUNCTION IF EXISTS smtp5_fail();",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "RCPT TO:\u003cbob@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "DATA\r\n",
+        "lines": 1,
+        "reply": "354 Start mail input; end with \u003cCRLF\u003e.\u003cCRLF\u003e\r\n"
+      },
+      {
+        "send": "From: alice@smtp5.test\r\nTo: bob@smtp5.test\r\nSubject: Fail\r\nMessage-Id: \u003c6@smtp5.test\u003e\r\nDate: Mon, 02 Jan 2026 10:00:00 +0000\r\n\r\nbody text\r\n.\r\n",
+        "lines": 1,
+        "reply": "554 5.3.0 Failed to send message\r\n"
+      },
+      {
+        "send": "NOOP\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "per-user-connection-limit",
+    "cert": true,
+    "per_user_max": 1,
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 2
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 2
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "conn": 1,
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "550 Too many connections from this account\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      },
+      {
+        "conn": 1,
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "conn": 1,
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-allow",
+    "cert": true,
+    "threat": "allow",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [
+        {
+          "user": 9501011,
+          "event": "device_new"
+        }
+      ],
+      "queue": [],
+      "devices": [
+        {
+          "user": 9501011,
+          "country": "",
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 1
+        }
+      ],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": true,
+          "user_id": 9501011,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "success",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-wrong_password",
+    "cert": true,
+    "threat": "wrong_password",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": false,
+          "user_id": null,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "failure",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [
+        {
+          "key": "ip:127.0.0.1",
+          "failed_count": 1,
+          "escalation_level": 0
+        },
+        {
+          "key": "ip_user:127.0.0.1:alice@smtp5.test",
+          "failed_count": 1,
+          "escalation_level": 0
+        },
+        {
+          "key": "user:alice@smtp5.test",
+          "failed_count": 1,
+          "escalation_level": 0
+        }
+      ],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAd3Jvbmc=\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-feed",
+    "cert": true,
+    "threat": "feed",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "421 Authentication temporarily unavailable\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-ip",
+    "cert": true,
+    "threat": "ip",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "421 Authentication temporarily unavailable\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-lockout",
+    "cert": true,
+    "threat": "lockout",
+    "effects": {
+      "rate": [],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [
+        {
+          "key": "user:alice@smtp5.test",
+          "failed_count": 1,
+          "escalation_level": 0
+        }
+      ],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "421 Authentication temporarily unavailable\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-rate",
+    "cert": true,
+    "threat": "rate",
+    "effects": {
+      "rate": [
+        {
+          "key": "auth:smtp:127.0.0.1",
+          "count": 21
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [],
+      "attempts": [],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "421 Too many authentication attempts — try again later\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-policy",
+    "cert": true,
+    "threat": "policy",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [
+        {
+          "user": 9501011,
+          "event": "device_new"
+        }
+      ],
+      "queue": [],
+      "devices": [
+        {
+          "user": 9501011,
+          "country": "",
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 1
+        }
+      ],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": true,
+          "user_id": 9501011,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "success",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "535 5.7.0 Access blocked by policy: conditional_access_blocked\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "530 Authentication required\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-device_country_null",
+    "cert": true,
+    "threat": "device_country_null",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [
+        {
+          "user": 9501011,
+          "event": "device_new"
+        }
+      ],
+      "queue": [],
+      "devices": [
+        {
+          "user": 9501011,
+          "country": "",
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 2
+        }
+      ],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": true,
+          "user_id": 9501011,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "success",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QASU1BUDEtY29ycmVjdC1wYXNzd29yZCE=\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "MAIL FROM:\u003calice@smtp5.test\u003e\r\n",
+        "lines": 1,
+        "reply": "250 OK\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-app-password-allow",
+    "cert": true,
+    "threat": "allow",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 1
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 1
+        }
+      ],
+      "audit": [
+        {
+          "user": 9501011,
+          "event": "device_new"
+        }
+      ],
+      "queue": [],
+      "devices": [
+        {
+          "user": 9501011,
+          "country": "",
+          "ip_prefix": "127.0.0.0",
+          "auth_count": 1
+        }
+      ],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": true,
+          "user_id": 9501011,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "app_password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "success",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login",
+          "details": null,
+          "user_id": 9501011,
+          "provider": "app_password"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAc210cDUtYXBwLXRva2VuLXZhbGlk\r\n",
+        "lines": 1,
+        "reply": "235 Authentication successful\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  },
+  {
+    "name": "threat-tarpit-spray",
+    "cert": true,
+    "threat": "allow",
+    "effects": {
+      "rate": [
+        {
+          "key": "acct:alice@smtp5.test",
+          "count": 4
+        },
+        {
+          "key": "ip:127.0.0.1",
+          "count": 4
+        }
+      ],
+      "audit": [],
+      "queue": [],
+      "devices": [],
+      "signins": [
+        {
+          "client": "smtp",
+          "success": false,
+          "user_id": null,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        },
+        {
+          "client": "smtp",
+          "success": false,
+          "user_id": null,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        },
+        {
+          "client": "smtp",
+          "success": false,
+          "user_id": null,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        },
+        {
+          "client": "smtp",
+          "success": false,
+          "user_id": null,
+          "location": null,
+          "platform": null,
+          "protocol": "smtp",
+          "source_ip": "127.0.0.1",
+          "session_id": null,
+          "auth_method": "password",
+          "device_name": null,
+          "fail_reason": null,
+          "correlation_id": null,
+          "device_fingerprint": null
+        }
+      ],
+      "attempts": [
+        {
+          "ip": "127.0.0.1",
+          "outcome": "failure",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        },
+        {
+          "ip": "127.0.0.1",
+          "outcome": "failure",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        },
+        {
+          "ip": "127.0.0.1",
+          "outcome": "failure",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        },
+        {
+          "ip": "127.0.0.1",
+          "outcome": "failure",
+          "protocol": "smtp",
+          "geo_country": "",
+          "target_username": "alice@smtp5.test"
+        }
+      ],
+      "lockouts": [
+        {
+          "key": "ip:127.0.0.1",
+          "failed_count": 4,
+          "escalation_level": 0
+        },
+        {
+          "key": "ip_user:127.0.0.1:alice@smtp5.test",
+          "failed_count": 4,
+          "escalation_level": 0
+        },
+        {
+          "key": "user:alice@smtp5.test",
+          "failed_count": 4,
+          "escalation_level": 0
+        }
+      ],
+      "messages": [],
+      "auth_events": [
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        },
+        {
+          "ip": null,
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "app_password"
+        },
+        {
+          "ip": "127.0.0.1",
+          "email": "alice@smtp5.test",
+          "event": "login_failed",
+          "details": null,
+          "user_id": null,
+          "provider": "bcrypt"
+        }
+      ],
+      "mailbox_audit": []
+    },
+    "steps": [
+      {
+        "send": "",
+        "lines": 1,
+        "reply": "220 mailserver ESMTP submission ready\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-STARTTLS\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "upgrade": true,
+        "send": "STARTTLS\r\n",
+        "lines": 1,
+        "reply": "220 Ready to start TLS\r\n"
+      },
+      {
+        "send": "EHLO client.test\r\n",
+        "lines": 6,
+        "reply": "250-mailserver\r\n250-PIPELINING\r\n250-8BITMIME\r\n250-ENHANCEDSTATUSCODES\r\n250-AUTH LOGIN PLAIN\r\n250 SIZE 157286400\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAYmFk\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAYmFk\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAYmFk\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "AUTH PLAIN AGFsaWNlQHNtdHA1LnRlc3QAYmFk\r\n",
+        "lines": 1,
+        "reply": "535 Authentication failed\r\n"
+      },
+      {
+        "send": "QUIT\r\n",
+        "lines": 1,
+        "reply": "221 Bye\r\n"
+      },
+      {
+        "send": "",
+        "lines": 0
+      }
+    ]
+  }
+]

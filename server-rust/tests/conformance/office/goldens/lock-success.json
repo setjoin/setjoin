@@ -1,0 +1,22 @@
+{
+  "case": "success",
+  "format": 1,
+  "go_source": "c9d7fc026c20067965ee2e5a1a36b44c3dacf20b",
+  "normalization": [
+    "fixture actor, space and version IDs"
+  ],
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "method": "POST",
+      "path": "/office/wopi/files/{id}"
+    },
+    "response": {
+      "body": "",
+      "status": 200
+    }
+  },
+  "route": "POST /office/wopi/files/{id}"
+}

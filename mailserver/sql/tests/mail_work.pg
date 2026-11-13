@@ -1,0 +1,90 @@
+BEGIN;
+SELECT plan(28);
+SET LOCAL app.capture_notify='on';
+
+SELECT mk_shared_mailbox('work-shared') AS shared_mb \gset
+SELECT mk_account('work-full') AS full_mb \gset
+SELECT mk_account('work-send') AS send_mb \gset
+SELECT mk_account('work-read') AS read_mb \gset
+SELECT user_id AS full_user FROM mailboxes WHERE id=:full_mb \gset
+SELECT user_id AS send_user FROM mailboxes WHERE id=:send_mb \gset
+SELECT user_id AS read_user FROM mailboxes WHERE id=:read_mb \gset
+
+INSERT INTO mailbox_delegates(mailbox_id,user_id,permission,granted_by) VALUES
+  (:shared_mb,:full_user,'full_access',:full_user),
+  (:shared_mb,:send_user,'send_as',:full_user),
+  (:shared_mb,:read_user,'read',:full_user);
+INSERT INTO messages(id,mailbox_id,folder_id,message_id,subject,from_addr,size_bytes,
+  thread_id,raw_ref,received_at,is_read)
+VALUES(898001,:shared_mb,get_tag_id('Inbox',:shared_mb),'<work-1@mk.test>',
+  'Work item','sender@example.test',100,'work-thread-1','s3://work-1',statement_timestamp(),false);
+
+SELECT is((SELECT enabled FROM feature_toggles WHERE key='feature.shared_mail_work'),false,
+  'shared mail work defaults OFF');
+SELECT throws_ok(format($q$SELECT mail_work_get(%s,%s,NULL)$q$,:shared_mb,:full_user),
+  'BZ300',NULL,'reads fail closed while feature is OFF');
+UPDATE feature_toggles SET enabled=true WHERE key='feature.shared_mail_work';
+
+SELECT ok(mail_work_can_read(:shared_mb,:read_user),'read delegate can read work');
+SELECT ok(mail_work_can_collaborate(:shared_mb,:send_user),'send-capable delegate can collaborate');
+SELECT ok(NOT mail_work_can_collaborate(:shared_mb,:read_user),'plain read delegate cannot collaborate');
+SELECT is(jsonb_array_length(mail_work_collaborators_get(:shared_mb,:read_user,NULL,20)->'list'),3,
+  'authorized reader sees only the current delegated-mailbox collaborator catalog');
+SELECT is((SELECT item->>'capability' FROM jsonb_array_elements(
+  mail_work_collaborators_get(:shared_mb,:full_user,NULL,20)->'list') item
+  WHERE item->>'id'=:read_user::text),'view_only','plain read delegate is visibly marked view-only');
+SELECT throws_ok(format($q$SELECT mail_work_collaborators_get(%s,%s,NULL,51)$q$,:shared_mb,:full_user),
+  'BZ301',NULL,'collaborator catalog rejects an unbounded limit');
+SELECT throws_ok(format($q$SELECT mail_work_set(%s,%s,'work-thread-1',%L,'claim',0,NULL,NULL,NULL,'read cannot claim',%L)$q$,
+  :shared_mb,:read_user,gen_random_uuid(),repeat('a',64)),'BZ005',NULL,'read-only delegate cannot claim');
+
+SELECT notify_guard_snapshot(:shared_mb) AS state_before \gset
+SELECT gen_random_uuid() AS claim_op \gset
+SELECT mail_work_set(:shared_mb,:send_user,'work-thread-1',:'claim_op','claim',0,
+  NULL,NULL,NULL,'claiming',repeat('b',64)) AS claim_result \gset
+SELECT is(:'claim_result'::jsonb->>'status','owned','claim creates owned work');
+SELECT is(:'claim_result'::jsonb->>'assigneeUserId',:send_user::text,'claim assigns the actor');
+SELECT is(:'claim_result'::jsonb->>'generation','1','first work action creates generation one');
+SELECT is((SELECT count(*) FROM mail_thread_work WHERE mailbox_id=:shared_mb AND thread_id='work-thread-1')::integer,
+  1,'one mailbox/thread authority row exists');
+SELECT is((SELECT count(*) FROM mail_thread_work_events WHERE mailbox_id=:shared_mb AND thread_id='work-thread-1')::integer,
+  1,'claim appends one immutable event');
+SELECT is((SELECT count(*) FROM mail_work_outbox WHERE event_id=(:'claim_result'::jsonb->>'eventId')::uuid)::integer,
+  3,'claim emits bounded push/digest/metric outbox intents');
+SELECT * FROM assert_reducer_pushed(:shared_mb,:'state_before','MailWork state bump pushes on the mailbox channel');
+
+SELECT is((mail_work_set(:shared_mb,:send_user,'work-thread-1',:'claim_op','claim',0,
+  NULL,NULL,NULL,'claiming',repeat('b',64))->>'replayed')::boolean,true,'exact claim replay returns its receipt');
+SELECT is((SELECT count(*) FROM mail_thread_work_events WHERE mailbox_id=:shared_mb AND thread_id='work-thread-1')::integer,
+  1,'claim replay emits no duplicate event');
+SELECT throws_ok(format($q$SELECT mail_work_set(%s,%s,'work-thread-1',%L,'claim',1,NULL,NULL,NULL,'different',%L)$q$,
+  :shared_mb,:send_user,:'claim_op',repeat('c',64)),'BZ303',NULL,'operation UUID reuse with different canonical input conflicts');
+SELECT throws_ok(format($q$SELECT mail_work_set(%s,%s,'work-thread-1',%L,'claim',0,NULL,NULL,NULL,'racing claim',%L)$q$,
+  :shared_mb,:full_user,gen_random_uuid(),repeat('d',64)),'BZ304',NULL,'a second concurrent claim cannot win');
+
+SELECT is(mail_work_get(:shared_mb,:read_user,ARRAY['work-thread-1'])->'list'->0->>'status','owned',
+  'read delegate sees current work projection');
+SELECT is(mail_work_changes(:shared_mb,:read_user,'0',256)->'created'->>0,'work-thread-1',
+  'independent changes journal exposes the created work object');
+
+UPDATE messages SET folder_id=get_tag_id('Sent',:shared_mb)
+ WHERE id=898001 AND mailbox_id=:shared_mb;
+SELECT is((SELECT count(*) FROM mail_thread_work WHERE mailbox_id=:shared_mb AND thread_id='work-thread-1')::integer,
+  1,'folder/tag movement cannot fork the work authority');
+
+SELECT gen_random_uuid() AS handoff_op \gset
+SELECT mail_work_set(:shared_mb,:full_user,'work-thread-1',:'handoff_op','handoff',1,
+  :full_user,NULL,NULL,'take over',repeat('e',64)) AS handoff_result \gset
+SELECT is(:'handoff_result'::jsonb->>'assigneeUserId',:full_user::text,
+  'full-access delegate may hand work to an eligible delegate');
+SELECT isnt(:'handoff_result'::jsonb->>'eventId',:'handoff_op'::text,
+  'operation and event identities remain independent');
+SELECT is((SELECT count(*) FROM mail_thread_work_events WHERE mailbox_id=:shared_mb AND event_type='handed_off')::integer,
+  1,'handoff appends one exact event');
+SELECT is((mail_work_get(:shared_mb,:read_user,NULL)->>'state')::bigint,
+  (SELECT jmap_mailwork_state FROM mailboxes WHERE id=:shared_mb),'get state matches mailbox MailWork authority');
+SELECT is((SELECT jmap_email_state FROM mailboxes WHERE id=:shared_mb),0::bigint,
+  'work-only mutations leave the existing Email state byte-domain untouched');
+
+SELECT * FROM finish();
+ROLLBACK;

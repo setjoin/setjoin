@@ -1,0 +1,39 @@
+{
+  "case": "worker-unfurl-reap",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "after": {
+      "cleanupQueued": true,
+      "previews": [
+        {
+          "index": 3,
+          "status": "ok"
+        }
+      ],
+      "refCount": 0
+    },
+    "before": {
+      "cleanupQueued": false,
+      "previews": [
+        {
+          "index": 0,
+          "status": "ok"
+        },
+        {
+          "index": 1,
+          "status": "pending"
+        },
+        {
+          "index": 2,
+          "status": "error"
+        },
+        {
+          "index": 3,
+          "status": "ok"
+        }
+      ],
+      "refCount": 1
+    }
+  }
+}

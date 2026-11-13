@@ -1,0 +1,26 @@
+[
+  {
+    "baseline": "goldens/policy-get-scoped-foreign.json",
+    "sha256": "181d8e1c1509b6f82a647437cce921a01270d9ef7b7d069aa6588bfe6c2fd4c1",
+    "expectation": "security/policy-get-scoped-foreign.json",
+    "reason": "owner-approved security fix 2026-11-05 (#376: GET field-policy answers 403 unless the target user is within the caller's administrative scope)",
+    "issue": "#376",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix4.rs::field_policy_is_readable_only_inside_the_callers_reach",
+    "mutant": "fieldpolicy-get-foreign"
+  },
+  {
+    "baseline": "goldens/policy-get-scoped-foreign-row-effects.json",
+    "sha256": "b0b6d9dcaccc0d548eb0d50817529d6e220c5e2d3063252afe2dd0de5e4f046c",
+    "expectation": "security/policy-get-scoped-foreign-row-effects.json",
+    "reason": "owner-approved security fix 2026-11-05 (#376: GET field-policy answers 403 unless the target user is within the caller's administrative scope)",
+    "issue": "#376",
+    "reviewer": "owner 2026-11-05",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-05",
+    "secure_test": "bins/gateway/tests/secfix4.rs::field_policy_is_readable_only_inside_the_callers_reach",
+    "mutant": "fieldpolicy-get-foreign"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "Usage of identity transition export:\n  -json\n    \tJSON output\n  -output string\n    \t0600 JSON output file\n  -quiet\n    \tSuppress output\n  -y\treplace an existing regular output file\n  -yes\n    \treplace an existing regular output file\nError: flag: help requested\n",
+  "exit": 1
+}

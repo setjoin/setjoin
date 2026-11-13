@@ -1,0 +1,6 @@
+{
+  "requests": [],
+  "stdout": "",
+  "stderr": "invalid boolean value \"not-a-bool\" for -json: parse error\nUsage of ca doctor:\n  -json\n    \tOutput raw JSON\nError: invalid boolean value \"not-a-bool\" for -json: parse error\n",
+  "exit": 1
+}

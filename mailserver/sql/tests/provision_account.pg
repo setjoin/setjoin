@@ -1,0 +1,293 @@
+-- pgTAP: provision_account.pg
+-- The ONE provisioning seam: create (or upsert) a person + their primary
+-- personal mailbox (+ optional aliases), schema-correct, from any source.
+--
+-- DIVERGENT ids (ADR-003): provision_account ALLOCATES its own user_id and
+-- mailbox_id from independent BIGSERIAL sequences. To make divergence
+-- observable (and prove a `user_id = mailbox_id` confusion can't hide), we push
+-- the mailboxes id sequence well ahead of the users sequence before the first
+-- provision, so the created user_id and mailbox_id can never coincide.
+BEGIN;
+SELECT plan(49);
+
+-- Force the mailbox id source ahead of the user id source so the rows this
+-- reducer creates have user_id != mailbox_id by construction.
+SELECT setval('mailboxes_id_seq', GREATEST(nextval('mailboxes_id_seq'),
+                                            nextval('users_id_seq') + 500000));
+
+INSERT INTO domains (id, name, is_local) VALUES (96000, 'prov.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+-- A second LOCAL domain (for an alias on a different local domain).
+INSERT INTO domains (id, name, is_local) VALUES (96001, 'provalt.test', TRUE)
+  ON CONFLICT (id) DO NOTHING;
+-- A NON-local domain (an alias here must be skipped, not fail the provision).
+INSERT INTO domains (id, name, is_local) VALUES (96002, 'external.test', FALSE)
+  ON CONFLICT (id) DO NOTHING;
+
+-- ── 1. Provision a brand-new person + primary mailbox, all real columns ─────
+SELECT lives_ok(
+  $$SELECT provision_account(
+      p_email          => 'Alice@prov.test',
+      p_display_name   => 'Alice Admin',
+      p_password_hash  => 'bcrypt-hash',
+      p_is_local_admin => TRUE,
+      p_quota_bytes    => 7777,
+      p_sync_source    => 'local'
+    )$$,
+  'provision_account creates a new person + primary mailbox'
+);
+
+-- users row — every NOT NULL column populated correctly.
+SELECT is((SELECT username     FROM users WHERE email = 'alice@prov.test'),
+          'alice', 'username derived from email local-part');
+SELECT is((SELECT domain_id    FROM users WHERE email = 'alice@prov.test'),
+          96000::BIGINT, 'user domain_id resolved from email domain');
+SELECT is((SELECT email        FROM users WHERE email = 'alice@prov.test'),
+          'alice@prov.test', 'user email lowercased + stored');
+SELECT is((SELECT display_name FROM users WHERE email = 'alice@prov.test'),
+          'Alice Admin', 'user display_name stored');
+SELECT is((SELECT is_local_admin FROM users WHERE email = 'alice@prov.test'),
+          TRUE, 'user is_local_admin honored');
+SELECT is((SELECT enabled      FROM users WHERE email = 'alice@prov.test'),
+          TRUE, 'user enabled defaults TRUE');
+SELECT is((SELECT sync_source  FROM users WHERE email = 'alice@prov.test'),
+          'local', 'user sync_source honored');
+SELECT is(
+  (SELECT authority_kind FROM user_lifecycle_authorities
+   WHERE user_id = (SELECT id FROM users WHERE email = 'alice@prov.test')),
+  'local', 'new local person receives explicit local lifecycle authority');
+
+-- primary mailbox row — real columns (no phantom name/role; has domain_id/email).
+SELECT is(
+  (SELECT count(*) FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'alice@prov.test' AND m.is_primary AND m.type = 'personal'),
+  1::BIGINT, 'exactly one primary personal mailbox created');
+SELECT is(
+  (SELECT m.email FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'alice@prov.test' AND m.is_primary),
+  'alice@prov.test', 'primary mailbox email matches');
+SELECT is(
+  (SELECT m.quota_bytes FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'alice@prov.test' AND m.is_primary),
+  7777::BIGINT, 'explicit quota_bytes survives the quota-defaults trigger');
+
+-- ── 2. Divergent ids: user_id != mailbox_id (ADR-003 invariant) ─────────────
+SELECT ok(
+  (SELECT u.id <> m.id FROM users u JOIN mailboxes m ON m.user_id = u.id
+   WHERE u.email = 'alice@prov.test' AND m.is_primary),
+  'user_id and mailbox_id are divergent (independent sequences)');
+
+-- Returned JSONB carries both ids and the created flag.
+SELECT is(
+  (provision_account('alice@prov.test')->>'created'),
+  'false', 'second provision of same email reports created=false (idempotent)');
+
+-- ── 3. Idempotent re-provision by email: no duplicate, fields updated ────────
+SELECT is(
+  (SELECT count(*) FROM users WHERE email = 'alice@prov.test'),
+  1::BIGINT, 'idempotent re-provision does NOT create a second user');
+
+SELECT lives_ok(
+  $$SELECT provision_account(p_email => 'alice@prov.test',
+                             p_display_name => 'Alice Renamed')$$,
+  'idempotent re-provision updates the existing person');
+SELECT is(
+  (SELECT display_name FROM users WHERE email = 'alice@prov.test'),
+  'Alice Renamed', 're-provision updated display_name');
+SELECT is(
+  (SELECT count(*) FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'alice@prov.test' AND m.is_primary),
+  1::BIGINT, 're-provision keeps exactly one primary mailbox');
+
+-- ── 3b. Re-provision must NOT clobber an existing display_name / username ────
+-- Regression for the COALESCE bug: a NULL display_name/username arg used to fall
+-- back to the raw email / local-part and silently overwrite a previously-set
+-- name. Set a custom username (≠ the local-part 'alice'), then re-provision with
+-- NEITHER name supplied and assert both survive.
+SELECT lives_ok(
+  $$SELECT provision_account(p_email => 'alice@prov.test',
+                             p_username => 'alice.custom')$$,
+  're-provision can set a custom username');
+SELECT is(
+  (SELECT username FROM users WHERE email = 'alice@prov.test'),
+  'alice.custom', 'custom username stored');
+SELECT lives_ok(
+  $$SELECT provision_account(p_email => 'alice@prov.test')$$,
+  're-provision with no display_name / username does not error');
+SELECT is(
+  (SELECT display_name FROM users WHERE email = 'alice@prov.test'),
+  'Alice Renamed', 'NULL display_name does NOT clobber the existing name');
+SELECT is(
+  (SELECT username FROM users WHERE email = 'alice@prov.test'),
+  'alice.custom', 'NULL username does NOT clobber the existing username');
+
+-- ── 4. Alias upsert: local aliases attach to the primary mailbox ────────────
+SELECT lives_ok(
+  $$SELECT provision_account(
+      p_email   => 'alice@prov.test',
+      p_aliases => ARRAY['alice.alt@prov.test', 'a.cross@provalt.test',
+                         'alice@external.test', 'alice@prov.test',
+                         'Alice.Alt@prov.test'])$$,
+  'provision_account upserts aliases');
+
+-- Two local aliases attached (alt on the same domain + one on the other LOCAL
+-- domain). The non-local (external.test), the primary address itself, and the
+-- case-duplicate of an existing alias are all skipped.
+SELECT is(
+  (SELECT count(*) FROM aliases a
+   JOIN mailboxes m ON m.id = a.mailbox_id
+   JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'alice@prov.test'),
+  2::BIGINT, 'two local aliases upserted; non-local + primary + dup skipped');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM aliases a JOIN mailboxes m ON m.id = a.mailbox_id
+          JOIN users u ON u.id = m.user_id
+          WHERE u.email = 'alice@prov.test' AND a.email = 'a.cross@provalt.test'
+            AND a.domain_id = 96001),
+  'alias on a different LOCAL domain resolves its own domain_id');
+
+-- Re-upserting the same aliases is a no-op (idempotent on lower(email)).
+SELECT lives_ok(
+  $$SELECT provision_account(p_email => 'alice@prov.test',
+      p_aliases => ARRAY['alice.alt@prov.test', 'a.cross@provalt.test'])$$,
+  're-upserting the same aliases is idempotent');
+SELECT is(
+  (SELECT count(*) FROM aliases a JOIN mailboxes m ON m.id = a.mailbox_id
+   JOIN users u ON u.id = m.user_id WHERE u.email = 'alice@prov.test'),
+  2::BIGINT, 'alias count unchanged after idempotent re-upsert');
+
+-- ── 5. Self-heal: a person whose primary mailbox is missing gets a new one ──
+-- The AD/LDAP-sync bug class — a raw `users` INSERT created a person row with NO
+-- mailbox at all (the very bug this seam retires), so the address received no
+-- mail. That corrupt state is only reachable by bypassing the seam, so the test
+-- injects it directly: a bare users row, no mailbox. (It can't be made by
+-- deleting a mailbox — trg_mailbox_primary_enforce / BZ013 forbids removing a
+-- user's last primary.) Re-provision must detect the missing primary and heal it.
+INSERT INTO users (username, domain_id, email, display_name)
+  VALUES ('carol', 96000, 'carol@prov.test', 'Carol Legacy');
+SELECT is(
+  (SELECT count(*) FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'carol@prov.test'),
+  0::BIGINT, 'precondition: legacy person row exists with no mailbox');
+SELECT ok(
+  (provision_account('carol@prov.test')->>'mailbox_id') IS NOT NULL,
+  'self-heal re-provision returns a mailbox_id');
+SELECT is(
+  (SELECT count(*) FROM mailboxes m JOIN users u ON u.id = m.user_id
+   WHERE u.email = 'carol@prov.test' AND m.is_primary AND m.type = 'personal'),
+  1::BIGINT, 'self-heal created exactly one primary personal mailbox');
+SELECT is(
+  (SELECT authority_kind FROM user_lifecycle_authorities
+   WHERE user_id = (SELECT id FROM users WHERE email = 'carol@prov.test')),
+  'local', 'self-healed mailbox also repairs missing lifecycle authority');
+SELECT is(
+  (provision_account('carol@prov.test')->>'created'),
+  'false', 'self-heal updates the existing person (created=false), no duplicate');
+
+-- ── 6. Directory-sync sources must NOT auto-mint an authoritative LOCAL domain ─
+-- A mistyped or attacker-influenced IdP mail attribute previously auto-registered a
+-- locally-authoritative domain (deliver_* then accepts inbound mail for it) — a
+-- directory-attribute-driven trust escalation. Sync sources now require the domain
+-- to ALREADY exist and be local (BZ056); the admin/local path keeps auto-vivify.
+SELECT throws_ok(
+  $$SELECT provision_account(p_email => 'mallory@evil-typo.test', p_sync_source => 'ad',
+                             p_ad_object_guid => '00000000-0000-0000-0000-0000000056aa')$$,
+  'BZ056', NULL, 'ad sync into an UNKNOWN domain raises BZ056 (no auto-vivify)');
+SELECT ok(
+  (SELECT count(*) FROM domains WHERE name = 'evil-typo.test') = 0,
+  'the unknown domain was NOT created by the failed sync provision');
+SELECT throws_ok(
+  $$SELECT provision_account(p_email => 'mallory@external.test', p_sync_source => 'scim',
+                             p_scim_external_id => 'scim-mallory')$$,
+  'BZ056', NULL, 'scim sync into a NON-local domain raises BZ056');
+-- The local/admin path still auto-vivifies an unknown domain (pre-gated upstream).
+SELECT lives_ok(
+  $$SELECT provision_account(p_email => 'newadmin@fresh-local.test', p_sync_source => 'local')$$,
+  'local source still auto-creates an unknown domain (created=true)');
+
+-- ── 7. Cross-person alias collision: refused at admission (BZ328) ──────────
+-- Pre-V249, ON CONFLICT DO NOTHING surfaced a requested alias already owned by
+-- a DIFFERENT person's mailbox as a non-fatal skipped_aliases warning. The V249
+-- identity-address admission contract makes a cross-person claim a WRITE-TIME
+-- refusal instead: the duplicate insert fails (BZ328) rather than resolves.
+-- alice already owns 'alice.alt@prov.test' (section 4); bob now requests it.
+SELECT throws_ok(
+  $$SELECT provision_account(p_email => 'bob@prov.test',
+       p_aliases => ARRAY['alice.alt@prov.test'])$$,
+  'BZ328', NULL,
+  'an alias owned by another person is refused at admission (BZ328), not provisioned');
+-- The contested alias still belongs to ALICE — bob did NOT steal or duplicate it.
+SELECT is(
+  (SELECT u.email FROM aliases a JOIN mailboxes m ON m.id = a.mailbox_id
+   JOIN users u ON u.id = m.user_id WHERE a.email = 'alice.alt@prov.test'),
+  'alice@prov.test', 'the contested alias remains owned by the original mailbox');
+-- bob got NO alias row for the contested address (his provision rolled back).
+SELECT is(
+  (SELECT count(*) FROM aliases a JOIN mailboxes m ON m.id = a.mailbox_id
+   JOIN users u ON u.id = m.user_id WHERE u.email = 'bob@prov.test'),
+  0::BIGINT, 'the cross-person collision created no alias for the requesting mailbox');
+
+-- ── 8. Idempotent re-request of THIS mailbox's OWN alias stays SILENT ────────
+-- Re-provisioning alice with an alias she already owns is the legitimate
+-- idempotency case: it must NOT be reported as a collision.
+SELECT is(
+  (provision_account(p_email => 'alice@prov.test',
+     p_aliases => ARRAY['alice.alt@prov.test'])->'skipped_aliases'),
+  '[]'::jsonb,
+  're-requesting THIS mailbox''s own existing alias is silent (empty skipped_aliases)');
+-- A provision with no aliases at all reports an empty skipped_aliases array.
+SELECT is(
+  (provision_account('alice@prov.test')->'skipped_aliases'),
+  '[]'::jsonb, 'skipped_aliases is an empty array when no aliases are requested');
+-- A brand-new, uncontested alias is created normally (skipped_aliases stays empty).
+SELECT is(
+  (provision_account(p_email => 'alice@prov.test',
+     p_aliases => ARRAY['alice.fresh@prov.test'])->'skipped_aliases'),
+  '[]'::jsonb, 'a fresh uncontested alias is created, not skipped');
+
+-- ── 9. krb5_principal floor: unmatched-GUID → existing-email fall-through ────
+-- Regression for the Astra round-2 HOLD: the AD sync calls provision_account
+-- with the directory principal whenever the objectGUID is unmatched. If the
+-- reducer then falls through to an existing-email match, the old UPDATE branch
+-- COALESCE-overwrote the victim's krb5_principal with the directory UPN —
+-- bypassing the Go always-local-only floor and its suppression audit. The
+-- UPDATE branch now EXCLUDES krb5_principal entirely (the SQL mirror of
+-- ldaputil.alwaysLocalOnlyFields); only genuine INSERT provisioning writes it.
+-- The sanctioned change path is the audited admin action
+-- (POST /admin/ad/principal → internal/admin/admin_ad.go SetPrincipal).
+INSERT INTO users (username, domain_id, email, display_name, krb5_principal)
+  VALUES ('dave', 96000, 'dave@prov.test', 'Dave Local', 'dave@LEGACY.REALM');
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE email = 'dave@prov.test'),
+  'dave@LEGACY.REALM', 'precondition: existing user holds a local krb5_principal');
+-- Unmatched GUID + the victim's email + an attacker-chosen directory UPN:
+-- the provisioner must UPDATE the existing row WITHOUT touching the principal.
+SELECT is(
+  (provision_account(p_email => 'dave@prov.test',
+                     p_sync_source => 'ad',
+                     p_ad_object_guid => '00000000-0000-0000-0000-00000000d001',
+                     p_ad_upn => 'dave@corp.example.com',
+                     p_krb5_principal => 'dave@EVIL.REALM')->>'created'),
+  'false', 'unmatched-GUID provision of an existing email reports created=false (UPDATE branch)');
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE email = 'dave@prov.test'),
+  'dave@LEGACY.REALM', 'fall-through provision did NOT overwrite krb5_principal');
+SELECT is(
+  (SELECT ad_object_guid::TEXT FROM users WHERE email = 'dave@prov.test'),
+  '00000000-0000-0000-0000-00000000d001',
+  'the fall-through UPDATE adopted the new GUID (same fenced branch, principal untouched)');
+-- A brand-new directory user still gets the UPN as principal (INSERT unchanged).
+SELECT is(
+  (provision_account(p_email => 'erin@prov.test',
+                     p_sync_source => 'ad',
+                     p_ad_object_guid => '00000000-0000-0000-0000-00000000d002',
+                     p_ad_upn => 'erin@corp.example.com',
+                     p_krb5_principal => 'erin@CORP.EXAMPLE.COM')->>'created'),
+  'true', 'brand-new directory user provisions as created=true');
+SELECT is(
+  (SELECT krb5_principal FROM users WHERE email = 'erin@prov.test'),
+  'erin@CORP.EXAMPLE.COM', 'genuine INSERT provisioning still writes the UPN principal');
+
+SELECT * FROM finish();
+ROLLBACK;

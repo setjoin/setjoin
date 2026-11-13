@@ -1,0 +1,41 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/admin/identity/v2/diagnostics",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json",
+        "idempotency-key": "00000000-0000-4000-8000-000000000001",
+        "x-audit-reason": "operator request"
+      },
+      "body": "{\"idempotencyKey\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"operator request\",\"sinceSeconds\":3600,\"sourceKey\":\"directory\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001",
+      "headers": {
+        "authorization": "Bearer oracle-token",
+        "content-type": "application/json"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/identity/v2/diagnostics/00000000-0000-4000-8000-000000000001/download",
+      "headers": {
+        "authorization": "Bearer oracle-token"
+      },
+      "body": ""
+    }
+  ],
+  "stdout": "",
+  "stderr": "",
+  "exit": 0,
+  "files": {
+    "diagnostics.zip": {
+      "body": "PK\u0003\u0004sanitized-fixture",
+      "mode": 384
+    }
+  }
+}

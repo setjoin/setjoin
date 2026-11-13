@@ -1,0 +1,18 @@
+{
+  "case": "denied-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "deployment_steps"
+    },
+    {
+      "after": null,
+      "before": null,
+      "table": "deploy_process_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "eb82e9c7897f12be0bed1c73402f02eaafac86e7",
+  "route": "POST /admin/deploy/start"
+}

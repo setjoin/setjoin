@@ -1,0 +1,28 @@
+{
+  "case": "strict-valid-serial-zero-row-effects",
+  "effects": [
+    {
+      "after": {
+        "anchors": [
+          {
+            "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBqDCCAU6gAwIBAgIBADAKBggqhkjOPQQDAjAyMRcwFQYDVQQKDA5TZXRqb2lu\nIE9yYWNsZTEXMBUGA1UEAwwOc21pbWUtb3JhY2xlLWEwIBcNMjYxMDAxMDAwMDAw\nWhgPMjA5NTEwMDEwMDAwMDBaMDIxFzAVBgNVBAoMDlNldGpvaW4gT3JhY2xlMRcw\nFQYDVQQDDA5zbWltZS1vcmFjbGUtYTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA\nBPh9v0mmMf/vR80aVp5KyV9mDkHJ0hbf/+AWgb3s4SFBXPN8fp8HSXAZ8Pxmka5Z\nflvj/I6nw8/HJAtxylG3VIWjUzBRMB0GA1UdDgQWBBS/dcj3uP0dVgWjJ23m/rQ5\nHa68JTAfBgNVHSMEGDAWgBS/dcj3uP0dVgWjJ23m/rQ5Ha68JTAPBgNVHRMBAf8E\nBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIFwyktifiFsroMePBPPVyn2P0SX72s7W\nNEti46Zc4jvtAiEAs6S9be/qzqAszUDFwHhoVwrQj4RJgNXi7HJjOUhVrQI=\n-----END CERTIFICATE-----\n",
+            "created_by": "<actor>",
+            "domain_id": null,
+            "fingerprint": "ea1a5faa48c598a9112dec40f15c5989e8371f8bbb1c35c18ade1ee5b594017f",
+            "label": "imported",
+            "not_after": 3968265600,
+            "not_before": 1790812800,
+            "subject_cn": "smime-oracle-a"
+          }
+        ]
+      },
+      "before": {
+        "anchors": []
+      },
+      "table": "smime"
+    }
+  ],
+  "format": 1,
+  "go_source": "433d2e26a459ed1ef8fca30a4a5b82851468168c",
+  "route": "POST /admin/smime/trust-anchors"
+}

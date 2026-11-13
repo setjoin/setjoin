@@ -1,0 +1,72 @@
+# =============================================================================
+# SetJoin — HAProxy Load Balancer Configuration
+# =============================================================================
+# This is a DEPLOYMENT TEMPLATE. Customize for your environment.
+# Replace {{ PLACEHOLDER }} values with your deployment-specific settings.
+#
+# Routes:
+#   :443  → gateway backends (HTTP health check: GET /ready)
+#   :5432 → PostgreSQL primary (pgsql-check)
+#   :9000 → HAProxy stats page (admin only)
+#
+# See docs/guides/HA_OVERVIEW.md for full 3-node setup instructions.
+# =============================================================================
+
+global
+    log /dev/log local0
+    maxconn 4096
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
+
+# ── Gateway HTTP frontend ────────────────────────────────────────────────────
+frontend gateway_https
+    bind *:443
+    mode tcp
+    default_backend gateway_backends
+
+backend gateway_backends
+    mode tcp
+    option httpchk GET /ready HTTP/1.1\r\nHost:\ localhost
+    http-check expect status 200
+    default-server inter 3s fall 3 rise 2
+    server gateway1 {{ NODE1_IP }}:443 check
+    server gateway2 {{ NODE2_IP }}:443 check
+    server gateway3 {{ NODE3_IP }}:443 check
+
+# ── PostgreSQL frontend ──────────────────────────────────────────────────────
+frontend postgresql_primary
+    bind *:5432
+    mode tcp
+    default_backend postgresql_backends
+
+backend postgresql_backends
+    mode tcp
+    option pgsql-check user pgcheck
+    default-server inter 3s fall 3 rise 2
+    server pg1 {{ NODE1_IP }}:5432 check
+    server pg2 {{ NODE2_IP }}:5432 check
+    server pg3 {{ NODE3_IP }}:5432 check
+
+# ── Stats page (admin only) ──────────────────────────────────────────────────
+# Loopback-only: the stats surface is administrative and runs on cleartext HTTP
+# with single basic auth, so binding it to all interfaces would expose the
+# password to any LAN observer. Reach it via SSH tunneling from a workstation
+# (ssh -L 9000:127.0.0.1:9000) or move the bind to a management-VLAN address
+# with TLS if a non-loopback consumer is ever required.
+listen stats
+    bind 127.0.0.1:9000
+    mode http
+    stats enable
+    stats uri /stats
+    stats realm HAProxy\ Statistics
+    stats auth admin:{{ HAPROXY_STATS_PASSWORD }}
+    stats refresh 10s

@@ -1,0 +1,61 @@
+-- pgTAP: ca_named_location_set.pg — CRUD + soft-delete + audit + notify.
+BEGIN;
+SELECT plan(4);
+SET app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (95400, 'nl.test', TRUE) ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, enabled)
+  VALUES (84001, 'nl_actor', 95400, 'actor@nl.test', 'NL Actor', TRUE)
+  ON CONFLICT DO NOTHING;
+
+-- 1. Insert: returns a valid id.
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  SELECT ca_named_location_set(
+    NULL,
+    'Corp HQ',
+    'Main office network',
+    ARRAY['10.0.0.0/8'::cidr, '192.168.1.0/24'::cidr],
+    ARRAY['US','GB'],
+    true,
+    false,
+    84001,
+    '192.0.2.1'::inet
+  ) INTO v_id;
+  IF v_id IS NULL OR v_id <= 0 THEN
+    RAISE EXCEPTION 'insert returned unexpected id: %', v_id;
+  END IF;
+END $$;
+SELECT ok(true, 'insert returns a positive id');
+
+-- 2. Row is readable with correct values.
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM named_locations
+     WHERE name = 'Corp HQ'
+       AND is_trusted = true
+       AND deleted_at IS NULL
+  ),
+  'inserted row is readable with correct name and is_trusted');
+
+-- 3. Soft-delete sets deleted_at and frees the name slot.
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  SELECT id INTO v_id FROM named_locations WHERE name = 'Corp HQ' AND deleted_at IS NULL;
+  PERFORM ca_named_location_set(v_id, 'Corp HQ', '', ARRAY[]::cidr[], ARRAY[]::text[], false, true, 84001, '192.0.2.1'::inet);
+END $$;
+SELECT ok(
+  EXISTS (
+    SELECT 1 FROM named_locations WHERE name = 'Corp HQ' AND deleted_at IS NOT NULL
+  ),
+  'soft-delete sets deleted_at on the row');
+
+-- 4. ca_notify_policy_change fires on conditional_access channel.
+SELECT ok(
+  EXISTS (SELECT 1 FROM _test_notify_log WHERE channel = 'conditional_access'),
+  'ca_named_location_set fires ca_notify_policy_change → conditional_access channel');
+
+SELECT finish();
+ROLLBACK;

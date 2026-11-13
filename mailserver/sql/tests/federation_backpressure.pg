@@ -1,0 +1,111 @@
+-- federation_backpressure.pg — Pillar C1 Task 7: backpressure / dead-peer
+-- cap on federation_enqueue's user-initiated path, plus federation_peer_
+-- health. Requires: federation_enqueue.sql (this task's 5-arg extension),
+-- federation_peer_health.sql (new).
+BEGIN;
+SELECT plan(16);
+
+-- A small cap so the test doesn't need to enqueue 10001 rows to prove the
+-- boundary. federation.peer_stale_minutes stays at its 30-minute default.
+INSERT INTO system_config (key, value) VALUES ('federation.outbox_cap', '3'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §1 depth cap: exempt (harness) vs. user-initiated at the SAME depth
+-- ══════════════════════════════════════════════════════════════════════
+
+-- Seed a peer sitting exactly AT the cap (depth 3, cap 3) — no unacked
+-- outbox rows, so the staleness arm never engages here (MIN(created_at) is
+-- NULL for an empty set, which the staleness check treats as "no signal").
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('capped.test', 3, 0);
+
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('capped.test', 'u-at-cap', 'application/x-setjoin-chat', '{}', p_user_initiated := true) $$,
+  'a user-initiated enqueue exactly AT the cap (depth 3 == cap 3, not over) succeeds'
+);
+-- that successful call bumped last_seq 3 -> 4, so depth is now 4 (over the cap 3).
+
+SELECT throws_ok(
+  $$ SELECT federation_enqueue('capped.test', 'u-over-cap', 'application/x-setjoin-chat', '{}', p_user_initiated := true) $$,
+  'BZ205', NULL, 'a user-initiated enqueue past the cap (depth 4 > cap 3) raises BZ205'
+);
+
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('capped.test', 'h-over-cap', 'application/x-setjoin-chat', '{}') $$,
+  'the SAME over-cap depth, but a non-user-initiated (harness/system) enqueue, is exempt and succeeds'
+);
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('capped.test', 'h-over-cap-2', 'application/x-setjoin-chat', '{}', p_user_initiated := false) $$,
+  'an explicit p_user_initiated:=false enqueue is exempt too, at the same over-cap depth'
+);
+
+SELECT is((SELECT count(*)::int FROM federation_outbox WHERE peer_domain = 'capped.test' AND stanza_id = 'u-over-cap'), 0,
+  'the BZ205 refusal left no federation_outbox row behind');
+SELECT is((SELECT last_seq FROM federation_peers WHERE peer_domain = 'capped.test'), 6::bigint,
+  'last_seq only advanced for the 3 successful calls (at-cap, harness x2) — the refused call assigned no seq');
+
+-- A fresh, genuinely-under-cap peer (depth 1 < cap 3) — the plain success path.
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('undercap.test', 1, 0);
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('undercap.test', 'u1', 'application/x-setjoin-chat', '{}', p_user_initiated := true) $$,
+  'a user-initiated enqueue well under the cap succeeds'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §2 dead-peer staleness: an old unacked frame refuses; a fresh one doesn't
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO system_config (key, value) VALUES ('federation.peer_stale_minutes', '30'::jsonb)
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+-- stale.test: one unacked outbox row an hour old (past the 30-minute
+-- window), depth 1 (well under the cap — this must be the staleness arm
+-- alone tripping BZ205, not the depth arm).
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('stale.test', 1, 0);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, created_at)
+  VALUES ('stale.test', 1, 's1', 'application/x-setjoin-chat', '{}', now() - interval '1 hour');
+
+SELECT throws_ok(
+  $$ SELECT federation_enqueue('stale.test', 'u-stale', 'application/x-setjoin-chat', '{}', p_user_initiated := true) $$,
+  'BZ205', NULL, 'a user-initiated enqueue to a peer whose oldest unacked frame is past the staleness window raises BZ205'
+);
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('stale.test', 'h-stale', 'application/x-setjoin-chat', '{}') $$,
+  'the same stale peer stays exempt for a non-user-initiated (harness) enqueue'
+);
+
+-- fresh.test: one unacked outbox row seconds old (well within the window).
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq) VALUES ('fresh.test', 1, 0);
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, created_at)
+  VALUES ('fresh.test', 1, 's1', 'application/x-setjoin-chat', '{}', now());
+
+SELECT lives_ok(
+  $$ SELECT federation_enqueue('fresh.test', 'u-fresh', 'application/x-setjoin-chat', '{}', p_user_initiated := true) $$,
+  'a user-initiated enqueue to a peer with only a FRESH unacked frame is not treated as stale — succeeds'
+);
+
+-- ══════════════════════════════════════════════════════════════════════
+-- §3 federation_peer_health
+-- ══════════════════════════════════════════════════════════════════════
+
+INSERT INTO federation_peers (peer_domain, last_seq, last_acked_seq, updated_at)
+  VALUES ('health.test', 10, 6, now());
+INSERT INTO federation_outbox (peer_domain, peer_seq, stanza_id, content_type, payload, acked_at)
+  VALUES ('health.test', 6, 's6', 'application/x-setjoin-chat', '{}', now() - interval '5 minutes');
+
+SELECT is((SELECT federation_peer_health('health.test') ->> 'lastSeq')::bigint, 10::bigint,
+  'federation_peer_health projects lastSeq');
+SELECT is((SELECT federation_peer_health('health.test') ->> 'lastAckedSeq')::bigint, 6::bigint,
+  'federation_peer_health projects lastAckedSeq');
+SELECT is((SELECT federation_peer_health('health.test') ->> 'unackedDepth')::bigint, 4::bigint,
+  'federation_peer_health projects unackedDepth = last_seq - last_acked_seq');
+SELECT cmp_ok((SELECT federation_peer_health('health.test') ->> 'lastAckAgeSeconds')::bigint, '>=', 250::bigint,
+  'federation_peer_health projects a lastAckAgeSeconds consistent with the ~5-minute-old most-recent ack (lower bound)');
+SELECT cmp_ok((SELECT federation_peer_health('health.test') ->> 'lastAckAgeSeconds')::bigint, '<=', 350::bigint,
+  'federation_peer_health projects a lastAckAgeSeconds consistent with the ~5-minute-old most-recent ack (upper bound)');
+
+SELECT is(federation_peer_health('nonexistent.test'), NULL::jsonb,
+  'federation_peer_health returns NULL for an unknown peer_domain (no oracle, not an error)');
+
+SELECT * FROM finish();
+ROLLBACK;

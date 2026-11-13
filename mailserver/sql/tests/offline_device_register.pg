@@ -1,0 +1,25 @@
+-- pgTAP: offline_device_register.pg
+BEGIN;
+SELECT plan(4);
+CREATE TEMP TABLE _a AS SELECT mk_account('odr') AS mb;
+-- First call registers a NATIVE device (offline is native-only post-pivot; the
+-- fingerprint is the guard-core native device identity), lands 'pending',
+-- user_id from auth, sets fingerprint_hash.
+CREATE TEMP TABLE _r AS
+  SELECT offline_device_register((SELECT mb FROM _a), 'fp-abc', 'desktop') AS id;
+SELECT is(
+  (SELECT offline_approval FROM user_devices WHERE id = (SELECT id FROM _r)),
+  'pending', 'new device lands pending (deny-by-default)');
+SELECT is(
+  (SELECT user_id FROM user_devices WHERE id = (SELECT id FROM _r)),
+  (SELECT user_id FROM mailboxes WHERE id = (SELECT mb FROM _a)),
+  'user_id resolved from auth scope (R2)');
+SELECT isnt(
+  (SELECT fingerprint_hash FROM user_devices WHERE id = (SELECT id FROM _r)),
+  NULL, 'fingerprint_hash stored (sha256)');
+-- Second call with same fp is idempotent (same row id, updates last_seen).
+SELECT is(
+  offline_device_register((SELECT mb FROM _a), 'fp-abc', 'desktop'),
+  (SELECT id FROM _r), 'idempotent upsert returns the same row id');
+SELECT finish();
+ROLLBACK;

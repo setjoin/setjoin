@@ -1,0 +1,157 @@
+-- chat_unfurl.pg: link-unfurl cache + message-payload merge (Pillar A3 QoL
+-- Task 13). Requires: chat_channel.sql, notify_chat_state.sql,
+-- chat_message.sql, chat_unfurl.sql. V122 already ships chat_link_previews
+-- (FORCE RLS, ZERO policies) + its blob-refcount AFTER DELETE trigger.
+-- Chat A4a Task 8 adds the gxp skip at the tail (spec-delta 5): the full
+-- claim/lookup/cache_write happy-path above is unrelated to compliance and
+-- stays untouched; only the one new gxp predicate is proven here.
+BEGIN;
+SELECT plan(25);
+SELECT set_config('app.capture_notify', 'on', true);
+
+-- Fixture: a channel + one text message to unfurl-apply onto.
+SELECT chat_channel_create(931, 'unfurl-general') AS ch_id \gset
+SELECT chat_message_send(931, :ch_id, 'check this out https://example.com/a') AS msg_json \gset
+SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS msg_id \gset
+
+-- A second, unrelated message in the same channel — proves apply() only
+-- ever touches the ONE message id it's given, never every message linking
+-- the same URL.
+SELECT chat_message_send(931, :ch_id, 'also see https://example.com/a') AS msg2_json \gset
+SELECT (:'msg2_json'::jsonb ->> 'messageId')::bigint AS msg2_id \gset
+
+-- A blob row standing in for a fetched og:image (the Go layer PUTs the bytes
+-- + INSERTs this row at ref_count=0 BEFORE calling cache_write, mirroring
+-- blob/handler.go's Put — see chat_unfurl.sql's comment).
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
+  VALUES ('deadbeef00000000000000000000000000000000000000000000000000aa',
+          'testbucket/deadbeef00000000000000000000000000000000000000000000000000aa',
+          12345, 'image/png', 0);
+
+-- ── claim: first caller wins, a second concurrent claim for the SAME url
+-- loses (this is the whole-fetch-once protocol) ────────────────────────────
+SELECT chat_link_preview_claim('urlhash-a', 'https://example.com/a') AS won1 \gset
+SELECT is(:'won1'::boolean, true, 'first claim on a fresh url_hash wins');
+SELECT chat_link_preview_claim('urlhash-a', 'https://example.com/a') AS won2 \gset
+SELECT is(:'won2'::boolean, false, 'a second claim on the same url_hash loses (already pending)');
+SELECT is((SELECT status FROM chat_link_previews WHERE url_hash = 'urlhash-a'), 'pending',
+  'claim inserts a pending row');
+
+-- ── lookup: NULL before any real fetch result, populated after cache_write ─
+SELECT is(chat_link_preview_lookup('urlhash-nonexistent'), NULL, 'lookup on an unclaimed url_hash returns NULL');
+SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'status'), 'pending',
+  'lookup on a claimed-but-not-yet-written url_hash reports pending');
+
+-- ── cache_write: records the fetched result + increments the image blob's
+-- ref_count exactly once (the ONLY increment path — no INSERT trigger) ─────
+SELECT chat_link_preview_cache_write('urlhash-a', 'Example title', 'Example description',
+  'deadbeef00000000000000000000000000000000000000000000000000aa', 'ok');
+SELECT is((SELECT ref_count FROM blobs WHERE sha256 = 'deadbeef00000000000000000000000000000000000000000000000000aa'),
+  1, 'cache_write increments the image blob ref_count from 0 to 1');
+SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'title'), 'Example title', 'lookup reflects the written title');
+SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'status'), 'ok', 'lookup reflects status=ok after cache_write');
+
+-- ── chat_message_unfurl_apply: merges the cached preview into ONE message's
+-- payload + fans out message_edited, leaving the sibling message untouched ─
+SELECT chat_message_unfurl_apply(:msg_id, 'urlhash-a');
+SELECT is((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :msg_id),
+  'Example title', 'apply merges the cached title into the target message payload');
+SELECT is((SELECT (payload -> 'preview' ->> 'imageSha256') FROM chat_messages WHERE id = :msg_id),
+  'deadbeef00000000000000000000000000000000000000000000000000aa',
+  'apply merges the cached image sha into the target message payload');
+-- Provenance epoch marker (med-chat-unfurl-href-001 r2): every reducer-written
+-- preview carries 'appliedBy' — the renderer's fail-closed gate for legacy/
+-- forged rows that lack it.
+SELECT is((SELECT payload -> 'preview' ->> 'appliedBy' FROM chat_messages WHERE id = :msg_id),
+  'chat_message_unfurl_apply',
+  'apply stamps the provenance marker onto every preview it merges');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :msg2_id), NULL,
+  'apply on msg_id never touches the sibling message linking the same url');
+SELECT is(last_notify_event('chat:931'), 'message_edited', 'apply fans out a message_edited-style notify');
+
+-- ── apply is a no-op when the cache row is not yet status=ok (pending) ─────
+SELECT chat_link_preview_claim('urlhash-b', 'https://example.com/b') AS won3 \gset
+SELECT chat_message_unfurl_apply(:msg2_id, 'urlhash-b');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :msg2_id), NULL,
+  'apply on a still-pending cache row is a no-op (never merges partial/absent data)');
+
+-- ── apply on a soft-deleted message is a no-op (never resurrects payload
+-- on a message a reader should no longer see content for) ──────────────────
+SELECT chat_message_send(931, :ch_id, 'delete me https://example.com/a') AS delmsg_json \gset
+SELECT (:'delmsg_json'::jsonb ->> 'messageId')::bigint AS del_msg_id \gset
+SELECT chat_message_delete(931, :del_msg_id);
+SELECT chat_message_unfurl_apply(:del_msg_id, 'urlhash-a');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :del_msg_id), NULL,
+  'apply on a soft-deleted message never merges a preview into it');
+
+-- ── image-serving ownership gate: only a sha256 actually cached as a
+-- chat_link_previews image is servable ─────────────────────────────────────
+SELECT is(chat_link_preview_image_owner('deadbeef00000000000000000000000000000000000000000000000000aa'), true,
+  'the cached image sha is a legitimate unfurl image');
+SELECT is(chat_link_preview_image_owner('0000000000000000000000000000000000000000000000000000000000ff'), false,
+  'an arbitrary/unrelated sha256 is never treated as a legitimate unfurl image (anti-oracle)');
+
+-- ── TTL eviction proof: deleting the cache row (what the worker's TTL sweep
+-- does) decrements the image blob's ref_count back via the V122 trigger ────
+DELETE FROM chat_link_previews WHERE url_hash = 'urlhash-a';
+SELECT is((SELECT ref_count FROM blobs WHERE sha256 = 'deadbeef00000000000000000000000000000000000000000000000000aa'),
+  0, 'evicting the cache row decrements the image blob ref_count back to 0 (V122 trigger)');
+
+-- ── Chat A4a Task 8: unfurl is a silent no-op in a gxp channel — a FRESH
+--    cache row (status='ok', never touched by the earlier TTL-eviction test
+--    above) proves this is the gxp skip firing, not the "no cached ok row"
+--    no-op every other test in this file already covers ────────────────────
+INSERT INTO chat_channels (kind, name, created_by, classification, retention_days, worm_mode)
+  VALUES ('channel', 'unfurl-gxp', 932, 'gxp', 30, 'governance')
+  RETURNING id AS gxp_ch \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (:gxp_ch, 932, 'owner');
+SELECT chat_message_send(932, :gxp_ch, 'see this https://example.com/gxp') AS gxp_msg_json \gset
+SELECT (:'gxp_msg_json'::jsonb ->> 'messageId')::bigint AS gxp_unfurl_msg \gset
+SELECT chat_link_preview_claim('urlhash-gxp', 'https://example.com/gxp');
+SELECT chat_link_preview_cache_write('urlhash-gxp', 'Should never merge', 'nope', NULL, 'ok');
+SELECT chat_message_unfurl_apply(:gxp_unfurl_msg, 'urlhash-gxp');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :gxp_unfurl_msg), NULL,
+  'apply on a message in a gxp channel is a no-op, even for an already-cached ok preview');
+
+-- ── med-chat-unfurl-href-001: trusted-preview provenance ──────────────────
+-- payload.preview is EXCLUSIVELY the unfurl worker's write. A sender-supplied
+-- preview (even a fully forged HTTPS card) is stripped at send, so the card
+-- rendered in the trusted enrichment chrome can only ever be derived from the
+-- authoritative chat_link_previews record of the message's own URL — never
+-- from attacker-authored payload fields.
+SELECT chat_message_send(931, :ch_id, 'forged card body', NULL, '{}', NULL, '[]',
+  'text', '{"preview":{"url":"https://evil.example/phish","title":"Forged title","description":"Forged description","imageSha256":null}}') AS forged_json \gset
+SELECT (:'forged_json'::jsonb ->> 'messageId')::bigint AS forged_id \gset
+SELECT is((SELECT payload -> 'preview' FROM chat_messages WHERE id = :forged_id), NULL,
+  'a sender-supplied payload.preview (even https) is stripped at send — provenance bound to the unfurl record');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :forged_id), '{}'::jsonb,
+  'stripping the only payload key leaves the empty object, same as any plain object payload');
+
+-- Reduce-time scheme allowlist: a non-http(s) url on an otherwise-ok cache
+-- row never merges an anchor into the trusted chrome (silent no-op, this
+-- file's best-effort posture — never a RAISE).
+SELECT chat_link_preview_claim('urlhash-js', 'javascript:alert(1)');
+SELECT chat_link_preview_cache_write('urlhash-js', 'Evil title', 'Evil description', NULL, 'ok');
+SELECT chat_message_unfurl_apply(:forged_id, 'urlhash-js');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :forged_id), '{}'::jsonb,
+  'apply on a javascript: cache row is a no-op (scheme allowlist http/https)');
+
+SELECT chat_link_preview_claim('urlhash-rel', 'example.com/no-scheme');
+SELECT chat_link_preview_cache_write('urlhash-rel', 'Relative title', NULL, NULL, 'ok');
+SELECT chat_message_unfurl_apply(:forged_id, 'urlhash-rel');
+SELECT is((SELECT payload FROM chat_messages WHERE id = :forged_id), '{}'::jsonb,
+  'apply on a scheme-less relative cache row is a no-op');
+
+-- The full provenance chain on the same message: the ONLY preview that ever
+-- lands is the authoritative unfurl result carried by the worker's apply.
+SELECT chat_link_preview_claim('urlhash-forged', 'https://example.com/forged');
+SELECT chat_link_preview_cache_write('urlhash-forged', 'Authoritative title', 'Authoritative description', NULL, 'ok');
+SELECT chat_message_unfurl_apply(:forged_id, 'urlhash-forged');
+SELECT is((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :forged_id),
+  'Authoritative title', 'the only preview ever stored is the authoritative unfurl result');
+SELECT is((SELECT payload -> 'preview' ->> 'appliedBy' FROM chat_messages WHERE id = :forged_id),
+  'chat_message_unfurl_apply',
+  'the authoritative preview carries the provenance marker the renderer requires');
+
+SELECT * FROM finish();
+ROLLBACK;

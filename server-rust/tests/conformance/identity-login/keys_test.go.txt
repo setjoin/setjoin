@@ -1,0 +1,49 @@
+package token
+
+import (
+ "context"
+ "crypto/elliptic"
+ "encoding/hex"
+ "encoding/json"
+ "os"
+ "testing"
+ "time"
+ "github.com/jackc/pgx/v5/pgxpool"
+ "setjoin.com/shared/cryptokey"
+)
+
+// Recording overlay only: never installed in the frozen Go runtime.
+func TestRecordIDLoginKeys(t *testing.T) {
+ ctx:=context.Background()
+ pool,err:=pgxpool.New(ctx,os.Getenv("TEST_DB_DSN")); if err!=nil {t.Fatal(err)}; defer pool.Close()
+ secret:=os.Getenv("JWT_SECRET")
+ ks,err:=Load(ctx,pool,[]byte(secret),cryptokey.ProfileStandard);if err!=nil {t.Fatal(err)}
+ var kid string; var enc []byte
+ err=pool.QueryRow(ctx,"SELECT kid,private_key_enc FROM signing_keys WHERE status='active'").Scan(&kid,&enc);if err!=nil {t.Fatal(err)}
+ jwks,err:=ks.MarshalJWKS();if err!=nil {t.Fatal(err)}
+ sm2priv,pem,err:=cryptokey.GenerateSM2Key();if err!=nil {t.Fatal(err)}
+ providers:=map[string]*JWTProvider{
+  "HS256":NewJWTProvider(secret,nil,cryptokey.ProfileStandard,time.Hour,30*24*time.Hour,"mailserver").WithKeySet(ks,SigningAlgHS256),
+  "ES256":NewJWTProvider(secret,nil,cryptokey.ProfileStandard,time.Hour,30*24*time.Hour,"mailserver").WithKeySet(ks,SigningAlgES256),
+  "SM2":NewJWTProvider(secret,sm2priv,cryptokey.ProfileSMx,time.Hour,30*24*time.Hour,"mailserver").WithKeySet(ks,SigningAlgHS256),
+ }
+ tokens:=map[string]string{}
+ for name,p:=range providers { tok,err:=p.IssueAccess(42,"fixture@example.test",false);if err!=nil {t.Fatal(err)};tokens[name]=tok }
+ output:=map[string]any{"go_source":os.Getenv("GOFREE_GO_SOURCE"),"clock":time.Now().Unix(),"secret":secret,"kid":kid,"envelope":hex.EncodeToString(enc),"jwks":json.RawMessage(jwks),"tokens":tokens,"sm2_pem":string(pem),"sm2_point":hex.EncodeToString(elliptic.Marshal(sm2priv.Curve,sm2priv.X,sm2priv.Y))}
+ b,_:=json.MarshalIndent(output,"","  "); b=append(b,'\n')
+ out:=os.Getenv("GOFREE_KEY_RECORDING"); if _,err:=os.Stat(out);err==nil {t.Fatal("recording exists")};if err:=os.WriteFile(out,b,0600);err!=nil {t.Fatal(err)}
+}
+
+func TestVerifyIDLoginRust(t *testing.T) {
+ b,err:=os.ReadFile(os.Getenv("GOFREE_KEY_RECORDING"));if err!=nil {t.Fatal(err)}
+ var fixture struct{ Secret string `json:"secret"`; SM2PEM string `json:"sm2_pem"` }
+ if err:=json.Unmarshal(b,&fixture);err!=nil {t.Fatal(err)}
+ ctx:=context.Background(); pool,err:=pgxpool.New(ctx,os.Getenv("TEST_DB_DSN"));if err!=nil {t.Fatal(err)};defer pool.Close()
+ ks,err:=Load(ctx,pool,[]byte(fixture.Secret),cryptokey.ProfileStandard);if err!=nil {t.Fatal(err)}
+ keyfile:=t.TempDir()+"/sm2.pem";if err:=os.WriteFile(keyfile,[]byte(fixture.SM2PEM),0600);err!=nil {t.Fatal(err)}
+ sm2key,err:=cryptokey.LoadSM2PrivateKey(keyfile);if err!=nil {t.Fatal(err)}
+ p:=NewJWTProvider(fixture.Secret,sm2key,cryptokey.ProfileStandard,time.Hour,30*24*time.Hour,"mailserver").WithKeySet(ks,SigningAlgHS256)
+ raw,err:=os.ReadFile(os.Getenv("GOFREE_RUST_TOKENS"));if err!=nil {t.Fatal(err)}
+ var tokens map[string]string;if err:=json.Unmarshal(raw,&tokens);err!=nil {t.Fatal(err)}
+ for alg,tok:=range tokens {c,err:=p.Validate(tok);if err!=nil {t.Fatalf("%s: %v",alg,err)};if c.UserID!=42 || c.Email!="fixture@example.test" {t.Fatal("wrong claims")}}
+}

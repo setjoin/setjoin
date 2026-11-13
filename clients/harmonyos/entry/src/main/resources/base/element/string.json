@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "SetJoin Mail — secure email client"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "SetJoin Mail main entry"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "SetJoin Mail"
+    },
+    {
+      "name": "internet_reason",
+      "value": "Required to connect to your mail server"
+    },
+    {
+      "name": "privacy_window_reason",
+      "value": "Required to block screenshots when a device-management policy requires it"
+    }
+  ]
+}

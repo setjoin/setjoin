@@ -1,0 +1,163 @@
+{
+  "case": "key-blocked",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            }
+          ],
+          "files": [
+            {
+              "kind": "dir",
+              "mode": "755",
+              "name": "."
+            },
+            {
+              "content": {
+                "bytes": 663,
+                "sha256": "c5e3bff605bcdf0647561706a4d65767076d8b331c196b18781aae40de2788b8"
+              },
+              "mode": "600",
+              "name": "custom.cert.pem"
+            },
+            {
+              "content": {
+                "kind": "dir"
+              },
+              "mode": "755",
+              "name": "custom.key.pem"
+            }
+          ]
+        },
+        "before": {
+          "config": [
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_challenge",
+              "value": "tls-alpn-01"
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_domains",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_autocert_email",
+              "value": ""
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_auto_renew",
+              "value": true
+            },
+            {
+              "description": "oracle seed",
+              "encrypted": false,
+              "key": "tls_mode",
+              "value": "none"
+            }
+          ],
+          "files": [
+            {
+              "kind": "dir",
+              "mode": "755",
+              "name": "."
+            },
+            {
+              "content": {
+                "kind": "dir"
+              },
+              "mode": "755",
+              "name": "custom.key.pem"
+            }
+          ]
+        },
+        "table": "tls"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/admin/tls/import-cert",
+      "method": "POST",
+      "path": "/admin/tls/import-cert"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"storage error\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "107"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 500
+    }
+  },
+  "route": "POST /admin/tls/import-cert"
+}

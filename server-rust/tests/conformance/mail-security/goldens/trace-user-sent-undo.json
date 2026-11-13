@@ -1,0 +1,161 @@
+{
+  "case": "sent-undo",
+  "format": 1,
+  "go_source": "1d9d2b58caa0c73bac2eba9331414c8bf411b1e8",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "before": {
+          "delivery_attempts": 10,
+          "message_trace": 14,
+          "outbound_queue": [
+            [
+              "<out1@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out2@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<out3@trace.test>",
+              "delivered",
+              2
+            ],
+            [
+              "<out5@trace.test>",
+              "deferred",
+              2
+            ],
+            [
+              "<out6@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<out8@trace.test>",
+              "sending",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "bounced",
+              2
+            ],
+            [
+              "<dup@trace.test>",
+              "pending",
+              2
+            ],
+            [
+              "<legacy@trace.test>",
+              "pending",
+              2
+            ]
+          ]
+        },
+        "table": "trace"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/messages/<out4>/trace",
+      "method": "GET",
+      "path": "/messages/{emailId}/trace"
+    },
+    "response": {
+      "body": "{\"direction\":\"outbound\",\"auth\":{},\"raw\":{\"url\":\"http://127.0.0.1/jmap/download/<mailbox-actor>/raw-out4/Sent_four.eml\",\"sizeBytes\":0},\"overallStatus\":\"deferred\",\"recipients\":[{\"email\":\"u2@ext.test\",\"status\":\"deferred\",\"mxHost\":\"mx.ext.test\",\"deliveredAt\":null,\"nextAttemptAt\":null,\"lastSmtpCode\":451,\"lastSmtpText\":\"later\",\"attempts\":[{\"n\":1,\"at\":\"2026-10-01T10:04:00Z\",\"mxHost\":\"mx.ext.test\",\"smtpCode\":451,\"smtpText\":\"later\",\"outcome\":\"deferred\",\"tls\":false}]},{\"email\":\"u1@ext.test\",\"status\":\"delivered\",\"mxHost\":\"mx.ext.test\",\"deliveredAt\":\"2026-10-01T10:03:00Z\",\"nextAttemptAt\":null,\"lastSmtpCode\":250,\"lastSmtpText\":\"ok\",\"attempts\":[{\"n\":1,\"at\":\"2026-10-01T10:03:00Z\",\"mxHost\":\"mx.ext.test\",\"smtpCode\":250,\"smtpText\":\"ok\",\"outcome\":\"accepted\",\"tls\":true}]}]}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "765"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-mailsec1-oracle"
+        ]
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /messages/{emailId}/trace"
+}

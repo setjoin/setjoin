@@ -1,0 +1,67 @@
+-- mailserver/sql/tests/drive_branch_refs.pg — I-13: branch ref integrity
+-- (spec §10, verbatim). A branch head is always reachable from
+-- forked_from_version_id via parent_version_id; resolve verbs move pointers
+-- and record parentage but never rewrite history.
+BEGIN;
+SELECT plan(9);
+SELECT mk_account('dbrfm') AS mbm \gset
+SELECT mk_account('dbrfe') AS mbe \gset
+SELECT user_id AS m FROM mailboxes WHERE id = :mbm \gset
+SELECT user_id AS e FROM mailboxes WHERE id = :mbe \gset
+SELECT drive_space_create(:m, 'REFS', 'regular') AS sid \gset
+SELECT drive_member_grant(:m, :sid, :e, 'editor');
+SELECT drive_node_create(:m, :sid, NULL, 'file', 'refs.bin') AS nid \gset
+SELECT drive_chunk_register(:m, :sid, repeat('1',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('a',64), 10, NULL, NULL,
+  format('[{"sha256":"%s","size":10}]', repeat('1',64))::jsonb, NULL, 't')->>'versionId')::bigint AS h1 \gset
+
+SELECT drive_branch_create(:e, :nid, 'R', :h1) AS bid \gset
+SELECT drive_chunk_register(:e, :sid, repeat('2',64), 10);
+SELECT (drive_file_put_version(:e, :nid, repeat('b',64), 10, NULL, :h1,
+  format('[{"sha256":"%s","size":10}]', repeat('2',64))::jsonb, NULL, 't', :bid)->>'versionId')::bigint AS bh1 \gset
+SELECT drive_chunk_register(:e, :sid, repeat('3',64), 10);
+SELECT (drive_file_put_version(:e, :nid, repeat('c',64), 10, NULL, :bh1,
+  format('[{"sha256":"%s","size":10}]', repeat('3',64))::jsonb, NULL, 't', :bid)->>'versionId')::bigint AS bh2 \gset
+
+-- I-13 core assertion: the branch head is ALWAYS reachable from
+-- forked_from_version_id by walking parent_version_id (a recursive CTE
+-- proof, not a spot-check of one hop).
+SELECT ok(EXISTS (
+  WITH RECURSIVE walk AS (
+    SELECT id, parent_version_id FROM drive_file_versions WHERE id = (SELECT head_version_id FROM drive_file_branches WHERE id=:bid)
+    UNION ALL
+    SELECT v.id, v.parent_version_id FROM drive_file_versions v JOIN walk w ON v.id = w.parent_version_id
+  )
+  SELECT 1 FROM walk WHERE id = (SELECT forked_from_version_id FROM drive_file_branches WHERE id=:bid)
+), 'branch head is reachable from forked_from_version_id via parent_version_id');
+
+-- Meanwhile a save to the branch has NEVER advanced drive_files.head_version_id.
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:nid), :h1::bigint,
+  'a branch save never advances drive_files.head_version_id (auto-branch/branch saves never move main)');
+
+-- resolve on a non-open (already discarded) branch → BZ150
+SELECT drive_branch_create(:e, :nid, 'closed', :h1) AS bclosed \gset
+UPDATE drive_file_branches SET status = 'discarded' WHERE id = :bclosed;
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'discard') $$, :e, :bclosed),
+  'BZ150', NULL, 'resolve on a non-open branch → BZ150');
+
+-- ff with a moved main → BZ150 AND moves nothing (refs unchanged)
+SELECT drive_branch_create(:e, :nid, 'stale-ff', :h1) AS bstale \gset
+SELECT drive_chunk_register(:m, :sid, repeat('4',64), 10);
+SELECT (drive_file_put_version(:m, :nid, repeat('d',64), 10, NULL, :h1,
+  format('[{"sha256":"%s","size":10}]', repeat('4',64))::jsonb, NULL, 't')->>'versionId')::bigint AS h2 \gset
+SELECT throws_ok(format($$ SELECT drive_branch_resolve(%s, %s, 'ff') $$, :e, :bstale),
+  'BZ150', NULL, 'ff after main moved → BZ150');
+SELECT is((SELECT head_version_id FROM drive_files WHERE node_id=:nid), :h2::bigint, 'ff failure moves NOTHING: main head unchanged');
+SELECT is((SELECT status FROM drive_file_branches WHERE id=:bstale), 'open', 'ff failure moves NOTHING: branch status unchanged');
+SELECT is((SELECT head_version_id FROM drive_file_branches WHERE id=:bstale), :h1::bigint, 'ff failure moves NOTHING: branch head unchanged');
+
+-- adopt: exactly one new version, BOTH parents set (main head + branch head)
+SELECT drive_branch_resolve(:e, :bid, 'adopt') AS radopt \gset
+SELECT is((SELECT parent_version_id FROM drive_file_versions WHERE id=(:'radopt'::jsonb->>'headVersionId')::bigint),
+  :h2::bigint, 'adopt: parent_version_id = the main head at resolve time');
+SELECT is((SELECT merged_from_version_id FROM drive_file_versions WHERE id=(:'radopt'::jsonb->>'headVersionId')::bigint),
+  :bh2::bigint, 'adopt: merged_from_version_id = the branch head — BOTH parents recorded');
+
+SELECT * FROM finish();
+ROLLBACK;

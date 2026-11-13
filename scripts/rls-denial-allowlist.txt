@@ -1,0 +1,241 @@
+# ──────────────────────────────────────────────────────────────────────────
+# rls-denial-allowlist.txt — the human-maintained DENIAL-TEST classification
+# read by scripts/check-rls-denial.sh.
+#
+# Every table with `... FORCE ROW LEVEL SECURITY` in mailserver/sql/dbschema
+# (baseline + migrations) must have exactly one entry here. The guard computes
+# the FORCE'd-table set itself (it does not trust this file for that part) —
+# this file only says, PER FORCE'd TABLE, whether a genuine cross-tenant
+# DENIAL test exists yet, and if so, where.
+#
+# A "denial test" is NOT "RLS is enabled" or "the owning role can read its own
+# row" — it is a pgTAP case that runs as a non-owner role (SET LOCAL ROLE
+# setjoin_app / setjoin_worker — the test connection `mail` is a SUPERUSER +
+# table owner and bypasses RLS even under FORCE, so the role switch is
+# load-bearing) with TWO tenants' rows present, and asserts the OTHER tenant's
+# row is inaccessible (a 0-count SELECT, a no-op UPDATE/DELETE, or a 42501).
+#
+# FORMAT (TAB-separated, 5 fields):
+#   <table>\t<STATUS>\t<file>\t<substring>\t<reason>
+#   · <table>     — exact table name (matches the ALTER TABLE ... FORCE target).
+#   · <STATUS>    — COVERED | PENDING.
+#   · <file>      — for COVERED: the basename of the mailserver/sql/tests/*.pg
+#                   file carrying the proof. For PENDING: "-".
+#   · <substring> — for COVERED: a unique, stable substring of the file's own
+#                   denial assertion (pgTAP description string is a good pick —
+#                   it changes if the test is weakened/renamed, re-tripping the
+#                   guard). For PENDING: "-".
+#   · <reason>    — one line. For PENDING, name the gap so it's gently visible
+#                   (not a silent debt): a follow-up test to write.
+#
+# The guard verifies, for every COVERED row: <file> exists under
+# mailserver/sql/tests/, contains <substring>, AND contains a SET LOCAL ROLE /
+# SET ROLE line — so a deleted/gutted test re-fails the guard instead of the
+# classification silently going stale.
+#
+# PENDING rows do NOT fail the guard (that's how a fresh gap is seeded green —
+# see the production-hardening / native-RLS backstop programs); they DO show
+# up in the guard's summary count so the gap stays visible on every run. A
+# brand-new FORCE'd table with NO entry at all (neither COVERED nor PENDING)
+# FAILS — that's the regression backstop: a migration can't silently add
+# FORCE without a human decision recorded here.
+#
+# Lines beginning with `#` (and blank lines) are ignored.
+# ──────────────────────────────────────────────────────────────────────────
+
+messages	COVERED	rls_policies.pg	sees 0 of B''s rows even when asking for them — runtime deny	two-tenant GUC=A/B mirror proof; also rls_smtp_delivery.pg (42501) + rls_shared_mailbox_use.pg (foreign GUC denied) + rls_jmap_reducers.pg.
+message_tags	COVERED	rls_policies.pg	B''s tag row is invisible (its message belongs to B)	two-tenant GUC=A/B mirror proof; also rls_jmap_reducers.pg.
+delivery_attempts	COVERED	delivery_attempts.pg	GUC=A: B''s row is invisible — runtime deny	SET LOCAL ROLE setjoin_app two-tenant read-isolation proof (see also rls_smtp_delivery.pg for the worker-bypass/app-deny pairing).
+user_group_members	COVERED	ca_foundation.pg	sees only own row (1 of 2)	SET LOCAL ROLE setjoin_app; GUC=uid_a sees 1 of the 2 seeded rows (the other user's row is the one withheld) + empty-GUC fail-closed arm.
+login_events	COVERED	rls_denial_extra.pg	login_events: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof + no-op UPDATE/DELETE of B's row.
+terms_of_use_acceptance	COVERED	rls_denial_extra.pg	terms_of_use_acceptance: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof + no-op UPDATE/DELETE of B's row.
+focus_sender_overrides	COVERED	rls_denial_extra.pg	focus_sender_overrides: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof + no-op UPDATE/DELETE of B's row.
+user_risk	COVERED	rls_denial_extra.pg	user_risk: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof (SELECT-only policy — no write arm exists to test).
+saved_searches	COVERED	rls_denial_extra.pg	saved_searches: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof + no-op UPDATE/DELETE of B's row.
+jmap_entity_state	COVERED	rls_denial_extra.pg	jmap_entity_state: B''s row is invisible to A	SET LOCAL ROLE setjoin_app; two-tenant GUC=A/B proof + no-op UPDATE/DELETE of B's row.
+mailbox_delegates	COVERED	rls_mailbox_delegates.pg	the sibling delegate''s row is invisible	SET LOCAL ROLE setjoin_app; two-tenant GUC proof + third-party no-op UPDATE/DELETE.
+user_image_allow	COVERED	rls_user_image_allow.pg	A''s row is invisible	SET LOCAL ROLE setjoin_app; two-tenant GUC=B proof + no-op DELETE of A's row.
+calendar_subscriptions	COVERED	rls_calendar_subscriptions.pg	A''s row is invisible	SET LOCAL ROLE setjoin_app; two-tenant GUC=B proof + no-op DELETE of A's row.
+jmap_changes_journal	COVERED	changes_journal.pg	direct predicate on tenant-B mailbox_id returns 0 rows (invisible under FORCE)	SET LOCAL ROLE setjoin_app; two-tenant GUC=A proof (also journal_op.pg: cross-mailbox write silently skipped under setjoin_app).
+upgrade_recovery_sets	COVERED	transactional_upgrade_control.pg	upgrade_recovery_sets: app role cannot read installation-wide evidence directly	Installation-wide recovery evidence has no direct app policy; SET LOCAL ROLE setjoin_app proves even an authorized admin must use the bounded SECURITY DEFINER reducer/API projection.
+upgrade_restore_proofs	COVERED	transactional_upgrade_control.pg	upgrade_restore_proofs: app role cannot read installation-wide evidence directly	Installation-wide restore evidence has no direct app policy; SET LOCAL ROLE setjoin_app proves even an authorized admin must use the bounded SECURITY DEFINER reducer/API projection.
+task_lists	COVERED	rls_task_lists.pg	stranger / user GUC=C: sees ZERO rows of A''s list	SET LOCAL ROLE setjoin_app; owner/member/stranger three-way GUC proof (shared task lists Phase 1, V112).
+task_list_members	COVERED	rls_task_lists.pg	stranger / user GUC=C: sees ZERO roster rows	SET LOCAL ROLE setjoin_app; owner/member/stranger three-way GUC proof + member-arm read-only WITH CHECK violation (shared task lists Phase 1, V112).
+
+# ── PENDING — FORCE'd, but no non-owner-role two-tenant DENIAL test exists yet
+# in mailserver/sql/tests/*.pg as of this guard's introduction. Each is a real
+# gap (only a FORCE/enabled/policy-exists check and/or a same-tenant/positive
+# test exists today, not a proof that ANOTHER tenant's row is denied). Seeded
+# PENDING so the guard is green now; closing one = write the test, flip the row
+# to COVERED above, and it self-verifies from then on.
+ca_signin_log	PENDING	-	-	only a same-tenant append/no-update/no-delete + one INSERT-permission check exist (ca_signin_log.pg); no two-tenant SELECT/GUC denial proof.
+device_enroll_events	PENDING	-	-	only table/column existence checked (device_lockdown_schema.pg); no SET ROLE two-tenant denial test.
+session_revocations	PENDING	-	-	only FORCE-flag + policy-existence checked (session_revocations_runtime_cae_rls.pg); no SET ROLE two-tenant denial test.
+session_activity	PENDING	-	-	only FORCE-flag checked (session_revocations_runtime_cae_rls.pg); no SET ROLE two-tenant denial test.
+user_devices	PENDING	-	-	only column/FK existence checked (ca_foundation.pg, offline_*.pg); no SET ROLE two-tenant denial test.
+devices	PENDING	-	-	only column/FK/schema checks (offline_*.pg, device_lockdown_schema.pg); no SET ROLE two-tenant denial test.
+auth_attempts	PENDING	-	-	only partition/risk-scoring behavior tested (create_monthly_partitions.pg, ca_3b_compute_user_risk.pg); no SET ROLE two-tenant denial test.
+approval_requests	PENDING	-	-	reducer-level behavior tested (approval_request_create.pg, approval_decide.pg, etc.) via SECURITY DEFINER reducers, not a raw SET ROLE two-tenant denial test.
+approval_policies	PENDING	-	-	reducer-level behavior tested (approval_match_policies.pg, etc.); no SET ROLE two-tenant denial test.
+held_inbound_messages	PENDING	-	-	reducer-level behavior tested (approval_expire.pg, group_moderation.pg); no SET ROLE two-tenant denial test.
+sharing_defaults	PENDING	-	-	reducer-level behavior tested (sharing_default_set.pg, etc.); no SET ROLE two-tenant denial test.
+booking_pages	PENDING	-	-	reducer-level owner-CRUD behavior tested (booking_pages.pg); no SET ROLE two-tenant denial test (self-service booking pages, feature #6, V113).
+booking_requests	PENDING	-	-	reducer-level state-machine behavior tested (booking_pages.pg); public unauth surface has no per-tenant caller identity to deny by — reducer-level slug/token checks are the trust boundary, not RLS (see booking.PublicHandler doc comment); no SET ROLE two-tenant denial test.
+hr_expense_receipts	PENDING	-	-	reducer-level behavior tested (hr_request_create.pg); no SET ROLE two-tenant denial test (HR leave/expense approval templates, V110).
+drive_file_branches	COVERED	rls_drive_versioning.pg	branches invisible to non-member	V115: non-member SELECT 0-count + viewer INSERT %row-level security% under SET LOCAL ROLE setjoin_app.
+drive_file_locks	COVERED	rls_drive_versioning.pg	locks invisible to non-member	V115: non-member SELECT 0-count + non-holder DELETE no-op under setjoin_app.
+drive_version_labels	COVERED	rls_drive_versioning.pg	labels invisible to non-member	V115: non-member SELECT 0-count under setjoin_app.
+drive_folder_admins	COVERED	rls_drive_versioning.pg	folder admins invisible to non-member	V115: non-member SELECT 0-count + editor INSERT manager-only denial under setjoin_app.
+vip_senders	PENDING	-	-	Pre-existing non-drive gap (red since before Drive P1); cross-tenant denial test to write.
+drive_export_grants	COVERED	drive_export_gate.pg	non-grantee cannot see another user	V116: grantee-read RLS denial under SET LOCAL ROLE setjoin_app (outsider sees 0 of another user grant).
+drive_audit_alarms	COVERED	drive_audit_query.pg	non-drive.manage user sees zero audit-alarm rows	V117: drive.manage-gated policy — a non-admin editor sees 0 rows (incl. the org-wide seeded alarm) under SET LOCAL ROLE setjoin_app.
+chat_channels	COVERED	rls_chat.pg	non-member cannot read private channel row	V119: DEFINER chat_member_role scope helper — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app (public channel stays discoverable per the visibility/discovery-not-access invariant, DES-008).
+chat_channel_members	COVERED	rls_chat.pg	non-member sees nothing	V119: non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; also pins the DEFINER helper's no-self-recursion invariant.
+chat_messages	COVERED	rls_chat.pg	non-member sees no messages on a channel they are not in	V119: non-member SELECT 0-count under SET LOCAL ROLE setjoin_app.
+chat_message_reactions	COVERED	rls_chat.pg	non-member sees no reactions on a channel they are not in	V119: non-member SELECT 0-count under SET LOCAL ROLE setjoin_app.
+chat_mentions	COVERED	rls_chat.pg	non-member sees no mentions on a channel they are not in	V119: non-member SELECT 0-count under SET LOCAL ROLE setjoin_app.
+chat_message_revisions	COVERED	rls_chat.pg	non-member sees no revisions on a channel they are not in	V119: non-member SELECT 0-count under SET LOCAL ROLE setjoin_app (edit-evidence table, write-only in A1).
+chat_message_attachments	COVERED	rls_chat_attachments.pg	non-member sees no chat attachment link rows	V120: channel-derived chat_member_role scope, denormalized channel_id — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; a real member sees the row.
+chat_message_pins	COVERED	rls_chat_qol.pg	non-member sees no pins (FORCE-RLS denial)	V122: channel-scoped chat_member_role, same shape as chat_message_revisions — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; a real member sees the row.
+chat_saved_messages	COVERED	rls_chat_qol.pg	a different channel member sees none of another user''s saves	V122: self-scoped (user_id = GUC) — SET LOCAL ROLE setjoin_app two-tenant proof; owner sees their own save, a different member sees zero.
+chat_polls	COVERED	rls_chat_qol.pg	non-member sees no polls (FORCE-RLS denial)	V122: channel-scoped chat_member_role (denormalized channel_id, same shape as chat_message_revisions) — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; a real member sees the row.
+chat_poll_options	COVERED	rls_chat_qol.pg	non-member sees no poll options (FORCE-RLS denial)	V122: EXISTS-join-through-chat_polls scope (mirrors chat_reactions_scope's join-through-chat_messages shape) — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; a real member sees the rows.
+chat_poll_votes	COVERED	rls_chat_qol.pg	non-member sees no poll votes (FORCE-RLS denial)	V122: EXISTS-join-through-chat_polls scope — non-member SELECT 0-count under SET LOCAL ROLE setjoin_app; a real member sees the row.
+chat_link_previews	COVERED	rls_chat_qol.pg	chat_link_previews denies ALL app-role access (zero policies, FORCE)	V122: global url_hash-keyed cache, NO user column, FORCE RLS + ZERO policies (deny-all, V114 drive_chunk_gc_queue precedent) — worker/DEFINER-only writes (Task 13).
+meetings	COVERED	rls_meet.pg	no GUC: zero meetings rows (org-open arm fails closed — runtime deny)	V125+V134: SELECT is deliberately ORG-OPEN (any authed GUC — the locked meeting_read.sql posture + gate-ratified org-open join), so the denial proof is the no-GUC fail-closed 0-count plus the write denials (member/stranger UPDATE no-ops, host/cohost-only meetings_update) in the same file's V134 flow.
+meeting_participants	COVERED	rls_meet.pg	non-participant sees no participants	V125: same meeting_member_role scope — non-participant SELECT 0-count under SET LOCAL ROLE setjoin_app; also pins the DEFINER helper's no-self-recursion invariant.
+meeting_join_requests	COVERED	rls_meet.pg	plain member cannot see join requests (host/cohost-only)	V125: host/cohost-only decide surface — a plain member AND a non-participant both SELECT 0-count under SET LOCAL ROLE setjoin_app; guests reach their own row only through the DEFINER lobby reducers (Task 5), never this policy.
+chat_audit_log	COVERED	rls_chat_compliance.pg	chat_audit_log denies ALL app-role access, even a channel member (zero policies, FORCE)	V126: FORCE RLS + ZERO policies (deny-all, the chat_link_previews V122 precedent) — a legal hold must stay invisible to the custodians it targets (CEO review #1), so even a channel member SELECT 0-counts; the writer is the SECURITY DEFINER worker-owned chat_access_audit (Task 2); every read is an admin route on workerPool (BYPASSRLS).
+chat_case_holds	COVERED	rls_chat_oversight.pg	chat_case_holds denies ALL app-role access, even the targeted custodian (zero policies, FORCE)	V127: FORCE RLS + ZERO policies (deny-all, the chat_audit_log V126 precedent) — a case hold must stay invisible to the custodian it targets (tipping-off, spec L2), so even the custodian SELECT 0-counts; the writer is the SECURITY DEFINER worker-owned chat_case_hold_set (Task 2); every read is an admin route on workerPool (BYPASSRLS).
+chat_case_hold_channels	COVERED	rls_chat_oversight.pg	chat_case_hold_channels denies ALL app-role access, even the targeted custodian (zero policies, FORCE)	V127: FORCE RLS + ZERO policies (deny-all, same tipping-off posture as chat_case_holds) — the custodian SELECT 0-counts on their own coverage; written by chat_case_hold_set (Task 2) and the trg_chat_member_case_hold join trigger.
+chat_ediscovery_searches	COVERED	rls_chat_oversight.pg	chat_ediscovery_searches denies ALL app-role access (zero policies, FORCE)	V127: FORCE RLS + ZERO policies (deny-all) — the record of every reader invocation must never be projected to end users; written by the eDiscovery reducers (Task 3/4) on workerPool.
+meeting_recordings	COVERED	rls_meet_recording.pg	non-attendee/banned/never-joined see no recording rows; attendee reads survive meeting-end	V129+V134: meeting_attendee_role DEFINER gate (NOT meeting_member_role — its left_at filter dies at meeting-end mass-stamp); writes are host/cohost-attendee-only with started_by pinned (V134) — a plain member's INSERT 42501s and their direct UPDATE no-ops (also proven in rls_meet.pg's V134 flow).
+meeting_breakouts	COVERED	rls_meet.pg	non-participant and cross-meeting participants see no breakout rows; host/cohost-only mutation policy (V134)	V130+V134: meeting_member_role DEFINER gate (live surface — no post-end read exists, so meeting_attendee_role is deliberately not used); V134 adds host/cohost INSERT/UPDATE — a foreign meeting's host 42501s on standup and a plain member's direct close no-ops.
+chat_send_counters	COVERED	rls_chat_compliance.pg	a different user sees none of another user''s counter (FORCE-RLS denial)	V132: self-scoped (user_id = GUC), the chat_saved_messages V122 shape — not deny-all, since the writer (chat_message_send) is an ordinary reducer upserting the CALLING user''s own row; SET LOCAL ROLE setjoin_app proves owner-sees-own/different-user-sees-none AND that a self-scoped INSERT/UPDATE of the caller''s own row still succeeds under WITH CHECK.
+federation_allowlist	PENDING	-	-	C0 spike Task 1+3 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log/chat_link_previews shape) — anchor-lookup table for federation.Dial/Listen; the federation_peer_authorize SECURITY DEFINER writer landed in Task 3 (E4) — pgTAP for federation_peer_authorize itself lives in federation_allowlist.pg (reducer-behavior tests, run as the superuser test role) but a genuine cross-tenant FORCE-RLS denial proof (SET LOCAL ROLE setjoin_app) was not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_peers	PENDING	-	-	C0 spike Task 2 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; per-outbound-peer last_seq/last_acked_seq state, written ONLY by federation_enqueue/federation_ack (SECURITY DEFINER, worker-owned). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_outbox	PENDING	-	-	C0 spike Task 2 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; commit-ordered per-peer outbox, written ONLY by federation_enqueue/federation_ack (SECURITY DEFINER, worker-owned). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_inbox	PENDING	-	-	C0 spike Task 2 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; the spike's inbound apply target (NOT chat_messages), written ONLY by federation_apply_inbound (SECURITY DEFINER, worker-owned). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_inbox_cursor	PENDING	-	-	C0 spike Task 2 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; per-inbound-peer last_applied_seq state, written ONLY by federation_apply_inbound (SECURITY DEFINER, worker-owned). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_ingress_counters	PENDING	-	-	C0 spike Task 3 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; per-peer-domain rate-limit window counter, written ONLY by federation_ingress_check (SECURITY DEFINER, worker-owned). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_rooms	PENDING	-	-	C0 spike Task 4 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; 3-org room registry (room_id/hub_domain), written ONLY by federation_room_fanout's hub-side callers (no writer reducer yet in C0 — rooms/members are seeded directly in tests; a room_create reducer is a C1 item). Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+federation_room_members	PENDING	-	-	C0 spike Task 4 (V138): FORCE RLS + ZERO policies (deny-all, chat_audit_log shape) — no scope helper, no membership axis; room membership roster, read by federation_room_fanout (SECURITY DEFINER, worker-owned) to determine fan-out targets. Denial pgTAP not written this spike — spike hygiene (Global Constraints), not a user-facing surface.
+guest_accounts	COVERED	rls_guest_accounts.pg	the OTHER guest''s satellite row is invisible (denial)	Guest G0 V143 — self-SELECT-only, reducer-only writes
+guest_invites	COVERED	guest_invite_flow.pg	token_hash visible only via BYPASSRLS workerPool; no user-facing SELECT policy	Guest G1 V144 — accept endpoint reads on workerPool, reducer-only writes
+guest_invite_domains	COVERED	guest_invite_flow.pg	guests.manage-gated admin read policy; reducer-only writes	Guest G1 V144 — allowlist table
+guest_notification_intents	COVERED	guest_notification_intents.pg	drain reads on workerPool BYPASSRLS; FORCE RLS deny-all	Guest G1 V144 — digest outbox
+guest_profiles	COVERED	rls_guest_profiles.pg	another host domain''s row is invisible without a reducer	Guest G2 V145 — no general app-role policy; worker-owned SECURITY DEFINER reducers are the only read/write path
+guest_live_eviction_intents	COVERED	guest_lifecycle.pg	guest_live_eviction_intents denies all app-role reads	Guest G5 V146 — durable worker-only SFU eviction evidence; FORCE RLS with zero app policies
+user_identity_links	COVERED	rls_identity_model.pg	user_identity_links hides the other principal and self from setjoin_app	Identity I1 V156 — worker-only exact external subjects; two-principal SET LOCAL ROLE denial.
+user_lifecycle_authorities	COVERED	rls_identity_model.pg	user_lifecycle_authorities hides the other principal and self from setjoin_app	Identity I1/V164 — worker-only lifecycle authority; two-principal SET LOCAL ROLE denial.
+identity_link_events	COVERED	rls_identity_model.pg	identity_link_events hides the other principal and self from setjoin_app	Identity I1 V156 — append-only worker evidence; two-principal SET LOCAL ROLE denial.
+identity_match_candidates	COVERED	rls_identity_model.pg	identity_match_candidates hides the other principal and self from setjoin_app	Identity I1 V156 — non-authorizing review evidence; two-principal SET LOCAL ROLE denial.
+identity_match_decisions	COVERED	rls_identity_model.pg	identity_match_decisions hides both principals operator decisions from setjoin_app	Identity I6 V166 — append-only operator decision evidence; two-principal SET LOCAL ROLE denial.
+identity_source_inbox	COVERED	rls_identity_model.pg	identity_source_inbox hides both principals staged entries from setjoin_app	Identity I1/I2 — durable worker inbox; two-source SET LOCAL ROLE denial.
+identity_source_operations	COVERED	rls_identity_model.pg	identity_source_operations hides both principals source receipts from setjoin_app	Identity I6 V165 — durable source mutation receipts; two-source SET LOCAL ROLE denial.
+identity_attribute_authority	COVERED	rls_identity_model.pg	identity_attribute_authority hides the other principal and self from setjoin_app	Identity I1 V157 — worker-only field authority; two-principal SET LOCAL ROLE denial.
+identity_entitlement_grants	COVERED	rls_identity_model.pg	identity_entitlement_grants hides the other principal and self from setjoin_app	Identity I1 V157 — worker-only entitlement provenance; two-principal SET LOCAL ROLE denial.
+identity_shadow_divergences	COVERED	rls_identity_model.pg	identity_shadow_divergences hides the other principal and self from setjoin_app	Identity I1 V157 — redacted worker comparison evidence; two-principal SET LOCAL ROLE denial.
+identity_source_batches	COVERED	rls_identity_model.pg	identity_source_batches hides both principals source batches from setjoin_app	Identity I2 V158 — connector batch ledger; two-source SET LOCAL ROLE denial.
+identity_transitions	COVERED	rls_identity_model.pg	identity_transitions hides the other principal and self from setjoin_app	Identity I5 V161 — lifecycle transition ledger; two-principal SET LOCAL ROLE denial.
+identity_transition_challenges	COVERED	rls_identity_model.pg	identity_transition_challenges hides both principals step-up exchanges from setjoin_app	Identity I5 V161 — one-use step-up challenge exchange; two-principal SET LOCAL ROLE denial.
+identity_transition_elevations	COVERED	rls_identity_model.pg	identity_transition_elevations hides both principals elevation proofs from setjoin_app	Identity I5 V161 — one-use AAL2 elevation proof; two-principal SET LOCAL ROLE denial.
+identity_transition_effects	COVERED	rls_identity_model.pg	identity_transition_effects hides both principals effects from setjoin_app	Identity I5 V161 — durable effect queue; two-principal SET LOCAL ROLE denial.
+identity_transition_effect_targets	COVERED	rls_identity_model.pg	identity_transition_effect_targets hides both principals targets from setjoin_app	Identity I5 V161 — exact effect targets; two-principal SET LOCAL ROLE denial.
+identity_media_admissions	COVERED	rls_identity_model.pg	identity_media_admissions hides both principals admission leases from setjoin_app	Identity I5 V168 — short-lived authenticated Meet admission/eviction leases; two-principal SET LOCAL ROLE denial.
+identity_auth_link_elevations	COVERED	rls_identity_model.pg	identity_auth_link_elevations hides both principals link proofs from setjoin_app	Identity I3 V171 — one-use current-session link proof; two-principal SET LOCAL ROLE denial.
+identity_session_eviction_intents	COVERED	rls_identity_model.pg	identity_session_eviction_intents hides both principals eviction targets from setjoin_app	Identity I5 V171 — durable exact-target session eviction evidence; two-principal SET LOCAL ROLE denial.
+identity_transition_idempotency	COVERED	rls_identity_model.pg	identity_transition_idempotency hides both principals request receipts from setjoin_app	Identity I5 V161 — exact transition request receipts; two-principal SET LOCAL ROLE denial.
+identity_transition_steps	COVERED	rls_identity_model.pg	identity_transition_steps hides both principals transition progress from setjoin_app	Identity I5 V161 — bounded transition progress ledger; two-principal SET LOCAL ROLE denial.
+identity_read_cohort	COVERED	rls_identity_model.pg	identity_read_cohort hides both principals canary admission from setjoin_app	Identity I6 V163 — bounded read cohorts; two-principal SET LOCAL ROLE denial.
+identity_auth_shadow_hours	COVERED	rls_identity_model.pg	identity_auth_shadow_hours hides both principals hourly auth evidence from setjoin_app	Unified deployment V175 — source-generation-fenced hourly authentication shadow evidence; two-principal SET LOCAL ROLE denial.
+identity_auth_shadow_link_evidence	COVERED	rls_identity_model.pg	identity_auth_shadow_link_evidence hides both principals link auth evidence from setjoin_app	Unified deployment V175 — link-generation-fenced authentication shadow evidence; two-principal SET LOCAL ROLE denial.
+identity_jobs	COVERED	rls_identity_model.pg	identity_jobs hides both principals operator work from setjoin_app	Identity I6/I7 V167 — durable worker-only operator jobs; two-principal SET LOCAL ROLE denial.
+webhook_publications	COVERED	webhook_publication_outbox.pg	app role sees zero worker-only webhook publication facts	V211 durable publication facts contain cross-tenant subject and delivery-enrollment state; a real SET LOCAL ROLE setjoin_app query returns no rows under FORCE RLS.
+imap_membership_uid_ledger	COVERED	imap_membership_uid.pg	membership UID ledger hides another mailbox	V197 membership UID allocation evidence is hidden from a different mailbox under the real app role.
+imap_membership_uid_backfill	COVERED	imap_membership_uid.pg	membership UID backfill hides another mailbox	V197 bounded repair evidence is hidden from a different mailbox under the real app role.
+migration_source_instances	COVERED	migration_source_identity.pg	migration source instances hide another mailbox	V195 source identity evidence denies a different target mailbox under the real app role.
+migration_source_objects	COVERED	migration_source_identity.pg	migration source objects hide another mailbox	V195 immutable source-object evidence denies a different target mailbox under the real app role.
+migration_object_operations	COVERED	migration_source_identity.pg	migration object operations hide another mailbox	V195 operation receipts deny a different target mailbox under the real app role.
+migration_checkpoints	COVERED	migration_source_identity.pg	migration checkpoints hide another mailbox	V195 committed checkpoints deny a different target mailbox under the real app role.
+migration_thread_reconcile_jobs	COVERED	migration_source_identity.pg	migration thread reconciliation hides another mailbox	V195 bounded reconciliation progress denies a different target mailbox under the real app role.
+mail_work_action_links	COVERED	mail_work_internal_actions.pg	mail work action links hide another principal	V205 immutable internal-action associations deny an unrelated principal under the real app role.
+mail_work_sla_policies	COVERED	mail_work_business_time.pg	mail work SLA policies hide another principal	V206 mailbox business calendars deny a principal after its delegated read authority is removed.
+identity_job_results	COVERED	rls_identity_model.pg	identity_job_results hides both principals result evidence from setjoin_app	Identity I6/I7 V167 — bounded per-person job evidence; two-principal SET LOCAL ROLE denial.
+upgrade_control_state	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_control_state	U0 V178 — singleton installation control is reducer-only and deny-all to the app role.
+upgrade_release_catalog	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_release_catalog	U0 V178 — signed global release metadata is reducer-only and deny-all to the app role.
+upgrade_readiness	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_readiness	U0 V178 — manifest-bound global readiness is reducer-only and deny-all to the app role.
+upgrade_challenges	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_challenges	U0 V178 — step-up challenge evidence is available only through SECURITY DEFINER reducers.
+upgrade_elevations	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_elevations	U0 V178 — one-use AAL2 evidence is available only through SECURITY DEFINER reducers.
+upgrade_intents	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_intents	U0 V178 — upgrade intent state is available only through bounded reducers.
+upgrade_intent_events	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_intent_events	U0 V178 — append-only event evidence is available only through bounded reducers.
+upgrade_schema_migration_evidence	COVERED	transactional_upgrade_role.pg	setjoin_app cannot read upgrade_schema_migration_evidence	U2 V178 — owner-only migration evidence remains invisible even if the ordinary app table grant exists.
+
+# ── Transactional continuity + Drive ACL governance (V180–V192). ─────────
+continuity_client_witnesses	COVERED	mail_recovery_continuity.pg	native RLS hides another account continuity witness	Mailbox-scoped continuity witness rows deny an unrelated authenticated mailbox under setjoin_app.
+mail_recovery_incidents	COVERED	mail_recovery_continuity.pg	native RLS hides worker-only recovery incidents	Owner-only incident control state remains invisible to setjoin_app.
+mail_recovery_incident_accounts	COVERED	mail_recovery_continuity.pg	native RLS hides another account incident scope	An unrelated mailbox cannot enumerate normalized incident scope.
+mail_recovery_upload_sessions	COVERED	mail_recovery_continuity.pg	native RLS hides another account upload session	The two-axis mailbox and uploading-user policy denies an unrelated principal.
+mail_recovery_upload_items	COVERED	mail_recovery_continuity.pg	native RLS hides worker-only recovery upload items	Owner-only upload-item evidence remains invisible to setjoin_app.
+mail_recovery_upload_chunks	COVERED	mail_recovery_continuity.pg	native RLS hides worker-only recovery upload chunks	Owner-only staged-chunk evidence remains invisible to setjoin_app.
+mail_recovery_quarantine_artifacts	COVERED	mail_recovery_continuity.pg	native RLS hides another account quarantine artifact	The two-axis mailbox and uploader policy denies an unrelated principal.
+mail_recovery_ledger	COVERED	mail_recovery_continuity.pg	native RLS hides worker-only recovery ledger entries	Owner-only terminal recovery evidence remains invisible to setjoin_app.
+directory_groups	COVERED	directory_group_authority.pg	setjoin_app group RLS rejects stale cross-domain discovery	A stale cross-domain member cannot enumerate the directory group object.
+directory_group_members	COVERED	directory_group_authority.pg	setjoin_app membership RLS reveals no other principal rows	A principal sees no membership rows owned by another user.
+directory_group_generation	COVERED	directory_group_authority.pg	directory group generation fails closed without an authenticated user GUC	The organization-wide generation singleton is fail-closed without authenticated context.
+directory_group_invalidations	COVERED	directory_group_authority.pg	setjoin_app outsider sees no other principal group invalidations	An unrelated authenticated principal sees no invalidation rows.
+drive_acl_grants	COVERED	drive_acl_foundation.pg	outsider cannot enumerate grants	An unrelated principal cannot enumerate ACL grants in the space.
+drive_access_invalidations	COVERED	drive_acl_foundation.pg	outsider cannot enumerate invalidations	An unrelated principal cannot enumerate ACL invalidation events.
+drive_acl_breaks	COVERED	drive_acl_foundation.pg	outsider cannot enumerate inheritance breaks	An unrelated principal cannot enumerate inheritance-boundary rows.
+drive_acl_generations	COVERED	drive_acl_foundation.pg	outsider cannot enumerate ACL generations	An unrelated principal cannot enumerate space generation fences.
+drive_node_closure	COVERED	drive_acl_foundation.pg	outsider cannot enumerate closure facts	An unrelated principal cannot enumerate path-disclosure-sensitive closure rows.
+drive_acl_shadow_state	COVERED	drive_acl_shadow_cutover.pg	non-admin cannot read Drive ACL shadow state under FORCE RLS	Non-admin app role cannot read shadow rollout controls.
+drive_acl_shadow_mismatches	COVERED	drive_acl_shadow_cutover.pg	non-admin cannot read Drive ACL mismatch evidence under FORCE RLS	Non-admin app role cannot read shadow mismatch evidence.
+drive_acl_cutover_evidence	COVERED	drive_acl_shadow_cutover.pg	non-admin cannot read Drive ACL cutover evidence under FORCE RLS	Non-admin app role cannot read cutover evidence.
+drive_access_request_policies	COVERED	drive_access_governance.pg	non-admin cannot read Drive access request policies under FORCE RLS	Non-admin app role cannot enumerate request-policy controls.
+drive_access_request_details	COVERED	drive_access_governance.pg	outsider cannot read another principal Drive access request details	An unrelated principal cannot read immutable access-request details.
+drive_access_use_leases	COVERED	drive_access_governance.pg	outsider cannot read another principal bounded-use leases	An unrelated principal cannot read bounded-use reservations.
+drive_upload_authorizations	COVERED	drive_acl_sync_revocation.pg	unrelated user cannot read another principal upload authorization	An unrelated principal cannot read ACL-bound upload authorization rows.
+exchange_assessment_idempotency	COVERED	exchange_replacement_schema.pg	setjoin_app cannot read worker-only Exchange idempotency receipts	V218 idempotency receipts are worker-only; the ordinary app role is explicitly revoked and denied under FORCE RLS.
+office_provider_policies	COVERED	office_foundation.pg	office_provider_policies hides provider control state from an unrelated app user	V220 provider routing and entitlement state deny an unrelated app principal under FORCE RLS.
+office_user_preferences	COVERED	office_foundation.pg	office_user_preferences hides another principal preference from an unrelated app user	V220 per-user and per-device choices deny an unrelated app principal under FORCE RLS.
+office_editor_sessions	COVERED	office_foundation.pg	office_editor_sessions hides another principal session from an unrelated app user	V220 editor cohort and fence state deny an unrelated app principal under FORCE RLS.
+office_editor_launches	COVERED	office_foundation.pg	office_editor_launches hides another principal launch from an unrelated app user	V220 token-bound launch facts deny an unrelated app principal under FORCE RLS.
+office_wopi_locks	COVERED	office_foundation.pg	office_wopi_locks hides another principal lock from an unrelated app user	V220 opaque WOPI lock facts deny an unrelated app principal under FORCE RLS.
+office_save_receipts	COVERED	office_foundation.pg	office_save_receipts hides another principal receipt from an unrelated app user	V220 immutable save receipts deny an unrelated app principal under FORCE RLS.
+office_provider_qualifications	COVERED	office_delivery_control.pg	unrelated app user cannot read qualification receipts	V224 qualification evidence denies an unrelated app principal under FORCE RLS.
+office_provider_health_observations	COVERED	office_delivery_control.pg	unrelated app user cannot read provider health	V224 provider health evidence denies an unrelated app principal under FORCE RLS.
+office_app_revisions	COVERED	office_delivery_control.pg	unrelated app user cannot read app revisions	V224 managed application revision receipts deny an unrelated app principal under FORCE RLS.
+office_app_operations	COVERED	office_delivery_control.pg	unrelated app user cannot read app operations	V224 managed application operations deny an unrelated app principal under FORCE RLS.
+m365_consent_states	COVERED	V234__m365_consent_states.pg	a different actor GUC sees NO consent rows (cross-actor isolation)	V234 single-use m365 consent states deny another actor's rows under FORCE RLS (per-actor GUC policy).
+identity_source_quarantines	COVERED	identity_source_engine_quarantine.pg	engine quarantine ledger hides all source quarantine evidence from setjoin_app	med-shard2-012 V246 engine quarantine ledger denies all runtime principals under FORCE RLS; access only via the SECURITY DEFINER identity_source_quarantine_record reducer.
+auth_lockouts	COVERED	V259__auth_lockouts_rls_backstop.pg	setjoin_app INSERT is denied (42501)	V259 deny-all FORCE lockout ledger denies all runtime principals; every path (threat probe, escalate, clear, spray arm, cron prune, admin read, push-MFA) goes through the worker-only SECURITY DEFINER lockout/push_lockout accessors.
+
+# ── V254 MDM FORCE-RLS backstop tables (2026-09-16 guard re-run). All eight
+# were FORCEd by V254__mdm_rls_backstop.sql; the two-tenant denial proofs all
+# live in that migration's own pgTAP file under SET LOCAL ROLE setjoin_app. ─
+device_events	COVERED	V254__mdm_rls_backstop.pg	cross-actor GUC sees NO other user''s device_events (the JOIN is the predicate)	V254: actor B's GUC sees 0 of A's device rows; the device-join specificity arms (A holding B's valid device_id sees 0, foreign UPDATE filters to 0), the empty-GUC fail-closed arm and the foreign INSERT 42501 are in the same file.
+device_policy	COVERED	V254__mdm_rls_backstop.pg	posture C: plain-user GUC sees 0 device_policy rows	V254: org-config posture is mam-perm-gated — plain user, no-mam admin and empty GUC all 0-count; a write WITHOUT mam.write is 42501 (same file).
+device_policy_groups	COVERED	V254__mdm_rls_backstop.pg	posture C: plain-user GUC sees 0 device_policy_groups rows	V254: same perm-gated posture as device_policy — plain user, no-mam admin and empty GUC all 0-count (empty-GUC arm in the same file).
+device_registry	COVERED	V254__mdm_rls_backstop.pg	cross-actor GUC sees NO other user''s device_registry row	V254: two-tenant GUC proof + foreign-user_id INSERT 42501 + empty-GUC fail-closed arm, all in the same file.
+device_telemetry	COVERED	V254__mdm_rls_backstop.pg	posture D: setjoin_app sees 0 device_telemetry rows (deny-all FORCE)	V254: deny-all posture with a non-vacuous fixture-exists precondition; direct INSERT 42501 + the setjoin_worker BYPASSRLS ingest control are in the same file.
+managed_devices	COVERED	V254__mdm_rls_backstop.pg	cross-actor GUC sees NO other user''s managed_devices compliance row	V254: two-tenant GUC proof + foreign-user_id INSERT 42501 + empty-GUC fail-closed arm, all in the same file.
+mdm_device_state	COVERED	V254__mdm_rls_backstop.pg	cross-actor GUC sees NO other user''s mdm_device_state row	V254: two-tenant GUC proof + foreign-user_id INSERT 42501 + the r3.4 USING-side admin UPDATE filter (0 rows, never 42501), all in the same file.
+mdm_policies	COVERED	V254__mdm_rls_backstop.pg	posture C: plain-user GUC sees 0 mdm_policies rows	V254: org-config posture — plain user, no-mam admin and empty GUC all 0-count; a write WITHOUT mam.write is 42501 (same file).
+
+# ── V249 / V253 / V262 deny-all FORCE ledgers (2026-09-16 guard re-run):
+# zero-policy FORCE tables whose app-role denial is proven in each feature's
+# own pgTAP file under SET LOCAL ROLE setjoin_app. ──────────────────────────
+identity_address_quarantine	COVERED	identity_address_admission.pg	setjoin_app sees no quarantine evidence (FORCE RLS, zero policies)	V249: zero-policy deny-all — setjoin_app 0-count with quarantine rows present + direct INSERT 42501; the quarantine FACT binds only through the worker-owned SECURITY DEFINER helper (same file).
+security_event_outbox	COVERED	V253__security_event_outbox.pg	app credential sees ZERO rows despite worker-inserted rows (FORCE RLS deny-all)	V253: zero-policy deny-all — setjoin_app 0-count with worker-inserted rows present + INSERT 42501 + no-op UPDATE proven by resulting state; function ACL denial and carve-out survival in the same file (also V261__security_event_outbox_retention.pg).
+gal_visibility_journal	COVERED	gal_visibility_journal.pg	app credential sees ZERO journal rows despite rows existing (deny-all RLS)	V262: zero-policy deny-all — setjoin_app 0-count with journaled rows present + direct INSERT 42501; reads/writes flow only through the worker-owned SECURITY DEFINER seams (TEMP-shadow regressions in the same file).
+meeting_presentations	COVERED	meet_presentation_rls.pg	a foreign participant sees no presentation rows (cross-tenant denial)	V265: participant-scoped FORCE-RLS via meeting_member_role — tenant B's setjoin_app host 0-counts tenant A's sessions, their UPDATE no-ops, their INSERT 42501s (WITH CHECK), no-GUC fail-closed; the non-attendee checkpoint read is the indistinguishable BZ272 not-found.
+meeting_presentation_events	COVERED	meet_presentation_rls.pg	a foreign participant sees no event rows (cross-tenant denial)	V265: participant-scoped FORCE-RLS via meeting_member_role — tenant B's setjoin_app host 0-counts tenant A's event rows; the reducer-owned rail INSERT admits only a current participant (ALLOW arm in the same file).
+meeting_presentation_annotations	COVERED	meet_annotation_rls.pg	a foreign participant sees no annotation rows (cross-tenant denial)	V267: FORCE-RLS with a HISTORICAL read backstop (meeting_attendee_role — retained material) and participant-scoped write backstops; tenant B's setjoin_app host 0-counts tenant A's committed snapshots, their UPDATE no-ops (R3), their INSERT 42501s (WITH CHECK), no-GUC fail-closed; the non-attendee snapshot read is the indistinguishable BZ272 and the real commit path is proven as setjoin_app in the same file.
+meeting_semantic_recordings	COVERED	meet_semantic_recording_rls.pg	a foreign participant sees no semantic recording rows (cross-tenant denial)	V266: participant-scoped FORCE-RLS via meeting_member_role — tenant B's setjoin_app host 0-counts tenant A's rows, their UPDATE no-ops, their INSERT 42501s (WITH CHECK), no-GUC fail-closed; the non-attendee package read is the indistinguishable BZ278.
+meeting_semantic_segments	COVERED	meet_semantic_recording_rls.pg	a foreign participant sees no segment rows (cross-tenant denial)	V266: FORCE-RLS scoped one hop through meeting_semantic_recordings + meeting_member_role — cross-tenant SELECT 0-count and the reducer/trigger write path proven as setjoin_app in the same file.
+meeting_semantic_children	COVERED	meet_semantic_recording_rls.pg	a foreign participant sees no child rows (cross-tenant denial)	V266: FORCE-RLS scoped one hop through meeting_semantic_recordings + meeting_member_role — cross-tenant SELECT 0-count proven; the delete-sweep release receipts flow only through the SECURITY DEFINER worker reducers.
+meeting_semantic_exports	COVERED	meet_semantic_recording_rls.pg	a foreign participant sees no export rows (cross-tenant denial)	V266: FORCE-RLS scoped one hop through meeting_semantic_recordings + meeting_member_role — cross-tenant SELECT 0-count proven; export receipts mutate only through the reducer-owned claim/complete paths.
+meeting_local_capture_leases	COVERED	meet_local_capture_rls.pg	a foreign participant sees no lease rows (cross-tenant denial)	V268: participant-scoped FORCE-RLS via meeting_member_role — tenant B's setjoin_app host 0-counts tenant A's lease rows, their UPDATE no-ops (R3), their INSERT 42501s (WITH CHECK), no-GUC fail-closed; the real acquire path is proven as setjoin_app in the same file.
+meeting_lobby_mint_fences	COVERED	meet_lobby_mint_fence_rls.pg	no GUC sees no window rows (deny-all)	V270: the deny-all identity_media_admissions posture — FORCE RLS with ZERO policies (a worker/reducer-plane capability ledger, no user-data read surface): setjoin_app 0-counts with no GUC AND with its own meeting host GUC, a foreign UPDATE no-ops (R3), an INSERT 42501s, while the SECURITY DEFINER poll/fence write path is proven as setjoin_app GUC-less in the same file.
+drive_meet_history_events	COVERED	drive_meet_history.pg	tenant A sees NO receipt of tenant B	V269: FORCE-RLS with the drive_audit_log posture verbatim — member-scoped read backstop (drive_member_role) plus the drive.view admin arm; no write policies (the SECURITY DEFINER ingest drive_meet_history_emit is the only writer). As setjoin_app with BOTH tenants' receipts present: a foreign member 0-counts the other space's receipts, a direct INSERT 42501s (no policy), a direct UPDATE no-ops (R3), and a GUC-less session fails closed at zero rows.
